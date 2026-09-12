@@ -131,10 +131,30 @@ function Dashboard({ inventory }: { inventory: InventoryItem[] }) {
   const totalItems = inventory.length;
   const lowStockItems = inventory.filter((item) => Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.low_stock_threshold)).length;
   const outOfStockItems = inventory.filter((item) => Number(item.quantity) === 0).length;
+  const [weeklySales, setWeeklySales] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadWeeklySales() {
+      try {
+        const response = await fetch("/api/sales-orders?period=week", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Failed to load weekly sales.");
+        if (active) setWeeklySales(Number(payload.summary?.revenue ?? 0));
+      } catch (error) {
+        console.error("Dashboard: failed to load weekly sales", error);
+      }
+    }
+    void loadWeeklySales();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadWeeklySales();
+    }, 5_000);
+    return () => { active = false; window.clearInterval(intervalId); };
+  }, []);
 
   return <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
     <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-      <div className="rounded-2xl p-6" style={{ background: "#3D2B1F", boxShadow: "0 4px 24px rgba(61,43,31,0.18)" }}><p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "rgba(255,255,255,0.55)", textTransform: "uppercase" }}>Total Sales This Week</p><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 34, color: "#FDF9F5", marginTop: 10 }}>—</p></div>
+      <div className="rounded-2xl p-6" style={{ background: "#3D2B1F", boxShadow: "0 4px 24px rgba(61,43,31,0.18)" }}><p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "rgba(255,255,255,0.55)", textTransform: "uppercase" }}>Total Sales This Week</p><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 34, color: "#FDF9F5", marginTop: 10 }}>{weeklySales === null ? "—" : `₱${weeklySales.toFixed(2)}`}</p></div>
       <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}><p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#9C8278", textTransform: "uppercase" }}>Inventory Summary</p><div className="grid grid-cols-3 gap-3 mt-5 text-center"><div><p className="text-2xl font-bold" style={{ color: "#3D2B1F" }}>{totalItems}</p><p className="text-xs" style={{ color: "#9C8278" }}>Total Items</p></div><div><p className="text-2xl font-bold" style={{ color: "#D97706" }}>{lowStockItems}</p><p className="text-xs" style={{ color: "#9C8278" }}>Low Stock</p></div><div><p className="text-2xl font-bold" style={{ color: "#C0392B" }}>{outOfStockItems}</p><p className="text-xs" style={{ color: "#9C8278" }}>Out of Stock</p></div></div></div>
     </div>
     <div className="rounded-2xl flex flex-col" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden" }}>

@@ -5,17 +5,19 @@ export async function GET(request: Request) {
   try {
     const period = new URL(request.url).searchParams.get("period") ?? "30";
     const selectedDate = new URL(request.url).searchParams.get("date") ?? "";
+    const isCurrentWeek = period === "week";
     const days = period === "all" ? null : Number(period);
-    if (days !== null && (![7, 30, 90].includes(days) || !Number.isInteger(days))) {
-      return NextResponse.json({ error: "Period must be 7, 30, 90, or all." }, { status: 400 });
+    if (!isCurrentWeek && days !== null && (![7, 30, 90].includes(days) || !Number.isInteger(days))) {
+      return NextResponse.json({ error: "Period must be week, 7, 30, 90, or all." }, { status: 400 });
     }
     if (selectedDate && !/^\d{4}-\d{2}-\d{2}$/.test(selectedDate)) {
       return NextResponse.json({ error: "Date must use YYYY-MM-DD format." }, { status: 400 });
     }
     const periodClause = selectedDate
       ? "WHERE so.created_at >= $1::date AND so.created_at < ($1::date + INTERVAL '1 day')"
+      : isCurrentWeek ? "WHERE so.created_at >= DATE_TRUNC('week', CURRENT_TIMESTAMP)"
       : days === null ? "" : "WHERE so.created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')";
-    const params: (string | number)[] = selectedDate ? [selectedDate] : days === null ? [] : [days];
+    const params: (string | number)[] = selectedDate ? [selectedDate] : isCurrentWeek || days === null ? [] : [days];
 
     const result = await pool.query(`
       SELECT
@@ -85,7 +87,7 @@ export async function GET(request: Request) {
       summary: summaryResult.rows[0],
       topProducts: topProductsResult.rows,
       dailySales: dailySalesResult.rows,
-      period: period === "all" ? "all" : days,
+      period: isCurrentWeek ? "week" : period === "all" ? "all" : days,
     });
   } catch (error) {
     console.error("GET /api/sales-orders failed:", error);
