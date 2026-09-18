@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
-type Page = "dashboard" | "inventory" | "products" | "finance" | "accounts";
+type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -15,6 +15,15 @@ type InventoryItem = {
   low_stock_threshold: number;
   is_whole_unit: boolean;
   is_permanent: boolean;
+};
+
+type AdditionItem = {
+  addition_id: number;
+  addition_name: string;
+  inventory_id: number;
+  item_name: string;
+  unit_of_measure: string;
+  quantity: number;
 };
 
 const inventoryUnits = ["mL", "grams", "Pieces"] as const;
@@ -88,6 +97,7 @@ const navItems: { id: Page; label: string; Icon: React.FC<{ size?: number }> }[]
   { id: "dashboard", label: "Dashboard", Icon: IconGrid },
   { id: "inventory", label: "Inventory", Icon: IconBox },
   { id: "products", label: "Product Management", Icon: IconTag },
+  { id: "additions", label: "Additions Management", Icon: IconSparkle },
   { id: "finance", label: "Finance", Icon: IconDollar },
   { id: "accounts", label: "Accounts & Employees", Icon: IconUsers },
 ];
@@ -103,7 +113,7 @@ function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; co
       <nav className="flex flex-col gap-1 px-3 pt-5 flex-1">
         {navItems.map(({ id, label, Icon }) => {
           const active = current === id;
-          return <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all duration-150 w-full" style={{ background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={17} /><span>{label}</span></button>;
+          return <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 py-3 rounded-xl text-left transition-all duration-150 w-full" style={{ paddingLeft: id === "additions" ? 32 : 16, paddingRight: 16, background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: id === "additions" ? 12.5 : 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={id === "additions" ? 15 : 17} /><span>{label}</span></button>;
         })}
       </nav>
       <div className="px-6 py-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>v1.0.0 — Admin Panel</p></div>
@@ -112,7 +122,7 @@ function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; co
 }
 
 function TopBar({ page, user, onLogout }: { page: Page; user: AdminSession; onLogout: () => Promise<void> }) {
-  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees" };
+  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees" };
   return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-2" style={{ color: "#9C8278" }}><IconChevron size={14} /><span style={{ fontFamily: "Inter, sans-serif", fontSize: 13 }}>{titles[page]}</span></div>
     <div className="flex items-center gap-5">
@@ -173,6 +183,94 @@ function isLowStock(item: InventoryItem): boolean {
   return Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.low_stock_threshold);
 }
 
+function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
+  const [items, setItems] = useState<AdditionItem[]>([]);
+  const [additionName, setAdditionName] = useState("");
+  const [inventoryId, setInventoryId] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const selectedInventory = inventory.find((item) => String(item.inventory_id) === inventoryId);
+  const additionInputBase = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none", width: "100%" };
+
+  async function loadItems() {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/additions", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to load additions.");
+      setItems((payload.data ?? []).map((item: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; }) => ({
+        addition_id: Number(item.id),
+        addition_name: item.name,
+        inventory_id: Number(item.inventoryId),
+        item_name: item.itemName,
+        unit_of_measure: item.unit,
+        quantity: Number(item.quantity),
+      })));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load additions.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadItems(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const parsedQuantity = Number(quantity);
+    if (!additionName.trim() || !selectedInventory || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+      setError("Addition name, inventory item, and a quantity greater than zero are required.");
+      return;
+    }
+    if (selectedInventory.is_whole_unit && !Number.isInteger(parsedQuantity)) {
+      setError("Pieces quantity must be a whole number.");
+      return;
+    }
+    try {
+      setSaving(true);
+      const response = await fetch("/api/additions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addition_name: additionName, inventory_id: selectedInventory.inventory_id, quantity: parsedQuantity }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to create addition.");
+      setItems((current) => [...current, payload.data]);
+      setAdditionName("");
+      setInventoryId("");
+      setQuantity("");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to create addition.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
+    <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
+      <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconSparkle size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Add an Addition Item</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Choose the inventory item consumed by this addition.</p></div></div>
+      <form onSubmit={submit} className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", alignItems: "end" }}>
+        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Addition Name</span><input required value={additionName} onChange={(event) => setAdditionName(event.target.value)} placeholder="Extra Shot" style={additionInputBase} /></label>
+        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Inventory Item</span><select required value={inventoryId} onChange={(event) => setInventoryId(event.target.value)} style={additionInputBase}><option value="">Choose inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select></label>
+        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Unit of Measure</span><input readOnly value={selectedInventory?.unit_of_measure ?? ""} placeholder="Auto-filled" style={{ ...additionInputBase, background: "#F3EDE5" }} /></label>
+        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Quantity</span><input required type="number" min="0.01" step={selectedInventory?.is_whole_unit ? "1" : "0.01"} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" style={additionInputBase} /></label>
+        <button type="submit" disabled={saving || loading} style={{ border: "none", borderRadius: 10, padding: "11px 16px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Adding..." : "Add Addition"}</button>
+      </form>
+      {error && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{error}</p>}
+    </div>
+    <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
+      <div className="px-6 py-4 border-b" style={{ borderColor: "#E8DDD5" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>Addition Items</h3></div>
+      {loading ? <p className="p-6" style={{ color: "#9C8278" }}>Loading additions...</p> : items.length === 0 ? <p className="p-6" style={{ color: "#9C8278" }}>No addition items yet.</p> : <div className="divide-y">{items.map((item) => <div key={item.addition_id} className="flex items-center justify-between gap-4 px-6 py-4" style={{ borderColor: "#E8DDD5" }}><div><p style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>{item.addition_name}</p><p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 12 }}>Uses {item.item_name}</p></div><p style={{ margin: 0, color: "#6B4C3B", fontFamily: "JetBrains Mono, monospace", fontSize: 13 }}>{item.quantity} {item.unit_of_measure}</p></div>)}</div>}
+    </div>
+  </div>;
+}
+
 // Strips anything from the decimal point onward so a whole-unit field can never hold a fraction.
 function sanitizeWholeUnitValue(value: string): string {
   const dotIndex = value.indexOf(".");
@@ -223,6 +321,7 @@ function Inventory({
       } finally {
         if (active) setLoading(false);
       }
+
     })();
 
     return () => { active = false; };
@@ -571,7 +670,8 @@ function Inventory({
 // ─── Products ─────────────────────────────────────────────────────────────────
 type ProductIngredient = { inventoryId: number; label: string; qty: number; unit: string };
 type ProductVariant = { id?: number; size: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[] };
-type Product = { id: number; name: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[] };
+type ProductAddition = { id: number; name: string; quantity: number; unit: string };
+type Product = { id: number; name: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
 
 const productCategories = ["Espresso Drinks", "Cold Drinks"];
 
@@ -726,12 +826,14 @@ function buildFormVariants(product: Product | undefined, defaultInventoryId: num
 function ProductManagement({
   products,
   inventory,
+  additions,
   onAdd,
   onEdit,
   onDelete,
 }: {
   products: Product[];
   inventory: InventoryItem[];
+  additions: ProductAddition[];
   onAdd: (product: Product) => Promise<void>;
   onEdit: (product: Product) => Promise<void>;
   onDelete: (id: number, variantSize?: string) => Promise<void>;
@@ -748,6 +850,8 @@ function ProductManagement({
     { size: "16 oz", price: "", ingredients: [{ inventoryId: inventory[0]?.inventory_id ?? 0, qty: "" }] },
     { size: "22 oz", price: "", ingredients: [{ inventoryId: 0, qty: "" }] },
   ]);
+  const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
+  const [additionToAdd, setAdditionToAdd] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -764,6 +868,8 @@ function ProductManagement({
     setFormImageData(product?.imageData ?? "");
     setSelectedVariantIndex(0);
     setFormVariants(buildFormVariants(product, inventory[0]?.inventory_id ?? 0));
+    setSelectedAdditionIds(product?.additions?.map((addition) => addition.id) ?? []);
+    setAdditionToAdd("");
     setActionError("");
   }
 
@@ -775,6 +881,17 @@ function ProductManagement({
   }
   function removeIngredientRow(ingredientIndex: number, variantIndex = selectedVariantIndex) {
     setFormVariants((prev) => prev.map((variant, index) => index === variantIndex ? { ...variant, ingredients: variant.ingredients.filter((_, i) => i !== ingredientIndex) } : variant));
+  }
+
+  function addProductAddition() {
+    const additionId = Number(additionToAdd);
+    if (!Number.isInteger(additionId) || additionId <= 0 || selectedAdditionIds.includes(additionId)) return;
+    setSelectedAdditionIds((current) => [...current, additionId]);
+    setAdditionToAdd("");
+  }
+
+  function removeProductAddition(additionId: number) {
+    setSelectedAdditionIds((current) => current.filter((id) => id !== additionId));
   }
 
   function importProductImage(event: React.ChangeEvent<HTMLInputElement>) {
@@ -839,6 +956,7 @@ function ProductManagement({
         imageData: formImageData,
         ingredients: variants[0].ingredients,
         variants,
+        additions: selectedAdditionIds.map((id) => additions.find((addition) => addition.id === id)).filter((addition): addition is ProductAddition => Boolean(addition)),
       };
       if (editingProduct) {
         await onEdit({ ...product, id: editingProduct.id });
@@ -927,17 +1045,24 @@ function ProductManagement({
 
       {showModal && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.45)", zIndex: 50 }} onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
-          <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, maxHeight: "90vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)", overflowY: "auto" }}>
-            <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
-            <div className="flex flex-col gap-5 px-6 py-6">
+          <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, height: "92vh", maxHeight: 760, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+            <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5", flexShrink: 0 }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
+            <div className="flex flex-col gap-5 px-6 py-6" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Category</label><select value={formCat} onChange={(e) => setFormCat(e.target.value)} style={{ ...inputBase, cursor: "pointer" }}>{productCategories.map((category) => <option key={category}>{category}</option>)}</select></div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5" }}><img src={formImageData || formImage.trim()} alt="preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
               <div className="flex flex-col gap-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1 rounded-xl p-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>{formVariants.map((variant, index) => <button key={variant.size} onClick={() => setSelectedVariantIndex(index)} style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: selectedVariantIndex === index ? "#3D2B1F" : "transparent", color: selectedVariantIndex === index ? "#FDF9F5" : "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{variant.size}</button>)}</div><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} onChange={(event) => setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant))} placeholder="0" style={{ ...inputBase, width: 100 }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant?.size} Ingredients</label><button onClick={() => addIngredientRow()} disabled={inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div>
                 <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r))} style={{ ...inputBase, flex: 1 }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r))} style={{ ...inputBase, width: 70 }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
+              <div className="flex flex-col gap-3 rounded-xl p-4" style={{ border: "2px solid #D97706", background: "#FFF7ED" }}>
+                <div><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#6B4C3B", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Additions</label><p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 12 }}>Bind existing additions that customers can order with this product.</p></div>
+                {additions.length === 0 ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12 }}>No additions available. Create one in Additions Management first.</p> : <>
+                  <div className="flex items-center gap-2"><select value={additionToAdd} onChange={(event) => setAdditionToAdd(event.target.value)} style={{ ...inputBase, flex: 1 }}><option value="">Select an addition to bind</option>{additions.filter((addition) => !selectedAdditionIds.includes(addition.id)).map((addition) => <option key={addition.id} value={addition.id}>{addition.name} · {addition.quantity} {addition.unit}</option>)}</select><button type="button" onClick={addProductAddition} disabled={!additionToAdd} style={{ border: "none", borderRadius: 10, padding: "10px 14px", background: additionToAdd ? "#3D2B1F" : "#C9B8AF", color: "#FDF9F5", fontWeight: 700, cursor: additionToAdd ? "pointer" : "default" }}>Bind</button></div>
+                  {selectedAdditionIds.length === 0 ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12 }}>No additions bound to this product.</p> : <div className="flex flex-col gap-2">{selectedAdditionIds.map((additionId) => { const addition = additions.find((item) => item.id === additionId); if (!addition) return null; return <div key={addition.id} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2" style={{ border: "1px solid #E8DDD5", background: "#FDF9F5" }}><span><span style={{ display: "block", color: "#3D2B1F", fontSize: 13, fontWeight: 600 }}>{addition.name}</span><span style={{ color: "#9C8278", fontSize: 11 }}>{addition.quantity} {addition.unit} consumed from inventory</span></span><button type="button" onClick={() => removeProductAddition(addition.id)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "5px 9px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>Remove</button></div>; })}</div>}
+                </>}
+              </div>
             </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={closeModal} disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: saving ? "default" : "pointer" }}>Cancel</button><button onClick={submitProduct} disabled={saving || !formName.trim() || !hasValidVariant || inventory.length === 0} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !formName.trim() || !hasValidVariant || inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: saving ? "default" : "pointer" }}>{saving ? "Saving…" : editingProduct ? "Save Changes" : "Add Product"}</button></div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5", flexShrink: 0, background: "#FDF9F5" }}><button onClick={closeModal} disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: saving ? "default" : "pointer" }}>Cancel</button><button onClick={submitProduct} disabled={saving || !formName.trim() || !hasValidVariant || inventory.length === 0} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !formName.trim() || !hasValidVariant || inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: saving ? "default" : "pointer" }}>{saving ? "Saving…" : editingProduct ? "Save Changes" : "Add Product"}</button></div>
           </div>
         </div>
       )}
@@ -1136,6 +1261,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("dashboard");
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [additions, setAdditions] = useState<ProductAddition[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -1181,12 +1307,25 @@ export default function App() {
     }
   }
 
+  async function refreshAdditions() {
+    try {
+      const response = await fetch("/api/additions", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to load additions.");
+      setAdditions(payload.data ?? []);
+    } catch (error) {
+      console.error(error);
+      setAdditions([]);
+    }
+  }
+
   function handlePageChange(nextPage: Page) {
     setPage(nextPage);
     if (nextPage === "inventory" || nextPage === "products" || nextPage === "dashboard") {
       void refreshInventory();
       void refreshProducts();
     }
+    if (nextPage === "products" || nextPage === "additions") void refreshAdditions();
   }
 
   useEffect(() => {
@@ -1202,6 +1341,11 @@ export default function App() {
       }
     })();
     return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refreshAdditions(); }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -1225,12 +1369,14 @@ export default function App() {
       if (document.visibilityState === "visible") {
         void refreshInventory();
         void refreshProducts();
+        void refreshAdditions();
       }
     };
     const intervalId = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
       void refreshInventory();
       void refreshProducts();
+      void refreshAdditions();
     }, 5_000);
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
@@ -1287,6 +1433,7 @@ export default function App() {
         price: product.price,
         image_url: product.imageUrl,
         image_data: product.imageData,
+        addition_ids: product.additions.map((addition) => addition.id),
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
@@ -1314,6 +1461,7 @@ export default function App() {
         price: product.price,
         image_url: product.imageUrl,
         image_data: product.imageData,
+        addition_ids: product.additions.map((addition) => addition.id),
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
@@ -1342,7 +1490,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees" };
 
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
   if (!authUser) return <AdminLogin onLoggedIn={setAuthUser} />;
@@ -1355,7 +1503,8 @@ export default function App() {
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
         {page === "dashboard" && <Dashboard inventory={inventory} />}
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
-        {page === "products" && <ProductManagement products={products} inventory={inventory} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
+        {page === "additions" && <AdditionsManagement inventory={inventory} />}
+        {page === "products" && <ProductManagement products={products} inventory={inventory} additions={additions} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
         {page === "finance" && <Finance />}
         {page === "accounts" && <Accounts />}
       </div>

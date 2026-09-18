@@ -22,6 +22,7 @@ type ProductRow = {
   required_quantity: number | null;
   item_name: string | null;
   unit_of_measure: string | null;
+  product_additions: { additionId: number; name: string; quantity: number; unit: string }[] | null;
 };
 
 type Product = {
@@ -45,6 +46,7 @@ type Product = {
     qty: number;
     unit: string | null;
   }[];
+  additions: { id: number; name: string; quantity: number; unit: string }[];
 };
 
 type IngredientInput = {
@@ -61,6 +63,7 @@ type RequestBody = {
   price?: unknown;
   ingredients?: unknown;
   variants?: unknown;
+  addition_ids?: unknown;
   product_id?: unknown;
 };
 
@@ -79,6 +82,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
         hasSales: Boolean(row.product_has_sales),
         ingredients: [],
         variants: [],
+        additions: (row.product_additions ?? []).map((addition) => ({ id: Number(addition.additionId), name: addition.name, quantity: Number(addition.quantity), unit: addition.unit })),
       });
     }
 
@@ -148,6 +152,18 @@ export async function GET() {
           SELECT 1 FROM sales_order_items soi
           WHERE soi.product_id = p.product_id
         ) AS product_has_sales
+        ,(
+          SELECT COALESCE(json_agg(json_build_object(
+            'additionId', a.addition_id,
+            'name', a.addition_name,
+            'quantity', a.quantity,
+            'unit', i.unit_of_measure
+          ) ORDER BY a.addition_name), '[]'::json)
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          JOIN inventory i ON i.inventory_id = a.inventory_id
+          WHERE pa.product_id = p.product_id
+        ) AS product_additions
       FROM products p
       LEFT JOIN product_variants pv
         ON pv.product_id = p.product_id
@@ -177,6 +193,9 @@ export async function POST(request: Request) {
     const price = Number(body?.price);
     const variants = Array.isArray(body?.variants)
       ? body.variants as { size?: unknown; price?: unknown; ingredients?: unknown }[]
+      : [];
+    const additionIds = Array.isArray(body?.addition_ids)
+      ? Array.from(new Set(body.addition_ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)))
       : [];
 
     if (!productName || !productCategory) {
@@ -214,6 +233,13 @@ export async function POST(request: Request) {
         await client.query("INSERT INTO variant_ingredients (product_variant_id, inventory_id, required_quantity) VALUES ($1, $2, $3)", [variantResult.rows[0].product_variant_id, ingredient.inventoryId, ingredient.requiredQuantity]);
       }
     }
+    for (const additionId of additionIds) {
+      const additionResult = await client.query(
+        "INSERT INTO product_additions (product_id, addition_id) SELECT $1, addition_id FROM additions WHERE addition_id = $2 AND is_active = TRUE ON CONFLICT DO NOTHING RETURNING addition_id",
+        [product.product_id, additionId]
+      );
+      if (additionResult.rowCount === 0) throw new Error(`Addition item ${additionId} does not exist.`);
+    }
 
     await client.query("COMMIT");
 
@@ -239,6 +265,13 @@ export async function POST(request: Request) {
           SELECT 1 FROM sales_order_items soi
           WHERE soi.product_id = p.product_id
         ) AS product_has_sales
+        ,(
+          SELECT COALESCE(json_agg(json_build_object('additionId', a.addition_id, 'name', a.addition_name, 'quantity', a.quantity, 'unit', i.unit_of_measure) ORDER BY a.addition_name), '[]'::json)
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          JOIN inventory i ON i.inventory_id = a.inventory_id
+          WHERE pa.product_id = p.product_id
+        ) AS product_additions
       FROM products p
       LEFT JOIN product_variants pv ON pv.product_id = p.product_id
       LEFT JOIN variant_ingredients vi ON vi.product_variant_id = pv.product_variant_id
@@ -270,6 +303,9 @@ export async function PATCH(request: Request) {
     const price = Number(body?.price);
     const variants = Array.isArray(body?.variants)
       ? body.variants as { size?: unknown; price?: unknown; ingredients?: unknown }[]
+      : [];
+    const additionIds = Array.isArray(body?.addition_ids)
+      ? Array.from(new Set(body.addition_ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)))
       : [];
 
     if (!Number.isInteger(productId) || productId <= 0 || !productName || !productCategory) {
@@ -304,6 +340,14 @@ export async function PATCH(request: Request) {
     }
 
     await client.query("DELETE FROM product_ingredients WHERE product_id = $1", [productId]);
+    await client.query("DELETE FROM product_additions WHERE product_id = $1", [productId]);
+    for (const additionId of additionIds) {
+      const additionResult = await client.query(
+        "INSERT INTO product_additions (product_id, addition_id) SELECT $1, addition_id FROM additions WHERE addition_id = $2 AND is_active = TRUE ON CONFLICT DO NOTHING RETURNING addition_id",
+        [productId, additionId]
+      );
+      if (additionResult.rowCount === 0) throw new Error(`Addition item ${additionId} does not exist.`);
+    }
 
     const existingVariantsResult = await client.query(
       "SELECT product_variant_id, size_label FROM product_variants WHERE product_id = $1",
@@ -371,6 +415,13 @@ export async function PATCH(request: Request) {
           SELECT 1 FROM sales_order_items soi
           WHERE soi.product_id = p.product_id
         ) AS product_has_sales
+        ,(
+          SELECT COALESCE(json_agg(json_build_object('additionId', a.addition_id, 'name', a.addition_name, 'quantity', a.quantity, 'unit', i.unit_of_measure) ORDER BY a.addition_name), '[]'::json)
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          JOIN inventory i ON i.inventory_id = a.inventory_id
+          WHERE pa.product_id = p.product_id
+        ) AS product_additions
       FROM products p
       LEFT JOIN product_variants pv ON pv.product_id = p.product_id
       LEFT JOIN variant_ingredients vi ON vi.product_variant_id = pv.product_variant_id
@@ -453,6 +504,7 @@ export async function DELETE(request: Request) {
     await client.query("DELETE FROM variant_ingredients WHERE product_variant_id IN (SELECT product_variant_id FROM product_variants WHERE product_id = $1)", [productId]);
     await client.query("DELETE FROM product_variants WHERE product_id = $1", [productId]);
     await client.query("DELETE FROM product_ingredients WHERE product_id = $1", [productId]);
+    await client.query("DELETE FROM product_additions WHERE product_id = $1", [productId]);
 
     const result = await client.query(`
       DELETE FROM products
