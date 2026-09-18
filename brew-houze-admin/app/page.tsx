@@ -114,7 +114,7 @@ function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; co
       <nav className="flex flex-col gap-1 px-3 pt-5 flex-1">
         {navItems.map(({ id, label, Icon }) => {
           const active = current === id;
-          return <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 py-3 rounded-xl text-left transition-all duration-150 w-full" style={{ paddingLeft: id === "additions" ? 32 : 16, paddingRight: 16, background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: id === "additions" ? 12.5 : 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={id === "additions" ? 15 : 17} /><span>{label}</span></button>;
+          return <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 py-3 rounded-xl text-left transition-all duration-150 w-full" style={{ paddingLeft: collapsed ? 0 : id === "additions" ? 32 : 16, paddingRight: collapsed ? 0 : 16, background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: id === "additions" ? 12.5 : 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={id === "additions" ? 15 : 17} /><span>{label}</span></button>;
         })}
       </nav>
       <div className="px-6 py-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>v1.0.0 — Admin Panel</p></div>
