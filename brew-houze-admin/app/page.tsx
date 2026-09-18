@@ -360,7 +360,7 @@ function Inventory({
   }
 
   async function deleteItem(id: number) {
-    const confirmed = window.confirm("Delete this inventory item?");
+    const confirmed = window.confirm("Archive this inventory item?");
     if (!confirmed) return;
 
     try {
@@ -373,7 +373,7 @@ function Inventory({
 
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to delete inventory.");
+        throw new Error(payload?.error || "Failed to archive inventory.");
       }
 
       setItems((prev) => prev.filter((item) => item.inventory_id !== id));
@@ -383,7 +383,7 @@ function Inventory({
         setDraft(null);
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to delete inventory.");
+      setActionError(err instanceof Error ? err.message : "Failed to archive inventory.");
     }
   }
 
@@ -517,7 +517,7 @@ function Inventory({
                           {row.is_permanent ? <button onClick={() => void addStock(row)} title="Add stock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button> : <button onClick={() => startEdit(row)} title="Edit row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
                             <IconPencil size={14} />
                           </button>}
-                          {!row.is_permanent && <button onClick={() => deleteItem(row.inventory_id)} title="Delete row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
+                          {!row.is_permanent && <button onClick={() => deleteItem(row.inventory_id)} title="Archive row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
                             <IconTrash size={14} />
                           </button>}
                         </div>
@@ -638,7 +638,7 @@ function ProductCard({
       <div style={{ width: "100%", aspectRatio: "4/3", background: "#F3EDE5", overflow: "hidden", position: "relative", flexShrink: 0 }}>
         {(product.imageData || product.imageUrl.trim()) ? <Image src={product.imageData || product.imageUrl.trim()} alt={product.name} width={600} height={450} unoptimized style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div className="flex items-center justify-center w-full h-full" style={{ color: "#D5C5BC" }}><IconImage size={36} /></div>}
         <button onClick={onEdit} title="Edit product" style={{ position: "absolute", top: 8, right: 46, width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(255,255,255,0.9)", color: "#6B4C3B", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}><IconPencil size={13} /></button>
-        <button onClick={onDeleteClick} title="Delete product" style={{ position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(255,255,255,0.9)", color: "#C0392B", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}><IconTrash size={13} /></button>
+        <button onClick={onDeleteClick} title="Archive product" style={{ position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(255,255,255,0.9)", color: "#C0392B", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}><IconTrash size={13} /></button>
       </div>
       <div className="flex flex-col gap-2 p-4" style={{ flex: 1 }}>
         {hasSizeTabs && (
@@ -901,17 +901,17 @@ function ProductManagement({
       {deleteTarget && (
         <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,.45)", zIndex: 50 }} onClick={(event) => { if (event.target === event.currentTarget) setDeleteTarget(null); }}>
           <div className="rounded-2xl p-6" style={{ width: "100%", maxWidth: 390, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 16px 48px rgba(61,43,31,.2)" }}>
-            <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800 }}>Delete {deleteTarget.name}</h3>
+            <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800 }}>Archive {deleteTarget.name}</h3>
             <p style={{ marginTop: 6, color: "#9C8278", fontSize: 13 }}>Choose what you want to remove.</p>
             <div className="flex flex-col gap-2 mt-5">
               {deleteTarget.hasSales ? (
                 <div style={{ padding: "12px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>
-                  This product cannot be deleted because it has finance records. Remove the related test sale from Finance first.
+                  This product cannot be archived because it has finance records. Remove the related test sale from Finance first.
                 </div>
               ) : (
                 <>
-                  {["16 oz", "22 oz"].filter((size) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && !variant.hasSales)).map((size) => <button key={size} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, size); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to delete variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Delete {size} only</button>)}
-                  <button onClick={async () => { if (!window.confirm(`Delete the entire ${deleteTarget.name} product?`)) return; try { setActionError(""); await onDelete(deleteTarget.id); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to delete product."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", textAlign: "left", cursor: "pointer" }}>Delete whole product</button>
+                  {["16 oz", "22 oz"].filter((size) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && !variant.hasSales)).map((size) => <button key={size} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, size); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Archive {size} only</button>)}
+                  <button onClick={async () => { if (!window.confirm(`Archive the entire ${deleteTarget.name} product?`)) return; try { setActionError(""); await onDelete(deleteTarget.id); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive product."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", textAlign: "left", cursor: "pointer" }}>Archive whole product</button>
                 </>
               )}
             </div>
@@ -1005,7 +1005,7 @@ function Finance() {
   }, [loadOrders]);
 
   async function deleteOrder(orderId: number) {
-    if (!window.confirm("Delete this completed sales record? This is intended for temporary test data cleanup.")) return;
+    if (!window.confirm("Archive this completed sales record? This is intended for temporary test data cleanup.")) return;
     setDeletingId(orderId);
     setError("");
     try {
@@ -1015,10 +1015,10 @@ function Finance() {
         body: JSON.stringify({ order_id: orderId }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to delete sales record.");
+      if (!response.ok) throw new Error(payload?.error || "Failed to archive sales record.");
       setOrders((current) => current.filter((order) => order.order_id !== orderId));
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete sales record.");
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to archive sales record.");
     } finally {
       setDeletingId(null);
     }
@@ -1037,7 +1037,7 @@ function Finance() {
       {[[`Revenue · ${periodLabel}`, `₱${Number(summary.revenue).toFixed(2)}`, "#3D2B1F", "primary"], ["Orders", String(summary.order_count), "#D97706", ""], ["Items sold", String(summary.items_sold), "#6B4C3B", ""], ["Average ticket", `₱${averageTicket.toFixed(2)}`, "#2E7D32", ""]].map(([label, value, color, emphasis]) => <div key={label} className="rounded-2xl p-5" style={{ background: emphasis ? "linear-gradient(135deg, #3D2B1F 0%, #5B4030 100%)" : "#FDF9F5", border: emphasis ? "none" : "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.06)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", width: 80, height: 80, borderRadius: "50%", right: -25, top: -25, background: emphasis ? "rgba(217,119,6,.18)" : "rgba(217,119,6,.07)" }} /><p style={{ position: "relative", color: emphasis ? "rgba(255,255,255,.62)" : "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p><p style={{ position: "relative", marginTop: 10, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 27, fontWeight: 800, color: emphasis ? "#FDF9F5" : color }}>{value}</p></div>)}
     </div><div className="grid gap-5 mb-7" style={{ gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, .85fr)" }}><section className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.05)" }}><div className="flex items-center justify-between mb-4"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 17 }}>Top Sellers</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>What customers are ordering most</p></div><span style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>TOP 5</span></div>{topProducts.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No product sales in this period.</p> : topProducts.map((product, index) => <div key={product.product_name} className="flex items-center gap-3 py-3" style={{ borderBottom: index === topProducts.length - 1 ? "none" : "1px solid #F0E8E2" }}><span style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: index === 0 ? "#D97706" : "#F3EDE5", color: index === 0 ? "#fff" : "#6B4C3B", fontWeight: 800, fontSize: 12 }}>{index + 1}</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.product_name}</strong><div style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{product.quantity} sold</div></div><span style={{ fontWeight: 700, fontSize: 13 }}>₱{Number(product.revenue).toFixed(2)}</span></div>)}</section><section className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #3D2B1F, #674735)", color: "#FDF9F5", boxShadow: "0 8px 24px rgba(61,43,31,.16)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", right: -35, bottom: -45, width: 150, height: 150, borderRadius: "50%", border: "22px solid rgba(253,249,245,.08)" }} /><div style={{ position: "relative" }}><span style={{ color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: ".1em" }}>    Owner&apos;s note</span><h3 style={{ margin: "12px 0 10px", fontWeight: 800, fontSize: 20 }}>Keep an eye on your best cups.</h3><p style={{ color: "rgba(255,255,255,.7)", fontSize: 13, lineHeight: 1.65 }}>Use top sellers to guide prep and purchasing. Inventory deductions happen automatically after every completed order.</p><div style={{ marginTop: 24, display: "inline-flex", padding: "6px 10px", borderRadius: 7, background: "rgba(255,255,255,.1)", color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>{periodLabel}</div></div></section></div>
     <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Daily Sales</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Overall sales grouped by date · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{selectedDate && <button onClick={() => setSelectedDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td></tr>)}</tbody></table></div></div>}</section>
-    <section><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{selectedDate ? `Completed transactions on ${formatSalesDate(selectedDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{selectedDate && <button onClick={() => setSelectedDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) => <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>Order #{order.order_id}<span style={{ color: "#2E7D32", background: "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span></div><div style={{ marginTop: 6, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong><button onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Deleting..." : "Delete test sale"}</button></div></div>)}</div>}</section></>}
+    <section><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{selectedDate ? `Completed transactions on ${formatSalesDate(selectedDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{selectedDate && <button onClick={() => setSelectedDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) => <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>Order #{order.order_id}<span style={{ color: "#2E7D32", background: "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span></div><div style={{ marginTop: 6, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong><button onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id     ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}
   </main>;
 }
 type CashierAccount = { id: number; fullName: string; email: string; role: string; isActive: boolean };
@@ -1264,7 +1264,7 @@ export default function App() {
       body: JSON.stringify({ inventory_id: id }),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error || "Failed to delete inventory.");
+    if (!response.ok) throw new Error(payload?.error || "Failed to archive inventory.");
     setInventory((prev) => prev.filter((item) => item.inventory_id !== id));
     setProducts((prev) => prev.map((product) => ({
       ...product,
@@ -1329,7 +1329,7 @@ export default function App() {
       body: JSON.stringify({ product_id: id, variant_size: variantSize }),
     });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error || "Failed to delete product.");
+    if (!response.ok) throw new Error(payload?.error || "Failed to archive product.");
     if (variantSize) {
       await refreshProducts();
     } else {

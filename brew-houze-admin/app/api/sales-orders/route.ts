@@ -121,7 +121,7 @@ export async function DELETE(request: Request) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("DELETE /api/sales-orders failed:", error);
-    return NextResponse.json({ error: "Could not delete sales record." }, { status: 500 });
+    return NextResponse.json({ error: "Could not archive sales record." }, { status: 500 });
   } finally {
     client.release();
   }

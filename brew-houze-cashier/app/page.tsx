@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 
-type Page = "pos" | "accounts";
+type Page = "pos" | "queue" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string };
 type IconProps = { size?: number };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -18,12 +19,17 @@ function IconUsers({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
 }
 
+function IconList({ size = 20 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>;
+}
+
 function IconChevron({ size = 16 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>;
 }
 
 const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
   { id: "pos", label: "Point of Sale", Icon: IconGrid },
+  { id: "queue", label: "Queue", Icon: IconList },
   { id: "accounts", label: "Account Management", Icon: IconUsers },
 ];
 
@@ -47,7 +53,7 @@ function Sidebar({ current, collapsed, queueNumber, onChange, onToggle }: { curr
 }
 
 function TopBar({ page, user, onLogout }: { page: Page; user: Session; onLogout: () => Promise<void> }) {
-  const title = page === "pos" ? "Point of Sale" : "Account Management";
+  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : "Account Management";
   return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-2" style={{ color: "#9C8278" }}><IconChevron size={14} /><span style={{ fontSize: 13 }}>{title}</span></div>
     <div className="flex items-center gap-5">
@@ -67,13 +73,10 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   type Product = { product_id: number; product_name: string; product_category: string | null; image_url?: string | null; variants: Variant[] };
   type ProductsResponse = { data?: Product[] };
   type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; qty: number; price: number; ingredients: Ingredient[] };
-  type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string };
-
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
-  const [lastQueueNumber, setLastQueueNumber] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [queue, setQueue] = useState<QueueOrder[]>([]);
@@ -81,22 +84,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
 
   async function loadQueue() {
     const response = await fetch("/api/queue", { cache: "no-store" });
-    const payload = await response.json() as { data?: QueueOrder[]; error?: string };
+    const payload = await response.json() as { data?: { waiting?: QueueOrder[] }; error?: string };
     if (!response.ok) throw new Error(payload.error || "Unable to load queue.");
-    setQueue(payload.data ?? []);
-  }
-
-  async function markServed(orderId: number) {
-    const servedOrder = queue.find((order) => order.order_id === orderId);
-    const response = await fetch("/api/queue", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order_id: orderId }),
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error || "Unable to mark order as served.");
-    setQueue((current) => current.filter((order) => order.order_id !== orderId));
-    if (servedOrder?.queue_number === lastQueueNumber) setLastQueueNumber(null);
+    setQueue(payload.data?.waiting ?? []);
   }
 
   useEffect(() => {
@@ -230,7 +220,6 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
       if (!response.ok) throw new Error(payload?.error || "Unable to complete checkout.");
       setCart([]);
       const queueNumber = Number(payload.data.queueNumber);
-      setLastQueueNumber(queueNumber);
       onQueueAssigned(queueNumber);
       const refresh = await fetch("/api/products", { cache: "no-store" });
       if (refresh.ok) {
@@ -304,11 +293,6 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
     </section>
 
     <aside style={{ width: 360, flexShrink: 0 }}>
-      <div className="rounded-2xl" style={{ background: "#3D2B1F", color: "#FDF9F5", padding: "18px 20px", marginBottom: 12, textAlign: "center" }}>
-        <div style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#D97706", letterSpacing: "0.08em" }}>QUEUE NUMBER</div>
-        <div style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: lastQueueNumber === null ? 24 : 42, lineHeight: 1.1, fontWeight: 800, marginTop: 4, minHeight: 46, display: "flex", alignItems: "center", justifyContent: "center" }}>{lastQueueNumber === null ? "No active queue" : `#${lastQueueNumber}`}</div>
-        <div style={{ fontSize: 12, color: "rgba(255,255,255,.65)", marginTop: 5 }}>{lastQueueNumber === null ? "Ready for the next order" : "Order completed and added to the queue"}</div>
-      </div>
       <div className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
         <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif" }}>Cart</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflow: "auto" }}>
@@ -347,11 +331,104 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
           {queue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 0", borderTop: "1px solid #F0E8E2" }}>
             <strong style={{ color: "#D97706", fontSize: 18, minWidth: 40 }}>#{order.queue_number}</strong>
             <span style={{ flex: 1, color: "#6B4C3B", fontSize: 12 }}>{order.items}</span>
-            <button onClick={() => void markServed(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to mark order as served."))} style={{ border: "1px solid #D97706", background: "#FFF7ED", color: "#B45309", borderRadius: 8, padding: "6px 8px", fontSize: 11, cursor: "pointer" }}>Served</button>
           </div>)}
         </div>
+        <p style={{ margin: 0, color: "#9C8278", fontSize: 11 }}>Preview only. Manage and serve orders from the Queue tab.</p>
       </div>
     </aside>
+  </main>;
+}
+
+function QueuePage() {
+  const [queue, setQueue] = useState<QueueOrder[]>([]);
+  const [readyQueue, setReadyQueue] = useState<QueueOrder[]>([]);
+  const [queueError, setQueueError] = useState("");
+
+  async function loadQueue() {
+    const response = await fetch("/api/queue", { cache: "no-store" });
+    const payload = await response.json() as { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[] }; error?: string };
+    if (!response.ok) throw new Error(payload.error || "Unable to load queue.");
+    setQueue(payload.data?.waiting ?? []);
+    setReadyQueue(payload.data?.ready ?? []);
+  }
+
+  async function serveOrder(orderId: number) {
+    const response = await fetch("/api/queue", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_id: orderId }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || "Unable to serve order.");
+    setQueue((current) => current.filter((order) => order.order_id !== orderId));
+    const servedOrder = queue.find((order) => order.order_id === orderId);
+    if (servedOrder) setReadyQueue((current) => [servedOrder, ...current]);
+  }
+
+  async function flushOrder(orderId: number) {
+    const response = await fetch("/api/queue", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_id: orderId, action: "flush" }),
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || "Unable to flush ready order.");
+    setReadyQueue((current) => current.filter((order) => order.order_id !== orderId));
+  }
+
+  useEffect(() => {
+    let active = true;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        await loadQueue();
+        if (active) setQueueError("");
+      } catch (error) {
+        console.error("Queue: failed to load queue", error);
+        if (active) setQueueError(error instanceof Error ? error.message : "Unable to load queue.");
+      }
+    };
+    void refresh();
+    const intervalId = window.setInterval(() => void refresh(), 5_000);
+    return () => { active = false; window.clearInterval(intervalId); };
+  }, []);
+
+  return <main className="p-8" style={{ maxWidth: 1000 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "end", gap: 12, marginBottom: 18 }}>
+      <div>
+        <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 28, color: "#3D2B1F", margin: 0 }}>Queue</h1>
+        <p style={{ color: "#9C8278", fontSize: 13, margin: "5px 0 0" }}>Manage waiting orders and serve customers when their orders are ready.</p>
+      </div>
+      <span style={{ color: "#9C8278", fontSize: 12 }}>{queue.length} waiting</span>
+    </div>
+    <div className="rounded-2xl" style={{ background: "#FFF7ED", border: "1px solid #FED7AA", padding: 18, marginBottom: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div>
+          <h2 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, color: "#7C2D12" }}>Ready for Pickup</h2>
+          <p style={{ margin: "4px 0 0", color: "#9A3412", fontSize: 12 }}>These orders stay here until they are manually flushed.</p>
+        </div>
+        <span style={{ color: "#9A3412", fontSize: 12 }}>{readyQueue.length} ready</span>
+      </div>
+      {readyQueue.length === 0 && <p style={{ color: "#9A3412", margin: 0, fontSize: 13 }}>No orders ready for pickup.</p>}
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {readyQueue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: "1px solid #FED7AA" }}>
+          <strong style={{ color: "#C2410C", fontSize: 24, minWidth: 60 }}>#{order.queue_number}</strong>
+          <span style={{ flex: 1, color: "#7C2D12", fontSize: 13 }}>{order.items}</span>
+          <button onClick={() => void flushOrder(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to flush ready order."))} style={{ border: "1px solid #EA580C", background: "#FFF", color: "#C2410C", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Flush</button>
+        </div>)}
+      </div>
+    </div>
+    <div className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 18 }}>
+      {queueError && <p style={{ color: "#B91C1C", fontSize: 13 }}>{queueError}</p>}
+      {queue.length === 0 && !queueError && <p style={{ color: "#9C8278", margin: 0 }}>No customers waiting.</p>}
+      <div style={{ display: "flex", flexDirection: "column" }}>
+        {queue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: "1px solid #F0E8E2" }}>
+          <strong style={{ color: "#D97706", fontSize: 24, minWidth: 60 }}>#{order.queue_number}</strong>
+          <span style={{ flex: 1, color: "#6B4C3B", fontSize: 13 }}>{order.items}</span>
+          <button onClick={() => void serveOrder(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to serve order."))} style={{ border: "1px solid #D97706", background: "#FFF7ED", color: "#B45309", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Serve</button>
+        </div>)}
+      </div>
+    </div>
   </main>;
 }
 
@@ -426,5 +503,5 @@ export default function App() {
 
   if (authLoading) return <div className="min-h-screen" style={{ background: "#F8F9FA" }} />;
   if (!user) return <Login onLoggedIn={setUser} />;
-  return <div className="flex min-h-screen"><Sidebar current={page} collapsed={collapsed} queueNumber={queueNumber} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0"><TopBar page={page} user={user} onLogout={logout} /><div className="flex-1 app-content">{page === "pos" ? <POSPage onQueueAssigned={setQueueNumber} /> : <AccountPage />}</div></div></div>;
+  return <div className="flex min-h-screen"><Sidebar current={page} collapsed={collapsed} queueNumber={queueNumber} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0"><TopBar page={page} user={user} onLogout={logout} /><div className="flex-1 app-content">{page === "pos" ? <POSPage onQueueAssigned={setQueueNumber} /> : page === "queue" ? <QueuePage /> : <AccountPage />}</div></div></div>;
 }

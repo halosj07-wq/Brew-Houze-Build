@@ -236,6 +236,6 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "This item is used in one or more product recipes. Remove it from those recipes before deleting it." }, { status: 409 });
     }
     console.error("DELETE /api/inventory failed:", error);
-    return NextResponse.json({ error: "Could not delete inventory item." }, { status: 500 });
+    return NextResponse.json({ error: "Could not archive inventory item." }, { status: 500 });
   }
 }

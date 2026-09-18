@@ -12,6 +12,7 @@ export async function GET() {
       SELECT
         so.order_id,
         so.queue_number,
+        so.queue_status,
         so.created_at,
         COALESCE(
           STRING_AGG(
@@ -27,11 +28,16 @@ export async function GET() {
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
       WHERE so.created_at >= CURRENT_DATE
         AND so.created_at < CURRENT_DATE + INTERVAL '1 day'
-        AND so.queue_status = 'waiting'
+        AND so.queue_status IN ('waiting', 'served')
       GROUP BY so.order_id
-      ORDER BY so.queue_number ASC
+      ORDER BY so.queue_status DESC, so.queue_number ASC
     `);
-    return NextResponse.json({ data: result.rows });
+    return NextResponse.json({
+      data: {
+        waiting: result.rows.filter((order) => order.queue_status === "waiting"),
+        ready: result.rows.filter((order) => order.queue_status === "served"),
+      },
+    });
   } catch (error) {
     console.error("GET /api/queue failed:", error);
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
@@ -47,20 +53,21 @@ export async function PATCH(request: Request) {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   try {
-    const body = await request.json() as { order_id?: unknown };
+    const body = await request.json() as { order_id?: unknown; action?: unknown };
     const orderId = Number(body.order_id);
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return NextResponse.json({ error: "A valid order_id is required." }, { status: 400 });
     }
 
+    const action = body.action === "flush" ? "flush" : "serve";
     const result = await pool.query(`
       UPDATE sales_orders
-      SET queue_status = 'served', served_at = CURRENT_TIMESTAMP
+      SET queue_status = ${action === "flush" ? "'flushed'" : "'served'"}, served_at = ${action === "flush" ? "served_at" : "CURRENT_TIMESTAMP"}
       WHERE order_id = $1
-        AND queue_status = 'waiting'
+        AND queue_status = ${action === "flush" ? "'served'" : "'waiting'"}
       RETURNING order_id, queue_number
     `, [orderId]);
-    if (result.rowCount === 0) return NextResponse.json({ error: "Queue order was already served or not found." }, { status: 404 });
+    if (result.rowCount === 0) return NextResponse.json({ error: action === "flush" ? "Ready order was already flushed or not found." : "Queue order was already moved to ready or not found." }, { status: 404 });
     return NextResponse.json({ data: result.rows[0] });
   } catch (error) {
     console.error("PATCH /api/queue failed:", error);
@@ -68,6 +75,6 @@ export async function PATCH(request: Request) {
     if (code === "42703") {
       return NextResponse.json({ error: "The queue database fields are missing or do not match the current schema. Run queue-migration.sql, then reload the cashier." }, { status: 500 });
     }
-    return NextResponse.json({ error: "Could not mark the queue order as served." }, { status: 500 });
+    return NextResponse.json({ error: "Could not move the queue order to ready status." }, { status: 500 });
   }
 }

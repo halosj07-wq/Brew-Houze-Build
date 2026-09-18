@@ -420,7 +420,7 @@ export async function DELETE(request: Request) {
       );
       if (Number(salesResult.rows[0]?.count ?? 0) > 0) {
         await client.query("ROLLBACK");
-        return NextResponse.json({ error: `The ${variantSize} variant cannot be deleted because it is included in completed sales.` }, { status: 409 });
+        return NextResponse.json({ error: `The ${variantSize} variant cannot be archived because it is included in completed sales.` }, { status: 409 });
       }
       const variantCount = await client.query(
         "SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1",
@@ -428,7 +428,7 @@ export async function DELETE(request: Request) {
       );
       if (Number(variantCount.rows[0]?.count ?? 0) <= 1) {
         await client.query("ROLLBACK");
-        return NextResponse.json({ error: "Delete the whole product instead of deleting its final variant." }, { status: 409 });
+        return NextResponse.json({ error: "Archive the whole product instead of archiving its final variant." }, { status: 409 });
       }
 
       await client.query("DELETE FROM variant_ingredients WHERE product_variant_id = $1", [variantId]);
@@ -446,7 +446,7 @@ export async function DELETE(request: Request) {
     if (Number(salesResult.rows[0]?.count ?? 0) > 0) {
       await client.query("ROLLBACK");
       return NextResponse.json({
-        error: "This product cannot be deleted because it is included in completed sales. Remove the related test sale from Finance first.",
+        error: "This product cannot be archived because it is included in completed sales. Remove the related test sale from Finance first.",
       }, { status: 409 });
     }
 
@@ -473,10 +473,10 @@ export async function DELETE(request: Request) {
     const pgError = error as { code?: string };
     if (pgError.code === "23503") {
       return NextResponse.json({
-        error: "This product is still referenced by existing records and cannot be deleted.",
+        error: "This product is still referenced by existing records and cannot be archived.",
       }, { status: 409 });
     }
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not delete product." }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Could not archive product." }, { status: 500 });
   } finally {
     client.release();
   }
