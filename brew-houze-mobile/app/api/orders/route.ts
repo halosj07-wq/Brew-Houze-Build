@@ -2,7 +2,11 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
-type OrderItemInput = { product_variant_id?: unknown; quantity?: unknown };
+type OrderItemInput = { product_variant_id?: unknown; quantity?: unknown; addition_ids?: unknown };
+
+function parseAdditionIds(value: unknown): number[] {
+  return Array.isArray(value) ? value.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0) : [];
+}
 
 export async function POST(request: Request) {
   const client = await pool.connect();
@@ -12,12 +16,20 @@ export async function POST(request: Request) {
       ? body.items.map((item) => ({
           productVariantId: Number((item as OrderItemInput).product_variant_id),
           quantity: Number((item as OrderItemInput).quantity),
+          additionIds: Array.from(new Set(parseAdditionIds((item as OrderItemInput).addition_ids))),
         })).filter((item) => Number.isInteger(item.productVariantId) && item.productVariantId > 0 && Number.isInteger(item.quantity) && item.quantity > 0)
       : [];
     if (items.length === 0) return NextResponse.json({ error: "At least one valid order item is required." }, { status: 400 });
 
     const quantities = new Map<number, number>();
-    for (const item of items) quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
+    const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[] }>();
+    for (const item of items) {
+      quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
+      const additionIds = [...item.additionIds].sort((a, b) => a - b);
+      const key = `${item.productVariantId}:${additionIds.join(",")}`;
+      const current = groupedItems.get(key);
+      groupedItems.set(key, current ? { ...current, quantity: current.quantity + item.quantity } : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds });
+    }
     await client.query("BEGIN");
 
     const variantIds = Array.from(quantities.keys());
@@ -44,6 +56,21 @@ export async function POST(request: Request) {
       for (const ingredient of ingredients.rows) {
         const deduction = Number(ingredient.required_quantity) * quantity;
         deductions.set(Number(ingredient.inventory_id), (deductions.get(Number(ingredient.inventory_id)) ?? 0) + deduction);
+      }
+      for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
+        if (group.additionIds.length === 0) continue;
+        const additions = await client.query(`
+          SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          WHERE pa.product_id = $1 AND a.addition_id = ANY($2::int[])
+          FOR UPDATE OF a
+        `, [variant.product_id, group.additionIds]);
+        if (additions.rowCount !== group.additionIds.length) throw new Error(`${variant.product_name} has an invalid addition selection.`);
+        for (const addition of additions.rows) {
+          const deduction = Number(addition.quantity) * group.quantity;
+          deductions.set(Number(addition.inventory_id), (deductions.get(Number(addition.inventory_id)) ?? 0) + deduction);
+        }
       }
     }
 
@@ -76,10 +103,17 @@ export async function POST(request: Request) {
     `, [total, queueNumber, customerToken]);
 
     for (const variant of variants.rows) {
+      for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
       await client.query(`
         INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price)
         VALUES ($1, $2, $3, $4, $5)
-      `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, quantities.get(Number(variant.product_variant_id)), variant.price]);
+        RETURNING order_item_id
+      `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, group.quantity, variant.price]).then(async (itemResult) => {
+        for (const additionId of group.additionIds) {
+          await client.query("INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity) VALUES ($1, $2, $3)", [itemResult.rows[0].order_item_id, additionId, group.quantity]);
+        }
+      });
+      }
     }
 
     await client.query("COMMIT");

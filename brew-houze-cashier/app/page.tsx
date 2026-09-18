@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Page = "pos" | "queue" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string };
@@ -69,10 +69,11 @@ function TopBar({ page, user, onLogout }: { page: Page; user: Session; onLogout:
 
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
+  type Addition = { addition_id: number; addition_name: string; quantity: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
-  type Product = { product_id: number; product_name: string; product_category: string | null; image_url?: string | null; variants: Variant[] };
+  type Product = { product_id: number; product_name: string; product_category: string | null; image_url?: string | null; additions: Addition[]; variants: Variant[] };
   type ProductsResponse = { data?: Product[] };
-  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; qty: number; price: number; ingredients: Ingredient[] };
+  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; qty: number; price: number; ingredients: Ingredient[]; additions: Addition[] };
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -81,6 +82,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   const [cart, setCart] = useState<CartItem[]>([]);
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [queueError, setQueueError] = useState("");
+  const cartLineId = useRef(0);
 
   async function loadQueue() {
     const response = await fetch("/api/queue", { cache: "no-store" });
@@ -154,17 +156,44 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
 
   function getCartLimit(candidate: Variant, currentCart: CartItem[], candidateKey: string): number {
     if (candidate.ingredients.length === 0) return 0;
-    return Math.max(0, Math.floor(Math.min(...candidate.ingredients.map((ingredient) => {
-      const usedByOthers = currentCart
-        .filter((item) => item.key !== candidateKey)
-        .flatMap((item) => item.ingredients)
-        .filter((itemIngredient) => itemIngredient.inventory_id === ingredient.inventory_id)
-        .reduce((total, itemIngredient) => {
-          const cartItem = currentCart.find((item) => item.ingredients.includes(itemIngredient));
-          return total + Number(itemIngredient.required_quantity) * Number(cartItem?.qty ?? 0);
-        }, 0);
-      return (Number(ingredient.available_quantity) - usedByOthers) / Number(ingredient.required_quantity);
-    }))));
+    const usedByOthers = new Map<number, number>();
+    currentCart.filter((item) => item.key !== candidateKey).forEach((item) => {
+      item.ingredients.forEach((ingredient) => usedByOthers.set(ingredient.inventory_id, (usedByOthers.get(ingredient.inventory_id) ?? 0) + Number(ingredient.required_quantity) * item.qty));
+      item.additions.forEach((addition) => usedByOthers.set(addition.inventory_id, (usedByOthers.get(addition.inventory_id) ?? 0) + Number(addition.quantity) * item.qty));
+    });
+    return Math.max(0, Math.floor(Math.min(...candidate.ingredients.map((ingredient) => (Number(ingredient.available_quantity) - (usedByOthers.get(ingredient.inventory_id) ?? 0)) / Number(ingredient.required_quantity)))));
+  }
+
+  function canAddAddition(item: CartItem, addition: Addition): boolean {
+    const used = cart.reduce((total, current) => {
+      const ingredientUse = current.ingredients.filter((ingredient) => ingredient.inventory_id === addition.inventory_id).reduce((sum, ingredient) => sum + Number(ingredient.required_quantity) * current.qty, 0);
+      const additionUse = current.additions.filter((selected) => selected.inventory_id === addition.inventory_id).reduce((sum, selected) => sum + Number(selected.quantity) * current.qty, 0);
+      return total + ingredientUse + additionUse;
+    }, 0);
+    return used + Number(addition.quantity) * item.qty <= Number(addition.available_quantity);
+  }
+
+  function getItemCartLimit(item: CartItem, currentCart: CartItem[]): number {
+    const variant = products.flatMap((product) => product.variants).find((candidate) => candidate.product_variant_id === item.variantId);
+    if (!variant) return Number.MAX_SAFE_INTEGER;
+    const usedByOthers = new Map<number, number>();
+    currentCart.filter((entry) => entry.key !== item.key).forEach((entry) => {
+      entry.ingredients.forEach((ingredient) => usedByOthers.set(ingredient.inventory_id, (usedByOthers.get(ingredient.inventory_id) ?? 0) + Number(ingredient.required_quantity) * entry.qty));
+      entry.additions.forEach((addition) => usedByOthers.set(addition.inventory_id, (usedByOthers.get(addition.inventory_id) ?? 0) + Number(addition.quantity) * entry.qty));
+    });
+    const limits = [
+      ...item.ingredients.map((ingredient) => ({
+        available: Number(ingredient.available_quantity),
+        required: Number(ingredient.required_quantity),
+        inventoryId: ingredient.inventory_id,
+      })),
+      ...item.additions.map((addition) => ({
+        available: Number(addition.available_quantity),
+        required: Number(addition.quantity),
+        inventoryId: addition.inventory_id,
+      })),
+    ];
+    return limits.length === 0 ? 0 : Math.max(0, Math.floor(Math.min(...limits.map((limit) => (limit.available - (usedByOthers.get(limit.inventoryId) ?? 0)) / limit.required))));
   }
 
   function getRemainingQuantity(product: Product, variant: Variant): number {
@@ -175,16 +204,21 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
 
   function addToCart(product: Product, variant: Variant | null) {
     const variantId = variant ? Number(variant.product_variant_id) : null;
-    const key = `${product.product_id}:${variantId ?? "v"}`;
+    cartLineId.current += 1;
+    const key = `${product.product_id}:${variantId ?? "v"}:${cartLineId.current}`;
     const price = variant ? Number(variant.price) : 0;
     setCart((prev) => {
-      const existing = prev.find((p) => p.key === key);
-      if (variant && getCartLimit(variant, prev, key) <= (existing?.qty ?? 0)) return prev;
-      if (existing) {
-        return prev.map((p) => p.key === key ? { ...p, qty: p.qty + 1 } : p);
-      }
-      return [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, qty: 1, price, ingredients: variant?.ingredients ?? [] }];
+      if (variant && getCartLimit(variant, prev, key) <= 0) return prev;
+      return [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, qty: 1, price, ingredients: variant?.ingredients ?? [], additions: [] }];
     });
+  }
+
+  function toggleAddition(key: string, addition: Addition) {
+    setCart((prev) => prev.map((item) => {
+      if (item.key !== key) return item;
+      const selected = item.additions.some((current) => current.addition_id === addition.addition_id);
+      return { ...item, additions: selected ? item.additions.filter((current) => current.addition_id !== addition.addition_id) : [...item.additions, addition] };
+    }));
   }
 
   function updateQty(key: string, delta: number) {
@@ -192,7 +226,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
       const item = prev.find((entry) => entry.key === key);
       if (!item) return prev;
       const variant = products.flatMap((product) => product.variants).find((entry) => entry.product_variant_id === item.variantId);
-      const limit = variant ? getCartLimit(variant, prev, key) : Number.MAX_SAFE_INTEGER;
+      const limit = variant ? getItemCartLimit(item, prev) : Number.MAX_SAFE_INTEGER;
       const nextQuantity = Math.min(limit, Math.max(0, item.qty + delta));
       return prev.flatMap((entry) => {
         if (entry.key !== key) return [entry];
@@ -213,6 +247,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
           items: cart.filter((item) => item.variantId !== null).map((item) => ({
             product_variant_id: item.variantId,
             quantity: item.qty,
+            addition_ids: item.additions.map((addition) => addition.addition_id),
           })),
         }),
       });
@@ -302,6 +337,10 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{item.name}{item.size ? ` — ${item.size}` : ""}</div>
                 <div style={{ fontSize: 12, color: "#9C8278" }}>₱{(item.price).toFixed(2)} • x{item.qty}</div>
+                {item.additions.length > 0 && <div style={{ marginTop: 5, fontSize: 11, color: "#6B4C3B" }}>+ {item.additions.map((addition) => addition.addition_name).join(", ")}</div>}
+                <div style={{ marginTop: 7, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {products.find((product) => product.product_id === item.productId)?.additions?.map((addition) => { const selected = item.additions.some((current) => current.addition_id === addition.addition_id); const allowed = selected || canAddAddition(item, addition); return <label key={addition.addition_id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: allowed ? "#6B4C3B" : "#B9A398", cursor: allowed ? "pointer" : "not-allowed" }}><input type="checkbox" checked={selected} disabled={!allowed} onChange={() => toggleAddition(item.key, addition)} />{addition.addition_name}{!allowed && " · insufficient stock"}</label>; })}
+                </div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <button onClick={() => updateQty(item.key, -1)} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E8DDD5", background: "#fff" }}>-</button>

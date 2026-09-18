@@ -16,6 +16,20 @@ export async function GET() {
         p.product_name,
         p.product_category,
         p.image_url,
+        COALESCE((
+          SELECT json_agg(json_build_object(
+            'addition_id', a.addition_id,
+            'addition_name', a.addition_name,
+            'quantity', a.quantity,
+            'unit_of_measure', i_addition.unit_of_measure,
+            'inventory_id', a.inventory_id,
+            'available_quantity', i_addition.quantity
+          ) ORDER BY a.addition_name)
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
+          WHERE pa.product_id = p.product_id
+        ), '[]'::json) AS additions,
         COALESCE(
           json_agg(
             json_build_object(
@@ -37,6 +51,18 @@ export async function GET() {
                 FROM variant_ingredients vi_detail
                 JOIN inventory inv_detail ON inv_detail.inventory_id = vi_detail.inventory_id
                 WHERE vi_detail.product_variant_id = pv.product_variant_id
+              ), '[]'::json),
+              'additions', COALESCE((
+                SELECT json_agg(json_build_object(
+                  'addition_id', a.addition_id,
+                  'addition_name', a.addition_name,
+                  'quantity', a.quantity,
+                  'unit_of_measure', i_addition.unit_of_measure
+                ) ORDER BY a.addition_name)
+                FROM product_additions pa
+                JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+                JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
+                WHERE pa.product_id = p.product_id
               ), '[]'::json),
               'available', COALESCE((
                 SELECT FLOOR(MIN(inv_check.quantity / NULLIF(vi_check.required_quantity, 0)))::int

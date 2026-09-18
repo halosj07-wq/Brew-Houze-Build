@@ -10,6 +10,20 @@ export async function GET() {
         p.product_category,
         p.price,
         p.image_url,
+        COALESCE((
+          SELECT json_agg(json_build_object(
+            'id', a.addition_id,
+            'name', a.addition_name,
+            'quantity', a.quantity,
+            'unit', i_addition.unit_of_measure,
+            'inventoryId', a.inventory_id,
+            'availableQuantity', i_addition.quantity
+          ) ORDER BY a.addition_name)
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
+          WHERE pa.product_id = p.product_id
+        ), '[]'::json) AS additions,
         COALESCE(
           json_agg(
             json_build_object(
@@ -55,6 +69,7 @@ export async function GET() {
       description: "Prepared fresh by Brew Houze.",
       price: Number(row.price),
       image: row.image_url || "",
+      additions: row.additions ?? [],
       variants: row.variants,
     }));
 

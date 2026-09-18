@@ -9,12 +9,14 @@ type Product = {
   description: string;
   price: number;
   image: string;
+  additions?: Addition[];
   badge?: string;
   variants?: Variant[];
 };
 type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number };
+type Addition = { id: number; name: string; quantity: number; unit: string; inventoryId: number; availableQuantity: number };
 type Variant = { id: number; size: string | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
-type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[] };
+type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[] };
 
 function IconSearch() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
@@ -38,6 +40,7 @@ export default function MenuPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
+  const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
   const [cartOpen, setCartOpen] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
@@ -74,41 +77,61 @@ export default function MenuPage() {
   const cartTotal = cart.reduce((total, item) => total + item.price * item.quantity, 0);
   const activeOrder = Boolean(trackingToken && orderStatus && orderStatus !== "flushed");
 
-  function getCartLimit(variant: Variant, currentCart: CartItem[], candidateKey: string) {
-    if (variant.ingredients.length === 0) return 0;
-    return Math.max(0, Math.floor(Math.min(...variant.ingredients.map((ingredient) => {
-      const usedByOthers = currentCart
-        .filter((item) => item.key !== candidateKey)
-        .flatMap((item) => item.ingredients)
-        .filter((itemIngredient) => itemIngredient.inventoryId === ingredient.inventoryId)
-        .reduce((total, itemIngredient) => total + itemIngredient.requiredQuantity * (currentCart.find((item) => item.ingredients.includes(itemIngredient))?.quantity ?? 0), 0);
-      return (ingredient.availableQuantity - usedByOthers) / ingredient.requiredQuantity;
-    }))));
+  function getCartLimit(item: Pick<CartItem, "ingredients" | "additions">, currentCart: CartItem[], candidateKey: string) {
+    const usedByOthers = new Map<number, number>();
+    currentCart.filter((entry) => entry.key !== candidateKey).forEach((entry) => {
+      entry.ingredients.forEach((ingredient) => usedByOthers.set(ingredient.inventoryId, (usedByOthers.get(ingredient.inventoryId) ?? 0) + ingredient.requiredQuantity * entry.quantity));
+      entry.additions.forEach((addition) => usedByOthers.set(addition.inventoryId, (usedByOthers.get(addition.inventoryId) ?? 0) + addition.quantity * entry.quantity));
+    });
+
+    const resources = new Map<number, { available: number; required: number }>();
+    item.ingredients.forEach((ingredient) => {
+      const current = resources.get(ingredient.inventoryId) ?? { available: ingredient.availableQuantity, required: 0 };
+      resources.set(ingredient.inventoryId, { available: Math.min(current.available, ingredient.availableQuantity), required: current.required + ingredient.requiredQuantity });
+    });
+    item.additions.forEach((addition) => {
+      const current = resources.get(addition.inventoryId) ?? { available: addition.availableQuantity, required: 0 };
+      resources.set(addition.inventoryId, { available: Math.min(current.available, addition.availableQuantity), required: current.required + addition.quantity });
+    });
+
+    if (resources.size === 0) return Number.MAX_SAFE_INTEGER;
+    const limit = Math.min(...Array.from(resources.entries()).map(([inventoryId, resource]) => (
+      (resource.available - (usedByOthers.get(inventoryId) ?? 0)) / resource.required
+    )));
+    return Math.max(0, Math.floor(limit));
+  }
+
+  function additionAvailable(addition: Addition, quantity: number, currentCart: CartItem[], candidateIngredients: Ingredient[] = [], selectedAdditions: Addition[] = []) {
+    const candidate: Pick<CartItem, "ingredients" | "additions"> = {
+      ingredients: candidateIngredients,
+      additions: [...selectedAdditions, addition],
+    };
+    return getCartLimit(candidate, currentCart, "") >= quantity;
   }
 
   function openProduct(product: Product) {
     setSelectedProduct(product);
     setSelectedVariantId(product.variants?.[0]?.id ?? null);
     setSelectedQuantity(1);
+    setSelectedAdditionIds([]);
   }
 
   function addToCart() {
     if (!selectedProduct) return;
     const variant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
     const price = variant?.price ?? selectedProduct.price;
-    const key = `${selectedProduct.id}-${variant?.id ?? "regular"}`;
+    const selectedAdditions = (selectedProduct.additions ?? []).filter((addition) => selectedAdditionIds.includes(addition.id));
+    const key = `${selectedProduct.id}-${variant?.id ?? "regular"}-${selectedAdditionIds.sort((a, b) => a - b).join(",")}`;
     if (variant) {
-      const limit = getCartLimit(variant, cart, key);
-      const existingQuantity = cart.find((item) => item.key === key)?.quantity ?? 0;
-      if (!variant.available || selectedQuantity > limit - existingQuantity) return;
+      const limit = getCartLimit({ ingredients: variant.ingredients, additions: selectedAdditions }, cart, key);
+      if (!variant.available || selectedQuantity > limit) return;
     }
     setCart((current) => {
       const existing = current.find((item) => item.key === key);
       if (existing) return current.map((item) => item.key === key ? { ...item, quantity: item.quantity + selectedQuantity } : item);
-      return [...current, { key, product: selectedProduct, variantId: variant?.id ?? null, variantName: variant?.size ?? "Regular", price, quantity: selectedQuantity, ingredients: variant?.ingredients ?? [] }];
+      return [...current, { key, product: selectedProduct, variantId: variant?.id ?? null, variantName: variant?.size ?? "Regular", price, quantity: selectedQuantity, ingredients: variant?.ingredients ?? [], additions: selectedAdditions }];
     });
     setSelectedProduct(null);
-    setCartOpen(true);
   }
 
   function updateCartItem(key: string, change: number) {
@@ -117,7 +140,7 @@ export default function MenuPage() {
       const quantity = item.quantity + change;
       if (quantity <= 0) return [];
       const variant = item.product.variants?.find((candidate) => candidate.id === item.variantId);
-      if (change > 0 && variant && quantity > getCartLimit(variant, current, key)) return [item];
+      if (change > 0 && variant && quantity > getCartLimit({ ingredients: variant.ingredients, additions: item.additions }, current, key)) return [item];
       return [{ ...item, quantity }];
     }));
   }
@@ -130,7 +153,7 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity })) }),
+        body: JSON.stringify({ items: cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) })) }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
@@ -215,12 +238,18 @@ export default function MenuPage() {
         <p className="eyebrow">{selectedProduct.category}</p><h2>{selectedProduct.name}</h2><p className="modal-description">{selectedProduct.description}</p>
         {selectedProduct.variants && selectedProduct.variants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProduct.variants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}</strong><span>{variant.available ? `${variant.maxQuantity} available · ₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
         <div className="quantity-row"><strong>Quantity</strong><div className="quantity-control"><button onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))}>−</button><span>{selectedQuantity}</span><button onClick={() => setSelectedQuantity((value) => value + 1)}>+</button></div></div>
-        <button className="add-order-button" disabled={Boolean(selectedProduct.variants?.length && (!selectedProduct.variants.find((item) => item.id === selectedVariantId)?.available || selectedQuantity > (selectedProduct.variants.find((item) => item.id === selectedVariantId)?.maxQuantity ?? 0)))} onClick={addToCart}>Add to order <span>₱{((selectedProduct.variants?.find((item) => item.id === selectedVariantId)?.price ?? selectedProduct.price) * selectedQuantity).toFixed(2)} →</span></button>
+        {(selectedProduct.additions ?? []).length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Additions</strong><span>Optional</span></div>{selectedProduct.additions?.map((addition) => {
+          const selectedVariant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
+          const otherSelectedAdditions = (selectedProduct.additions ?? []).filter((item) => item.id !== addition.id && selectedAdditionIds.includes(item.id));
+          const available = additionAvailable(addition, selectedQuantity, cart, selectedVariant?.ingredients ?? [], otherSelectedAdditions);
+          return <label key={addition.id} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, color: available ? "#6B4C3B" : "#B9A398" }}><input type="checkbox" checked={selectedAdditionIds.includes(addition.id)} disabled={!selectedAdditionIds.includes(addition.id) && !available} onChange={() => setSelectedAdditionIds((current) => current.includes(addition.id) ? current.filter((id) => id !== addition.id) : [...current, addition.id])} />{addition.name} · {addition.quantity} {addition.unit}{!selectedAdditionIds.includes(addition.id) && !available ? " · insufficient stock" : ""}</label>;
+        })}</div>}
+        <button className="add-order-button" disabled={Boolean(selectedProduct.variants?.length && (!selectedProduct.variants.find((item) => item.id === selectedVariantId)?.available || selectedQuantity > (selectedProduct.variants.find((item) => item.id === selectedVariantId)?.maxQuantity ?? 0) || selectedProduct.additions?.some((addition) => selectedAdditionIds.includes(addition.id) && !additionAvailable(addition, selectedQuantity, cart, selectedProduct.variants?.find((item) => item.id === selectedVariantId)?.ingredients ?? [], (selectedProduct.additions ?? []).filter((item) => item.id !== addition.id && selectedAdditionIds.includes(item.id))))))} onClick={addToCart}>Add to order <span>₱{((selectedProduct.variants?.find((item) => item.id === selectedVariantId)?.price ?? selectedProduct.price) * selectedQuantity).toFixed(2)} →</span></button>
       </section>
     </div>}
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
       <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
-        {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.variantName} · ₱{item.price.toFixed(2)}</span></div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
+        {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.variantName} · ₱{item.price.toFixed(2)}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => addition.name).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
         <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">Payment is not included yet. Your order will be sent to the café for preparation.</p><button className="add-order-button" disabled={placingOrder} onClick={() => void submitOrder()}>{placingOrder ? "Sending order..." : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}

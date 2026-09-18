@@ -3,7 +3,12 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
-type CheckoutItem = { product_variant_id: number; quantity: number };
+type CheckoutItem = { product_variant_id: number; quantity: number; addition_ids?: unknown };
+
+function parseAdditionIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0);
+}
 
 export async function POST(request: Request) {
   const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
@@ -16,13 +21,23 @@ export async function POST(request: Request) {
       ? body.items.map((item) => ({
           productVariantId: Number((item as CheckoutItem).product_variant_id),
           quantity: Number((item as CheckoutItem).quantity),
+          additionIds: parseAdditionIds((item as CheckoutItem).addition_ids),
         })).filter((item) => Number.isInteger(item.productVariantId) && item.productVariantId > 0 && Number.isInteger(item.quantity) && item.quantity > 0)
       : [];
 
     if (items.length === 0) return NextResponse.json({ error: "At least one valid cart item is required." }, { status: 400 });
 
     const quantities = new Map<number, number>();
-    for (const item of items) quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
+    const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[] }>();
+    for (const item of items) {
+      quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
+      const additionIds = Array.from(new Set(item.additionIds)).sort((a, b) => a - b);
+      const groupKey = `${item.productVariantId}:${additionIds.join(",")}`;
+      const current = groupedItems.get(groupKey);
+      groupedItems.set(groupKey, current
+        ? { ...current, quantity: current.quantity + item.quantity }
+        : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds });
+    }
 
     await client.query("BEGIN");
     const variantIds = Array.from(quantities.keys());
@@ -51,6 +66,23 @@ export async function POST(request: Request) {
         const inventoryId = Number(ingredient.inventory_id);
         const deduction = Number(ingredient.required_quantity) * orderedQuantity;
         deductions.set(inventoryId, (deductions.get(inventoryId) ?? 0) + deduction);
+      }
+      const variantGroups = Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id));
+      for (const group of variantGroups) {
+        if (group.additionIds.length === 0) continue;
+        const additionsResult = await client.query(`
+          SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          WHERE pa.product_id = $1 AND a.addition_id = ANY($2::int[])
+          FOR UPDATE OF a
+        `, [variant.product_id, group.additionIds]);
+        if (additionsResult.rowCount !== group.additionIds.length) throw new Error(`${variant.product_name} has an invalid addition selection.`);
+        for (const addition of additionsResult.rows) {
+          const inventoryId = Number(addition.inventory_id);
+          const deduction = Number(addition.quantity) * group.quantity;
+          deductions.set(inventoryId, (deductions.get(inventoryId) ?? 0) + deduction);
+        }
       }
     }
 
@@ -84,10 +116,20 @@ export async function POST(request: Request) {
     `, [session.adminId, total, queueNumber]);
 
     for (const variant of variants.rows) {
-      await client.query(`
+      const variantGroups = Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id));
+      for (const group of variantGroups) {
+      const itemResult = await client.query(`
         INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price)
         VALUES ($1, $2, $3, $4, $5)
-      `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, quantities.get(Number(variant.product_variant_id)), variant.price]);
+        RETURNING order_item_id
+      `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, group.quantity, variant.price]);
+      for (const additionId of group.additionIds) {
+        await client.query(`
+          INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity)
+          VALUES ($1, $2, $3)
+        `, [itemResult.rows[0].order_item_id, additionId, group.quantity]);
+      }
+      }
     }
 
     await client.query("COMMIT");

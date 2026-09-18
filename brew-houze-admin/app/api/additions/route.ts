@@ -63,3 +63,64 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Could not create addition." }, { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await request.json();
+    const additionId = Number(body?.addition_id);
+    if (!Number.isInteger(additionId) || additionId <= 0) {
+      return NextResponse.json({ error: "A valid addition_id is required." }, { status: 400 });
+    }
+
+    const usageResult = await pool.query(`
+      SELECT DISTINCT p.product_name
+      FROM products p
+      JOIN product_additions pa ON pa.product_id = p.product_id
+      WHERE pa.addition_id = $1
+      ORDER BY p.product_name ASC
+    `, [additionId]);
+
+    if ((usageResult.rowCount ?? 0) > 0) {
+      const productNames = usageResult.rows.map((row) => row.product_name as string);
+      const preview = productNames.length > 5
+        ? `${productNames.slice(0, 5).join(", ")}, and ${productNames.length - 5} more`
+        : productNames.join(", ");
+      return NextResponse.json({
+        error: `This addition is used in ${productNames.length} product${productNames.length === 1 ? "" : "s"} (${preview}). Remove it from those products before archiving it.`,
+      }, { status: 409 });
+    }
+
+    const historicalUsageResult = await pool.query(`
+      SELECT 1
+      FROM sales_order_item_additions
+      WHERE addition_id = $1
+      LIMIT 1
+    `, [additionId]);
+    if ((historicalUsageResult.rowCount ?? 0) > 0) {
+      return NextResponse.json({
+        error: "This addition is included in completed sales and cannot be permanently archived without removing historical finance details.",
+      }, { status: 409 });
+    }
+
+    const result = await pool.query(`
+      DELETE FROM additions
+      WHERE addition_id = $1 AND is_active = TRUE
+      RETURNING addition_id
+    `, [additionId]);
+
+    if (result.rowCount === 0) {
+      return NextResponse.json({ error: "Addition item not found." }, { status: 404 });
+    }
+
+    return NextResponse.json({ data: { addition_id: result.rows[0].addition_id } });
+  } catch (error) {
+    const pgError = error as { code?: string };
+    if (pgError.code === "23503") {
+      return NextResponse.json({
+        error: "This addition is still referenced by a product. Remove it from that product before archiving it.",
+      }, { status: 409 });
+    }
+    console.error("DELETE /api/additions failed:", error);
+    return NextResponse.json({ error: "Could not archive addition item." }, { status: 500 });
+  }
+}

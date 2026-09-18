@@ -33,7 +33,17 @@ export async function GET(request: Request) {
               'variant_id', soi.product_variant_id,
               'size_label', pv.size_label,
               'quantity', soi.quantity,
-              'unit_price', soi.unit_price
+              'unit_price', soi.unit_price,
+              'additions', COALESCE((
+                SELECT json_agg(json_build_object(
+                  'addition_id', a.addition_id,
+                  'addition_name', a.addition_name,
+                  'quantity', soia.quantity
+                ) ORDER BY a.addition_name)
+                FROM sales_order_item_additions soia
+                JOIN additions a ON a.addition_id = soia.addition_id
+                WHERE soia.order_item_id = soi.order_item_id
+              ), '[]'::json)
             )
             ORDER BY soi.order_item_id
           ) FILTER (WHERE soi.order_item_id IS NOT NULL),
