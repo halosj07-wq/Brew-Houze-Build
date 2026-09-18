@@ -129,7 +129,10 @@ function parseImageData(value: unknown): { data: Buffer | null; mimeType: string
 export async function GET() {
   try {
     const additionTableResult = await pool.query(`
-      SELECT to_regclass('public.product_additions') IS NOT NULL AS available
+      SELECT
+        to_regclass('public.product_additions') IS NOT NULL
+        AND to_regclass('public.additions') IS NOT NULL
+        AND to_regclass('public.inventory') IS NOT NULL AS available
     `);
     const productAdditionsExpression = additionTableResult.rows[0]?.available
       ? `(
