@@ -475,9 +475,9 @@ function QueuePage() {
       {queueError && <p style={{ color: "#B91C1C", fontSize: 13 }}>{queueError}</p>}
       {queue.length === 0 && !queueError && <p style={{ color: "#9C8278", margin: 0 }}>No customers waiting.</p>}
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {queue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: "1px solid #F0E8E2" }}>
+        {queue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 12px", borderTop: "1px solid #F0E8E2", background: order.order_source === "online" ? "#F0FDFA" : "transparent", borderLeft: order.order_source === "online" ? "4px solid #0D9488" : "4px solid transparent" }}>
           <strong style={{ color: "#D97706", fontSize: 24, minWidth: 60 }}>#{order.queue_number}</strong>
-          <span style={{ flex: 1, color: "#6B4C3B", fontSize: 13 }}>{order.items}</span>
+          <span style={{ flex: 1, color: "#6B4C3B", fontSize: 13 }}>{order.items}{order.order_source === "online" && <small style={{ display: "block", color: "#0D9488", fontWeight: 700, marginTop: 3 }}>ONLINE ORDER</small>}</span>
           <button onClick={() => void serveOrder(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to serve order."))} style={{ border: "1px solid #D97706", background: "#FFF7ED", color: "#B45309", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Serve</button>
         </div>)}
       </div>
