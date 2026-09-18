@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Product = {
   id: number;
@@ -48,6 +48,35 @@ export default function MenuPage() {
   const [placingOrder, setPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+
+  function playReadyPing() {
+    const audioContext = audioContextRef.current;
+    if (!audioContext || audioContext.state !== "running") return;
+    const now = audioContext.currentTime;
+    [659.25, 880].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.08, now + index * 0.12 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.12 + 0.28);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now + index * 0.12);
+      oscillator.stop(now + index * 0.12 + 0.3);
+    });
+  }
+
+  useEffect(() => {
+    const enableAudio = () => {
+      if (!audioContextRef.current) audioContextRef.current = new AudioContext();
+      void audioContextRef.current.resume();
+    };
+    window.addEventListener("pointerdown", enableAudio, { once: true });
+    return () => window.removeEventListener("pointerdown", enableAudio);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -204,7 +233,10 @@ export default function MenuPage() {
               return update ? { ...order, status: update.status } : order;
             })
             .filter((order) => order.status !== "flushed");
-          if (newlyReady) setOrderPlaced(true);
+          if (newlyReady) {
+            playReadyPing();
+            setOrderPlaced(true);
+          }
           if (updatedOrders.length === 0) setOrderPlaced(false);
           return updatedOrders;
           });

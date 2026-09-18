@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type QueueOrder = {
   order_id: number;
@@ -19,6 +19,33 @@ export default function QueueScreen() {
   const [ready, setReady] = useState<QueueOrder[]>([]);
   const [error, setError] = useState("");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const knownReadyIdsRef = useRef<Set<number> | null>(null);
+
+  function enableSound() {
+    if (!audioContextRef.current) audioContextRef.current = new AudioContext();
+    void audioContextRef.current.resume().then(() => setSoundEnabled(true));
+  }
+
+  function playReadyPing() {
+    const audioContext = audioContextRef.current;
+    if (!audioContext || audioContext.state !== "running") return;
+    const now = audioContext.currentTime;
+    [659.25, 880].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.0001, now + index * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.08, now + index * 0.12 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.12 + 0.28);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(now + index * 0.12);
+      oscillator.stop(now + index * 0.12 + 0.3);
+    });
+  }
 
   useEffect(() => {
     let active = true;
@@ -28,6 +55,9 @@ export default function QueueScreen() {
         const payload = await response.json() as QueuePayload;
         if (!response.ok) throw new Error(payload.error || "Unable to load the queue.");
         if (active) {
+          const nextReadyIds = new Set((payload.data?.ready ?? []).map((order) => order.order_id));
+          if (knownReadyIdsRef.current && Array.from(nextReadyIds).some((id) => !knownReadyIdsRef.current?.has(id))) playReadyPing();
+          knownReadyIdsRef.current = nextReadyIds;
           setWaiting(payload.data?.waiting ?? []);
           setReady(payload.data?.ready ?? []);
           setError("");
@@ -51,7 +81,7 @@ export default function QueueScreen() {
   return <main className="queue-screen">
     <header className="screen-header">
       <div className="brand"><span className="brand-mark"><IconCoffee /></span><div><strong>Brew Houze</strong><span>Customer Queue</span></div></div>
-      <div className="date-block"><strong>{dateLabel}</strong><span>{lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Connecting..."}</span></div>
+      <div className="date-block"><strong>{dateLabel}</strong><span>{lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Connecting..."}</span><button className="sound-button" onClick={enableSound}>{soundEnabled ? "Sound enabled" : "Enable pickup sound"}</button></div>
     </header>
     {error && <div className="screen-error">{error}</div>}
     <section className="queue-grid">

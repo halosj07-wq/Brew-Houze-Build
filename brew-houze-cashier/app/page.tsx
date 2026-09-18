@@ -27,6 +27,10 @@ function IconChevron({ size = 16 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>;
 }
 
+function uniqueQueueOrders(orders: QueueOrder[]) {
+  return Array.from(new Map(orders.map((order) => [order.order_id, order])).values());
+}
+
 const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
   { id: "pos", label: "Point of Sale", Icon: IconGrid },
   { id: "queue", label: "Queue", Icon: IconList },
@@ -397,8 +401,8 @@ function QueuePage() {
     const response = await fetch("/api/queue", { cache: "no-store" });
     const payload = await response.json() as { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[] }; error?: string };
     if (!response.ok) throw new Error(payload.error || "Unable to load queue.");
-    setQueue(payload.data?.waiting ?? []);
-    setReadyQueue(payload.data?.ready ?? []);
+    setQueue(uniqueQueueOrders(payload.data?.waiting ?? []));
+    setReadyQueue(uniqueQueueOrders(payload.data?.ready ?? []));
   }
 
   async function serveOrder(orderId: number) {
@@ -411,7 +415,7 @@ function QueuePage() {
     if (!response.ok) throw new Error(payload?.error || "Unable to serve order.");
     setQueue((current) => current.filter((order) => order.order_id !== orderId));
     const servedOrder = queue.find((order) => order.order_id === orderId);
-    if (servedOrder) setReadyQueue((current) => [servedOrder, ...current]);
+    if (servedOrder) setReadyQueue((current) => [servedOrder, ...current.filter((order) => order.order_id !== orderId)]);
   }
 
   async function flushOrder(orderId: number) {
