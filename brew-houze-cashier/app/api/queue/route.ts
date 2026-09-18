@@ -13,6 +13,7 @@ export async function GET() {
         so.order_id,
         so.queue_number,
         so.queue_status,
+        so.order_source,
         so.created_at,
         COALESCE(
           STRING_AGG(

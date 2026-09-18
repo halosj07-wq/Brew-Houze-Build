@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 type Page = "pos" | "queue" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string };
 type IconProps = { size?: number };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -330,7 +330,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {queue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "9px 0", borderTop: "1px solid #F0E8E2" }}>
             <strong style={{ color: "#D97706", fontSize: 18, minWidth: 40 }}>#{order.queue_number}</strong>
-            <span style={{ flex: 1, color: "#6B4C3B", fontSize: 12 }}>{order.items}</span>
+            <span style={{ flex: 1, color: "#6B4C3B", fontSize: 12 }}>{order.items}{order.order_source === "online" && <small style={{ display: "block", color: "#0D9488", fontWeight: 700, marginTop: 3 }}>ONLINE ORDER</small>}</span>
           </div>)}
         </div>
         <p style={{ margin: 0, color: "#9C8278", fontSize: 11 }}>Preview only. Manage and serve orders from the Queue tab.</p>
@@ -413,7 +413,7 @@ function QueuePage() {
       <div style={{ display: "flex", flexDirection: "column" }}>
         {readyQueue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderTop: "1px solid #FED7AA" }}>
           <strong style={{ color: "#C2410C", fontSize: 24, minWidth: 60 }}>#{order.queue_number}</strong>
-          <span style={{ flex: 1, color: "#7C2D12", fontSize: 13 }}>{order.items}</span>
+          <span style={{ flex: 1, color: "#7C2D12", fontSize: 13 }}>{order.items}{order.order_source === "online" && <small style={{ display: "block", color: "#0D9488", fontWeight: 700, marginTop: 3 }}>ONLINE ORDER</small>}</span>
           <button onClick={() => void flushOrder(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to flush ready order."))} style={{ border: "1px solid #EA580C", background: "#FFF", color: "#C2410C", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Flush</button>
         </div>)}
       </div>
