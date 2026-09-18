@@ -61,11 +61,6 @@ body {
   padding-right: 0.25rem;
 }
 
-/* The tabbed variant editor replaces the legacy stacked 22 oz panel. */
-.app-content .fixed.inset-0 > div[style*="max-height"] > div:nth-child(2) > div:nth-child(5) {
-  display: none;
-}
-
 .sidebar-toggle-row {
   position: absolute;
   top: 72px;

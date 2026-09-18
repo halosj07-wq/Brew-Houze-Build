@@ -22,6 +22,7 @@ type ProductRow = {
   required_quantity: number | null;
   item_name: string | null;
   unit_of_measure: string | null;
+  product_ingredients: { inventoryId: number; label: string | null; qty: number; unit: string | null }[] | null;
   product_additions: { additionId: number; name: string; quantity: number; unit: string }[] | null;
 };
 
@@ -80,7 +81,12 @@ function mapProducts(rows: ProductRow[]): Product[] {
         imageData: row.image_data && row.image_mime_type ? `data:${row.image_mime_type};base64,${row.image_data}` : "",
         price: Number(row.price),
         hasSales: Boolean(row.product_has_sales),
-        ingredients: [],
+        ingredients: (row.product_ingredients ?? []).map((ingredient) => ({
+          inventoryId: Number(ingredient.inventoryId),
+          label: ingredient.label,
+          qty: Number(ingredient.qty),
+          unit: ingredient.unit,
+        })),
         variants: [],
         additions: (row.product_additions ?? []).map((addition) => ({ id: Number(addition.additionId), name: addition.name, quantity: Number(addition.quantity), unit: addition.unit })),
       });
@@ -172,6 +178,17 @@ export async function GET() {
           SELECT 1 FROM sales_order_items soi
           WHERE soi.product_id = p.product_id
         ) AS product_has_sales
+        ,(
+          SELECT COALESCE(json_agg(json_build_object(
+            'inventoryId', pi.inventory_id,
+            'label', pi_item.item_name,
+            'qty', pi.required_quantity,
+            'unit', pi_item.unit_of_measure
+          ) ORDER BY pi.product_ingredient_id), '[]'::json)
+          FROM product_ingredients pi
+          JOIN inventory pi_item ON pi_item.inventory_id = pi.inventory_id
+          WHERE pi.product_id = p.product_id
+        ) AS product_ingredients
         ,${productAdditionsExpression} AS product_additions
       FROM products p
       LEFT JOIN product_variants pv
@@ -274,6 +291,17 @@ export async function POST(request: Request) {
           SELECT 1 FROM sales_order_items soi
           WHERE soi.product_id = p.product_id
         ) AS product_has_sales
+        ,(
+          SELECT COALESCE(json_agg(json_build_object(
+            'inventoryId', pi.inventory_id,
+            'label', pi_item.item_name,
+            'qty', pi.required_quantity,
+            'unit', pi_item.unit_of_measure
+          ) ORDER BY pi.product_ingredient_id), '[]'::json)
+          FROM product_ingredients pi
+          JOIN inventory pi_item ON pi_item.inventory_id = pi.inventory_id
+          WHERE pi.product_id = p.product_id
+        ) AS product_ingredients
         ,(
           SELECT COALESCE(json_agg(json_build_object('additionId', a.addition_id, 'name', a.addition_name, 'quantity', a.quantity, 'unit', i.unit_of_measure) ORDER BY a.addition_name), '[]'::json)
           FROM product_additions pa
