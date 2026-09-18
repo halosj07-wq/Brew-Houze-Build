@@ -15,6 +15,7 @@ export async function GET() {
             'id', a.addition_id,
             'name', a.addition_name,
             'quantity', a.quantity,
+            'price', a.price,
             'unit', i_addition.unit_of_measure,
             'inventoryId', a.inventory_id,
             'availableQuantity', i_addition.quantity

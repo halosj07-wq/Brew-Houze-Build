@@ -21,6 +21,7 @@ export async function GET() {
             'addition_id', a.addition_id,
             'addition_name', a.addition_name,
             'quantity', a.quantity,
+            'price', a.price,
             'unit_of_measure', i_addition.unit_of_measure,
             'inventory_id', a.inventory_id,
             'available_quantity', i_addition.quantity
@@ -57,6 +58,7 @@ export async function GET() {
                   'addition_id', a.addition_id,
                   'addition_name', a.addition_name,
                   'quantity', a.quantity,
+                  'price', a.price,
                   'unit_of_measure', i_addition.unit_of_measure
                 ) ORDER BY a.addition_name)
                 FROM product_additions pa

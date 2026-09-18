@@ -26,7 +26,8 @@ export async function GET(request: Request) {
           SELECT json_agg(json_build_object(
             'addition_id', a.addition_id,
             'addition_name', a.addition_name,
-            'quantity', soia.quantity
+            'quantity', soia.quantity,
+            'unit_price', soia.unit_price
           ) ORDER BY a.addition_name)
           FROM sales_order_item_additions soia
           JOIN additions a ON a.addition_id = soia.addition_id

@@ -24,6 +24,7 @@ type AdditionItem = {
   item_name: string;
   unit_of_measure: string;
   quantity: number;
+  price: number;
 };
 
 const inventoryUnits = ["mL", "grams", "Pieces"] as const;
@@ -188,6 +189,7 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
   const [additionName, setAdditionName] = useState("");
   const [inventoryId, setInventoryId] = useState("");
   const [quantity, setQuantity] = useState("");
+  const [price, setPrice] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -201,13 +203,14 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
       const response = await fetch("/api/additions", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to load additions.");
-      setItems((payload.data ?? []).map((item: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; }) => ({
+      setItems((payload.data ?? []).map((item: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number; }) => ({
         addition_id: Number(item.id),
         addition_name: item.name,
         inventory_id: Number(item.inventoryId),
         item_name: item.itemName,
         unit_of_measure: item.unit,
         quantity: Number(item.quantity),
+        price: Number(item.price),
       })));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load additions.");
@@ -225,8 +228,9 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
     event.preventDefault();
     setError("");
     const parsedQuantity = Number(quantity);
-    if (!additionName.trim() || !selectedInventory || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      setError("Addition name, inventory item, and a quantity greater than zero are required.");
+    const parsedPrice = Number(price);
+    if (!additionName.trim() || !selectedInventory || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      setError("Addition name, inventory item, quantity, and a valid non-negative price are required.");
       return;
     }
 
@@ -239,14 +243,19 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
       const response = await fetch("/api/additions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addition_name: additionName, inventory_id: selectedInventory.inventory_id, quantity: parsedQuantity }),
+        body: JSON.stringify({ addition_name: additionName, inventory_id: selectedInventory.inventory_id, quantity: parsedQuantity, price: parsedPrice }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to create addition.");
-      setItems((current) => [...current, payload.data]);
+      setItems((current) => [...current, {
+        ...payload.data,
+        quantity: Number(payload.data.quantity),
+        price: Number(payload.data.price),
+      }]);
       setAdditionName("");
       setInventoryId("");
       setQuantity("");
+      setPrice("");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Failed to create addition.");
     } finally {
@@ -279,6 +288,7 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
         <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Inventory Item</span><select required value={inventoryId} onChange={(event) => setInventoryId(event.target.value)} style={additionInputBase}><option value="">Choose inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select></label>
         <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Unit of Measure</span><input readOnly value={selectedInventory?.unit_of_measure ?? ""} placeholder="Auto-filled" style={{ ...additionInputBase, background: "#F3EDE5" }} /></label>
         <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Quantity</span><input required type="number" min="0.01" step={selectedInventory?.is_whole_unit ? "1" : "0.01"} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" style={additionInputBase} /></label>
+        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Selling Price</span><input required type="number" min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" style={additionInputBase} /></label>
         <button type="submit" disabled={saving || loading} style={{ border: "none", borderRadius: 10, padding: "11px 16px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Adding..." : "Add Addition"}</button>
       </form>
       {error && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{error}</p>}
@@ -286,7 +296,7 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
     </div>
     <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
       <div className="px-6 py-4 border-b" style={{ borderColor: "#E8DDD5" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>Addition Items</h3></div>
-      {loading ? <p className="p-6" style={{ color: "#9C8278" }}>Loading additions...</p> : items.length === 0 ? <p className="p-6" style={{ color: "#9C8278" }}>No addition items yet.</p> : <div className="divide-y">{items.map((item) => <div key={item.addition_id} className="flex items-center justify-between gap-4 px-6 py-4" style={{ borderColor: "#E8DDD5" }}><div><p style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>{item.addition_name}</p><p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 12 }}>Uses {item.item_name}</p></div><div className="flex items-center gap-4"><p style={{ margin: 0, color: "#6B4C3B", fontFamily: "JetBrains Mono, monospace", fontSize: 13 }}>{item.quantity} {item.unit_of_measure}</p><button type="button" onClick={() => archiveItem(item.addition_id)} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "6px 10px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Archive</button></div></div>)}</div>}
+      {loading ? <p className="p-6" style={{ color: "#9C8278" }}>Loading additions...</p> : items.length === 0 ? <p className="p-6" style={{ color: "#9C8278" }}>No addition items yet.</p> : <div className="divide-y">{items.map((item) => <div key={item.addition_id} className="flex items-center justify-between gap-4 px-6 py-4" style={{ borderColor: "#E8DDD5" }}><div><p style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>{item.addition_name}</p><p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 12 }}>Uses {item.item_name}</p></div><div className="flex items-center gap-4"><p style={{ margin: 0, color: "#6B4C3B", fontFamily: "JetBrains Mono, monospace", fontSize: 13 }}>{item.quantity} {item.unit_of_measure} · ₱{Number(item.price).toFixed(2)}</p><button type="button" onClick={() => archiveItem(item.addition_id)} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "6px 10px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Archive</button></div></div>)}</div>}
     </div>
   </div>;
 }
@@ -690,7 +700,7 @@ function Inventory({
 // ─── Products ─────────────────────────────────────────────────────────────────
 type ProductIngredient = { inventoryId: number; label: string; qty: number; unit: string };
 type ProductVariant = { id?: number; size: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[] };
-type ProductAddition = { id: number; name: string; quantity: number; unit: string };
+type ProductAddition = { id: number; name: string; quantity: number; price: number; unit: string };
 type Product = { id: number; name: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
 
 const productCategories = ["Espresso Drinks", "Cold Drinks"];
@@ -810,7 +820,7 @@ function ProductCard({
               <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Additions</p>
               <div className="flex flex-wrap gap-1">
                 {product.additions.map((addition) => (
-                  <span key={`${product.id}-addition-${addition.id}`} className="rounded-lg px-2 py-0.5" style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", fontFamily: "Inter, sans-serif", fontSize: 11 }}>{addition.name} · {addition.quantity} {addition.unit}</span>
+                  <span key={`${product.id}-addition-${addition.id}`} className="rounded-lg px-2 py-0.5" style={{ background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF", fontFamily: "Inter, sans-serif", fontSize: 11 }}>{addition.name} · {addition.quantity} {addition.unit}</span>
                 ))}
               </div>
             </div>
@@ -913,6 +923,20 @@ function ProductManagement({
   }
   function removeIngredientRow(ingredientIndex: number, variantIndex = selectedVariantIndex) {
     setFormVariants((prev) => prev.map((variant, index) => index === variantIndex ? { ...variant, ingredients: variant.ingredients.filter((_, i) => i !== ingredientIndex) } : variant));
+  }
+
+  function mirrorIngredients() {
+    const sourceVariant = formVariants[selectedVariantIndex];
+    if (!sourceVariant) return;
+    const sourceSize = sourceVariant.size.trim().toLowerCase();
+    const targetSize = sourceSize === "16 oz" ? "22 oz" : sourceSize === "22 oz" ? "16 oz" : "";
+    const targetIndex = formVariants.findIndex((variant) => variant.size.trim().toLowerCase() === targetSize);
+    if (targetIndex < 0) return;
+
+    setFormVariants((previous) => previous.map((variant, index) => index === targetIndex
+      ? { ...variant, ingredients: sourceVariant.ingredients.map((ingredient) => ({ ...ingredient })) }
+      : variant
+    ));
   }
 
   function addProductAddition(value: string) {
@@ -1085,13 +1109,13 @@ function ProductManagement({
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Additions <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
                 {additions.length === 0
                   ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12 }}>No additions available. Create one in Additions Management first.</p>
-                  : <select value="" onChange={(event) => addProductAddition(event.target.value)} disabled={availableAdditions.length === 0 || saving} style={{ ...inputBase, cursor: availableAdditions.length === 0 ? "default" : "pointer" }}><option value="">{availableAdditions.length === 0 ? "All additions are already bound" : "Select an addition to bind"}</option>{availableAdditions.map((addition) => <option key={addition.id} value={addition.id}>{addition.name} · {addition.quantity} {addition.unit}</option>)}</select>}
+                  : <select value="" onChange={(event) => addProductAddition(event.target.value)} disabled={availableAdditions.length === 0 || saving} style={{ ...inputBase, cursor: availableAdditions.length === 0 ? "default" : "pointer" }}><option value="">{availableAdditions.length === 0 ? "All additions are already bound" : "Select an addition to bind"}</option>{availableAdditions.map((addition) => <option key={addition.id} value={addition.id}>{addition.name} · ₱{Number(addition.price).toFixed(2)} · {addition.quantity} {addition.unit}</option>)}</select>}
                 {selectedAdditions.length === 0
                   ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12 }}>No additions bound to this product.</p>
-                  : <div className="flex flex-col gap-2">{selectedAdditions.map((addition) => <div key={addition.id} className="flex items-center justify-between gap-3 py-1" style={{ borderBottom: "1px solid #E8DDD5" }}><span><span style={{ display: "block", color: "#3D2B1F", fontSize: 13, fontWeight: 600 }}>{addition.name}</span><span style={{ color: "#9C8278", fontSize: 11 }}>{addition.quantity} {addition.unit} consumed from inventory</span></span><button type="button" onClick={() => removeProductAddition(addition.id)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "5px 9px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>Remove</button></div>)}</div>}
+                  : <div className="flex flex-col gap-2">{selectedAdditions.map((addition) => <div key={addition.id} className="flex items-center justify-between gap-3 py-1" style={{ borderBottom: "1px solid #E8DDD5" }}><span><span style={{ display: "block", color: "#3D2B1F", fontSize: 13, fontWeight: 600 }}>{addition.name} · ₱{Number(addition.price).toFixed(2)}</span><span style={{ color: "#9C8278", fontSize: 11 }}>{addition.quantity} {addition.unit} consumed from inventory</span></span><button type="button" onClick={() => removeProductAddition(addition.id)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "5px 9px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>Remove</button></div>)}</div>}
               </div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5" }}><img src={formImageData || formImage.trim()} alt="preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
-              <div className="flex flex-col gap-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1 rounded-xl p-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>{formVariants.map((variant, index) => <button key={variant.size} onClick={() => setSelectedVariantIndex(index)} style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: selectedVariantIndex === index ? "#3D2B1F" : "transparent", color: selectedVariantIndex === index ? "#FDF9F5" : "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{variant.size}</button>)}</div><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} onChange={(event) => setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant))} placeholder="0" style={{ ...inputBase, width: 100 }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant?.size} Ingredients</label><button onClick={() => addIngredientRow()} disabled={inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div>
+              <div className="flex flex-col gap-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1 rounded-xl p-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>{formVariants.map((variant, index) => <button key={variant.size} type="button" onClick={() => setSelectedVariantIndex(index)} style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: selectedVariantIndex === index ? "#3D2B1F" : "transparent", color: selectedVariantIndex === index ? "#FDF9F5" : "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{variant.size}</button>)}</div><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} onChange={(event) => setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant))} placeholder="0" style={{ ...inputBase, width: 100 }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant?.size} Ingredients</label><div className="flex items-center gap-2"><button type="button" onClick={mirrorIngredients} disabled={saving || !["16 oz", "22 oz"].includes(activeVariant?.size.trim().toLowerCase() ?? "")} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#1D4ED8", cursor: saving ? "default" : "pointer", opacity: saving || !["16 oz", "22 oz"].includes(activeVariant?.size.trim().toLowerCase() ?? "") ? 0.5 : 1 }} title={`Copy ${activeVariant?.size ?? "current"} ingredients to the other size`}>Mirror to {activeVariant?.size.trim().toLowerCase() === "16 oz" ? "22 oz" : "16 oz"}</button><button type="button" onClick={() => addIngredientRow()} disabled={inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
                 <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r))} style={{ ...inputBase, flex: 1 }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r))} style={{ ...inputBase, width: 70 }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
             </div>

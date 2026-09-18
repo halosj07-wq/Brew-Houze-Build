@@ -5,7 +5,7 @@ export async function GET() {
   try {
     const result = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity
+             i.unit_of_measure, a.quantity, a.price
       FROM additions a
       JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.is_active = TRUE
@@ -19,6 +19,7 @@ export async function GET() {
         itemName: row.item_name,
         unit: row.unit_of_measure,
         quantity: Number(row.quantity),
+        price: Number(row.price),
       })),
     });
   } catch (error) {
@@ -33,8 +34,9 @@ export async function POST(request: Request) {
     const additionName = String(body?.addition_name ?? "").trim();
     const inventoryId = Number(body?.inventory_id);
     const quantity = Number(body?.quantity);
-    if (!additionName || !Number.isInteger(inventoryId) || inventoryId <= 0 || !Number.isFinite(quantity) || quantity <= 0) {
-      return NextResponse.json({ error: "Addition name, inventory item, and a quantity greater than zero are required." }, { status: 400 });
+    const price = Number(body?.price);
+    if (!additionName || !Number.isInteger(inventoryId) || inventoryId <= 0 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) {
+      return NextResponse.json({ error: "Addition name, inventory item, quantity, and a valid non-negative price are required." }, { status: 400 });
     }
 
     const inventoryResult = await pool.query("SELECT inventory_id, is_whole_unit FROM inventory WHERE inventory_id = $1", [inventoryId]);
@@ -44,13 +46,13 @@ export async function POST(request: Request) {
     }
 
     const result = await pool.query(`
-      INSERT INTO additions (addition_name, inventory_id, quantity)
-      VALUES ($1, $2, $3)
-      RETURNING addition_id, addition_name, inventory_id, quantity
-    `, [additionName, inventoryId, quantity]);
+      INSERT INTO additions (addition_name, inventory_id, quantity, price)
+      VALUES ($1, $2, $3, $4)
+      RETURNING addition_id, addition_name, inventory_id, quantity, price
+    `, [additionName, inventoryId, quantity, price]);
     const fullResult = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity
+             i.unit_of_measure, a.quantity, a.price
       FROM additions a JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.addition_id = $1
     `, [result.rows[0].addition_id]);

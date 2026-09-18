@@ -23,7 +23,7 @@ type ProductRow = {
   item_name: string | null;
   unit_of_measure: string | null;
   product_ingredients: { inventoryId: number; label: string | null; qty: number; unit: string | null }[] | null;
-  product_additions: { additionId: number; name: string; quantity: number; unit: string }[] | null;
+  product_additions: { additionId: number; name: string; quantity: number; price: number; unit: string }[] | null;
 };
 
 type Product = {
@@ -47,7 +47,7 @@ type Product = {
     qty: number;
     unit: string | null;
   }[];
-  additions: { id: number; name: string; quantity: number; unit: string }[];
+  additions: { id: number; name: string; quantity: number; price: number; unit: string }[];
 };
 
 type IngredientInput = {
@@ -88,7 +88,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
           unit: ingredient.unit,
         })),
         variants: [],
-        additions: (row.product_additions ?? []).map((addition) => ({ id: Number(addition.additionId), name: addition.name, quantity: Number(addition.quantity), unit: addition.unit })),
+        additions: (row.product_additions ?? []).map((addition) => ({ id: Number(addition.additionId), name: addition.name, quantity: Number(addition.quantity), price: Number(addition.price), unit: addition.unit })),
       });
     }
 
@@ -146,6 +146,7 @@ export async function GET() {
             'additionId', a.addition_id,
             'name', a.addition_name,
             'quantity', a.quantity,
+            'price', a.price,
             'unit', i.unit_of_measure
           ) ORDER BY a.addition_name), '[]'::json)
           FROM product_additions pa
@@ -303,7 +304,7 @@ export async function POST(request: Request) {
           WHERE pi.product_id = p.product_id
         ) AS product_ingredients
         ,(
-          SELECT COALESCE(json_agg(json_build_object('additionId', a.addition_id, 'name', a.addition_name, 'quantity', a.quantity, 'unit', i.unit_of_measure) ORDER BY a.addition_name), '[]'::json)
+          SELECT COALESCE(json_agg(json_build_object('additionId', a.addition_id, 'name', a.addition_name, 'quantity', a.quantity, 'price', a.price, 'unit', i.unit_of_measure) ORDER BY a.addition_name), '[]'::json)
           FROM product_additions pa
           JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
           JOIN inventory i ON i.inventory_id = a.inventory_id

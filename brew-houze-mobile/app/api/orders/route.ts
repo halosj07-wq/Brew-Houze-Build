@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     if (variants.rowCount !== variantIds.length) throw new Error("One or more selected products are no longer available.");
 
     const deductions = new Map<number, number>();
+    let additionTotal = 0;
     for (const variant of variants.rows) {
       const ingredients = await client.query(`
         SELECT vi.inventory_id, vi.required_quantity, i.item_name, i.quantity
@@ -60,7 +61,7 @@ export async function POST(request: Request) {
       for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
         if (group.additionIds.length === 0) continue;
         const additions = await client.query(`
-          SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity
+          SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity, a.price
           FROM product_additions pa
           JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
           WHERE pa.product_id = $1 AND a.addition_id = ANY($2::int[])
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
         `, [variant.product_id, group.additionIds]);
         if (additions.rowCount !== group.additionIds.length) throw new Error(`${variant.product_name} has an invalid addition selection.`);
         for (const addition of additions.rows) {
+          additionTotal += Number(addition.price) * group.quantity;
           const deduction = Number(addition.quantity) * group.quantity;
           deductions.set(Number(addition.inventory_id), (deductions.get(Number(addition.inventory_id)) ?? 0) + deduction);
         }
@@ -95,7 +97,7 @@ export async function POST(request: Request) {
     `);
     const queueNumber = Number(queueResult.rows[0].queue_number);
     const customerToken = randomUUID();
-    const total = variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0);
+    const total = variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0) + additionTotal;
     const order = await client.query(`
       INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token)
       VALUES (NULL, $1, 'completed', $2, 'waiting', 'online', $3)
@@ -110,7 +112,12 @@ export async function POST(request: Request) {
         RETURNING order_item_id
       `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, group.quantity, variant.price]).then(async (itemResult) => {
         for (const additionId of group.additionIds) {
-          await client.query("INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity) VALUES ($1, $2, $3)", [itemResult.rows[0].order_item_id, additionId, group.quantity]);
+          await client.query(`
+            INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity, unit_price)
+            SELECT $1, a.addition_id, $3, a.price
+            FROM additions a
+            WHERE a.addition_id = $2
+          `, [itemResult.rows[0].order_item_id, additionId, group.quantity]);
         }
       });
       }

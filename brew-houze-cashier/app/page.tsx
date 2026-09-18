@@ -73,7 +73,7 @@ function TopBar({ page, user, onLogout }: { page: Page; user: Session; onLogout:
 
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
-  type Addition = { addition_id: number; addition_name: string; quantity: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
+  type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
   type Product = { product_id: number; product_name: string; product_category: string | null; image_url?: string | null; additions: Addition[]; variants: Variant[] };
   type ProductsResponse = { data?: Product[] };
@@ -292,7 +292,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
       return groups;
     }, new Map<string, Product[]>())
   );
-  const subtotal = cart.reduce((s, it) => s + it.price * it.qty, 0);
+  const subtotal = cart.reduce((s, it) => s + (it.price + it.additions.reduce((total, addition) => total + Number(addition.price), 0)) * it.qty, 0);
 
   return <main className="pos-layout p-6" style={{ display: "flex", gap: 20, padding: 24 }}>
     <section style={{ flex: 1, minWidth: 0 }}>
@@ -351,9 +351,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{item.name}{item.size ? ` — ${item.size}` : ""}</div>
                 <div style={{ fontSize: 12, color: "#9C8278" }}>₱{(item.price).toFixed(2)} • x{item.qty}</div>
-                {item.additions.length > 0 && <div style={{ marginTop: 5, fontSize: 11, color: "#6B4C3B" }}>+ {item.additions.map((addition) => addition.addition_name).join(", ")}</div>}
+                {item.additions.length > 0 && <div style={{ marginTop: 5, fontSize: 11, color: "#6B4C3B" }}>+ {item.additions.map((addition) => `${addition.addition_name} (₱${Number(addition.price).toFixed(2)})`).join(", ")}</div>}
                 <div style={{ marginTop: 7, display: "flex", flexDirection: "column", gap: 4 }}>
-                  {products.find((product) => product.product_id === item.productId)?.additions?.map((addition) => { const selected = item.additions.some((current) => current.addition_id === addition.addition_id); const allowed = selected || canAddAddition(item, addition); return <label key={addition.addition_id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: allowed ? "#6B4C3B" : "#B9A398", cursor: allowed ? "pointer" : "not-allowed" }}><input type="checkbox" checked={selected} disabled={!allowed} onChange={() => toggleAddition(item.key, addition)} />{addition.addition_name}{!allowed && " · insufficient stock"}</label>; })}
+                  {products.find((product) => product.product_id === item.productId)?.additions?.map((addition) => { const selected = item.additions.some((current) => current.addition_id === addition.addition_id); const allowed = selected || canAddAddition(item, addition); return <label key={addition.addition_id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: allowed ? "#6B4C3B" : "#B9A398", cursor: allowed ? "pointer" : "not-allowed" }}><input type="checkbox" checked={selected} disabled={!allowed} onChange={() => toggleAddition(item.key, addition)} />{addition.addition_name} · ₱{Number(addition.price).toFixed(2)}{!allowed && " · insufficient stock"}</label>; })}
                 </div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
