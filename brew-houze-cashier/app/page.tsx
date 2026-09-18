@@ -161,7 +161,19 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
       item.ingredients.forEach((ingredient) => usedByOthers.set(ingredient.inventory_id, (usedByOthers.get(ingredient.inventory_id) ?? 0) + Number(ingredient.required_quantity) * item.qty));
       item.additions.forEach((addition) => usedByOthers.set(addition.inventory_id, (usedByOthers.get(addition.inventory_id) ?? 0) + Number(addition.quantity) * item.qty));
     });
-    return Math.max(0, Math.floor(Math.min(...candidate.ingredients.map((ingredient) => (Number(ingredient.available_quantity) - (usedByOthers.get(ingredient.inventory_id) ?? 0)) / Number(ingredient.required_quantity)))));
+    const resources = new Map<number, { available: number; required: number }>();
+    candidate.ingredients.forEach((ingredient) => {
+      const inventoryId = ingredient.inventory_id;
+      const current = resources.get(inventoryId) ?? { available: Number(ingredient.available_quantity), required: 0 };
+      resources.set(inventoryId, {
+        available: Math.min(current.available, Number(ingredient.available_quantity)),
+        required: current.required + Number(ingredient.required_quantity),
+      });
+    });
+    const limit = Math.min(...Array.from(resources.entries()).map(([inventoryId, resource]) => (
+      (resource.available - (usedByOthers.get(inventoryId) ?? 0)) / resource.required
+    )));
+    return Math.max(0, Math.floor(limit));
   }
 
   function canAddAddition(item: CartItem, addition: Addition): boolean {
@@ -197,9 +209,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   }
 
   function getRemainingQuantity(product: Product, variant: Variant): number {
-    const key = `${product.product_id}:${variant.product_variant_id}`;
-    const currentQuantity = cart.find((item) => item.key === key)?.qty ?? 0;
-    return Math.max(0, getCartLimit(variant, cart, key) - currentQuantity);
+    return getCartLimit(variant, cart, "");
   }
 
   function addToCart(product: Product, variant: Variant | null) {

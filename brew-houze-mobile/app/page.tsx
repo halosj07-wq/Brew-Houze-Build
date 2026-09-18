@@ -17,6 +17,8 @@ type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuan
 type Addition = { id: number; name: string; quantity: number; unit: string; inventoryId: number; availableQuantity: number };
 type Variant = { id: number; size: string | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
 type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[] };
+type OrderStatus = "waiting" | "served" | "flushed";
+type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
 
 function IconSearch() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
@@ -45,9 +47,7 @@ export default function MenuPage() {
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState("");
-  const [trackingToken, setTrackingToken] = useState("");
-  const [queueNumber, setQueueNumber] = useState<number | null>(null);
-  const [orderStatus, setOrderStatus] = useState<"waiting" | "served" | "flushed" | "">("");
+  const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -73,9 +73,18 @@ export default function MenuPage() {
     const query = search.trim().toLowerCase();
     return matchesCategory && (!query || `${product.name} ${product.description}`.toLowerCase().includes(query));
   }), [category, products, search]);
+  const groupedProducts = useMemo(() => {
+    const groups = new Map<string, Product[]>();
+    visibleProducts.forEach((product) => {
+      const group = product.category || "Other";
+      groups.set(group, [...(groups.get(group) ?? []), product]);
+    });
+    return Array.from(groups);
+  }, [visibleProducts]);
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
   const cartTotal = cart.reduce((total, item) => total + item.price * item.quantity, 0);
-  const activeOrder = Boolean(trackingToken && orderStatus && orderStatus !== "flushed");
+  const activeOrders = useMemo(() => trackedOrders.filter((order) => order.status !== "flushed"), [trackedOrders]);
+  const activeOrder = activeOrders.length > 0;
 
   function getCartLimit(item: Pick<CartItem, "ingredients" | "additions">, currentCart: CartItem[], candidateKey: string) {
     const usedByOthers = new Map<number, number>();
@@ -159,9 +168,13 @@ export default function MenuPage() {
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
       setCart([]);
       setCartOpen(false);
-      setTrackingToken(payload.data?.trackingToken ?? "");
-      setQueueNumber(payload.data?.queueNumber ?? null);
-      setOrderStatus("waiting");
+      if (payload.data?.trackingToken) {
+        setTrackedOrders((current) => [...current, {
+          trackingToken: payload.data?.trackingToken ?? "",
+          queueNumber: payload.data?.queueNumber ?? null,
+          status: "waiting",
+        }]);
+      }
       setOrderPlaced(true);
     } catch (submitError) {
       setOrderError(submitError instanceof Error ? submitError.message : "Unable to place order.");
@@ -171,14 +184,31 @@ export default function MenuPage() {
   }
 
   useEffect(() => {
-    if (!trackingToken || !activeOrder) return;
+    if (!activeOrder) return;
     let active = true;
     const checkStatus = async () => {
       try {
-        const response = await fetch(`/api/orders/${trackingToken}`, { cache: "no-store" });
-        const payload = await response.json() as { data?: { queue_status: "waiting" | "served" | "flushed" }; error?: string };
-        if (!response.ok) throw new Error(payload.error || "Unable to check order status.");
-        if (active && payload.data) setOrderStatus(payload.data.queue_status);
+        const results = await Promise.all(activeOrders.map(async (order) => {
+          const response = await fetch(`/api/orders/${order.trackingToken}`, { cache: "no-store" });
+          const payload = await response.json() as { data?: { queue_status: OrderStatus }; error?: string };
+          if (!response.ok) throw new Error(payload.error || "Unable to check order status.");
+          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status };
+        }));
+        if (active) {
+          setTrackedOrders((current) => {
+            let newlyReady = false;
+          const updatedOrders = current
+            .map((order) => {
+              const update = results.find((result) => result.trackingToken === order.trackingToken);
+              if (update?.status === "served" && order.status !== "served") newlyReady = true;
+              return update ? { ...order, status: update.status } : order;
+            })
+            .filter((order) => order.status !== "flushed");
+          if (newlyReady) setOrderPlaced(true);
+          if (updatedOrders.length === 0) setOrderPlaced(false);
+          return updatedOrders;
+          });
+        }
       } catch (statusError) {
         console.error("Mobile order status check failed", statusError);
       }
@@ -186,7 +216,7 @@ export default function MenuPage() {
     void checkStatus();
     const intervalId = window.setInterval(() => void checkStatus(), 5_000);
     return () => { active = false; window.clearInterval(intervalId); };
-  }, [activeOrder, trackingToken]);
+  }, [activeOrder, activeOrders]);
 
   return <main className="menu-shell">
     <div className="menu-container">
@@ -195,7 +225,7 @@ export default function MenuPage() {
         <div className="brand-copy"><strong>Brew Houze</strong><span>Online Menu</span></div>
         <div className="header-actions">
           <button className="header-action cart-logo-button" onClick={() => setCartOpen(true)} aria-label={cartCount > 0 ? `Open cart with ${cartCount} items` : "Open empty cart"}><IconCart />{cartCount > 0 && <span className="header-count">{cartCount}</span>}</button>
-          {activeOrder && <button className="header-action queue-action" onClick={() => setOrderPlaced(true)} aria-label="View active queue order">Queue #{queueNumber ?? "—"}</button>}
+          {activeOrder && <button className="header-action queue-action" onClick={() => setOrderPlaced(true)} aria-label="View active orders" title="View order status"><span className="queue-action-label">{activeOrders.length === 1 ? `#${activeOrders[0].queueNumber ?? "—"}` : activeOrders.length}</span><span className="queue-action-caption">ORDER</span></button>}
           <div className="table-pill"><span className="status-dot" />Table QR</div>
         </div>
       </header>
@@ -219,11 +249,16 @@ export default function MenuPage() {
         <div className="section-heading"><div><p className="eyebrow">CURATED FOR YOU</p><h2>{category === "All" ? "Our menu" : category}</h2></div><span>{visibleProducts.length} items</span></div>
         {loading && <div className="empty-state">Loading the current menu...</div>}
         {error && <div className="empty-state error-state">{error}</div>}
-        {!loading && !error && <div className="product-grid">
-          {visibleProducts.map((product) => <article className="product-card" key={product.id}>
-            <div className="product-image">{product.image ? <img src={product.image} alt="" loading="lazy" decoding="async" /> : <div className="image-placeholder"><IconCoffee /></div>}<div className="image-shade" />{product.badge && <span className="product-badge">{product.badge}</span>}</div>
-            <div className="product-info"><div className="product-category">{product.category}</div><h3>{product.name}</h3><p>{product.description}</p><div className="product-footer"><strong>₱{product.variants?.[0]?.price?.toFixed(2) ?? product.price.toFixed(2)}</strong><button disabled={Boolean(product.variants?.length && !product.variants.some((variant) => variant.available))} onClick={() => openProduct(product)} aria-label={`Add ${product.name} to order`}>{product.variants?.length && !product.variants.some((variant) => variant.available) ? "Unavailable" : "Add to order"}</button></div></div>
-          </article>)}
+        {!loading && !error && <div className="category-groups">
+          {groupedProducts.map(([group, groupProducts]) => <section className="category-group" key={group}>
+            {category === "All" && <div className="category-separator"><span>{group}</span><i /></div>}
+            <div className="product-grid">
+              {groupProducts.map((product) => <article className="product-card" key={product.id}>
+                <div className="product-image">{product.image ? <img src={product.image} alt="" loading="lazy" decoding="async" /> : <div className="image-placeholder"><IconCoffee /></div>}<div className="image-shade" />{product.badge && <span className="product-badge">{product.badge}</span>}</div>
+                <div className="product-info"><div className="product-category">{product.category}</div><h3>{product.name}</h3><p>{product.description}</p><div className="product-footer"><strong>₱{product.variants?.[0]?.price?.toFixed(2) ?? product.price.toFixed(2)}</strong><button disabled={Boolean(product.variants?.length && !product.variants.some((variant) => variant.available))} onClick={() => openProduct(product)} aria-label={`Add ${product.name} to order`}>{product.variants?.length && !product.variants.some((variant) => variant.available) ? "Unavailable" : "Add to order"}</button></div></div>
+              </article>)}
+            </div>
+          </section>)}
         </div>}
         {!loading && !error && visibleProducts.length === 0 && <div className="empty-state">No menu items match your search.</div>}
       </section>
@@ -236,7 +271,7 @@ export default function MenuPage() {
         <button className="modal-close" onClick={() => setSelectedProduct(null)} aria-label="Close">×</button>
         <div className="modal-image">{selectedProduct.image ? <img src={selectedProduct.image} alt="" decoding="async" /> : <IconCoffee />}</div>
         <p className="eyebrow">{selectedProduct.category}</p><h2>{selectedProduct.name}</h2><p className="modal-description">{selectedProduct.description}</p>
-        {selectedProduct.variants && selectedProduct.variants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProduct.variants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}</strong><span>{variant.available ? `${variant.maxQuantity} available · ₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
+        {selectedProduct.variants && selectedProduct.variants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProduct.variants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
         <div className="quantity-row"><strong>Quantity</strong><div className="quantity-control"><button onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))}>−</button><span>{selectedQuantity}</span><button onClick={() => setSelectedQuantity((value) => value + 1)}>+</button></div></div>
         {(selectedProduct.additions ?? []).length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Additions</strong><span>Optional</span></div>{selectedProduct.additions?.map((addition) => {
           const selectedVariant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
@@ -253,6 +288,6 @@ export default function MenuPage() {
         <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">Payment is not included yet. Your order will be sent to the café for preparation.</p><button className="add-order-button" disabled={placingOrder} onClick={() => void submitOrder()}>{placingOrder ? "Sending order..." : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}
-    {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal"><div className="confirmation-icon">{orderStatus === "served" ? "✓" : "!"}</div><p className="eyebrow">{orderStatus === "served" ? "READY FOR PICKUP" : "ORDER SENT"}</p><h2>{orderStatus === "served" ? "Your order is ready." : "Your order is on its way."}</h2><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{queueNumber ?? "—"}</strong></div><p>{orderStatus === "served" ? "Please pick up your order at the counter." : "The café has received your order and will notify this screen when it is ready."}</p><button className="add-order-button" onClick={() => setOrderPlaced(false)}>Back to menu</button></section></div>}
+    {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
   </main>;
 }

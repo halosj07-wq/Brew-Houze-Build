@@ -17,7 +17,10 @@ button { cursor: pointer; }
 .table-pill { display: flex; align-items: center; gap: 6px; margin-left: auto; padding: 8px 12px; color: var(--muted); background: rgba(255,250,244,.72); border: 1px solid var(--line); border-radius: 999px; font-size: 11px; }
 .header-actions { display: flex; align-items: center; gap: 7px; margin-left: auto; }
 .header-action { display: flex; align-items: center; gap: 6px; padding: 8px 11px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 999px; font-size: 11px; font-weight: 700; }
-.header-action.queue-action { color: var(--paper); background: var(--teal); border-color: var(--teal); }
+.header-action.queue-action { position: fixed; top: 18px; right: 18px; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 62px; height: 62px; padding: 0; color: var(--paper); background: var(--teal); border: 3px solid rgba(255,250,244,.9); border-radius: 50%; box-shadow: 0 8px 22px rgba(13,148,136,.3); line-height: 1; }
+.header-action.queue-action:hover { background: #087f75; transform: translateY(-2px); }
+.queue-action-label { font-size: 16px; font-weight: 800; }
+.queue-action-caption { margin-top: 4px; color: #b9f2eb; font-size: 7px; font-weight: 800; letter-spacing: .1em; }
 .cart-logo-button { position: relative; width: 38px; height: 34px; justify-content: center; padding: 0; }
 .cart-logo-button .header-count { position: absolute; top: -6px; right: -5px; }
 .header-count { display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; color: var(--paper); background: var(--orange); border-radius: 999px; font-size: 10px; }
@@ -37,6 +40,11 @@ button { cursor: pointer; }
 .section-heading h2 { margin: 5px 0 0; font-family: 'Playfair Display', serif; font-size: 29px; }
 .section-heading > span { color: var(--muted); font-size: 11px; }
 .product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.category-groups { display: flex; flex-direction: column; gap: 30px; }
+.category-group { display: flex; flex-direction: column; gap: 14px; }
+.category-separator { display: flex; align-items: center; gap: 12px; color: var(--ink); font-family: 'Playfair Display', serif; font-size: 22px; }
+.category-separator span { white-space: nowrap; }
+.category-separator i { height: 1px; flex: 1; background: var(--line); }
 .product-card { overflow: hidden; background: var(--paper); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 8px 22px rgba(88,59,40,.05); }
 .product-image { position: relative; height: 205px; overflow: hidden; background: #e7d6c4; }
 .product-image img { width: 100%; height: 100%; object-fit: cover; transition: transform .25s ease; }
@@ -92,9 +100,32 @@ button { cursor: pointer; }
 .error-message { margin: 0 0 12px; padding: 10px; color: #a33b2b; background: #fae8e3; border-radius: 9px; font-size: 12px; }
 .confirmation-modal { padding: 34px 24px 24px; text-align: center; }
 .confirmation-icon { display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto 17px; color: var(--paper); background: var(--teal); border-radius: 50%; font-size: 28px; }
+.confirmation-waiting .confirmation-icon { color: #7d4e24; background: #f4c27d; font-size: 16px; letter-spacing: 3px; padding-left: 3px; }
+.confirmation-ready .confirmation-icon { color: #fff; background: #218c72; box-shadow: 0 0 0 8px #d9f0e8; }
+.status-badge { display: inline-flex; align-items: center; margin: 0 0 9px; padding: 6px 10px; color: #7d4e24; background: #fff0dc; border-radius: 999px; font-size: 10px; font-weight: 800; letter-spacing: .12em; }
+.confirmation-ready .status-badge { color: #176b57; background: #d9f0e8; }
+.confirmation-ready h2 { color: #176b57; }
+.confirmation-waiting h2 { color: #7d4e24; }
+.confirmation-icon.confirmation-waiting { color: #7d4e24; background: #f4c27d; font-size: 16px; letter-spacing: 3px; padding-left: 3px; }
+.confirmation-icon.confirmation-ready { color: #fff; background: #218c72; box-shadow: 0 0 0 8px #d9f0e8; }
 .queue-ticket { display: flex; flex-direction: column; gap: 3px; margin: 18px 0; padding: 14px; background: #f5eadf; border-radius: 13px; }
+.confirmation-waiting .queue-ticket { background: #fff5e8; border: 1px dashed #e5ae6d; }
+.confirmation-ready .queue-ticket { background: #e8f6f0; border: 1px solid #b7e2d2; }
 .queue-ticket span { color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
 .queue-ticket strong { font-family: 'Playfair Display', serif; font-size: 36px; }
+.confirmation-modal-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.tracked-order-list { display: flex; flex-direction: column; gap: 14px; max-height: 58vh; overflow-y: auto; padding: 2px 3px 4px; }
+.tracked-order { padding: 15px; border-radius: 16px; }
+.tracked-order-waiting { background: #fff8ee; border: 1px solid #f0c58e; }
+.tracked-order-ready { background: #effaf5; border: 1px solid #b7e2d2; }
+.tracked-order-top { display: flex; align-items: center; gap: 14px; }
+.tracked-order-top .confirmation-icon { flex-shrink: 0; width: 45px; height: 45px; margin: 0; }
+.tracked-order h3 { margin: 6px 0 0; font-family: 'Playfair Display', serif; font-size: 19px; line-height: 1.05; }
+.tracked-order .status-badge { margin-bottom: 0; }
+.tracked-order .queue-ticket { margin: 14px 0 10px; padding: 10px 12px; }
+.tracked-order .queue-ticket strong { font-size: 29px; }
+.tracked-order > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.confirmation-empty { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
 .confirmation-modal .add-order-button { text-align: left; }
 .confirmation-modal .add-order-button { text-align: left; }
 .empty-state { padding: 34px; color: var(--muted); background: var(--paper); border: 1px solid var(--line); border-radius: 16px; text-align: center; }
@@ -110,4 +141,5 @@ button { cursor: pointer; }
   .table-pill { display: none; }
   .header-actions { gap: 5px; }
   .header-action { padding: 8px 9px; }
+  .header-action.queue-action { top: 12px; right: 12px; width: 58px; height: 58px; }
 }
