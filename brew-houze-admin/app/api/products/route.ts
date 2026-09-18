@@ -128,6 +128,23 @@ function parseImageData(value: unknown): { data: Buffer | null; mimeType: string
 
 export async function GET() {
   try {
+    const additionTableResult = await pool.query(`
+      SELECT to_regclass('public.product_additions') IS NOT NULL AS available
+    `);
+    const productAdditionsExpression = additionTableResult.rows[0]?.available
+      ? `(
+          SELECT COALESCE(json_agg(json_build_object(
+            'additionId', a.addition_id,
+            'name', a.addition_name,
+            'quantity', a.quantity,
+            'unit', i.unit_of_measure
+          ) ORDER BY a.addition_name), '[]'::json)
+          FROM product_additions pa
+          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
+          JOIN inventory i ON i.inventory_id = a.inventory_id
+          WHERE pa.product_id = p.product_id
+        )`
+      : "'[]'::json";
     const result = await pool.query(`
       SELECT
         p.product_id,
@@ -152,18 +169,7 @@ export async function GET() {
           SELECT 1 FROM sales_order_items soi
           WHERE soi.product_id = p.product_id
         ) AS product_has_sales
-        ,(
-          SELECT COALESCE(json_agg(json_build_object(
-            'additionId', a.addition_id,
-            'name', a.addition_name,
-            'quantity', a.quantity,
-            'unit', i.unit_of_measure
-          ) ORDER BY a.addition_name), '[]'::json)
-          FROM product_additions pa
-          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
-          JOIN inventory i ON i.inventory_id = a.inventory_id
-          WHERE pa.product_id = p.product_id
-        ) AS product_additions
+        ,${productAdditionsExpression} AS product_additions
       FROM products p
       LEFT JOIN product_variants pv
         ON pv.product_id = p.product_id

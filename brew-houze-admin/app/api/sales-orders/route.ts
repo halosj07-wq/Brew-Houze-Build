@@ -18,6 +18,21 @@ export async function GET(request: Request) {
       : isCurrentWeek ? "WHERE so.created_at >= DATE_TRUNC('week', CURRENT_TIMESTAMP)"
       : days === null ? "" : "WHERE so.created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')";
     const params: (string | number)[] = selectedDate ? [selectedDate] : isCurrentWeek || days === null ? [] : [days];
+    const additionTableResult = await pool.query(`
+      SELECT to_regclass('public.sales_order_item_additions') IS NOT NULL AS available
+    `);
+    const additionsExpression = additionTableResult.rows[0]?.available
+      ? `COALESCE((
+          SELECT json_agg(json_build_object(
+            'addition_id', a.addition_id,
+            'addition_name', a.addition_name,
+            'quantity', soia.quantity
+          ) ORDER BY a.addition_name)
+          FROM sales_order_item_additions soia
+          JOIN additions a ON a.addition_id = soia.addition_id
+          WHERE soia.order_item_id = soi.order_item_id
+        ), '[]'::json)`
+      : "'[]'::json";
 
     const result = await pool.query(`
       SELECT
@@ -34,16 +49,7 @@ export async function GET(request: Request) {
               'size_label', pv.size_label,
               'quantity', soi.quantity,
               'unit_price', soi.unit_price,
-              'additions', COALESCE((
-                SELECT json_agg(json_build_object(
-                  'addition_id', a.addition_id,
-                  'addition_name', a.addition_name,
-                  'quantity', soia.quantity
-                ) ORDER BY a.addition_name)
-                FROM sales_order_item_additions soia
-                JOIN additions a ON a.addition_id = soia.addition_id
-                WHERE soia.order_item_id = soi.order_item_id
-              ), '[]'::json)
+              'additions', ${additionsExpression}
             )
             ORDER BY soi.order_item_id
           ) FILTER (WHERE soi.order_item_id IS NOT NULL),
