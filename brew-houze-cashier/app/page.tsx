@@ -5,7 +5,8 @@ import { useEffect, useRef, useState } from "react";
 type Page = "pos" | "queue" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string };
 type IconProps = { size?: number };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string };
+type QueueOrderDetail = { product_name: string; size_label: string | null; quantity: number; additions: { name: string; quantity: number }[] };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[] };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -396,6 +397,7 @@ function QueuePage() {
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [readyQueue, setReadyQueue] = useState<QueueOrder[]>([]);
   const [queueError, setQueueError] = useState("");
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<number>>(new Set());
 
   async function loadQueue() {
     const response = await fetch("/api/queue", { cache: "no-store" });
@@ -427,6 +429,15 @@ function QueuePage() {
     const payload = await response.json();
     if (!response.ok) throw new Error(payload?.error || "Unable to flush ready order.");
     setReadyQueue((current) => current.filter((order) => order.order_id !== orderId));
+  }
+
+  function toggleOrderDetails(orderId: number) {
+    setExpandedOrderIds((current) => {
+      const next = new Set(current);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
   }
 
   useEffect(() => {
@@ -475,11 +486,26 @@ function QueuePage() {
       {queueError && <p style={{ color: "#B91C1C", fontSize: 13 }}>{queueError}</p>}
       {queue.length === 0 && !queueError && <p style={{ color: "#9C8278", margin: 0 }}>No customers waiting.</p>}
       <div style={{ display: "flex", flexDirection: "column" }}>
-        {queue.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 12px", borderTop: "1px solid #F0E8E2", background: order.order_source === "online" ? "#F0FDFA" : "transparent", borderLeft: order.order_source === "online" ? "4px solid #0D9488" : "4px solid transparent" }}>
-          <strong style={{ color: "#D97706", fontSize: 24, minWidth: 60 }}>#{order.queue_number}</strong>
-          <span style={{ flex: 1, color: "#6B4C3B", fontSize: 13 }}>{order.items}{order.order_source === "online" && <small style={{ display: "block", color: "#0D9488", fontWeight: 700, marginTop: 3 }}>ONLINE ORDER</small>}</span>
-          <button onClick={() => void serveOrder(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to serve order."))} style={{ border: "1px solid #D97706", background: "#FFF7ED", color: "#B45309", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Serve</button>
-        </div>)}
+        {queue.map((order) => {
+          const expanded = expandedOrderIds.has(order.order_id);
+          return <div key={order.order_id} style={{ padding: "14px 12px", borderTop: "1px solid #F0E8E2", background: order.order_source === "online" ? "#F0FDFA" : "transparent", borderLeft: order.order_source === "online" ? "4px solid #0D9488" : "4px solid transparent" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <strong style={{ color: "#D97706", fontSize: 24, minWidth: 60 }}>#{order.queue_number}</strong>
+              <button type="button" onClick={() => toggleOrderDetails(order.order_id)} aria-expanded={expanded} style={{ flex: 1, border: "none", background: "transparent", padding: 0, textAlign: "left", color: "#6B4C3B", fontSize: 13, cursor: "pointer" }}>
+                <span>{order.items}</span>
+                {order.order_source === "online" && <small style={{ display: "block", color: "#0D9488", fontWeight: 700, marginTop: 3 }}>ONLINE ORDER</small>}
+                <small style={{ display: "block", color: "#9C8278", fontSize: 11, marginTop: 4 }}>{expanded ? "Hide order details" : "View order details"} <span aria-hidden="true">{expanded ? "▲" : "▼"}</span></small>
+              </button>
+              <button onClick={() => void serveOrder(order.order_id).catch((error) => setQueueError(error instanceof Error ? error.message : "Unable to serve order."))} style={{ border: "1px solid #D97706", background: "#FFF7ED", color: "#B45309", borderRadius: 8, padding: "9px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Serve</button>
+            </div>
+            {expanded && <div style={{ margin: "12px 0 0 74px", padding: "10px 12px", background: "rgba(255,255,255,0.72)", border: "1px solid #E8DDD5", borderRadius: 10 }}>
+              {order.order_details.map((detail, index) => <div key={`${order.order_id}-${index}`} style={{ padding: index === 0 ? 0 : "9px 0 0", marginTop: index === 0 ? 0 : 9, borderTop: index === 0 ? "none" : "1px solid #F0E8E2", color: "#6B4C3B", fontSize: 12 }}>
+                <strong>{detail.product_name}{detail.size_label ? ` · ${detail.size_label}` : ""} × {detail.quantity}</strong>
+                {detail.additions.length > 0 && <div style={{ marginTop: 5, color: "#7E22CE" }}>Additions: {detail.additions.map((addition) => `${addition.name} × ${addition.quantity}`).join(", ")}</div>}
+              </div>)}
+            </div>}
+          </div>;
+        })}
       </div>
     </div>
   </main>;

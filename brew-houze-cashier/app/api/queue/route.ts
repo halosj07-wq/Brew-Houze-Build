@@ -15,6 +15,26 @@ export async function GET() {
         so.queue_status,
         so.order_source,
         so.created_at,
+        COALESCE((
+          SELECT json_agg(json_build_object(
+            'product_name', detail_product.product_name,
+            'size_label', detail_variant.size_label,
+            'quantity', detail_item.quantity,
+            'additions', COALESCE((
+              SELECT json_agg(json_build_object(
+                'name', detail_addition.addition_name,
+                'quantity', detail_addition_link.quantity
+              ) ORDER BY detail_addition.addition_name)
+              FROM sales_order_item_additions detail_addition_link
+              JOIN additions detail_addition ON detail_addition.addition_id = detail_addition_link.addition_id
+              WHERE detail_addition_link.order_item_id = detail_item.order_item_id
+            ), '[]'::json)
+          ) ORDER BY detail_item.order_item_id)
+          FROM sales_order_items detail_item
+          JOIN products detail_product ON detail_product.product_id = detail_item.product_id
+          LEFT JOIN product_variants detail_variant ON detail_variant.product_variant_id = detail_item.product_variant_id
+          WHERE detail_item.order_id = so.order_id
+        ), '[]'::json) AS order_details,
         COALESCE(
           STRING_AGG(
             p.product_name || CASE WHEN pv.size_label IS NULL THEN '' ELSE ' (' || pv.size_label || ')' END
