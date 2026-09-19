@@ -18,15 +18,9 @@ export default function QueueScreen() {
   const [waiting, setWaiting] = useState<QueueOrder[]>([]);
   const [ready, setReady] = useState<QueueOrder[]>([]);
   const [error, setError] = useState("");
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
   const audioContextRef = useRef<AudioContext | null>(null);
   const knownReadyIdsRef = useRef<Set<number> | null>(null);
-
-  function enableSound() {
-    if (!audioContextRef.current) audioContextRef.current = new AudioContext();
-    void audioContextRef.current.resume().then(() => setSoundEnabled(true));
-  }
 
   function playReadyPing() {
     const audioContext = audioContextRef.current;
@@ -48,6 +42,10 @@ export default function QueueScreen() {
   }
 
   useEffect(() => {
+    const clockIntervalId = window.setInterval(() => setCurrentTime(new Date()), 1_000);
+    audioContextRef.current = new AudioContext();
+    void audioContextRef.current.resume();
+
     let active = true;
     const loadQueue = async () => {
       try {
@@ -61,7 +59,6 @@ export default function QueueScreen() {
           setWaiting(payload.data?.waiting ?? []);
           setReady(payload.data?.ready ?? []);
           setError("");
-          setLastUpdated(new Date());
         }
       } catch (loadError) {
         console.error("Queue screen: failed to load queue", loadError);
@@ -71,7 +68,12 @@ export default function QueueScreen() {
 
     void loadQueue();
     const intervalId = window.setInterval(() => void loadQueue(), 5_000);
-    return () => { active = false; window.clearInterval(intervalId); };
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.clearInterval(clockIntervalId);
+      void audioContextRef.current?.close();
+    };
   }, []);
 
   const dateLabel = useMemo(() => new Intl.DateTimeFormat("en-PH", {
@@ -81,7 +83,7 @@ export default function QueueScreen() {
   return <main className="queue-screen">
     <header className="screen-header">
       <div className="brand"><span className="brand-mark"><IconCoffee /></span><div><strong>Brew Houze</strong><span>Customer Queue</span></div></div>
-      <div className="date-block"><strong>{dateLabel}</strong><span>{lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Connecting..."}</span><button className="sound-button" onClick={enableSound}>{soundEnabled ? "Sound enabled" : "Enable pickup sound"}</button></div>
+      <div className="date-block"><strong>{dateLabel}</strong><span>{currentTime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
     </header>
     {error && <div className="screen-error">{error}</div>}
     <section className="queue-grid">
