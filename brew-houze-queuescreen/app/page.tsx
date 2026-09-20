@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type QueueOrder = {
   order_id: number;
@@ -18,7 +18,6 @@ export default function QueueScreen() {
   const [waiting, setWaiting] = useState<QueueOrder[]>([]);
   const [ready, setReady] = useState<QueueOrder[]>([]);
   const [error, setError] = useState("");
-  const [currentTime, setCurrentTime] = useState(() => new Date());
   const audioContextRef = useRef<AudioContext | null>(null);
   const knownReadyIdsRef = useRef<Set<number> | null>(null);
 
@@ -42,7 +41,6 @@ export default function QueueScreen() {
   }
 
   useEffect(() => {
-    const clockIntervalId = window.setInterval(() => setCurrentTime(new Date()), 1_000);
     audioContextRef.current = new AudioContext();
     void audioContextRef.current.resume();
 
@@ -71,25 +69,18 @@ export default function QueueScreen() {
     return () => {
       active = false;
       window.clearInterval(intervalId);
-      window.clearInterval(clockIntervalId);
       void audioContextRef.current?.close();
     };
   }, []);
 
-  const dateLabel = useMemo(() => new Intl.DateTimeFormat("en-PH", {
-    weekday: "long", month: "long", day: "numeric", year: "numeric",
-  }).format(new Date()), []);
-
   return <main className="queue-screen">
     <header className="screen-header">
       <div className="brand"><span className="brand-mark"><IconCoffee /></span><div><strong>Brew Houze</strong><span>Customer Queue</span></div></div>
-      <div className="date-block"><strong>{dateLabel}</strong><span>{currentTime.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</span></div>
     </header>
     {error && <div className="screen-error">{error}</div>}
     <section className="queue-grid">
       <section className="queue-column waiting-column"><div className="column-heading"><div><p className="eyebrow">IN PROGRESS</p><h1>Wait List</h1></div><span className="count waiting-count">{waiting.length}</span></div><div className="order-list">{waiting.length === 0 ? <div className="empty-card"><IconCoffee /><strong>No orders waiting</strong><span>New orders will appear here.</span></div> : waiting.map((order) => <article className="order-card waiting-card" key={order.order_id}><strong>#{order.queue_number}</strong><span>Preparing your order</span></article>)}</div></section>
       <section className="queue-column ready-column"><div className="column-heading"><div><p className="eyebrow">PLEASE COLLECT</p><h1>Ready for Pickup</h1></div><span className="count ready-count">{ready.length}</span></div><div className="order-list">{ready.length === 0 ? <div className="empty-card"><IconCoffee /><strong>No orders ready</strong><span>Ready orders will appear here.</span></div> : ready.map((order) => <article className="order-card ready-card" key={order.order_id}><strong>#{order.queue_number}</strong><span>Please pick up at the counter</span></article>)}</div></section>
     </section>
-    <footer><span><i className="live-dot" />Live queue</span></footer>
   </main>;
 }
