@@ -72,7 +72,8 @@ export async function POST(request: Request) {
     const result = await pool.query(`
       INSERT INTO inventory (ingredient_category, item_name, unit_of_measure, quantity, low_stock_threshold, is_whole_unit)
       VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING inventory_id, ingredient_category, item_name, unit_of_measure, quantity, low_stock_threshold, is_whole_unit
+      RETURNING inventory_id, ingredient_category, item_name, unit_of_measure, quantity, low_stock_threshold, is_whole_unit,
+        FALSE AS is_permanent
     `, [ingredientCategory, itemName, unitOfMeasure.label, quantity, unitOfMeasure.threshold, unitOfMeasure.whole]);
 
     return NextResponse.json({ data: result.rows[0] }, { status: 201 });

@@ -767,13 +767,14 @@ function Inventory({
 }
 // ─── Products ─────────────────────────────────────────────────────────────────
 type ProductIngredient = { inventoryId: number; label: string; qty: number; unit: string };
-type ProductVariant = { id?: number; size: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[] };
+type ProductTemperature = "hot" | "cold" | "both";
+type ProductVariant = { id?: number; size: string; price: number; temperature: ProductTemperature; hasSales?: boolean; ingredients: ProductIngredient[] };
 type ProductAddition = { id: number; name: string; quantity: number; price: number; unit: string };
 type Product = { id: number; name: string; description: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
 
 
 type DraftIngredient = { inventoryId: number; qty: string };
-type DraftVariant = { size: string; price: string; ingredients: DraftIngredient[]; active: boolean };
+type DraftVariant = { size: string; price: string; temperature: "hot" | "cold"; ingredients: DraftIngredient[]; active: boolean };
 
 function areIngredientsAvailable(ingredients: ProductIngredient[], inventory: InventoryItem[]): boolean {
   return ingredients.length > 0 && ingredients.every((ingredient) => {
@@ -817,6 +818,7 @@ function ProductCard({
           id: 0,
           size: "",
           price: product.price,
+          temperature: "both",
           hasSales: false,
           ingredients: Array.from(
             new Map(product.ingredients.map((ingredient) => [ingredient.inventoryId, ingredient])).values()
@@ -838,27 +840,21 @@ function ProductCard({
       </div>
       <div className="flex flex-col gap-2 p-4" style={{ flex: 1 }}>
         {hasSizeTabs && (
-          <div className="flex items-center gap-1 rounded-lg p-0.5" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "fit-content" }}>
-            {displayedVariants.map((variant, index) => (
-              <button
-                key={`${product.id}-tab-${variant.id ?? index}`}
-                onClick={() => setSelectedIndex(index)}
-                style={{
-                  border: "none",
-                  borderRadius: 6,
-                  padding: "4px 10px",
-                  background: selectedIndex === index ? "#3D2B1F" : "transparent",
-                  color: selectedIndex === index ? "#FDF9F5" : "#6B4C3B",
-                  fontFamily: "Inter, sans-serif",
-                  fontSize: 11,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                {variant.size}
-              </button>
-            ))}
-          </div>
+          <label className="flex flex-col gap-1" style={{ fontFamily: "Inter, sans-serif", fontSize: 10, color: "#9C8278", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Size and temperature
+            <select
+              value={selectedIndex}
+              onChange={(event) => setSelectedIndex(Number(event.target.value))}
+              aria-label="Select size and temperature"
+              style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 10px", background: "#FDF9F5", color: "#3D2B1F", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, outline: "none", cursor: "pointer", width: "100%" }}
+            >
+              {displayedVariants.map((variant, index) => (
+                <option key={`${product.id}-option-${variant.id ?? index}`} value={index}>
+                  {variant.size} · {variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}
+                </option>
+              ))}
+            </select>
+          </label>
         )}
 
         <div className="flex items-start justify-between gap-2">
@@ -899,36 +895,40 @@ function ProductCard({
 }
 
 const standardVariantSizes = ["8 oz", "12 oz", "16 oz", "22 oz"];
+const standardTemperatures = ["hot", "cold"] as const;
 
 function buildFormVariants(product: Product | undefined): DraftVariant[] {
   const existing = product?.variants ?? [];
-  const usedSizes = new Set<string>();
+  const seeded: DraftVariant[] = standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => {
+    const match = existing.find((variant) => variant.size.trim().toLowerCase() === size.toLowerCase() && (variant.temperature === temperature || variant.temperature === "both"));
+    return match
+      ? { size: match.size, price: String(match.price), temperature, ingredients: match.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true }
+      : { size, price: "", temperature, ingredients: [], active: false };
+  }));
 
-  const seeded: DraftVariant[] = standardVariantSizes.map((size) => {
-    const match = existing.find((variant) => variant.size.trim().toLowerCase() === size.toLowerCase());
-    if (match) {
-      usedSizes.add(match.size);
-      return { size: match.size, price: String(match.price), ingredients: match.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true };
+  for (const variant of existing.filter((item) => !standardVariantSizes.some((size) => size.toLowerCase() === item.size.trim().toLowerCase()))) {
+    if (variant.temperature === "both") {
+      for (const temperature of standardTemperatures) seeded.push({ size: variant.size, price: String(variant.price), temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
+    } else {
+      seeded.push({ size: variant.size, price: String(variant.price), temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
     }
-    return { size, price: "", ingredients: [], active: false };
-  });
-
-  // Preserve any variant whose size doesn't match a standard label, so no data is lost.
-  for (const variant of existing) {
-    if (usedSizes.has(variant.size)) continue;
-    seeded.push({ size: variant.size, price: String(variant.price), ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
   }
 
   if (!product) {
-    // Brand-new product: pre-select an inventory item on the first size so the form isn't empty.
+    // Brand-new products start with all size-temperature combinations inactive.
     seeded.forEach((variant, index) => { seeded[index] = { ...variant, active: false }; });
   } else if (existing.length === 0 && product.ingredients.length > 0) {
     // Legacy product stored without variants — seed the first size with its flat-level ingredients.
     const legacyIndex = standardVariantSizes.indexOf("16 oz");
-    seeded[legacyIndex] = { size: "16 oz", price: String(product.price), ingredients: product.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true };
+    seeded[legacyIndex * 2] = { size: "16 oz", price: String(product.price), temperature: "hot", ingredients: product.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true };
   }
 
-  return seeded;
+  const uniqueVariants = new Map<string, DraftVariant>();
+  for (const variant of seeded) {
+    const key = `${variant.size.trim().toLowerCase()}-${variant.temperature}`;
+    if (!uniqueVariants.has(key)) uniqueVariants.set(key, variant);
+  }
+  return Array.from(uniqueVariants.values());
 }
 
 function ProductManagement({
@@ -959,10 +959,7 @@ function ProductManagement({
   const [formImageData, setFormImageData] = useState("");
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(-1);
   const [formVariants, setFormVariants] = useState<DraftVariant[]>([
-    { size: "8 oz", price: "", ingredients: [], active: false },
-    { size: "12 oz", price: "", ingredients: [], active: false },
-    { size: "16 oz", price: "", ingredients: [], active: false },
-    { size: "22 oz", price: "", ingredients: [], active: false },
+    ...standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => ({ size, price: "", temperature, ingredients: [], active: false }))),
   ]);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
@@ -1027,13 +1024,10 @@ function ProductManagement({
   }
 
   function activateVariant(index: number) {
-    const source = formVariants.find((variant, variantIndex) => variantIndex !== index && (variant.price.trim() !== "" || variant.ingredients.length > 0))
-      ?? formVariants.find((variant, variantIndex) => variantIndex !== index && variant.active);
     setFormVariants((previous) => previous.map((variant, variantIndex) => variantIndex === index
-      ? { ...variant, active: true, price: source?.price ?? "", ingredients: source?.ingredients.map((ingredient) => ({ ...ingredient })) ?? [] }
+      ? { ...variant, active: true }
       : variant
     ));
-    if (source) setCopiedVariantIndices((current) => current.includes(index) ? current : [...current, index]);
     setSelectedVariantIndex(index);
     setPendingVariantIndex(null);
   }
@@ -1044,6 +1038,18 @@ function ProductManagement({
       return;
     }
     setSelectedVariantIndex(index);
+  }
+
+  function copyVariantTo(sourceIndex: number, targetIndex: number) {
+    const source = formVariants[sourceIndex];
+    const target = formVariants[targetIndex];
+    if (!source || !target || sourceIndex === targetIndex) return;
+    setFormVariants((previous) => previous.map((variant, index) => index === targetIndex
+      ? { ...variant, active: true, price: source.price, ingredients: source.ingredients.map((ingredient) => ({ ...ingredient })) }
+      : variant
+    ));
+    setCopiedVariantIndices((current) => current.includes(targetIndex) ? current : [...current, targetIndex]);
+    setSelectedVariantIndex(targetIndex);
   }
 
   function addProductAddition(value: string) {
@@ -1099,6 +1105,7 @@ function ProductManagement({
     const variants = formVariants.filter((variant) => variant.active).map((variant) => ({
       size: variant.size,
       price: Number(variant.price),
+      temperature: variant.temperature,
       ingredients: variant.ingredients.filter((row) => row.qty !== "" && Number(row.qty) > 0 && row.inventoryId > 0).map((row) => {
         const inv = inventory.find((item) => item.inventory_id === row.inventoryId);
         const qty = inv?.is_whole_unit ? Math.round(Number(row.qty)) : Number(row.qty);
@@ -1197,7 +1204,7 @@ function ProductManagement({
                 </div>
               ) : (
                 <>
-                  {standardVariantSizes.filter((size) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && !variant.hasSales)).map((size) => <button key={size} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, size); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Archive {size} only</button>)}
+                  {standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => ({ size, temperature }))).filter(({ size, temperature }) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && (variant.temperature === temperature || variant.temperature === "both") && !variant.hasSales)).map(({ size, temperature }) => <button key={`${size}-${temperature}`} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, `${size}|${temperature}`); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Archive {size} · {temperature === "hot" ? "Hot" : "Cold"} only</button>)}
                   <button onClick={async () => { if (!window.confirm(`Archive the entire ${deleteTarget.name} product?`)) return; try { setActionError(""); await onDelete(deleteTarget.id); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive product."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", textAlign: "left", cursor: "pointer" }}>Archive whole product</button>
                 </>
               )}
@@ -1211,8 +1218,8 @@ function ProductManagement({
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.35)", zIndex: 70 }}>
           <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 420px)", background: "#FDF9F5", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
             <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Activate size</p>
-            <h3 style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 19 }}>Activate {formVariants[pendingVariantIndex].size}?</h3>
-            <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>The price and ingredients from the first configured size will be copied to this size. You can edit them afterward.</p>
+            <h3 style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 19 }}>Activate {formVariants[pendingVariantIndex].size} · {formVariants[pendingVariantIndex].temperature === "hot" ? "Hot" : "Cold"}?</h3>
+            <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This size will be activated with its own price and ingredient recipe. You can use the arrows between Hot and Cold to copy a recipe when needed.</p>
             <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={() => setPendingVariantIndex(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => activateVariant(pendingVariantIndex)} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", fontWeight: 700 }}>Activate size</button></div>
           </div>
         </div>
@@ -1248,7 +1255,7 @@ function ProductManagement({
                   : <div className="flex flex-col gap-2">{selectedAdditions.map((addition) => <div key={addition.id} className="flex items-center justify-between gap-3 py-1" style={{ borderBottom: "1px solid #E8DDD5" }}><span><span style={{ display: "block", color: "#3D2B1F", fontSize: 13, fontWeight: 600 }}>{addition.name} · ₱{Number(addition.price).toFixed(2)}</span><span style={{ color: "#9C8278", fontSize: 11 }}>{addition.quantity} {addition.unit} consumed from inventory</span></span><button type="button" onClick={() => removeProductAddition(addition.id)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "5px 9px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>Remove</button></div>)}</div>}
               </div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5", position: "relative" }}><Image src={formImageData || formImage.trim()} alt="preview" fill unoptimized style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
-              <div className="flex flex-col gap-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1 rounded-xl p-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>{formVariants.map((variant, index) => <button key={variant.size} type="button" onClick={() => selectVariant(index)} style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: selectedVariantIndex === index ? "#3D2B1F" : "transparent", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#6B4C3B" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: variant.active ? 1 : 0.7 }}>{variant.size}{!variant.active ? " +" : ""}</button>)}</div><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(event) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} Ingredients` : "Select a size to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
+              <div className="flex flex-col gap-3"><div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(event) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
                 <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
             </div>
@@ -1807,8 +1814,8 @@ export default function App() {
     return () => window.clearTimeout(collapseOnPhone);
   }, []);
 
-  async function handleInventoryAdd(item: InventoryItem) {
-    setInventory((prev) => [...prev, item].sort((a, b) => a.ingredient_category.localeCompare(b.ingredient_category) || a.item_name.localeCompare(b.item_name)));
+  async function handleInventoryAdd() {
+    await refreshInventory();
   }
 
   async function handleInventoryUpdate(updated: InventoryItem) {
@@ -1830,11 +1837,7 @@ export default function App() {
     });
     const payload = await response.json();
     if (!response.ok) throw new Error(payload?.error || "Failed to archive inventory.");
-    setInventory((prev) => prev.filter((item) => item.inventory_id !== id));
-    setProducts((prev) => prev.map((product) => ({
-      ...product,
-      ingredients: product.ingredients.filter((ingredient) => ingredient.inventoryId !== id),
-    })));
+    await refreshInventory();
   }
 
   async function handleProductAdd(product: Product) {
@@ -1849,7 +1852,7 @@ export default function App() {
         image_url: product.imageUrl,
         image_data: product.imageData,
         addition_ids: product.additions.map((addition) => addition.id),
-        variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
+        variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
           required_quantity: ingredient.qty,
@@ -1878,7 +1881,7 @@ export default function App() {
         image_url: product.imageUrl,
         image_data: product.imageData,
         addition_ids: product.additions.map((addition) => addition.id),
-        variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
+        variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
           required_quantity: ingredient.qty,

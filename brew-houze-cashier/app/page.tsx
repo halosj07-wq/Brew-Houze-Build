@@ -76,7 +76,7 @@ function TopBar({ page, user, onLogout }: { page: Page; user: Session; onLogout:
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
-  type Variant = { product_variant_id: number; price: string | number; size_label: string | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
+  type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both"; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
   type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; image_url?: string | null; additions: Addition[]; variants: Variant[] };
   type ProductsResponse = { data?: Product[] };
   type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; qty: number; price: number; ingredients: Ingredient[]; additions: Addition[] };
@@ -88,6 +88,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   const [cart, setCart] = useState<CartItem[]>([]);
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [queueError, setQueueError] = useState("");
+  const [selectionProduct, setSelectionProduct] = useState<Product | null>(null);
   const cartLineId = useRef(0);
 
   async function loadQueue() {
@@ -325,7 +326,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 12 }}>
               {categoryProducts.map((product) => (
-          <div key={product.product_id} className="pos-card rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 245 }}>
+          <button key={product.product_id} type="button" className="pos-card rounded-2xl" onClick={() => setSelectionProduct(product)} style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 245, padding: 0, textAlign: "left", cursor: "pointer", color: "#3D2B1F" }}>
             <div className="pos-card-image" style={{ height: 112, display: "flex", alignItems: "center", justifyContent: "center" }}>
               {product.image_url ? <Image src={product.image_url} alt={product.product_name} width={180} height={98} unoptimized style={{ maxHeight: 98, maxWidth: "82%", width: "auto", objectFit: "contain", position: "relative", zIndex: 1 }} /> : <div style={{ color: "#B9A398", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15 }}>{product.product_name}</div>}
             </div>
@@ -337,17 +338,11 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
                   <span style={{ display: "inline-block", marginTop: 5, padding: "3px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 9, fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", letterSpacing: "0.03em" }}>{product.product_category ?? "Menu"}</span>
                 </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: "auto" }}>
-                {(product.variants && product.variants.length > 0) ? product.variants.map((v) => {
-                  const remaining = getRemainingQuantity(product, v);
-                  const unavailable = v.available === false || remaining <= 0;
-                  return <button className="pos-variant-button" key={v.product_variant_id} disabled={unavailable} onClick={() => addToCart(product, v)} style={{ border: "none", background: unavailable ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "7px 9px", borderRadius: 8, cursor: unavailable ? "not-allowed" : "pointer", fontSize: 11, fontWeight: 600, textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
-                    <span>{v.size_label ?? "Regular"}</span><span>₱{Number(v.price).toFixed(2)} {unavailable ? "· Unavailable" : `· ${remaining} left`}</span>
-                  </button>
-                }) : <button className="pos-variant-button" onClick={() => addToCart(product, null)} style={{ border: "none", background: "#3D2B1F", color: "#FDF9F5", padding: "9px 12px", borderRadius: 9, cursor: "pointer", fontWeight: 600 }}>Add to cart</button>}
+              <div style={{ marginTop: "auto", padding: "8px 10px", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 700, textAlign: "center" }}>
+                {product.variants?.length ? "Tap to choose size and temperature" : "Tap to add to cart"}
               </div>
             </div>
-          </div>
+          </button>
               ))}
             </div>
           </section>
@@ -403,6 +398,31 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
         <p style={{ margin: 0, color: "#9C8278", fontSize: 11 }}>Preview only. Manage and serve orders from the Queue tab.</p>
       </div>
     </aside>
+
+    {selectionProduct && (
+      <div role="dialog" aria-modal="true" aria-label={`Choose ${selectionProduct.product_name}`} onClick={() => setSelectionProduct(null)} style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "rgba(61,43,31,0.42)" }}>
+        <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div>
+              <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase" }}>Customize order</p>
+              <h3 style={{ margin: "5px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 21, color: "#3D2B1F" }}>{selectionProduct.product_name}</h3>
+            </div>
+            <button type="button" onClick={() => setSelectionProduct(null)} aria-label="Close product selection" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, lineHeight: 1, cursor: "pointer" }}>×</button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 18 }}>
+            {selectionProduct.variants?.length ? selectionProduct.variants.map((variant) => {
+              const remaining = getRemainingQuantity(selectionProduct, variant);
+              const unavailable = variant.available === false || remaining <= 0;
+              return <button type="button" className="pos-variant-button" key={variant.product_variant_id} disabled={unavailable} onClick={() => { addToCart(selectionProduct, variant); setSelectionProduct(null); }} style={{ border: "none", background: unavailable ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "12px 13px", borderRadius: 9, cursor: unavailable ? "not-allowed" : "pointer", fontSize: 12, fontWeight: 700, textAlign: "left", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span>{variant.size_label ?? "Regular"} · {variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}</span>
+                <span>₱{Number(variant.price).toFixed(2)} · {unavailable ? "Unavailable" : `${remaining} left`}</span>
+              </button>;
+            }) : <button type="button" onClick={() => { addToCart(selectionProduct, null); setSelectionProduct(null); }} style={{ border: "none", background: "#3D2B1F", color: "#FDF9F5", padding: "12px 13px", borderRadius: 9, cursor: "pointer", fontWeight: 700 }}>Add to cart</button>}
+          </div>
+          <button type="button" onClick={() => setSelectionProduct(null)} style={{ width: "100%", marginTop: 14, padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 9, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontWeight: 600 }}>Cancel</button>
+        </section>
+      </div>
+    )}
   </main>;
 }
 

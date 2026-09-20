@@ -6,6 +6,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 export async function GET() {
   try {
     await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
+    await pool.query("ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS temperature VARCHAR(10) NOT NULL DEFAULT 'both'");
     const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
     if (!session) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -39,6 +40,7 @@ export async function GET() {
               'product_variant_id', pv.product_variant_id,
               'price', pv.price,
               'size_label', pv.size_label,
+              'temperature', pv.temperature,
               'max_quantity', COALESCE((
                 SELECT FLOOR(MIN(inv_check.quantity / NULLIF(vi_check.required_quantity, 0)))::int
                 FROM variant_ingredients vi_check

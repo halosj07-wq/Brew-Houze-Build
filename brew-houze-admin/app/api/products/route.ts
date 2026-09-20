@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
+async function ensureVariantTemperatureSchema() {
+  await pool.query("ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS temperature VARCHAR(10) NOT NULL DEFAULT 'both'");
+  await pool.query("ALTER TABLE product_variants DROP CONSTRAINT IF EXISTS product_variants_product_id_size_label_key");
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS product_variants_product_size_temperature_key
+    ON product_variants (product_id, LOWER(TRIM(size_label)), temperature)
+  `);
+}
+
 type ProductRow = {
   product_id: number;
   product_name: string;
@@ -12,6 +21,7 @@ type ProductRow = {
   price: number;
   product_variant_id: number | null;
   size_label: string | null;
+  temperature: "hot" | "cold" | "both" | null;
   variant_price: number | null;
   variant_inventory_id: number | null;
   variant_required_quantity: number | null;
@@ -40,6 +50,7 @@ type Product = {
     id: number;
     size: string;
     price: number;
+    temperature: "hot" | "cold" | "both";
     hasSales: boolean;
     ingredients: { inventoryId: number; label: string | null; qty: number; unit: string | null }[];
   }[];
@@ -101,7 +112,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
       if (product) {
         let variant = product.variants.find((item) => item.id === Number(row.product_variant_id));
         if (!variant) {
-          variant = { id: Number(row.product_variant_id), size: row.size_label ?? "", price: Number(row.variant_price ?? row.price), hasSales: Boolean(row.variant_has_sales), ingredients: [] };
+          variant = { id: Number(row.product_variant_id), size: row.size_label ?? "", price: Number(row.variant_price ?? row.price), temperature: row.temperature ?? "both", hasSales: Boolean(row.variant_has_sales), ingredients: [] };
           product.variants.push(variant);
         }
         if (row.variant_inventory_id !== null) {
@@ -138,6 +149,7 @@ function parseImageData(value: unknown): { data: Buffer | null; mimeType: string
 
 export async function GET() {
   try {
+    await ensureVariantTemperatureSchema();
     await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const additionTableResult = await pool.query(`
       SELECT
@@ -172,6 +184,7 @@ export async function GET() {
         p.image_mime_type,
         pv.product_variant_id,
         pv.size_label,
+        pv.temperature,
         pv.price AS variant_price,
         vi.inventory_id AS variant_inventory_id,
         vi.required_quantity AS variant_required_quantity,
@@ -219,6 +232,7 @@ export async function POST(request: Request) {
 
   try {
     await client.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
+    await ensureVariantTemperatureSchema();
     const body = await request.json() as RequestBody;
     const productName = String(body?.product_name ?? "").trim();
     const productDescription = String(body?.product_description ?? "").trim().slice(0, 240);
@@ -227,7 +241,7 @@ export async function POST(request: Request) {
     const importedImage = parseImageData(body?.image_data);
     const price = Number(body?.price);
     const variants = Array.isArray(body?.variants)
-      ? body.variants as { size?: unknown; price?: unknown; ingredients?: unknown }[]
+      ? body.variants as { size?: unknown; price?: unknown; temperature?: unknown; ingredients?: unknown }[]
       : [];
     const additionIds = Array.isArray(body?.addition_ids)
       ? Array.from(new Set(body.addition_ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)))
@@ -244,6 +258,7 @@ export async function POST(request: Request) {
     const normalizedVariants = variants.map((variant) => ({
       size: String(variant.size ?? "").trim(),
       price: Number(variant.price),
+      temperature: ["hot", "cold", "both"].includes(String(variant.temperature)) ? String(variant.temperature) : "both",
       ingredients: Array.isArray(variant.ingredients) ? variant.ingredients as IngredientInput[] : [],
     })).map((variant) => ({ ...variant, ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: Number(ingredient.inventory_id), requiredQuantity: Number(ingredient.required_quantity) })).filter((ingredient) => Number.isInteger(ingredient.inventoryId) && ingredient.inventoryId > 0 && Number.isFinite(ingredient.requiredQuantity) && ingredient.requiredQuantity > 0) })).filter((variant) => variant.size && Number.isFinite(variant.price) && variant.price >= 0 && variant.ingredients.length > 0);
     if (normalizedVariants.length === 0) {
@@ -261,7 +276,7 @@ export async function POST(request: Request) {
     const product = productResult.rows[0];
 
     for (const variant of normalizedVariants) {
-      const variantResult = await client.query("INSERT INTO product_variants (product_id, size_label, price) VALUES ($1, $2, $3) RETURNING product_variant_id", [product.product_id, variant.size, variant.price]);
+      const variantResult = await client.query("INSERT INTO product_variants (product_id, size_label, price, temperature) VALUES ($1, $2, $3, $4) RETURNING product_variant_id", [product.product_id, variant.size, variant.price, variant.temperature]);
       for (const ingredient of variant.ingredients) {
         const inventoryResult = await client.query("SELECT inventory_id FROM inventory WHERE inventory_id = $1", [ingredient.inventoryId]);
         if (inventoryResult.rowCount === 0) throw new Error(`Inventory item ${ingredient.inventoryId} does not exist.`);
@@ -288,7 +303,7 @@ export async function POST(request: Request) {
         p.image_url,
         encode(p.image_data, 'base64') AS image_data,
         p.image_mime_type,
-        pv.product_variant_id, pv.size_label, pv.price AS variant_price,
+        pv.product_variant_id, pv.size_label, pv.temperature, pv.price AS variant_price,
         vi.inventory_id AS variant_inventory_id,
         vi.required_quantity AS variant_required_quantity,
         vi_item.item_name AS variant_item_name,
@@ -342,6 +357,7 @@ export async function PATCH(request: Request) {
 
   try {
     await client.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
+    await ensureVariantTemperatureSchema();
     const body = await request.json() as RequestBody;
     const productId = Number(body?.product_id);
     const productName = String(body?.product_name ?? "").trim();
@@ -351,7 +367,7 @@ export async function PATCH(request: Request) {
     const importedImage = parseImageData(body?.image_data);
     const price = Number(body?.price);
     const variants = Array.isArray(body?.variants)
-      ? body.variants as { size?: unknown; price?: unknown; ingredients?: unknown }[]
+      ? body.variants as { size?: unknown; price?: unknown; temperature?: unknown; ingredients?: unknown }[]
       : [];
     const additionIds = Array.isArray(body?.addition_ids)
       ? Array.from(new Set(body.addition_ids.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)))
@@ -368,6 +384,7 @@ export async function PATCH(request: Request) {
     const normalizedVariants = variants.map((variant) => ({
       size: String(variant.size ?? "").trim(),
       price: Number(variant.price),
+      temperature: ["hot", "cold", "both"].includes(String(variant.temperature)) ? String(variant.temperature) : "both",
       ingredients: Array.isArray(variant.ingredients) ? variant.ingredients as IngredientInput[] : [],
     })).map((variant) => ({ ...variant, ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: Number(ingredient.inventory_id), requiredQuantity: Number(ingredient.required_quantity) })).filter((ingredient) => Number.isInteger(ingredient.inventoryId) && ingredient.inventoryId > 0 && Number.isFinite(ingredient.requiredQuantity) && ingredient.requiredQuantity > 0) })).filter((variant) => variant.size && Number.isFinite(variant.price) && variant.price >= 0 && variant.ingredients.length > 0);
     if (normalizedVariants.length === 0) {
@@ -399,17 +416,27 @@ export async function PATCH(request: Request) {
     }
 
     const existingVariantsResult = await client.query(
-      "SELECT product_variant_id, size_label FROM product_variants WHERE product_id = $1",
+      "SELECT product_variant_id, size_label, temperature FROM product_variants WHERE product_id = $1",
       [productId]
     );
     const existingVariants = new Map<string, number>(
-      existingVariantsResult.rows.map((row) => [String(row.size_label).trim().toLowerCase(), Number(row.product_variant_id)])
+      existingVariantsResult.rows.map((row) => [`${String(row.size_label).trim().toLowerCase()}|${String(row.temperature ?? "both").toLowerCase()}`, Number(row.product_variant_id)])
     );
-    const submittedSizes = new Set(normalizedVariants.map((variant) => variant.size.toLowerCase()));
+    const submittedSizes = new Set(normalizedVariants.map((variant) => `${variant.size.toLowerCase()}|${variant.temperature}`));
+
+    for (const existing of existingVariantsResult.rows.filter((row) => String(row.temperature ?? "both").toLowerCase() === "both")) {
+      const sizeKey = String(existing.size_label).trim().toLowerCase();
+      const replacementTemperature = submittedSizes.has(`${sizeKey}|hot`) ? "hot" : submittedSizes.has(`${sizeKey}|cold`) ? "cold" : null;
+      if (replacementTemperature) {
+        await client.query("UPDATE product_variants SET temperature = $1 WHERE product_variant_id = $2", [replacementTemperature, existing.product_variant_id]);
+        existing.temperature = replacementTemperature;
+        existingVariants.set(`${sizeKey}|${replacementTemperature}`, Number(existing.product_variant_id));
+      }
+    }
 
     for (const existing of existingVariantsResult.rows) {
-      const existingSize = String(existing.size_label).trim().toLowerCase();
-      if (!submittedSizes.has(existingSize)) {
+      const existingKey = `${String(existing.size_label).trim().toLowerCase()}|${String(existing.temperature ?? "both").toLowerCase()}`;
+      if (!submittedSizes.has(existingKey)) {
         const salesResult = await client.query(
           "SELECT COUNT(*)::int AS count FROM sales_order_items WHERE product_variant_id = $1",
           [existing.product_variant_id]
@@ -423,14 +450,14 @@ export async function PATCH(request: Request) {
     }
 
     for (const variant of normalizedVariants) {
-      const existingVariantId = existingVariants.get(variant.size.toLowerCase());
+      const existingVariantId = existingVariants.get(`${variant.size.toLowerCase()}|${variant.temperature}`);
       let variantId: number;
       if (existingVariantId) {
         variantId = existingVariantId;
-        await client.query("UPDATE product_variants SET size_label = $1, price = $2 WHERE product_variant_id = $3", [variant.size, variant.price, variantId]);
+        await client.query("UPDATE product_variants SET size_label = $1, price = $2, temperature = $3 WHERE product_variant_id = $4", [variant.size, variant.price, variant.temperature, variantId]);
         await client.query("DELETE FROM variant_ingredients WHERE product_variant_id = $1", [variantId]);
       } else {
-        const variantResult = await client.query("INSERT INTO product_variants (product_id, size_label, price) VALUES ($1, $2, $3) RETURNING product_variant_id", [productId, variant.size, variant.price]);
+        const variantResult = await client.query("INSERT INTO product_variants (product_id, size_label, price, temperature) VALUES ($1, $2, $3, $4) RETURNING product_variant_id", [productId, variant.size, variant.price, variant.temperature]);
         variantId = Number(variantResult.rows[0].product_variant_id);
       }
       for (const ingredient of variant.ingredients) {
@@ -452,7 +479,7 @@ export async function PATCH(request: Request) {
         p.image_url,
         encode(p.image_data, 'base64') AS image_data,
         p.image_mime_type,
-        pv.product_variant_id, pv.size_label, pv.price AS variant_price,
+        pv.product_variant_id, pv.size_label, pv.temperature, pv.price AS variant_price,
         vi.inventory_id AS variant_inventory_id,
         vi.required_quantity AS variant_required_quantity,
         vi_item.item_name AS variant_item_name,
@@ -496,6 +523,7 @@ export async function DELETE(request: Request) {
     const body = await request.json() as RequestBody;
     const productId = Number(body?.product_id);
     const variantSize = body && "variant_size" in body && body.variant_size ? String(body.variant_size).trim() : "";
+    const [requestedSize, requestedTemperature] = variantSize.split("|");
 
     if (!Number.isInteger(productId) || productId <= 0) {
       return NextResponse.json({ error: "A valid product_id is required." }, { status: 400 });
@@ -507,8 +535,9 @@ export async function DELETE(request: Request) {
         SELECT product_variant_id
         FROM product_variants
         WHERE product_id = $1 AND LOWER(size_label) = LOWER($2)
+          AND ($3 = '' OR LOWER(COALESCE(temperature, 'both')) = LOWER($3))
         LIMIT 1
-      `, [productId, variantSize]);
+      `, [productId, requestedSize || variantSize, requestedTemperature || ""]);
       if (variantResult.rowCount === 0) {
         await client.query("ROLLBACK");
         return NextResponse.json({ error: `${variantSize} variant was not found.` }, { status: 404 });

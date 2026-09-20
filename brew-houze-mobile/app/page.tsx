@@ -16,11 +16,22 @@ type Product = {
 };
 type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number };
 type Addition = { id: number; name: string; quantity: number; price: number; unit: string; inventoryId: number; availableQuantity: number };
-type Variant = { id: number; size: string | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
+type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" | "both"; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
 type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[] };
 type OrderStatus = "waiting" | "served" | "flushed";
 type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
 const trackedOrdersStorageKey = "brew-houze-tracked-orders";
+
+function sortVariants(variants: Variant[]): Variant[] {
+  const sizeOrder = new Map([["8 oz", 0], ["12 oz", 1], ["16 oz", 2], ["22 oz", 3]]);
+  const temperatureOrder = { hot: 0, cold: 1, both: 2 };
+  return [...variants].sort((left, right) => {
+    const leftSize = sizeOrder.get((left.size ?? "").trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    const rightSize = sizeOrder.get((right.size ?? "").trim().toLowerCase()) ?? Number.MAX_SAFE_INTEGER;
+    if (leftSize !== rightSize) return leftSize - rightSize;
+    return temperatureOrder[left.temperature ?? "both"] - temperatureOrder[right.temperature ?? "both"];
+  });
+}
 
 function isTrackedOrder(value: unknown): value is TrackedOrder {
   if (!value || typeof value !== "object") return false;
@@ -170,6 +181,7 @@ export default function MenuPage() {
   const cartTotal = cart.reduce((total, item) => total + (item.price + item.additions.reduce((additionTotal, addition) => additionTotal + addition.price, 0)) * item.quantity, 0);
   const activeOrders = useMemo(() => trackedOrders.filter((order) => order.status !== "flushed"), [trackedOrders]);
   const activeOrder = activeOrders.length > 0;
+  const selectedProductVariants = useMemo(() => sortVariants(selectedProduct?.variants ?? []), [selectedProduct]);
 
   function getCartLimit(item: Pick<CartItem, "ingredients" | "additions">, currentCart: CartItem[], candidateKey: string) {
     const usedByOthers = new Map<number, number>();
@@ -205,7 +217,8 @@ export default function MenuPage() {
 
   function openProduct(product: Product) {
     setSelectedProduct(product);
-    setSelectedVariantId(product.variants?.[0]?.id ?? null);
+    const sortedVariants = sortVariants(product.variants ?? []);
+    setSelectedVariantId(sortedVariants.find((variant) => variant.available)?.id ?? sortedVariants[0]?.id ?? null);
     setSelectedQuantity(1);
     setSelectedAdditionIds([]);
   }
@@ -279,25 +292,29 @@ export default function MenuPage() {
         const results = await Promise.all(activeOrders.map(async (order) => {
           const response = await fetch(`/api/orders/${order.trackingToken}`, { cache: "no-store" });
           const payload = await response.json() as { data?: { queue_status: OrderStatus }; error?: string };
+          if (response.status === 404) {
+            return { trackingToken: order.trackingToken, missing: true as const };
+          }
           if (!response.ok) throw new Error(payload.error || "Unable to check order status.");
-          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status };
+          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status, missing: false as const };
         }));
         if (active) {
           setTrackedOrders((current) => {
             let newlyReady = false;
-          const updatedOrders = current
-            .map((order) => {
-              const update = results.find((result) => result.trackingToken === order.trackingToken);
-              if (update?.status === "served" && order.status !== "served") newlyReady = true;
-              return update ? { ...order, status: update.status } : order;
-            })
-            .filter((order) => order.status !== "flushed");
-          if (newlyReady) {
-            playReadyPing();
-            setOrderPlaced(true);
-          }
-          if (updatedOrders.length === 0) setOrderPlaced(false);
-          return updatedOrders;
+            const updatedOrders = current
+              .map((order) => {
+                const update = results.find((result) => result.trackingToken === order.trackingToken);
+                if (!update || update.missing) return null;
+                if (update.status === "served" && order.status !== "served") newlyReady = true;
+                return { ...order, status: update.status };
+              })
+              .filter((order): order is TrackedOrder => order !== null && order.status !== "flushed");
+            if (newlyReady) {
+              playReadyPing();
+              setOrderPlaced(true);
+            }
+            if (updatedOrders.length === 0) setOrderPlaced(false);
+            return updatedOrders;
           });
         }
       } catch (statusError) {
@@ -371,7 +388,7 @@ export default function MenuPage() {
         <button className="modal-close" onClick={() => setSelectedProduct(null)} aria-label="Close">×</button>
         <div className="modal-image" style={{ position: "relative" }}>{selectedProduct.image ? <Image src={selectedProduct.image} alt="" fill unoptimized sizes="100vw" style={{ objectFit: "cover" }} /> : <IconCoffee />}</div>
         <p className="eyebrow">{selectedProduct.category}</p><h2>{selectedProduct.name}</h2><p className="modal-description">{selectedProduct.description}</p>
-        {selectedProduct.variants && selectedProduct.variants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProduct.variants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
+        {selectedProductVariants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProductVariants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"} · {variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
         <div className="quantity-row"><strong>Quantity</strong><div className="quantity-control"><button onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))}>−</button><span>{selectedQuantity}</span><button onClick={() => setSelectedQuantity((value) => value + 1)}>+</button></div></div>
         {(selectedProduct.additions ?? []).length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Additions</strong><span>Optional</span></div>{selectedProduct.additions?.map((addition) => {
           const selectedVariant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
