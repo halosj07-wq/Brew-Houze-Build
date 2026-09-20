@@ -45,7 +45,10 @@ export default function QueueScreen() {
     void audioContextRef.current.resume();
 
     let active = true;
+    let requestInFlight = false;
     const loadQueue = async () => {
+      if (requestInFlight || document.visibilityState !== "visible") return;
+      requestInFlight = true;
       try {
         const response = await fetch("/api/queue", { cache: "no-store" });
         const payload = await response.json() as QueuePayload;
@@ -61,14 +64,18 @@ export default function QueueScreen() {
       } catch (loadError) {
         console.error("Queue screen: failed to load queue", loadError);
         if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load the queue.");
+      } finally {
+        requestInFlight = false;
       }
     };
 
     void loadQueue();
     const intervalId = window.setInterval(() => void loadQueue(), 5_000);
+    document.addEventListener("visibilitychange", loadQueue);
     return () => {
       active = false;
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", loadQueue);
       void audioContextRef.current?.close();
     };
   }, []);

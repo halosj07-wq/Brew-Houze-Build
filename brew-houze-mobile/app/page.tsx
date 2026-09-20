@@ -266,7 +266,10 @@ export default function MenuPage() {
   useEffect(() => {
     if (!activeOrder) return;
     let active = true;
+    let requestInFlight = false;
     const checkStatus = async () => {
+      if (requestInFlight || document.visibilityState !== "visible") return;
+      requestInFlight = true;
       try {
         const results = await Promise.all(activeOrders.map(async (order) => {
           const response = await fetch(`/api/orders/${order.trackingToken}`, { cache: "no-store" });
@@ -294,6 +297,8 @@ export default function MenuPage() {
         }
       } catch (statusError) {
         console.error("Mobile order status check failed", statusError);
+      } finally {
+        requestInFlight = false;
       }
     };
     void checkStatus();

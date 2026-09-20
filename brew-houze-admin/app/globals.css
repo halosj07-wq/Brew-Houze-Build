@@ -94,6 +94,10 @@ body {
   box-shadow: none !important;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (max-width: 640px) {
   .app-sidebar + div {
     min-width: 0;

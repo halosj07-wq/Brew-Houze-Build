@@ -98,14 +98,18 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
 
   useEffect(() => {
     let active = true;
+    let requestInFlight = false;
     const refresh = async () => {
-      if (document.visibilityState !== "visible") return;
+      if (requestInFlight || document.visibilityState !== "visible") return;
+      requestInFlight = true;
       try {
         await loadQueue();
         if (active) setQueueError("");
       } catch (error) {
         console.error("POS: failed to load queue", error);
         if (active) setQueueError(error instanceof Error ? error.message : "Unable to load queue.");
+      } finally {
+        requestInFlight = false;
       }
     };
     void refresh();
@@ -149,7 +153,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
     void loadProducts();
     const intervalId = window.setInterval(() => {
       if (document.visibilityState === "visible") void loadProducts(false);
-    }, 5_000);
+    }, 15_000);
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
