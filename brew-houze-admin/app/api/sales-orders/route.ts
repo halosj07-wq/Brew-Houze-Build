@@ -4,6 +4,15 @@ import pool from "@/lib/db";
 export async function GET(request: Request) {
   try {
     const searchParams = new URL(request.url).searchParams;
+    if (searchParams.get("signatureOnly") === "1") {
+      const signatureResult = await pool.query(`
+        SELECT COUNT(*)::int AS total,
+          COALESCE(MAX(order_id), 0)::int AS latest_order_id,
+          COALESCE(MAX(created_at), TIMESTAMP 'epoch') AS latest_created_at
+        FROM sales_orders
+      `);
+      return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
+    }
     const period = searchParams.get("period") ?? "30";
     const dailySalesDate = searchParams.get("daily_date") ?? "";
     const orderHistoryDate = searchParams.get("history_date") ?? "";

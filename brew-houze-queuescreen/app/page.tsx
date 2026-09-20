@@ -46,10 +46,17 @@ export default function QueueScreen() {
 
     let active = true;
     let requestInFlight = false;
+    let queueSignature = "";
     const loadQueue = async () => {
       if (requestInFlight || document.visibilityState !== "visible") return;
       requestInFlight = true;
       try {
+        const signatureResponse = await fetch("/api/queue?signatureOnly=1", { cache: "no-store" });
+        const signaturePayload = await signatureResponse.json() as { signature?: Record<string, unknown>; error?: string };
+        if (!signatureResponse.ok) throw new Error(signaturePayload.error || "Unable to check the queue.");
+        const nextSignature = JSON.stringify(signaturePayload.signature ?? {});
+        if (queueSignature === nextSignature) return;
+        queueSignature = nextSignature;
         const response = await fetch("/api/queue", { cache: "no-store" });
         const payload = await response.json() as QueuePayload;
         if (!response.ok) throw new Error(payload.error || "Unable to load the queue.");

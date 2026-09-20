@@ -99,10 +99,17 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   useEffect(() => {
     let active = true;
     let requestInFlight = false;
+    let queueSignature = "";
     const refresh = async () => {
       if (requestInFlight || document.visibilityState !== "visible") return;
       requestInFlight = true;
       try {
+        const signatureResponse = await fetch("/api/queue?signatureOnly=1", { cache: "no-store" });
+        const signaturePayload = await signatureResponse.json() as { signature?: Record<string, unknown>; error?: string };
+        if (!signatureResponse.ok) throw new Error(signaturePayload.error || "Unable to check queue.");
+        const nextSignature = JSON.stringify(signaturePayload.signature ?? {});
+        if (queueSignature === nextSignature) return;
+        queueSignature = nextSignature;
         await loadQueue();
         if (active) setQueueError("");
       } catch (error) {

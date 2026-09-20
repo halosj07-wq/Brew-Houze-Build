@@ -3,11 +3,23 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
-export async function GET() {
+export async function GET(request: Request) {
   const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   try {
+    const signatureResult = await pool.query(`
+      SELECT COUNT(*)::int AS total,
+        COALESCE(MAX(order_id), 0)::int AS latest_order_id,
+        COALESCE(MAX(served_at), TIMESTAMP 'epoch') AS latest_served_at
+      FROM sales_orders
+      WHERE created_at >= CURRENT_DATE
+        AND created_at < CURRENT_DATE + INTERVAL '1 day'
+        AND queue_status IN ('waiting', 'served')
+    `);
+    if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
+      return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
+    }
     const result = await pool.query(`
       SELECT
         so.order_id,
