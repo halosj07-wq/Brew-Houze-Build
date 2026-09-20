@@ -3,10 +3,12 @@ import pool from "@/lib/db";
 
 export async function GET() {
   try {
+    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const result = await pool.query(`
       SELECT
         p.product_id,
         p.product_name,
+        p.product_description,
         p.product_category,
         p.price,
         p.image_url,
@@ -66,8 +68,8 @@ export async function GET() {
     const data = result.rows.map((row) => ({
       id: Number(row.product_id),
       name: row.product_name,
+      description: row.product_description || "Prepared fresh by Brew Houze.",
       category: row.product_category || "Menu",
-      description: "Prepared fresh by Brew Houze.",
       price: Number(row.price),
       image: row.image_url || "",
       additions: row.additions ?? [],

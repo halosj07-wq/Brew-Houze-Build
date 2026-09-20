@@ -77,7 +77,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
-  type Product = { product_id: number; product_name: string; product_category: string | null; image_url?: string | null; additions: Addition[]; variants: Variant[] };
+  type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; image_url?: string | null; additions: Addition[]; variants: Variant[] };
   type ProductsResponse = { data?: Product[] };
   type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; qty: number; price: number; ingredients: Ingredient[]; additions: Addition[] };
   const [products, setProducts] = useState<Product[]>([]);
@@ -333,6 +333,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <div>
                   <div style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, color: "#3D2B1F", lineHeight: 1.15 }}>{product.product_name}</div>
+                  {product.product_description && <div style={{ marginTop: 4, color: "#9C8278", fontSize: 11, lineHeight: 1.35 }}>{product.product_description}</div>}
                   <span style={{ display: "inline-block", marginTop: 5, padding: "3px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 9, fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", letterSpacing: "0.03em" }}>{product.product_category ?? "Menu"}</span>
                 </div>
               </div>

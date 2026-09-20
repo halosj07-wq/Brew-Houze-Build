@@ -46,7 +46,7 @@ export default function MenuPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [category, setCategory] = useState("All");
+  const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -148,9 +148,13 @@ export default function MenuPage() {
     return () => { active = false; };
   }, []);
 
-  const categories = useMemo(() => ["All", ...Array.from(new Set(products.map((product) => product.category).filter(Boolean)))], [products]);
+  const categories = useMemo(() => Array.from(new Set(products.map((product) => product.category).filter(Boolean))), [products]);
+  const categoryCards = useMemo(() => categories.map((item) => ({
+    name: item,
+    count: products.filter((product) => product.category === item && (!search.trim() || `${product.name} ${product.description}`.toLowerCase().includes(search.trim().toLowerCase()))).length,
+  })).filter((item) => !search.trim() || item.count > 0), [categories, products, search]);
   const visibleProducts = useMemo(() => products.filter((product) => {
-    const matchesCategory = category === "All" || product.category === category;
+    const matchesCategory = category === null || product.category === category;
     const query = search.trim().toLowerCase();
     return matchesCategory && (!query || `${product.name} ${product.description}`.toLowerCase().includes(query));
   }), [category, products, search]);
@@ -330,24 +334,31 @@ export default function MenuPage() {
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />
       </label>
 
-      <div className="category-row" role="tablist" aria-label="Menu categories">
-        {categories.map((item) => <button key={item} className={category === item ? "category active" : "category"} onClick={() => setCategory(item)}>{item}</button>)}
-      </div>
-
       <section className="menu-section">
-        <div className="section-heading"><div><p className="eyebrow">CURATED FOR YOU</p><h2>{category === "All" ? "Our menu" : category}</h2></div><span>{visibleProducts.length} items</span></div>
         {loading && <div className="empty-state">Loading the current menu...</div>}
         {error && <div className="empty-state error-state">{error}</div>}
-        {!loading && !error && <div className="category-groups">
-          {groupedProducts.map(([group, groupProducts]) => <section className="category-group" key={group}>
-            {category === "All" && <div className="category-separator"><span>{group}</span><i /></div>}
-            <div className="product-grid">
-              {groupProducts.map((product) => <article className="product-card" key={product.id}>
+        {!loading && !error && category === null && <div className="category-landing">
+          <div className="section-heading"><div><p className="eyebrow">EXPLORE OUR MENU</p><h2>Choose a category</h2></div><span>{categories.length} categories</span></div>
+          <div className="category-card-grid">
+            {categoryCards.map((item) => <button key={item.name} className="category-card" onClick={() => { setCategory(item.name); setSearch(""); }}>
+              <span className="category-card-icon"><IconCoffee /></span><span className="category-card-name">{item.name}</span><span className="category-card-count">{item.count} drink{item.count === 1 ? "" : "s"}</span><span className="category-card-arrow">→</span>
+            </button>)}
+          </div>
+          {categoryCards.length === 0 && <div className="empty-state">No drink categories are available yet.</div>}
+        </div>}
+        {!loading && !error && category !== null && <div className="category-results-shell">
+          <div className="menu-breadcrumb"><button type="button" onClick={() => setCategory(null)} aria-label="Return to all categories"><span aria-hidden="true">←</span> All categories</button></div>
+          <div className="category-groups">
+            <div className="section-heading"><div><h2>{category}</h2></div><span>{visibleProducts.length} items</span></div>
+            {groupedProducts.map(([group, groupProducts]) => <section className="category-group" key={group}>
+              <div className="product-grid">
+                {groupProducts.map((product) => <article className="product-card" key={product.id}>
                 <div className="product-image">{product.image ? <Image src={product.image} alt="" fill unoptimized sizes="(max-width: 640px) 50vw, 320px" style={{ objectFit: "cover" }} /> : <div className="image-placeholder"><IconCoffee /></div>}<div className="image-shade" />{product.badge && <span className="product-badge">{product.badge}</span>}</div>
-                <div className="product-info"><div className="product-category">{product.category}</div><h3>{product.name}</h3><p>{product.description}</p><div className="product-footer"><strong>₱{product.variants?.[0]?.price?.toFixed(2) ?? product.price.toFixed(2)}</strong><button disabled={Boolean(product.variants?.length && !product.variants.some((variant) => variant.available))} onClick={() => openProduct(product)} aria-label={`Add ${product.name} to order`}>{product.variants?.length && !product.variants.some((variant) => variant.available) ? "Unavailable" : "Add to order"}</button></div></div>
-              </article>)}
-            </div>
-          </section>)}
+                <div className="product-info"><div className="product-category">{product.category}</div><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="product-footer"><strong>₱{product.variants?.[0]?.price?.toFixed(2) ?? product.price.toFixed(2)}</strong><button disabled={Boolean(product.variants?.length && !product.variants.some((variant) => variant.available))} onClick={() => openProduct(product)} aria-label={`Add ${product.name} to order`}>{product.variants?.length && !product.variants.some((variant) => variant.available) ? "Unavailable" : "Add to order"}</button></div></div>
+                </article>)}
+              </div>
+            </section>)}
+          </div>
         </div>}
         {!loading && !error && visibleProducts.length === 0 && <div className="empty-state">No menu items match your search.</div>}
       </section>

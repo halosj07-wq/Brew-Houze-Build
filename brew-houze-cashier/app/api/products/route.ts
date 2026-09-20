@@ -5,6 +5,7 @@ import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 export async function GET() {
   try {
+    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
     if (!session) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -14,6 +15,7 @@ export async function GET() {
       SELECT
         p.product_id,
         p.product_name,
+        p.product_description,
         p.product_category,
         p.image_url,
         COALESCE((

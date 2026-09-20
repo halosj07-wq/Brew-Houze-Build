@@ -4,6 +4,7 @@ import pool from "@/lib/db";
 type ProductRow = {
   product_id: number;
   product_name: string;
+  product_description: string | null;
   product_category: string | null;
   image_url: string | null;
   image_data: string | null;
@@ -29,6 +30,7 @@ type ProductRow = {
 type Product = {
   id: number;
   name: string;
+  description: string;
   category: string;
   imageUrl: string;
   imageData: string;
@@ -57,6 +59,7 @@ type IngredientInput = {
 
 type RequestBody = {
   product_name?: unknown;
+  product_description?: unknown;
   product_category?: unknown;
   image_url?: unknown;
   image_data?: unknown;
@@ -76,6 +79,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
       products.set(row.product_id, {
         id: Number(row.product_id),
         name: row.product_name,
+        description: row.product_description ?? "",
         category: row.product_category ?? "",
         imageUrl: row.image_url ?? "",
         imageData: row.image_data && row.image_mime_type ? `data:${row.image_mime_type};base64,${row.image_data}` : "",
@@ -134,6 +138,7 @@ function parseImageData(value: unknown): { data: Buffer | null; mimeType: string
 
 export async function GET() {
   try {
+    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const additionTableResult = await pool.query(`
       SELECT
         to_regclass('public.product_additions') IS NOT NULL
@@ -159,6 +164,7 @@ export async function GET() {
       SELECT
         p.product_id,
         p.product_name,
+        p.product_description,
         p.product_category,
         p.price,
         p.image_url,
@@ -212,8 +218,10 @@ export async function POST(request: Request) {
   const client = await pool.connect();
 
   try {
+    await client.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const body = await request.json() as RequestBody;
     const productName = String(body?.product_name ?? "").trim();
+    const productDescription = String(body?.product_description ?? "").trim().slice(0, 240);
     const productCategory = String(body?.product_category ?? "").trim();
     const imageUrl = String(body?.image_url ?? "").trim();
     const importedImage = parseImageData(body?.image_data);
@@ -245,10 +253,10 @@ export async function POST(request: Request) {
     await client.query("BEGIN");
 
     const productResult = await client.query(`
-      INSERT INTO products (product_name, product_category, price, image_url, image_data, image_mime_type)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO products (product_name, product_description, product_category, price, image_url, image_data, image_mime_type)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING product_id, product_name, product_category, price, image_url
-    `, [productName, productCategory, price, imageUrl || null, importedImage.data, importedImage.mimeType]);
+    `, [productName, productDescription, productCategory, price, imageUrl || null, importedImage.data, importedImage.mimeType]);
 
     const product = productResult.rows[0];
 
@@ -274,6 +282,7 @@ export async function POST(request: Request) {
       SELECT
         p.product_id,
         p.product_name,
+        p.product_description,
         p.product_category,
         p.price,
         p.image_url,
@@ -332,9 +341,11 @@ export async function PATCH(request: Request) {
   const client = await pool.connect();
 
   try {
+    await client.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const body = await request.json() as RequestBody;
     const productId = Number(body?.product_id);
     const productName = String(body?.product_name ?? "").trim();
+    const productDescription = String(body?.product_description ?? "").trim().slice(0, 240);
     const productCategory = String(body?.product_category ?? "").trim();
     const imageUrl = String(body?.image_url ?? "").trim();
     const importedImage = parseImageData(body?.image_data);
@@ -367,10 +378,10 @@ export async function PATCH(request: Request) {
 
     const productResult = await client.query(`
       UPDATE products
-      SET product_name = $1, product_category = $2, price = $3, image_url = $4, image_data = $5, image_mime_type = $6
-      WHERE product_id = $7
+      SET product_name = $1, product_description = $2, product_category = $3, price = $4, image_url = $5, image_data = $6, image_mime_type = $7
+      WHERE product_id = $8
       RETURNING product_id
-    `, [productName, productCategory, price, imageUrl || null, importedImage.data, importedImage.mimeType, productId]);
+    `, [productName, productDescription, productCategory, price, imageUrl || null, importedImage.data, importedImage.mimeType, productId]);
 
     if (productResult.rowCount === 0) {
       await client.query("ROLLBACK");
@@ -435,6 +446,7 @@ export async function PATCH(request: Request) {
       SELECT
         p.product_id,
         p.product_name,
+        p.product_description,
         p.product_category,
         p.price,
         p.image_url,

@@ -769,7 +769,7 @@ function Inventory({
 type ProductIngredient = { inventoryId: number; label: string; qty: number; unit: string };
 type ProductVariant = { id?: number; size: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[] };
 type ProductAddition = { id: number; name: string; quantity: number; price: number; unit: string };
-type Product = { id: number; name: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
+type Product = { id: number; name: string; description: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
 
 
 type DraftIngredient = { inventoryId: number; qty: string };
@@ -952,6 +952,7 @@ function ProductManagement({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [filterCat, setFilterCat] = useState("All");
   const [formName, setFormName] = useState("");
+  const [formDescription, setFormDescription] = useState("");
   const categoryNames = categories.map((category) => category.name);
   const [formCat, setFormCat] = useState("");
   const [formImage, setFormImage] = useState("");
@@ -985,6 +986,7 @@ function ProductManagement({
   function resetForm(product?: Product) {
     setEditingProduct(product ?? null);
     setFormName(product?.name ?? "");
+    setFormDescription(product?.description ?? "");
     setFormCat(product?.category ?? categoryNames[0] ?? "");
     setFormImage(product?.imageUrl ?? "");
     setFormImageData(product?.imageData ?? "");
@@ -1111,6 +1113,7 @@ function ProductManagement({
       const product = {
         id: 0,
         name: formName.trim(),
+        description: formDescription.trim(),
         category: formCat || categoryNames[0] || "",
         price: variants[0].price,
         imageUrl: formImage.trim(),
@@ -1233,6 +1236,7 @@ function ProductManagement({
             <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5", flexShrink: 0 }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
             <div className="flex flex-col gap-5 px-6 py-6" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Short Description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><textarea value={formDescription} maxLength={240} onChange={(e) => setFormDescription(e.target.value)} placeholder="e.g. Smooth espresso with steamed milk and caramel." rows={3} style={{ ...inputBase, resize: "vertical" }} /><span style={{ color: "#9C8278", fontSize: 11 }}>{formDescription.length}/240</span></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><select value={formCat || categoryNames[0] || ""} onChange={(e) => setFormCat(e.target.value)} style={{ ...inputBase, cursor: "pointer" }} disabled={categoryNames.length === 0}>{categoryNames.length === 0 ? <option value="">Add a category first</option> : formCategoryNames.map((category) => <option key={category}>{category}</option>)}</select></div>
               <div className="flex flex-col gap-3" aria-label="Product additions" style={{ flexShrink: 0 }}>
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Additions <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
@@ -1839,6 +1843,7 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         product_name: product.name,
+        product_description: product.description,
         product_category: product.category,
         price: product.price,
         image_url: product.imageUrl,
@@ -1867,6 +1872,7 @@ export default function App() {
       body: JSON.stringify({
         product_id: product.id,
         product_name: product.name,
+        product_description: product.description,
         product_category: product.category,
         price: product.price,
         image_url: product.imageUrl,
