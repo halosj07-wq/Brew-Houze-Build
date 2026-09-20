@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 
 type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts";
 
@@ -26,6 +27,8 @@ type AdditionItem = {
   quantity: number;
   price: number;
 };
+
+type ProductCategory = { id: number; name: string };
 
 const inventoryUnits = ["mL", "grams", "Pieces"] as const;
 const fixedLowStockThresholds: Record<(typeof inventoryUnits)[number], number> = {
@@ -61,6 +64,9 @@ function IconUsers({ size = 20 }: { size?: number }) {
 }
 function IconSearch({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+}
+function IconEye({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>;
 }
 function IconCoffee({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -189,7 +195,62 @@ function isLowStock(item: InventoryItem): boolean {
   return Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.low_stock_threshold);
 }
 
-function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
+function DrinkCategoryManagement({ categories, onChange }: { categories: ProductCategory[]; onChange: (categories: ProductCategory[]) => void }) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function addCategory(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/product-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category_name: name }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to create drink category.");
+      onChange([...categories, payload.data].sort((a, b) => a.name.localeCompare(b.name)));
+      setName("");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Failed to create drink category.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function archiveCategory(id: number) {
+    if (!window.confirm("Archive this drink category?")) return;
+    setError("");
+    try {
+      const response = await fetch("/api/product-categories", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category_id: id }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to archive drink category.");
+      onChange(categories.filter((category) => category.id !== id));
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Failed to archive drink category.");
+    }
+  }
+
+  return <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
+    <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconTag size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Drink Categories</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Organize products into categories shown in Product Management.</p></div></div>
+    <form onSubmit={addCategory} className="flex flex-wrap gap-3" style={{ alignItems: "end" }}>
+      <label className="flex flex-col gap-1.5" style={{ flex: "1 1 240px" }}><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category Name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Non-Coffee Drinks" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none", width: "100%" }} /></label>
+      <button type="submit" disabled={saving} style={{ border: "none", borderRadius: 10, padding: "11px 16px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Adding..." : "Add Category"}</button>
+    </form>
+    {error && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{error}</p>}
+    <div className="flex flex-wrap gap-2" style={{ marginTop: 18 }}>{categories.map((category) => <div key={category.id} className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", color: "#6B4C3B", fontSize: 13 }}><span>{category.name}</span><button type="button" onClick={() => archiveCategory(category.id)} aria-label={`Archive ${category.name}`} style={{ border: "none", background: "transparent", color: "#B91C1C", cursor: "pointer", fontWeight: 700, lineHeight: 1 }}>×</button></div>)}</div>
+  </section>;
+}
+
+function AdditionsManagement({ inventory, categories, onCategoriesChange }: { inventory: InventoryItem[]; categories: ProductCategory[]; onCategoriesChange: (categories: ProductCategory[]) => void }) {
   const [items, setItems] = useState<AdditionItem[]>([]);
   const [additionName, setAdditionName] = useState("");
   const [inventoryId, setInventoryId] = useState("");
@@ -303,6 +364,7 @@ function AdditionsManagement({ inventory }: { inventory: InventoryItem[] }) {
       <div className="px-6 py-4 border-b" style={{ borderColor: "#E8DDD5" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>Addition Items</h3></div>
       {loading ? <p className="p-6" style={{ color: "#9C8278" }}>Loading additions...</p> : items.length === 0 ? <p className="p-6" style={{ color: "#9C8278" }}>No addition items yet.</p> : <div className="divide-y">{items.map((item) => <div key={item.addition_id} className="flex items-center justify-between gap-4 px-6 py-4" style={{ borderColor: "#E8DDD5" }}><div><p style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>{item.addition_name}</p><p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 12 }}>Uses {item.item_name}</p></div><div className="flex items-center gap-4"><p style={{ margin: 0, color: "#6B4C3B", fontFamily: "JetBrains Mono, monospace", fontSize: 13 }}>{item.quantity} {item.unit_of_measure} · ₱{Number(item.price).toFixed(2)}</p><button type="button" onClick={() => archiveItem(item.addition_id)} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "6px 10px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Archive</button></div></div>)}</div>}
     </div>
+    <DrinkCategoryManagement categories={categories} onChange={onCategoriesChange} />
   </div>;
 }
 
@@ -708,10 +770,9 @@ type ProductVariant = { id?: number; size: string; price: number; hasSales?: boo
 type ProductAddition = { id: number; name: string; quantity: number; price: number; unit: string };
 type Product = { id: number; name: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
 
-const productCategories = ["Espresso Drinks", "Cold Drinks"];
 
 type DraftIngredient = { inventoryId: number; qty: string };
-type DraftVariant = { size: string; price: string; ingredients: DraftIngredient[] };
+type DraftVariant = { size: string; price: string; ingredients: DraftIngredient[]; active: boolean };
 
 function areIngredientsAvailable(ingredients: ProductIngredient[], inventory: InventoryItem[]): boolean {
   return ingredients.length > 0 && ingredients.every((ingredient) => {
@@ -836,9 +897,9 @@ function ProductCard({
   );
 }
 
-const standardVariantSizes = ["16 oz", "22 oz"];
+const standardVariantSizes = ["8 oz", "12 oz", "16 oz", "22 oz"];
 
-function buildFormVariants(product: Product | undefined, defaultInventoryId: number): DraftVariant[] {
+function buildFormVariants(product: Product | undefined): DraftVariant[] {
   const existing = product?.variants ?? [];
   const usedSizes = new Set<string>();
 
@@ -846,23 +907,24 @@ function buildFormVariants(product: Product | undefined, defaultInventoryId: num
     const match = existing.find((variant) => variant.size.trim().toLowerCase() === size.toLowerCase());
     if (match) {
       usedSizes.add(match.size);
-      return { size: match.size, price: String(match.price), ingredients: match.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })) };
+      return { size: match.size, price: String(match.price), ingredients: match.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true };
     }
-    return { size, price: "", ingredients: [{ inventoryId: 0, qty: "" }] };
+    return { size, price: "", ingredients: [], active: false };
   });
 
   // Preserve any variant whose size doesn't match a standard label, so no data is lost.
   for (const variant of existing) {
     if (usedSizes.has(variant.size)) continue;
-    seeded.push({ size: variant.size, price: String(variant.price), ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })) });
+    seeded.push({ size: variant.size, price: String(variant.price), ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
   }
 
   if (!product) {
     // Brand-new product: pre-select an inventory item on the first size so the form isn't empty.
-    seeded[0] = { ...seeded[0], ingredients: [{ inventoryId: defaultInventoryId, qty: "" }] };
+    seeded.forEach((variant, index) => { seeded[index] = { ...variant, active: false }; });
   } else if (existing.length === 0 && product.ingredients.length > 0) {
     // Legacy product stored without variants — seed the first size with its flat-level ingredients.
-    seeded[0] = { size: standardVariantSizes[0], price: String(product.price), ingredients: product.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })) };
+    const legacyIndex = standardVariantSizes.indexOf("16 oz");
+    seeded[legacyIndex] = { size: "16 oz", price: String(product.price), ingredients: product.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true };
   }
 
   return seeded;
@@ -872,6 +934,7 @@ function ProductManagement({
   products,
   inventory,
   additions,
+  categories,
   onAdd,
   onEdit,
   onDelete,
@@ -879,6 +942,7 @@ function ProductManagement({
   products: Product[];
   inventory: InventoryItem[];
   additions: ProductAddition[];
+  categories: ProductCategory[];
   onAdd: (product: Product) => Promise<void>;
   onEdit: (product: Product) => Promise<void>;
   onDelete: (id: number, variantSize?: string) => Promise<void>;
@@ -887,21 +951,30 @@ function ProductManagement({
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [filterCat, setFilterCat] = useState("All");
   const [formName, setFormName] = useState("");
-  const [formCat, setFormCat] = useState(productCategories[0]);
+  const categoryNames = categories.map((category) => category.name);
+  const [formCat, setFormCat] = useState("");
   const [formImage, setFormImage] = useState("");
   const [formImageData, setFormImageData] = useState("");
-  const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
+  const [selectedVariantIndex, setSelectedVariantIndex] = useState(-1);
   const [formVariants, setFormVariants] = useState<DraftVariant[]>([
-    { size: "16 oz", price: "", ingredients: [{ inventoryId: inventory[0]?.inventory_id ?? 0, qty: "" }] },
-    { size: "22 oz", price: "", ingredients: [{ inventoryId: 0, qty: "" }] },
+    { size: "8 oz", price: "", ingredients: [], active: false },
+    { size: "12 oz", price: "", ingredients: [], active: false },
+    { size: "16 oz", price: "", ingredients: [], active: false },
+    { size: "22 oz", price: "", ingredients: [], active: false },
   ]);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [draggedIngredientIndex, setDraggedIngredientIndex] = useState<number | null>(null);
-  const activeVariant = formVariants[selectedVariantIndex] ?? formVariants[0];
+  const [pendingVariantIndex, setPendingVariantIndex] = useState<number | null>(null);
+  const [copiedVariantIndices, setCopiedVariantIndices] = useState<number[]>([]);
+  const [ingredientDialogOpen, setIngredientDialogOpen] = useState(false);
+  const [ingredientInventoryId, setIngredientInventoryId] = useState(0);
+  const [ingredientQuantity, setIngredientQuantity] = useState("");
+  const activeVariant = formVariants[selectedVariantIndex];
   const formIngredients = activeVariant?.ingredients ?? [];
+  const formCategoryNames = formCat && !categoryNames.includes(formCat) ? [formCat, ...categoryNames] : categoryNames;
   const setFormIngredients = (updater: (previous: DraftIngredient[]) => DraftIngredient[]) => setFormVariants((previous) => previous.map((variant, index) => index === selectedVariantIndex ? { ...variant, ingredients: updater(variant.ingredients) } : variant));
   // Fall back to the product being edited so bound additions still render if the global list is empty or mid-refresh.
   const knownAdditions = [...additions, ...(editingProduct?.additions ?? []).filter((bound) => !additions.some((item) => item.id === bound.id))];
@@ -911,11 +984,14 @@ function ProductManagement({
   function resetForm(product?: Product) {
     setEditingProduct(product ?? null);
     setFormName(product?.name ?? "");
-    setFormCat(product?.category ?? productCategories[0]);
+    setFormCat(product?.category ?? categoryNames[0] ?? "");
     setFormImage(product?.imageUrl ?? "");
     setFormImageData(product?.imageData ?? "");
-    setSelectedVariantIndex(0);
-    setFormVariants(buildFormVariants(product, inventory[0]?.inventory_id ?? 0));
+    const variants = buildFormVariants(product);
+    setSelectedVariantIndex(product ? variants.findIndex((variant) => variant.active) : -1);
+    setFormVariants(variants);
+    setCopiedVariantIndices([]);
+    setPendingVariantIndex(null);
     setSelectedAdditionIds(product?.additions?.map((addition) => addition.id) ?? []);
     setActionError("");
   }
@@ -923,25 +999,48 @@ function ProductManagement({
   function openModal() { resetForm(); setShowModal(true); }
   function openEditModal(product: Product) { resetForm(product); setShowModal(true); }
   function closeModal() { if (!saving) setShowModal(false); }
-  function addIngredientRow(variantIndex = selectedVariantIndex) {
-    setFormVariants((prev) => prev.map((variant, index) => index === variantIndex ? { ...variant, ingredients: [...variant.ingredients, { inventoryId: 0, qty: "" }] } : variant));
+  function addIngredientRow() {
+    if (inventory.length === 0 || selectedVariantIndex < 0) return;
+    setIngredientInventoryId(0);
+    setIngredientQuantity("");
+    setIngredientDialogOpen(true);
+  }
+
+  function confirmIngredientRow() {
+    if (!ingredientInventoryId || !ingredientQuantity || Number(ingredientQuantity) <= 0) {
+      setActionError("Choose an inventory item and enter a quantity greater than zero.");
+      return;
+    }
+    setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex));
+    setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex
+      ? { ...variant, ingredients: [...variant.ingredients, { inventoryId: ingredientInventoryId, qty: ingredientQuantity }] }
+      : variant
+    ));
+    setIngredientDialogOpen(false);
   }
   function removeIngredientRow(ingredientIndex: number, variantIndex = selectedVariantIndex) {
+    setCopiedVariantIndices((current) => current.filter((index) => index !== variantIndex));
     setFormVariants((prev) => prev.map((variant, index) => index === variantIndex ? { ...variant, ingredients: variant.ingredients.filter((_, i) => i !== ingredientIndex) } : variant));
   }
 
-  function mirrorIngredients() {
-    const sourceVariant = formVariants[selectedVariantIndex];
-    if (!sourceVariant) return;
-    const sourceSize = sourceVariant.size.trim().toLowerCase();
-    const targetSize = sourceSize === "16 oz" ? "22 oz" : sourceSize === "22 oz" ? "16 oz" : "";
-    const targetIndex = formVariants.findIndex((variant) => variant.size.trim().toLowerCase() === targetSize);
-    if (targetIndex < 0) return;
-
-    setFormVariants((previous) => previous.map((variant, index) => index === targetIndex
-      ? { ...variant, ingredients: sourceVariant.ingredients.map((ingredient) => ({ ...ingredient })) }
+  function activateVariant(index: number) {
+    const source = formVariants.find((variant, variantIndex) => variantIndex !== index && (variant.price.trim() !== "" || variant.ingredients.length > 0))
+      ?? formVariants.find((variant, variantIndex) => variantIndex !== index && variant.active);
+    setFormVariants((previous) => previous.map((variant, variantIndex) => variantIndex === index
+      ? { ...variant, active: true, price: source?.price ?? "", ingredients: source?.ingredients.map((ingredient) => ({ ...ingredient })) ?? [] }
       : variant
     ));
+    if (source) setCopiedVariantIndices((current) => current.includes(index) ? current : [...current, index]);
+    setSelectedVariantIndex(index);
+    setPendingVariantIndex(null);
+  }
+
+  function selectVariant(index: number) {
+    if (!formVariants[index].active) {
+      setPendingVariantIndex(index);
+      return;
+    }
+    setSelectedVariantIndex(index);
   }
 
   function addProductAddition(value: string) {
@@ -981,6 +1080,7 @@ function ProductManagement({
 
   function moveIngredientRow(targetIndex: number, variantIndex = selectedVariantIndex) {
     if (draggedIngredientIndex === null || draggedIngredientIndex === targetIndex) return;
+    setCopiedVariantIndices((current) => current.filter((index) => index !== variantIndex));
     setFormVariants((prev) => prev.map((variant, index) => {
       if (index !== variantIndex) return variant;
       const next = [...variant.ingredients];
@@ -993,7 +1093,7 @@ function ProductManagement({
 
   async function submitProduct() {
     if (!formName.trim() || inventory.length === 0) return;
-    const variants = formVariants.map((variant) => ({
+    const variants = formVariants.filter((variant) => variant.active).map((variant) => ({
       size: variant.size,
       price: Number(variant.price),
       ingredients: variant.ingredients.filter((row) => row.qty !== "" && Number(row.qty) > 0 && row.inventoryId > 0).map((row) => {
@@ -1010,7 +1110,7 @@ function ProductManagement({
       const product = {
         id: 0,
         name: formName.trim(),
-        category: formCat,
+        category: formCat || categoryNames[0] || "",
         price: variants[0].price,
         imageUrl: formImage.trim(),
         imageData: formImageData,
@@ -1053,7 +1153,7 @@ function ProductManagement({
         <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#9C8278" }}>{products.length} product{products.length !== 1 ? "s" : ""} · availability based on current inventory</p>
         <div className="flex items-center gap-3">
           <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 12, padding: "9px 14px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", cursor: "pointer" }}>
-            <option>All</option>{productCategories.map((category) => <option key={category}>{category}</option>)}
+            <option>All</option>{categoryNames.map((category) => <option key={category}>{category}</option>)}
           </select>
           <button onClick={openModal} disabled={inventory.length === 0} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", border: "none", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: inventory.length === 0 ? "default" : "pointer" }}><IconPlus size={15} />Add Product</button>
         </div>
@@ -1093,7 +1193,7 @@ function ProductManagement({
                 </div>
               ) : (
                 <>
-                  {["16 oz", "22 oz"].filter((size) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && !variant.hasSales)).map((size) => <button key={size} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, size); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Archive {size} only</button>)}
+                  {standardVariantSizes.filter((size) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && !variant.hasSales)).map((size) => <button key={size} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, size); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Archive {size} only</button>)}
                   <button onClick={async () => { if (!window.confirm(`Archive the entire ${deleteTarget.name} product?`)) return; try { setActionError(""); await onDelete(deleteTarget.id); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive product."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", textAlign: "left", cursor: "pointer" }}>Archive whole product</button>
                 </>
               )}
@@ -1103,13 +1203,36 @@ function ProductManagement({
         </div>
       )}
 
+      {pendingVariantIndex !== null && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.35)", zIndex: 70 }}>
+          <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 420px)", background: "#FDF9F5", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+            <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Activate size</p>
+            <h3 style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 19 }}>Activate {formVariants[pendingVariantIndex].size}?</h3>
+            <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>The price and ingredients from the first configured size will be copied to this size. You can edit them afterward.</p>
+            <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={() => setPendingVariantIndex(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => activateVariant(pendingVariantIndex)} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", fontWeight: 700 }}>Activate size</button></div>
+          </div>
+        </div>
+      )}
+      {ingredientDialogOpen && (
+        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.35)", zIndex: 70 }}>
+          <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 420px)", background: "#FDF9F5", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+            <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Add ingredient</p>
+            <h3 style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 19 }}>Add to {activeVariant?.size ?? "selected size"}</h3>
+            <div className="flex flex-col gap-3" style={{ marginTop: 18 }}>
+              <label style={{ color: "#6B4C3B", fontSize: 12 }}>Inventory item<select value={ingredientInventoryId || ""} onChange={(event) => setIngredientInventoryId(Number(event.target.value))} style={{ ...inputBase, width: "100%", marginTop: 6 }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} · {item.unit_of_measure}</option>)}</select></label>
+              <label style={{ color: "#6B4C3B", fontSize: 12 }}>Quantity<input type="number" min={0} step={inventory.find((item) => item.inventory_id === ingredientInventoryId)?.is_whole_unit ? 1 : "any"} value={ingredientQuantity} onChange={(event) => setIngredientQuantity(event.target.value)} placeholder="Enter quantity" style={{ ...inputBase, width: "100%", marginTop: 6 }} /></label>
+            </div>
+            <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={() => setIngredientDialogOpen(false)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={confirmIngredientRow} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", fontWeight: 700 }}>Add ingredient</button></div>
+          </div>
+        </div>
+      )}
       {showModal && (
         <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.45)", zIndex: 50 }} onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
           <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, height: "92vh", maxHeight: 760, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
             <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5", flexShrink: 0 }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
             <div className="flex flex-col gap-5 px-6 py-6" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
-              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Category</label><select value={formCat} onChange={(e) => setFormCat(e.target.value)} style={{ ...inputBase, cursor: "pointer" }}>{productCategories.map((category) => <option key={category}>{category}</option>)}</select></div>
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><select value={formCat || categoryNames[0] || ""} onChange={(e) => setFormCat(e.target.value)} style={{ ...inputBase, cursor: "pointer" }} disabled={categoryNames.length === 0}>{categoryNames.length === 0 ? <option value="">Add a category first</option> : formCategoryNames.map((category) => <option key={category}>{category}</option>)}</select></div>
               <div className="flex flex-col gap-3" aria-label="Product additions" style={{ flexShrink: 0 }}>
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Additions <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
                 {additions.length === 0
@@ -1120,8 +1243,8 @@ function ProductManagement({
                   : <div className="flex flex-col gap-2">{selectedAdditions.map((addition) => <div key={addition.id} className="flex items-center justify-between gap-3 py-1" style={{ borderBottom: "1px solid #E8DDD5" }}><span><span style={{ display: "block", color: "#3D2B1F", fontSize: 13, fontWeight: 600 }}>{addition.name} · ₱{Number(addition.price).toFixed(2)}</span><span style={{ color: "#9C8278", fontSize: 11 }}>{addition.quantity} {addition.unit} consumed from inventory</span></span><button type="button" onClick={() => removeProductAddition(addition.id)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "5px 9px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>Remove</button></div>)}</div>}
               </div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5" }}><img src={formImageData || formImage.trim()} alt="preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
-              <div className="flex flex-col gap-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1 rounded-xl p-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>{formVariants.map((variant, index) => <button key={variant.size} type="button" onClick={() => setSelectedVariantIndex(index)} style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: selectedVariantIndex === index ? "#3D2B1F" : "transparent", color: selectedVariantIndex === index ? "#FDF9F5" : "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{variant.size}</button>)}</div><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} onChange={(event) => setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant))} placeholder="0" style={{ ...inputBase, width: 100 }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant?.size} Ingredients</label><div className="flex items-center gap-2"><button type="button" onClick={mirrorIngredients} disabled={saving || !["16 oz", "22 oz"].includes(activeVariant?.size.trim().toLowerCase() ?? "")} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#EFF6FF", border: "1px solid #BFDBFE", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#1D4ED8", cursor: saving ? "default" : "pointer", opacity: saving || !["16 oz", "22 oz"].includes(activeVariant?.size.trim().toLowerCase() ?? "") ? 0.5 : 1 }} title={`Copy ${activeVariant?.size ?? "current"} ingredients to the other size`}>Mirror to {activeVariant?.size.trim().toLowerCase() === "16 oz" ? "22 oz" : "16 oz"}</button><button type="button" onClick={() => addIngredientRow()} disabled={inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
-                <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r))} style={{ ...inputBase, flex: 1 }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r))} style={{ ...inputBase, width: 70 }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
+              <div className="flex flex-col gap-3"><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-1 rounded-xl p-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>{formVariants.map((variant, index) => <button key={variant.size} type="button" onClick={() => selectVariant(index)} style={{ border: "none", borderRadius: 8, padding: "7px 12px", background: selectedVariantIndex === index ? "#3D2B1F" : "transparent", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#6B4C3B" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: variant.active ? 1 : 0.7 }}>{variant.size}{!variant.active ? " +" : ""}</button>)}</div><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(event) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} Ingredients` : "Select a size to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
+                <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5", flexShrink: 0, background: "#FDF9F5" }}><button onClick={closeModal} disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: saving ? "default" : "pointer" }}>Cancel</button><button onClick={submitProduct} disabled={saving || !formName.trim() || !hasValidVariant || inventory.length === 0} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !formName.trim() || !hasValidVariant || inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: saving ? "default" : "pointer" }}>{saving ? "Saving…" : editingProduct ? "Save Changes" : "Add Product"}</button></div>
@@ -1137,15 +1260,20 @@ type SalesOrder = {
   total_amount: number;
   status: string;
   created_at: string;
-  items: { product_id: number; product_name: string; size_label: string; quantity: number; unit_price: number; additions?: { addition_id: number; addition_name: string; quantity: number }[] }[];
+  queue_number: number | null;
+  queue_status: string | null;
+  order_source: string | null;
+  punched_by: string;
+  items: { product_id: number; product_name: string; size_label: string; quantity: number; unit_price: number; additions?: { addition_id: number; addition_name: string; quantity: number; unit_price?: number }[] }[];
 };
 type SalesSummary = { order_count: number; revenue: number; items_sold: number };
 type TopProduct = { product_name: string; quantity: number; revenue: number };
 type DailySale = { sale_date: string; order_count: number; revenue: number; items_sold: number };
+type ExportSections = { summary: boolean; dailySales: boolean; orderHistory: boolean; productSales: boolean };
 
 function formatSalesDate(value: string): string {
   const rawValue = String(value ?? "").trim();
-  const date = new Date(rawValue.includes("T") ? rawValue : `${rawValue}T00:00:00`);
+  const date = new Date(`${rawValue.slice(0, 10)}T00:00:00`);
   if (Number.isNaN(date.getTime())) return rawValue || "Unknown date";
   return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
 }
@@ -1164,6 +1292,17 @@ function Finance() {
   const [summary, setSummary] = useState<SalesSummary>({ order_count: 0, revenue: 0, items_sold: 0 });
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [dailySales, setDailySales] = useState<DailySale[]>([]);
+  const [selectedDailyDate, setSelectedDailyDate] = useState("");
+  const [dailyDetailOrders, setDailyDetailOrders] = useState<SalesOrder[]>([]);
+  const [dailyDetailLoading, setDailyDetailLoading] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<"period" | "date" | "range">("period");
+  const [exportDate, setExportDate] = useState("");
+  const [exportStart, setExportStart] = useState("");
+  const [exportEnd, setExportEnd] = useState("");
+  const [exportSections, setExportSections] = useState<ExportSections>({ summary: true, dailySales: true, orderHistory: true, productSales: true });
+  const [exporting, setExporting] = useState(false);
   const salesSignatureRef = useRef("");
 
   const loadOrders = useCallback(async (showLoading = true) => {
@@ -1175,7 +1314,7 @@ function Finance() {
         const signaturePayload = await signatureResponse.json();
         if (!signatureResponse.ok) throw new Error(signaturePayload?.error || "Failed to check sales changes.");
         const nextSignature = JSON.stringify(signaturePayload.signature ?? {});
-        if (salesSignatureRef.current === nextSignature) return;
+        if (salesSignatureRef.current === nextSignature && !dailySalesDate && !orderHistoryDate) return;
         salesSignatureRef.current = nextSignature;
       }
       const query = new URLSearchParams({ period });
@@ -1239,6 +1378,125 @@ function Finance() {
 
   }
 
+  async function exportFinanceReport() {
+      if (!Object.values(exportSections).some(Boolean)) {
+        setError("Select at least one report section.");
+        return;
+      }
+      if (exportMode === "date" && !exportDate || exportMode === "range" && (!exportStart || !exportEnd)) {
+        setError("Choose the date or date range for the report.");
+        return;
+      }
+      setExporting(true);
+      setError("");
+      try {
+        const query = new URLSearchParams({ period: exportMode === "period" ? period : "all" });
+        if (exportMode === "date") {
+          query.set("history_date", exportDate);
+          query.set("daily_date", exportDate);
+        }
+        if (exportMode === "range") {
+          query.set("history_start", exportStart);
+          query.set("history_end", exportEnd);
+          query.set("daily_start", exportStart);
+          query.set("daily_end", exportEnd);
+        }
+        const response = await fetch(`/api/sales-orders?${query.toString()}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Failed to retrieve report data.");
+        const reportOrders: SalesOrder[] = payload.data ?? [];
+        const reportDailySales: DailySale[] = payload.dailySales ?? [];
+        const workbook = XLSX.utils.book_new();
+        const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
+            if (rows.length) {
+              const sheet = XLSX.utils.json_to_sheet(rows);
+              sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
+              XLSX.utils.book_append_sheet(workbook, sheet, name);
+            }
+          };
+          const reportPeriod = exportMode === "period" ? periodLabel : exportMode === "date" ? exportDate : `${exportStart} to ${exportEnd}`;
+          const totalItems = reportOrders.reduce((value, order) => value + order.items.reduce((sum, item) => sum + Number(item.quantity), 0), 0);
+          const totalRevenue = reportOrders.reduce((value, order) => value + Number(order.total_amount), 0);
+          const orderItemRows = reportOrders.flatMap((order) => order.items.map((item, index) => ({
+            "Order ID": order.order_id,
+            "Order Date": new Date(order.created_at).toLocaleString(),
+            "Punched By": order.punched_by,
+            "Order Source": order.order_source === "online" ? "Online" : "Cashier",
+            "Queue Number": order.queue_number ?? "",
+            "Queue Status": order.queue_status ?? "",
+            "Order Status": order.status,
+            "Item #": index + 1,
+            "Product ID": item.product_id,
+            Product: item.product_name,
+            Variant: item.size_label || "",
+            Quantity: Number(item.quantity),
+            "Unit Price": Number(item.unit_price),
+            "Product Line Total": Number(item.quantity) * Number(item.unit_price),
+            Additions: item.additions?.map((addition) => `${addition.addition_name} x${addition.quantity}`).join(", ") || "",
+            "Additions Total": item.additions?.reduce((sum, addition) => sum + Number(addition.quantity) * Number(addition.unit_price ?? 0), 0) || 0,
+            "Order Total": Number(order.total_amount),
+          })));
+          const additionRows = reportOrders.flatMap((order) => order.items.flatMap((item) => (item.additions ?? []).map((addition) => ({
+            "Order ID": order.order_id,
+            "Order Date": new Date(order.created_at).toLocaleString(),
+            "Punched By": order.punched_by,
+            "Order Source": order.order_source === "online" ? "Online" : "Cashier",
+            Product: item.product_name,
+            Variant: item.size_label || "",
+            Addition: addition.addition_name,
+            Quantity: Number(addition.quantity),
+            "Unit Price": Number(addition.unit_price ?? 0),
+            "Line Total": Number(addition.quantity) * Number(addition.unit_price ?? 0),
+          }))));
+          if (exportSections.summary) {
+            appendSheet("Sales Summary", [{
+              "Report Period": reportPeriod,
+              Generated: new Date().toLocaleString(),
+              Orders: reportOrders.length,
+              "Items Sold": totalItems,
+              Revenue: totalRevenue,
+              "Cashier Orders": reportOrders.filter((order) => order.order_source !== "online").length,
+              "Online Orders": reportOrders.filter((order) => order.order_source === "online").length,
+              "Average Ticket": reportOrders.length ? totalRevenue / reportOrders.length : 0,
+            }]);
+          }
+          if (exportSections.dailySales) appendSheet("Daily Sales", reportDailySales.map((day) => ({ Date: day.sale_date, Orders: day.order_count, "Items Sold": day.items_sold, Revenue: Number(day.revenue) })));
+          if (exportSections.orderHistory) {
+            appendSheet("Order History", reportOrders.map((order) => ({
+              "Order ID": order.order_id,
+              "Order Date": new Date(order.created_at).toLocaleString(),
+              "Punched By": order.punched_by,
+              "Order Source": order.order_source === "online" ? "Online" : "Cashier",
+              "Queue Number": order.queue_number ?? "",
+              "Queue Status": order.queue_status ?? "",
+              Status: order.status,
+              "Item Count": order.items.reduce((sum, item) => sum + Number(item.quantity), 0),
+              "Order Total": Number(order.total_amount),
+            })));
+            appendSheet("Order Items", orderItemRows);
+            if (!exportSections.orderHistory) appendSheet("Additions", additionRows);
+          }
+          if (exportSections.productSales) {
+            const productMap = new Map<string, { productId: number; quantity: number; revenue: number }>();
+            reportOrders.forEach((order) => order.items.forEach((item) => {
+              const key = `${item.product_name} · ${item.size_label || "No size"}`;
+              const current = productMap.get(key) ?? { productId: item.product_id, quantity: 0, revenue: 0 };
+              current.quantity += Number(item.quantity);
+              current.revenue += Number(item.quantity) * Number(item.unit_price);
+              productMap.set(key, current);
+            }));
+            appendSheet("Product Sales", Array.from(productMap, ([product, values]) => ({ "Product ID": values.productId, Product: product, Quantity: values.quantity, Revenue: values.revenue })));
+            appendSheet("Additions", additionRows);
+          }
+        XLSX.writeFile(workbook, `brew-houze-sales-${new Date().toISOString().slice(0, 10)}.xlsx`);
+        setExportOpen(false);
+      } catch (exportError) {
+        setError(exportError instanceof Error ? exportError.message : "Failed to generate Excel report.");
+      } finally {
+        setExporting(false);
+      }
+  }
+
   async function clearAllFinanceRecords() {
     if (clearConfirmation !== "CLEAR_FINANCE_RECORDS") return;
     setClearingRecords(true);
@@ -1263,21 +1521,42 @@ function Finance() {
 
   const averageTicket = Number(summary.order_count) ? Number(summary.revenue) / Number(summary.order_count) : 0;
   const periodLabel = period === "all" ? "All time" : `Last ${period} days`;
+  async function inspectSalesDate(date: string) {
+    const selectedDate = date.slice(0, 10);
+    setSelectedDailyDate(selectedDate);
+    setDailyDetailLoading(true);
+    setError("");
+    try {
+      const query = new URLSearchParams({ period: "all", history_date: selectedDate });
+      const response = await fetch(`/api/sales-orders?${query.toString()}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to load daily sales details.");
+      setDailyDetailOrders(payload.data ?? []);
+    } catch (detailError) {
+      setDailyDetailOrders([]);
+      setError(detailError instanceof Error ? detailError.message : "Failed to load daily sales details.");
+    } finally {
+      setDailyDetailLoading(false);
+    }
+  }
 
   return <main className="finance-shell p-8" style={{ color: "#3D2B1F", overflowY: "auto", maxWidth: 1380 }}>
     <div className="flex items-start justify-between gap-4 mb-6">
       <div><div style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#D97706" }} /> Business pulse</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, letterSpacing: "-0.03em" }}>Sales Overview</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13 }}>A simple view of how your coffee shop is performing.</p></div>
-      <div className="flex items-center gap-2"><select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: "#FDF9F5", color: "#6B4C3B", boxShadow: "0 3px 10px rgba(61,43,31,.04)" }}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="all">All time</option></select><button onClick={() => void loadOrders()} disabled={loading} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: loading ? "default" : "pointer", boxShadow: "0 4px 12px rgba(61,43,31,.12)" }}>{loading ? "Loading..." : "Refresh"}</button></div>
+      <div className="flex items-center gap-2"><select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: "#FDF9F5", color: "#6B4C3B", boxShadow: "0 3px 10px rgba(61,43,31,.04)" }}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="all">All time</option></select>      <button onClick={() => void loadOrders()} disabled={loading} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: loading ? "default" : "pointer", boxShadow: "0 4px 12px rgba(61,43,31,.12)" }}>{loading ? "Loading..." : "Refresh"}</button><button type="button" onClick={() => setExportOpen(true)} style={{ border: "1px solid #D97706", borderRadius: 10, padding: "10px 14px", background: "#FFF7ED", color: "#B45309", cursor: "pointer", fontWeight: 700 }}>Export Excel</button></div>
     </div>
     {error && <p className="mb-4" style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
     {loading && orders.length === 0 && <div className="rounded-2xl p-10 mb-7 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}><div style={{ width: 28, height: 28, margin: "0 auto 12px", border: "3px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /><strong style={{ display: "block", color: "#3D2B1F", fontSize: 15 }}>Loading finance records...</strong><span style={{ display: "block", marginTop: 5, fontSize: 12 }}>Preparing your sales overview.</span></div>}
     {(!loading || orders.length > 0) && <><div className="grid gap-4 mb-7" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", opacity: loading ? 0.62 : 1, transition: "opacity .2s ease" }}>
       {[[`Revenue · ${periodLabel}`, `₱${Number(summary.revenue).toFixed(2)}`, "#3D2B1F", "primary"], ["Orders", String(summary.order_count), "#D97706", ""], ["Items sold", String(summary.items_sold), "#6B4C3B", ""], ["Average ticket", `₱${averageTicket.toFixed(2)}`, "#2E7D32", ""]].map(([label, value, color, emphasis]) => <div key={label} className="rounded-2xl p-5" style={{ background: emphasis ? "linear-gradient(135deg, #3D2B1F 0%, #5B4030 100%)" : "#FDF9F5", border: emphasis ? "none" : "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.06)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", width: 80, height: 80, borderRadius: "50%", right: -25, top: -25, background: emphasis ? "rgba(217,119,6,.18)" : "rgba(217,119,6,.07)" }} /><p style={{ position: "relative", color: emphasis ? "rgba(255,255,255,.62)" : "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p><p style={{ position: "relative", marginTop: 10, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 27, fontWeight: 800, color: emphasis ? "#FDF9F5" : color }}>{value}</p></div>)}
     </div><div className="grid gap-5 mb-7" style={{ gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, .85fr)" }}><section className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.05)" }}><div className="flex items-center justify-between mb-4"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 17 }}>Top Sellers</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>What customers are ordering most</p></div><span style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>TOP 5</span></div>{topProducts.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No product sales in this period.</p> : topProducts.map((product, index) => <div key={product.product_name} className="flex items-center gap-3 py-3" style={{ borderBottom: index === topProducts.length - 1 ? "none" : "1px solid #F0E8E2" }}><span style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: index === 0 ? "#D97706" : "#F3EDE5", color: index === 0 ? "#fff" : "#6B4C3B", fontWeight: 800, fontSize: 12 }}>{index + 1}</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.product_name}</strong><div style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{product.quantity} sold</div></div><span style={{ fontWeight: 700, fontSize: 13 }}>₱{Number(product.revenue).toFixed(2)}</span></div>)}</section><section className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #3D2B1F, #674735)", color: "#FDF9F5", boxShadow: "0 8px 24px rgba(61,43,31,.16)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", right: -35, bottom: -45, width: 150, height: 150, borderRadius: "50%", border: "22px solid rgba(253,249,245,.08)" }} /><div style={{ position: "relative" }}><span style={{ color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: ".1em" }}>    Owner&apos;s note</span><h3 style={{ margin: "12px 0 10px", fontWeight: 800, fontSize: 20 }}>Keep an eye on your best cups.</h3><p style={{ color: "rgba(255,255,255,.7)", fontSize: 13, lineHeight: 1.65 }}>Use top sellers to guide prep and purchasing. Inventory deductions happen automatically after every completed order.</p><div style={{ marginTop: 24, display: "inline-flex", padding: "6px 10px", borderRadius: 7, background: "rgba(255,255,255,.1)", color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>{periodLabel}</div></div></section></div>
-    <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Daily Sales</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Overall sales grouped by date · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td></tr>)}</tbody></table></div></div>}</section>
-    <section><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Clearing..." : "DEV: Clear all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) => <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>Order #{order.order_id}<span style={{ color: "#2E7D32", background: "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span></div>    <div style={{ marginTop: 6, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong><button onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id     ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}
+    <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Daily Sales</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Overall sales grouped by date · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue", "Inspect"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><button type="button" onClick={() => inspectSalesDate(day.sale_date)} aria-label={`Inspect sales for ${formatSalesDate(day.sale_date)}`} title="Inspect sales for this date" style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button></td></tr>)}</tbody></table></div></div>}</section>
+    {exportOpen && <div role="dialog" aria-modal="true" onClick={() => !exporting && setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 560px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance report</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Export Excel report</h3></div><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} aria-label="Close export dialog" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Include sections</strong>{(["summary", "dailySales", "orderHistory", "productSales"] as const).map((section) => <label key={section} className="flex items-center gap-2" style={{ marginTop: 9, color: "#6B4C3B", fontSize: 13 }}><input type="checkbox" checked={exportSections[section]} onChange={(event) => setExportSections((current) => ({ ...current, [section]: event.target.checked }))} />{section === "summary" ? "Sales Summary" : section === "dailySales" ? "Daily Sales" : section === "orderHistory" ? "Order History" : "Product Sales"}</label>)}</div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Date range</strong><div className="flex flex-col gap-2"><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "period"} onChange={() => setExportMode("period")} />Use current period ({periodLabel})</label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "date"} onChange={() => setExportMode("date")} />Specific date<input type="date" value={exportDate} onChange={(event) => setExportDate(event.target.value)} disabled={exportMode !== "date"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "range"} onChange={() => setExportMode("range")} />Date range<input type="date" value={exportStart} onChange={(event) => setExportStart(event.target.value)} disabled={exportMode !== "range"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /><span>to</span><input type="date" value={exportEnd} onChange={(event) => setExportEnd(event.target.value)} disabled={exportMode !== "range"} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label></div></div><div className="flex justify-end gap-3" style={{ marginTop: 26 }}><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 16px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => void exportFinanceReport()} disabled={exporting} style={{ border: "none", borderRadius: 10, padding: "9px 16px", background: exporting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: exporting ? "default" : "pointer", fontWeight: 700 }}>{exporting ? "Generating..." : "Download Excel"}</button></div></section></div>}
+    {selectedDailyDate && <div role="dialog" aria-modal="true" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Daily sales record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{formatSalesDate(selectedDailyDate)}</h3></div><button type="button" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} aria-label="Close daily sales details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>{dailyDetailLoading ? <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>Loading purchases...</p> : <>{dailyDetailOrders.map((order) => <div key={order.order_id} style={{ marginTop: 22, borderTop: "1px solid #E8DDD5", paddingTop: 16 }}><div className="flex items-start justify-between gap-3"><div><strong style={{ fontSize: 17 }}>Order #{order.order_id}</strong><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 12 }}>Punched by: {order.punched_by} · {new Date(order.created_at).toLocaleString()}</div></div><strong>₱{Number(order.total_amount).toFixed(2)}</strong></div>{order.items.map((item, index) => <div key={`${order.order_id}-${item.product_id}-${index}`} className="flex items-start justify-between gap-3" style={{ marginTop: 14, paddingBottom: 12, borderBottom: "1px solid #F0E8E2" }}><div><strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}</strong><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div><strong>₱{(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}</strong></div>)}</div>)}{!dailyDetailOrders.length && <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>No purchases found for this date.</p>}<div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total for the day</strong><strong style={{ fontSize: 20 }}>₱{dailyDetailOrders.reduce((total, order) => total + Number(order.total_amount), 0).toFixed(2)}</strong></div></>}</section></div>}
+    <section id="order-history"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Clearing..." : "DEV: Clear all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) =>     <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>Order #{order.order_id}<span style={{ color: "#2E7D32", background: "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span></div><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 11 }}>Punched by: {order.punched_by}</div><div style={{ marginTop: 4, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong>    <button type="button" onClick={() => setSelectedOrder(order)} aria-label={`Inspect order #${order.order_id}`} title="Inspect order" style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button><button type="button" onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}
     {loading && orders.length > 0 && <div style={{ position: "sticky", bottom: 20, zIndex: 5, display: "flex", justifyContent: "center", pointerEvents: "none" }}><div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", color: "#6B4C3B", background: "rgba(253,249,245,.96)", border: "1px solid #E8DDD5", borderRadius: 999, boxShadow: "0 5px 18px rgba(61,43,31,.12)", fontSize: 12 }}><span style={{ width: 13, height: 13, border: "2px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Updating finance records...</div></div>}
     {clearConfirmOpen && <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section style={{ width: "min(100%, 440px)", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontSize: 18 }}>Clear all finance records?</h3><p style={{ margin: "10px 0 16px", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This permanently deletes every sales record and its order items. Type <strong>CLEAR_FINANCE_RECORDS</strong> to continue.</p><input autoFocus value={clearConfirmation} onChange={(event) => setClearConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void clearAllFinanceRecords(); }} placeholder="CLEAR_FINANCE_RECORDS" style={{ width: "100%", padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 8, color: "#3D2B1F", background: "#fff" }} /><div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><button onClick={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} disabled={clearingRecords} style={{ padding: "9px 13px", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: clearingRecords ? "default" : "pointer" }}>Cancel</button><button onClick={() => void clearAllFinanceRecords()} disabled={clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS"} style={{ padding: "9px 13px", border: "1px solid #FECACA", borderRadius: 8, background: "#B91C1C", color: "#fff", cursor: clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS" ? "default" : "pointer" }}>{clearingRecords ? "Clearing..." : "Clear records"}</button></div></section></div>}
+   {selectedOrder && <div role="dialog" aria-modal="true" onClick={() => setSelectedOrder(null)} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Order #{selectedOrder.order_id}</h3></div><button onClick={() => setSelectedOrder(null)} aria-label="Close order details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="grid gap-3 mt-5" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Punched by</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.punched_by}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Order source</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.order_source === "online" ? "Online" : "Cashier"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Queue number</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.queue_number ?? "—"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Created</span><strong style={{ display: "block", marginTop: 4 }}>{new Date(selectedOrder.created_at).toLocaleString()}</strong></div></div><div style={{ marginTop: 22, borderTop: "1px solid #E8DDD5" }}>{selectedOrder.items.map((item, index) => <div key={`${item.product_id}-${index}`} style={{ padding: "14px 0", borderBottom: "1px solid #F0E8E2" }}><div className="flex items-start justify-between gap-3"><strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}</strong><strong>₱{(Number(item.unit_price) * item.quantity).toFixed(2)}</strong></div><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(selectedOrder.total_amount).toFixed(2)}</strong></div></section></div>}
   </main>;
 }
 type CashierAccount = { id: number; fullName: string; email: string; role: string; isActive: boolean };
@@ -1372,6 +1651,7 @@ export default function App() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [additions, setAdditions] = useState<ProductAddition[]>([]);
+  const [categories, setCategories] = useState<ProductCategory[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -1429,13 +1709,28 @@ export default function App() {
     }
   }
 
+  async function refreshCategories() {
+    try {
+      const response = await fetch("/api/product-categories", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to load drink categories.");
+      setCategories(payload.data ?? []);
+    } catch (error) {
+      console.error(error);
+      setCategories([]);
+    }
+  }
+
   function handlePageChange(nextPage: Page) {
     setPage(nextPage);
     if (nextPage === "inventory" || nextPage === "products" || nextPage === "dashboard") {
       void refreshInventory();
       void refreshProducts();
     }
-    if (nextPage === "products" || nextPage === "additions") void refreshAdditions();
+    if (nextPage === "products" || nextPage === "additions") {
+      void refreshAdditions();
+      void refreshCategories();
+    }
   }
 
   useEffect(() => {
@@ -1455,6 +1750,11 @@ export default function App() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void refreshAdditions(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refreshCategories(); }, 0);
     return () => window.clearTimeout(timer);
   }, []);
 
@@ -1479,7 +1779,7 @@ export default function App() {
     const refreshWhenVisible = () => {
       if (requestInFlight || document.visibilityState !== "visible") return;
       requestInFlight = true;
-      void Promise.all([refreshInventory(), refreshProducts(), refreshAdditions()])
+      void Promise.all([refreshInventory(), refreshProducts(), refreshAdditions(), refreshCategories()])
         .finally(() => { requestInFlight = false; });
     };
     const intervalId = window.setInterval(() => {
@@ -1610,8 +1910,8 @@ export default function App() {
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
         {page === "dashboard" && <Dashboard inventory={inventory} />}
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
-        {page === "additions" && <AdditionsManagement inventory={inventory} />}
-        {page === "products" && <ProductManagement products={products} inventory={inventory} additions={additions} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
+        {page === "additions" && <AdditionsManagement inventory={inventory} categories={categories} onCategoriesChange={setCategories} />}
+        {page === "products" && <ProductManagement products={products} inventory={inventory} additions={additions} categories={categories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
         {page === "finance" && <Finance />}
         {page === "accounts" && <Accounts />}
       </div>

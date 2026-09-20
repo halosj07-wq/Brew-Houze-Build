@@ -16,13 +16,21 @@ export async function GET(request: Request) {
     const period = searchParams.get("period") ?? "30";
     const dailySalesDate = searchParams.get("daily_date") ?? "";
     const orderHistoryDate = searchParams.get("history_date") ?? "";
+    const dailySalesStart = searchParams.get("daily_start") ?? "";
+    const dailySalesEnd = searchParams.get("daily_end") ?? "";
+    const orderHistoryStart = searchParams.get("history_start") ?? "";
+    const orderHistoryEnd = searchParams.get("history_end") ?? "";
     const isCurrentWeek = period === "week";
     const days = period === "all" ? null : Number(period);
     if (!isCurrentWeek && days !== null && (![7, 30, 90].includes(days) || !Number.isInteger(days))) {
       return NextResponse.json({ error: "Period must be week, 7, 30, 90, or all." }, { status: 400 });
     }
-    if ((dailySalesDate && !/^\d{4}-\d{2}-\d{2}$/.test(dailySalesDate)) || (orderHistoryDate && !/^\d{4}-\d{2}-\d{2}$/.test(orderHistoryDate))) {
+    const dates = [dailySalesDate, dailySalesStart, dailySalesEnd, orderHistoryDate, orderHistoryStart, orderHistoryEnd];
+    if (dates.some((date) => date && !/^\d{4}-\d{2}-\d{2}$/.test(date))) {
       return NextResponse.json({ error: "Dates must use YYYY-MM-DD format." }, { status: 400 });
+    }
+    if ((dailySalesStart && dailySalesEnd && dailySalesStart > dailySalesEnd) || (orderHistoryStart && orderHistoryEnd && orderHistoryStart > orderHistoryEnd)) {
+      return NextResponse.json({ error: "Start dates must not be after end dates." }, { status: 400 });
     }
     const overviewClause = isCurrentWeek
       ? "WHERE so.created_at >= DATE_TRUNC('week', CURRENT_TIMESTAMP)"
@@ -30,12 +38,16 @@ export async function GET(request: Request) {
     const overviewParams: (string | number)[] = isCurrentWeek || days === null ? [] : [days];
     const dailyClause = dailySalesDate
       ? "WHERE so.created_at >= $1::date AND so.created_at < ($1::date + INTERVAL '1 day')"
-      : "";
-    const dailyParams: (string | number)[] = dailySalesDate ? [dailySalesDate] : [];
+      : dailySalesStart || dailySalesEnd
+        ? `WHERE so.created_at >= $1::date AND so.created_at < ($2::date + INTERVAL '1 day')`
+        : "";
+    const dailyParams: (string | number)[] = dailySalesDate ? [dailySalesDate] : dailySalesStart || dailySalesEnd ? [dailySalesStart || dailySalesEnd, dailySalesEnd || dailySalesStart] : [];
     const historyClause = orderHistoryDate
       ? "WHERE so.created_at >= $1::date AND so.created_at < ($1::date + INTERVAL '1 day')"
-      : "";
-    const historyParams: (string | number)[] = orderHistoryDate ? [orderHistoryDate] : [];
+      : orderHistoryStart || orderHistoryEnd
+        ? `WHERE so.created_at >= $1::date AND so.created_at < ($2::date + INTERVAL '1 day')`
+        : "";
+    const historyParams: (string | number)[] = orderHistoryDate ? [orderHistoryDate] : orderHistoryStart || orderHistoryEnd ? [orderHistoryStart || orderHistoryEnd, orderHistoryEnd || orderHistoryStart] : [];
     const additionTableResult = await pool.query(`
       SELECT to_regclass('public.sales_order_item_additions') IS NOT NULL AS available
     `);
@@ -59,6 +71,10 @@ export async function GET(request: Request) {
         so.total_amount,
         so.status,
         so.created_at,
+        so.queue_number,
+        so.queue_status,
+        so.order_source,
+        COALESCE(a.full_name, CASE WHEN so.order_source = 'online' THEN 'Online order' ELSE 'Unknown cashier' END) AS punched_by,
         COALESCE(
           json_agg(
             json_build_object(
@@ -78,8 +94,9 @@ export async function GET(request: Request) {
       LEFT JOIN sales_order_items soi ON soi.order_id = so.order_id
       LEFT JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
+      LEFT JOIN admin_users a ON a.admin_id = so.cashier_admin_id
       ${historyClause}
-      GROUP BY so.order_id
+      GROUP BY so.order_id, a.full_name
       ORDER BY so.created_at DESC, so.order_id DESC
     `, historyParams);
 
@@ -106,7 +123,7 @@ export async function GET(request: Request) {
 
     const dailySalesResult = await pool.query(`
       SELECT
-        DATE(so.created_at) AS sale_date,
+        TO_CHAR(DATE(so.created_at), 'YYYY-MM-DD') AS sale_date,
         COUNT(DISTINCT so.order_id)::int AS order_count,
         COALESCE(SUM(so.total_amount), 0) AS revenue,
         COALESCE(SUM(soi.quantity), 0)::int AS items_sold
