@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 type Page = "pos" | "queue" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string };
@@ -326,7 +327,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
               {categoryProducts.map((product) => (
           <div key={product.product_id} className="pos-card rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 245 }}>
             <div className="pos-card-image" style={{ height: 112, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {product.image_url ? <img src={product.image_url} alt={product.product_name} style={{ maxHeight: 98, maxWidth: "82%", objectFit: "contain", position: "relative", zIndex: 1 }} /> : <div style={{ color: "#B9A398", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15 }}>{product.product_name}</div>}
+              {product.image_url ? <Image src={product.image_url} alt={product.product_name} width={180} height={98} unoptimized style={{ maxHeight: 98, maxWidth: "82%", width: "auto", objectFit: "contain", position: "relative", zIndex: 1 }} /> : <div style={{ color: "#B9A398", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15 }}>{product.product_name}</div>}
             </div>
             <div style={{ padding: "11px 12px 12px", display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 
 type Product = {
   id: number;
@@ -342,7 +343,7 @@ export default function MenuPage() {
             {category === "All" && <div className="category-separator"><span>{group}</span><i /></div>}
             <div className="product-grid">
               {groupProducts.map((product) => <article className="product-card" key={product.id}>
-                <div className="product-image">{product.image ? <img src={product.image} alt="" loading="lazy" decoding="async" /> : <div className="image-placeholder"><IconCoffee /></div>}<div className="image-shade" />{product.badge && <span className="product-badge">{product.badge}</span>}</div>
+                <div className="product-image">{product.image ? <Image src={product.image} alt="" fill unoptimized sizes="(max-width: 640px) 50vw, 320px" style={{ objectFit: "cover" }} /> : <div className="image-placeholder"><IconCoffee /></div>}<div className="image-shade" />{product.badge && <span className="product-badge">{product.badge}</span>}</div>
                 <div className="product-info"><div className="product-category">{product.category}</div><h3>{product.name}</h3><p>{product.description}</p><div className="product-footer"><strong>₱{product.variants?.[0]?.price?.toFixed(2) ?? product.price.toFixed(2)}</strong><button disabled={Boolean(product.variants?.length && !product.variants.some((variant) => variant.available))} onClick={() => openProduct(product)} aria-label={`Add ${product.name} to order`}>{product.variants?.length && !product.variants.some((variant) => variant.available) ? "Unavailable" : "Add to order"}</button></div></div>
               </article>)}
             </div>
@@ -357,7 +358,7 @@ export default function MenuPage() {
     {selectedProduct && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setSelectedProduct(null); }}>
       <section className="item-modal" aria-label="Customize item">
         <button className="modal-close" onClick={() => setSelectedProduct(null)} aria-label="Close">×</button>
-        <div className="modal-image">{selectedProduct.image ? <img src={selectedProduct.image} alt="" decoding="async" /> : <IconCoffee />}</div>
+        <div className="modal-image" style={{ position: "relative" }}>{selectedProduct.image ? <Image src={selectedProduct.image} alt="" fill unoptimized sizes="100vw" style={{ objectFit: "cover" }} /> : <IconCoffee />}</div>
         <p className="eyebrow">{selectedProduct.category}</p><h2>{selectedProduct.name}</h2><p className="modal-description">{selectedProduct.description}</p>
         {selectedProduct.variants && selectedProduct.variants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProduct.variants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
         <div className="quantity-row"><strong>Quantity</strong><div className="quantity-control"><button onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))}>−</button><span>{selectedQuantity}</span><button onClick={() => setSelectedQuantity((value) => value + 1)}>+</button></div></div>

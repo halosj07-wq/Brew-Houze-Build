@@ -80,6 +80,7 @@ export async function GET(request: Request) {
             json_build_object(
               'product_id', soi.product_id,
               'product_name', p.product_name,
+              'product_category', p.product_category,
               'variant_id', soi.product_variant_id,
               'size_label', pv.size_label,
               'quantity', soi.quantity,
