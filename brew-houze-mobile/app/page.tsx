@@ -19,6 +19,15 @@ type Variant = { id: number; size: string | null; price: number; maxQuantity: nu
 type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[] };
 type OrderStatus = "waiting" | "served" | "flushed";
 type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
+const trackedOrdersStorageKey = "brew-houze-tracked-orders";
+
+function isTrackedOrder(value: unknown): value is TrackedOrder {
+  if (!value || typeof value !== "object") return false;
+  const order = value as Partial<TrackedOrder>;
+  return typeof order.trackingToken === "string"
+    && (typeof order.queueNumber === "number" || order.queueNumber === null)
+    && (order.status === "waiting" || order.status === "served" || order.status === "flushed");
+}
 
 function IconSearch() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-4-4" /></svg>;
@@ -49,34 +58,76 @@ export default function MenuPage() {
   const [orderError, setOrderError] = useState("");
   const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const trackedOrdersHydratedRef = useRef(false);
+  const pendingReadyPingRef = useRef(false);
 
   function playReadyPing() {
     const audioContext = audioContextRef.current;
-    if (!audioContext || audioContext.state !== "running") return;
+    if (!audioContext || audioContext.state !== "running") {
+      pendingReadyPingRef.current = true;
+      return;
+    }
+    pendingReadyPingRef.current = false;
     const now = audioContext.currentTime;
-    [659.25, 880].forEach((frequency, index) => {
+    [880, 1760].forEach((frequency, index) => {
       const oscillator = audioContext.createOscillator();
       const gain = audioContext.createGain();
-      oscillator.type = "sine";
+      oscillator.type = index === 0 ? "sine" : "triangle";
       oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.0001, now + index * 0.12);
-      gain.gain.exponentialRampToValueAtTime(0.08, now + index * 0.12 + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, now + index * 0.12 + 0.28);
+      const start = now + index * 0.015;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(index === 0 ? 0.075 : 0.018, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.8);
       oscillator.connect(gain);
       gain.connect(audioContext.destination);
-      oscillator.start(now + index * 0.12);
-      oscillator.stop(now + index * 0.12 + 0.3);
+      oscillator.start(start);
+      oscillator.stop(start + 0.85);
     });
   }
 
   useEffect(() => {
     const enableAudio = () => {
       if (!audioContextRef.current) audioContextRef.current = new AudioContext();
-      void audioContextRef.current.resume();
+      void audioContextRef.current.resume().then(() => {
+        if (pendingReadyPingRef.current) playReadyPing();
+      }).catch((audioError) => {
+        console.error("Mobile menu: failed to enable notification sound", audioError);
+      });
     };
-    window.addEventListener("pointerdown", enableAudio, { once: true });
+    window.addEventListener("pointerdown", enableAudio);
     return () => window.removeEventListener("pointerdown", enableAudio);
   }, []);
+
+  useEffect(() => {
+    let restoredOrders: TrackedOrder[] | null = null;
+    try {
+      const storedOrders = window.localStorage.getItem(trackedOrdersStorageKey);
+      if (storedOrders) {
+        const parsedOrders: unknown = JSON.parse(storedOrders);
+        if (Array.isArray(parsedOrders)) restoredOrders = parsedOrders.filter(isTrackedOrder);
+      }
+    } catch (storageError) {
+      console.error("Mobile menu: failed to restore tracked orders", storageError);
+    }
+    if (restoredOrders) {
+      window.setTimeout(() => {
+        setTrackedOrders(restoredOrders ?? []);
+        if (restoredOrders && restoredOrders.length > 0) setOrderPlaced(true);
+        trackedOrdersHydratedRef.current = true;
+      }, 0);
+    } else {
+      trackedOrdersHydratedRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!trackedOrdersHydratedRef.current) return;
+    try {
+      window.localStorage.setItem(trackedOrdersStorageKey, JSON.stringify(trackedOrders));
+    } catch (storageError) {
+      console.error("Mobile menu: failed to save tracked orders", storageError);
+    }
+  }, [trackedOrders]);
 
   useEffect(() => {
     let active = true;

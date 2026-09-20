@@ -23,10 +23,10 @@ body { color: var(--ink); background: #efe7dc; font-family: 'DM Sans', sans-seri
 .ready-column .eyebrow, .ready-count { color: #176b57; }
 h1 { margin: 8px 0 0; font: 700 clamp(28px, 3.4vw, 48px)/1 'Playfair Display', serif; }
 .count { display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%; font-size: 23px; font-weight: 800; background: rgba(255,255,255,.55); }
-.order-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; padding-top: 24px; }
-.order-card { display: flex; flex-direction: column; justify-content: center; min-height: 125px; padding: 18px; border-radius: 18px; }
+.order-list { display: grid; grid-template-columns: 1fr; gap: 14px; padding-top: 24px; }
+.order-card { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 0; min-height: 110px; padding: 16px 20px; border-radius: 18px; }
 .order-card strong { font: 700 clamp(34px, 4vw, 58px)/1 'Playfair Display', serif; }
-.order-card span { margin-top: 9px; color: var(--muted); font-size: 13px; font-weight: 600; }
+.order-card span { margin-top: 0; color: var(--muted); font-size: 13px; font-weight: 600; text-align: left; }
 .waiting-card { background: #fff0dc; border: 1px solid #e5ae6d; }
 .waiting-card strong { color: #7d4e24; }
 .ready-card { background: #d9f0e8; border: 1px solid #8ecdb8; }
