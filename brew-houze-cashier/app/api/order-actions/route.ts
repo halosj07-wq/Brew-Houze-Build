@@ -29,13 +29,14 @@ export async function POST(request: Request) {
       WHERE admin_id = $1
     `, [session.adminId]);
     const account = permission.rows[0];
-    if (!account || account.role !== "cashier") {
-      return NextResponse.json({ error: "Only cashier accounts can reverse orders." }, { status: 403 });
+    if (!account || (account.role !== "cashier" && account.role !== "admin")) {
+      return NextResponse.json({ error: "Only cashier or admin accounts can reverse orders." }, { status: 403 });
     }
-    if (action === "void" && !account.can_void_orders) {
+    const isAdmin = account.role === "admin";
+    if (action === "void" && !isAdmin && !account.can_void_orders) {
       return NextResponse.json({ error: "You do not have permission to void orders." }, { status: 403 });
     }
-    if (action === "refund" && !account.can_refund_orders) {
+    if (action === "refund" && !isAdmin && !account.can_refund_orders) {
       return NextResponse.json({ error: "You do not have permission to refund orders." }, { status: 403 });
     }
 

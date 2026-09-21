@@ -17,10 +17,11 @@ export async function GET() {
     const result = await pool.query(`
       SELECT full_name, email, role, can_void_orders, can_refund_orders, ${createdAtExpression} AS created_at
       FROM admin_users
-      WHERE admin_id = $1 AND LOWER(role) = 'cashier' AND is_active = TRUE
+      WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'admin') AND is_active = TRUE
     `, [session.adminId]);
     if (result.rowCount === 0) return NextResponse.json({ error: "Cashier account not found." }, { status: 404 });
-    return NextResponse.json({ data: { createdAt: result.rows[0].created_at, canVoidOrders: Boolean(result.rows[0].can_void_orders), canRefundOrders: Boolean(result.rows[0].can_refund_orders) } });
+    const isAdmin = String(result.rows[0].role).toLowerCase() === "admin";
+    return NextResponse.json({ data: { createdAt: result.rows[0].created_at, canVoidOrders: isAdmin ? true : Boolean(result.rows[0].can_void_orders), canRefundOrders: isAdmin ? true : Boolean(result.rows[0].can_refund_orders) } });
   } catch (error) {
     console.error("GET /api/auth/account failed:", error);
     return NextResponse.json({ error: "Unable to retrieve account details." }, { status: 500 });
@@ -46,7 +47,7 @@ export async function PATCH(request: Request) {
       SET password_hash = crypt($2, gen_salt('bf'))
       WHERE admin_id = $1
         AND password_hash = crypt($3, password_hash)
-        AND LOWER(role) = 'cashier'
+        AND LOWER(role) IN ('cashier', 'admin')
         AND is_active = TRUE
       RETURNING admin_id
     `, [session.adminId, newPassword, currentPassword]);
