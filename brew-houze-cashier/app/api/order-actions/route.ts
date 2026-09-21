@@ -3,15 +3,6 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
-async function ensureReversalColumns() {
-  await pool.query(`
-    ALTER TABLE sales_orders
-      ADD COLUMN IF NOT EXISTS reversed_by_admin_id INTEGER REFERENCES admin_users(admin_id),
-      ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS reversal_type VARCHAR(20)
-  `);
-}
-
 export async function POST(request: Request) {
   const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -31,7 +22,6 @@ export async function POST(request: Request) {
 
   const client = await pool.connect();
   try {
-    await ensureReversalColumns();
     const permission = await client.query(`
       SELECT LOWER(role) AS role, COALESCE(can_void_orders, FALSE) AS can_void_orders,
         COALESCE(can_refund_orders, FALSE) AS can_refund_orders

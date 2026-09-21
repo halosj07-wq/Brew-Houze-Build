@@ -89,6 +89,8 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
+  const [receivedAmount, setReceivedAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "online">("cash");
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [queue, setQueue] = useState<QueueOrder[]>([]);
@@ -127,7 +129,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
       }
     };
     void refresh();
-    const intervalId = window.setInterval(() => void refresh(), 5_000);
+    const intervalId = window.setInterval(() => void refresh(), 10_000);
     return () => { active = false; window.clearInterval(intervalId); };
   }, []);
 
@@ -270,6 +272,14 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
 
   async function checkout() {
     if (cart.length === 0 || checkingOut) return;
+    const subtotalValue = cart.reduce((s, it) => s + (it.price + it.additions.reduce((total, addition) => total + Number(addition.price), 0)) * it.qty, 0);
+    const parsedReceivedAmount = Number.parseFloat(receivedAmount);
+    if (paymentMethod === "cash" && subtotalValue > 0) {
+      if (!Number.isFinite(parsedReceivedAmount) || parsedReceivedAmount < subtotalValue) {
+        setCheckoutError("Received payment must be at least the subtotal.");
+        return;
+      }
+    }
     setCheckingOut(true);
     setCheckoutError("");
     try {
@@ -282,11 +292,14 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
             quantity: item.qty,
             addition_ids: item.additions.map((addition) => addition.addition_id),
           })),
+          payment_method: paymentMethod,
+          received_amount: paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) ? parsedReceivedAmount : 0,
         }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to complete checkout.");
       setCart([]);
+      setReceivedAmount("");
       const queueNumber = Number(payload.data.queueNumber);
       onQueueAssigned(queueNumber);
       const refresh = await fetch("/api/products", { cache: "no-store" });
@@ -312,6 +325,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
     }, new Map<string, Product[]>())
   );
   const subtotal = cart.reduce((s, it) => s + (it.price + it.additions.reduce((total, addition) => total + Number(addition.price), 0)) * it.qty, 0);
+  const parsedReceivedAmount = Number.parseFloat(receivedAmount);
+  const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
+  const hasValidPayment = paymentMethod === "online" || subtotal === 0 || (Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal);
 
   return <main className="pos-layout p-6" style={{ display: "flex", gap: 20, padding: 24 }}>
     <section style={{ flex: 1, minWidth: 0 }}>
@@ -381,9 +397,28 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
         <div style={{ borderTop: "1px solid #E8DDD5", paddingTop: 8 }}>
         {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: "0 0 8px" }}>{checkoutError}</p>}
           <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>Subtotal</div><div>₱{subtotal.toFixed(2)}</div></div>
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button type="button" onClick={() => { setPaymentMethod("cash"); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === "cash" ? "1px solid #3D2B1F" : "1px solid #E8DDD5", background: paymentMethod === "cash" ? "#3D2B1F" : "#FFFDF9", color: paymentMethod === "cash" ? "#FDF9F5" : "#6B4C3B", padding: "9px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Cash Payment</button>
+                <button type="button" onClick={() => { setPaymentMethod("online"); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === "online" ? "1px solid #3D2B1F" : "1px solid #E8DDD5", background: paymentMethod === "online" ? "#3D2B1F" : "#FFFDF9", color: paymentMethod === "online" ? "#FDF9F5" : "#6B4C3B", padding: "9px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Online Payment</button>
+              </div>
+            </div>
+            {paymentMethod === "cash" ? <>
+              <label style={{ display: "flex", flexDirection: "column", gap: 5, color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>
+                <span>Received payment</span>
+                <input type="number" min="0" step="0.01" value={receivedAmount} onChange={(event) => { setReceivedAmount(event.target.value); if (checkoutError) setCheckoutError(""); }} placeholder="0.00" style={{ border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
+              </label>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6B4C3B" }}>
+                <span>Change</span>
+                <strong style={{ color: changeDue > 0 ? "#0F766E" : "#3D2B1F" }}>₱{changeDue.toFixed(2)}</strong>
+              </div>
+            </> : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.5 }}>Customer will pay via e-wallet/online. This order proceeds directly to checkout without received-amount entry.</p>}
+          </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button disabled={checkingOut || cart.length === 0} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : "Checkout"}</button>
-            <button onClick={() => setCart([])} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : "Checkout"}</button>
+            <button onClick={() => { setCart([]); setReceivedAmount(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
@@ -491,7 +526,7 @@ function QueuePage() {
       }
     };
     void refresh();
-    const intervalId = window.setInterval(() => void refresh(), 5_000);
+    const intervalId = window.setInterval(() => void refresh(), 10_000);
     return () => { active = false; window.clearInterval(intervalId); };
   }, []);
 

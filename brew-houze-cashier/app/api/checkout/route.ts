@@ -16,7 +16,8 @@ export async function POST(request: Request) {
 
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown };
+    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown };
+    const paymentMethod = body.payment_method === "online" ? "online" : "cash";
     const items = Array.isArray(body.items)
       ? body.items.map((item) => ({
           productVariantId: Number((item as CheckoutItem).product_variant_id),
@@ -110,12 +111,25 @@ export async function POST(request: Request) {
     `);
     const queueNumber = Number(queueResult.rows[0].queue_number);
     const total = variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0) + additionTotal;
+    let receivedAmount: number;
+    let changeAmount: number;
+    if (paymentMethod === "online") {
+      // Online/e-wallet payments settle for the exact total; no cash tendered or change to compute.
+      receivedAmount = total;
+      changeAmount = 0;
+    } else {
+      receivedAmount = Number(body.received_amount);
+      if (!Number.isFinite(receivedAmount) || receivedAmount < total) {
+        throw new Error("Received payment must be at least the subtotal amount.");
+      }
+      changeAmount = Number((receivedAmount - total).toFixed(2));
+    }
     const order = await client.query(`
-      INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status)
-      VALUES ($1, $2, 'completed', $3, 'waiting')
+      INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, received_amount, change_amount, payment_method)
+      VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6)
       RETURNING order_id, queue_number,
         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
-    `, [session.adminId, total, queueNumber]);
+    `, [session.adminId, total, queueNumber, receivedAmount, changeAmount, paymentMethod]);
 
     for (const variant of variants.rows) {
       const variantGroups = Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id));
@@ -137,7 +151,7 @@ export async function POST(request: Request) {
     }
 
     await client.query("COMMIT");
-    return NextResponse.json({ data: { orderId: order.rows[0].order_id, queueNumber: order.rows[0].queue_number, total, createdAt: order.rows[0].created_at } });
+    return NextResponse.json({ data: { orderId: order.rows[0].order_id, queueNumber: order.rows[0].queue_number, total, receivedAmount, changeAmount, paymentMethod, createdAt: order.rows[0].created_at } });
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("POST /api/checkout failed:", error);

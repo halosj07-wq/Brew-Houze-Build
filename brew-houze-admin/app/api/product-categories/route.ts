@@ -1,30 +1,8 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
-const defaultCategories = ["Espresso Drinks", "Cold Drinks"];
-
-async function ensureCategoryTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS product_categories (
-      category_id SERIAL PRIMARY KEY,
-      category_name TEXT NOT NULL UNIQUE,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE
-    )
-  `);
-  await pool.query(`
-    INSERT INTO product_categories (category_name)
-    SELECT seed.category_name
-    FROM unnest($1::text[]) AS seed(category_name)
-    WHERE NOT EXISTS (
-      SELECT 1 FROM product_categories existing
-      WHERE LOWER(existing.category_name) = LOWER(seed.category_name)
-    )
-  `, [defaultCategories]);
-}
-
 export async function GET() {
   try {
-    await ensureCategoryTable();
     const result = await pool.query(`
       SELECT category_id, category_name
       FROM product_categories
@@ -42,7 +20,6 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    await ensureCategoryTable();
     const body = await request.json();
     const name = String(body?.category_name ?? "").trim();
     if (!name) return NextResponse.json({ error: "Category name is required." }, { status: 400 });
@@ -65,7 +42,6 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    await ensureCategoryTable();
     const body = await request.json();
     const categoryId = Number(body?.category_id);
     if (!Number.isInteger(categoryId) || categoryId <= 0) {

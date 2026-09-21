@@ -1,15 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 
-async function ensureVariantTemperatureSchema() {
-  await pool.query("ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS temperature VARCHAR(10) NOT NULL DEFAULT 'both'");
-  await pool.query("ALTER TABLE product_variants DROP CONSTRAINT IF EXISTS product_variants_product_id_size_label_key");
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS product_variants_product_size_temperature_key
-    ON product_variants (product_id, LOWER(TRIM(size_label)), temperature)
-  `);
-}
-
 type ProductRow = {
   product_id: number;
   product_name: string;
@@ -149,8 +140,6 @@ function parseImageData(value: unknown): { data: Buffer | null; mimeType: string
 
 export async function GET() {
   try {
-    await ensureVariantTemperatureSchema();
-    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
     const additionTableResult = await pool.query(`
       SELECT
         to_regclass('public.product_additions') IS NOT NULL
@@ -231,8 +220,6 @@ export async function POST(request: Request) {
   const client = await pool.connect();
 
   try {
-    await client.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
-    await ensureVariantTemperatureSchema();
     const body = await request.json() as RequestBody;
     const productName = String(body?.product_name ?? "").trim();
     const productDescription = String(body?.product_description ?? "").trim().slice(0, 240);
@@ -356,8 +343,6 @@ export async function PATCH(request: Request) {
   const client = await pool.connect();
 
   try {
-    await client.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
-    await ensureVariantTemperatureSchema();
     const body = await request.json() as RequestBody;
     const productId = Number(body?.product_id);
     const productName = String(body?.product_name ?? "").trim();

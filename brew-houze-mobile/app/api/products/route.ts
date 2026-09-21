@@ -3,8 +3,6 @@ import pool from "@/lib/db";
 
 export async function GET() {
   try {
-    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS product_description TEXT NOT NULL DEFAULT ''");
-    await pool.query("ALTER TABLE product_variants ADD COLUMN IF NOT EXISTS temperature VARCHAR(10) NOT NULL DEFAULT 'both'");
     const result = await pool.query(`
       SELECT
         p.product_id,

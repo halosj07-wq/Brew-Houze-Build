@@ -96,6 +96,9 @@ export async function GET(request: Request) {
       SELECT
         so.order_id,
         so.total_amount,
+        so.received_amount,
+        so.change_amount,
+        so.payment_method,
         so.status,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         so.queue_number,

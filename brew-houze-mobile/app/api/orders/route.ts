@@ -99,8 +99,8 @@ export async function POST(request: Request) {
     const customerToken = randomUUID();
     const total = variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0) + additionTotal;
     const order = await client.query(`
-      INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token)
-      VALUES (NULL, $1, 'completed', $2, 'waiting', 'online', $3)
+      INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, payment_method, received_amount, change_amount)
+      VALUES (NULL, $1, 'completed', $2, 'waiting', 'online', $3, 'online', $1, 0)
       RETURNING order_id, queue_number,
         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
     `, [total, queueNumber, customerToken]);

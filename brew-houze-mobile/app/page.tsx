@@ -324,7 +324,7 @@ export default function MenuPage() {
       }
     };
     void checkStatus();
-    const intervalId = window.setInterval(() => void checkStatus(), 5_000);
+    const intervalId = window.setInterval(() => void checkStatus(), 10_000);
     return () => { active = false; window.clearInterval(intervalId); };
   }, [activeOrder, activeOrders]);
 

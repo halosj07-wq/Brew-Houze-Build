@@ -3,47 +3,8 @@ import pool from "@/lib/db";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
-async function ensurePermissionColumns() {
-  await pool.query(`
-    ALTER TABLE admin_users
-      ADD COLUMN IF NOT EXISTS can_void_orders BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS can_refund_orders BOOLEAN NOT NULL DEFAULT FALSE
-  `);
-}
-
-async function ensureAttendanceTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS employee_time_logs (
-      time_log_id BIGSERIAL PRIMARY KEY,
-      admin_id INTEGER NOT NULL REFERENCES admin_users(admin_id) ON DELETE CASCADE,
-      time_in TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      time_out TIMESTAMPTZ NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT employee_time_log_valid_range CHECK (time_out IS NULL OR time_out >= time_in)
-    );
-    CREATE INDEX IF NOT EXISTS employee_time_logs_admin_id_idx
-      ON employee_time_logs (admin_id);
-    CREATE INDEX IF NOT EXISTS employee_time_logs_time_in_idx
-      ON employee_time_logs (time_in DESC);
-    CREATE UNIQUE INDEX IF NOT EXISTS employee_one_open_time_log_idx
-      ON employee_time_logs (admin_id) WHERE time_out IS NULL;
-  `);
-}
-
-async function ensureReversalColumns() {
-  await pool.query(`
-    ALTER TABLE sales_orders
-      ADD COLUMN IF NOT EXISTS reversed_by_admin_id INTEGER REFERENCES admin_users(admin_id),
-      ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ,
-      ADD COLUMN IF NOT EXISTS reversal_type VARCHAR(20)
-  `);
-}
-
 export async function GET() {
   try {
-    await ensurePermissionColumns();
-    await ensureAttendanceTable();
-    await ensureReversalColumns();
     const result = await pool.query(`
       SELECT admin_id, full_name, email, role, is_active, can_void_orders, can_refund_orders
       FROM admin_users
@@ -141,7 +102,6 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    await ensurePermissionColumns();
     const body = await request.json() as { id?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid cashier account is required." }, { status: 400 });

@@ -77,7 +77,7 @@ export default function QueueScreen() {
     };
 
     void loadQueue();
-    const intervalId = window.setInterval(() => void loadQueue(), 5_000);
+    const intervalId = window.setInterval(() => void loadQueue(), 10_000);
     document.addEventListener("visibilitychange", loadQueue);
     return () => {
       active = false;

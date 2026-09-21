@@ -2,29 +2,8 @@ import { NextResponse } from "next/server";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
 import pool from "@/lib/db";
 
-async function ensureAttendanceTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS employee_time_logs (
-      time_log_id BIGSERIAL PRIMARY KEY,
-      admin_id INTEGER NOT NULL REFERENCES admin_users(admin_id) ON DELETE CASCADE,
-      time_in TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      time_out TIMESTAMPTZ NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT employee_time_log_valid_range CHECK (time_out IS NULL OR time_out >= time_in)
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS employee_one_open_time_log_idx
-      ON employee_time_logs (admin_id) WHERE time_out IS NULL;
-  `);
-}
-
 export async function POST(request: Request) {
   try {
-    await ensureAttendanceTable();
-    await pool.query(`
-      ALTER TABLE admin_users
-        ADD COLUMN IF NOT EXISTS can_void_orders BOOLEAN NOT NULL DEFAULT FALSE,
-        ADD COLUMN IF NOT EXISTS can_refund_orders BOOLEAN NOT NULL DEFAULT FALSE
-    `);
     const body = await request.json();
     const email = String(body?.email ?? "").trim().toLowerCase();
     const password = String(body?.password ?? "");
