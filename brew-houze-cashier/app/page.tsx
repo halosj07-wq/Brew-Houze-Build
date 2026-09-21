@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
-type Page = "pos" | "queue" | "accounts";
-type Session = { adminId: number; fullName: string; email: string; role: string };
+type Page = "pos" | "queue" | "reversals" | "accounts";
+type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean };
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[] };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -36,10 +36,12 @@ function uniqueQueueOrders(orders: QueueOrder[]) {
 const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
   { id: "pos", label: "Point of Sale", Icon: IconGrid },
   { id: "queue", label: "Queue", Icon: IconList },
+  { id: "reversals", label: "Void & Refund", Icon: IconList },
   { id: "accounts", label: "Account Management", Icon: IconUsers },
 ];
 
-function Sidebar({ current, collapsed, queueNumber, onChange, onToggle }: { current: Page; collapsed: boolean; queueNumber: number | null; onChange: (page: Page) => void; onToggle: () => void }) {
+function Sidebar({ current, collapsed, queueNumber, canManageReversals, onChange, onToggle }: { current: Page; collapsed: boolean; queueNumber: number | null; canManageReversals: boolean; onChange: (page: Page) => void; onToggle: () => void }) {
+  const visibleNavItems = navItems.filter((item) => item.id !== "reversals" || canManageReversals);
   return <aside className={`app-sidebar ${collapsed ? "is-collapsed" : "is-expanded"} flex flex-col`} style={{ background: "#3D2B1F", minHeight: "100vh", width: collapsed ? 52 : 240, flexShrink: 0 }}>
     <div className="flex items-center gap-3 px-6 py-7 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
       <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#D97706" }}><IconCoffee size={20} /></div>
@@ -47,7 +49,7 @@ function Sidebar({ current, collapsed, queueNumber, onChange, onToggle }: { curr
     </div>
     <div className="sidebar-toggle-row"><button onClick={onToggle} title={collapsed ? "Expand sidebar" : "Minimize sidebar"} aria-label={collapsed ? "Expand sidebar" : "Minimize sidebar"} style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #6B4C3B", borderRadius: 6, background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", transform: collapsed ? "rotate(180deg)" : "none" }}><IconChevron size={14} /></button></div>
     <nav className="flex flex-col gap-1 px-3 pt-5 flex-1">
-      {navItems.map(({ id, label, Icon }) => <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-left w-full" style={{ background: current === id ? "#D97706" : "transparent", color: current === id ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: 13.5, fontWeight: current === id ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={17} /><span>{label}</span></button>)}
+      {visibleNavItems.map(({ id, label, Icon }) => <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-left w-full" style={{ background: current === id ? "#D97706" : "transparent", color: current === id ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: 13.5, fontWeight: current === id ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={17} /><span>{label}</span></button>)}
     </nav>
     <div className="mx-3 mb-5 rounded-xl" style={{ background: "rgba(217,119,6,0.16)", border: "1px solid rgba(217,119,6,0.35)", padding: collapsed ? "10px 4px" : "12px 14px", textAlign: collapsed ? "center" : "left" }}>
       <p style={{ margin: 0, fontFamily: "JetBrains Mono, monospace", fontSize: 9, color: "#D97706", letterSpacing: "0.06em" }}>{collapsed ? "Q" : queueNumber === null ? "QUEUE" : "LAST QUEUE"}</p>
@@ -58,16 +60,19 @@ function Sidebar({ current, collapsed, queueNumber, onChange, onToggle }: { curr
   </aside>;
 }
 
-function TopBar({ page, user, onLogout }: { page: Page; user: Session; onLogout: () => Promise<void> }) {
-  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : "Account Management";
+function TopBar({ page, user, onAccount, onRequestLogout }: { page: Page; user: Session; onAccount: () => void; onRequestLogout: () => void }) {
+  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : "Account Management";
   return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-2" style={{ color: "#9C8278" }}><IconChevron size={14} /><span style={{ fontSize: 13 }}>{title}</span></div>
     <div className="flex items-center gap-5">
       <div className="text-right"><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: "#3D2B1F" }}>Brew Houze Cafe</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#D97706", letterSpacing: "0.06em" }}>CASHIER PORTAL</p></div>
-      <div className="flex items-center gap-3 rounded-xl px-4 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-        <div className="flex items-center justify-center rounded-full text-white font-bold text-sm" style={{ width: 32, height: 32, background: "#3D2B1F" }}>{user.fullName.charAt(0).toUpperCase()}</div>
-        <div><p style={{ fontWeight: 600, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize" }}>{user.role}</p></div>
-        <button onClick={() => void onLogout()} title="Log out" style={{ border: "none", background: "transparent", color: "#9C8278", cursor: "pointer", fontSize: 12 }}>Log out</button>
+      <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+        <button type="button" onClick={onAccount} title="Open Account Management" aria-label="Open Account Management" className="flex items-center gap-3" style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
+          <div className="flex items-center justify-center rounded-full text-white font-bold text-sm" style={{ width: 34, height: 34, background: "#3D2B1F" }}>{user.fullName.charAt(0).toUpperCase()}</div>
+          <div><p style={{ fontWeight: 700, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3, margin: 0 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize", margin: "2px 0 0" }}>{user.role}</p></div>
+          <span aria-hidden="true" style={{ color: "#9C8278", fontSize: 16 }}>›</span>
+        </button>
+        <button onClick={onRequestLogout} title="Sign out" style={{ border: "none", borderLeft: "1px solid #D8C8BE", background: "transparent", color: "#9C8278", cursor: "pointer", fontSize: 12, padding: "8px 0 8px 11px" }}>Sign out</button>
       </div>
     </div>
   </header>;
@@ -434,7 +439,7 @@ function QueuePage() {
 
   async function loadQueue() {
     const response = await fetch("/api/queue", { cache: "no-store" });
-    const payload = await response.json() as { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[] }; error?: string };
+    const payload = await response.json() as { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[]; recent?: QueueOrder[] }; error?: string };
     if (!response.ok) throw new Error(payload.error || "Unable to load queue.");
     setQueue(uniqueQueueOrders(payload.data?.waiting ?? []));
     setReadyQueue(uniqueQueueOrders(payload.data?.ready ?? []));
@@ -544,13 +549,141 @@ function QueuePage() {
   </main>;
 }
 
-function AccountPage() {
+function ReversalsPage({ user }: { user: Session }) {
+  const [orders, setOrders] = useState<QueueOrder[]>([]);
+  const [pendingAction, setPendingAction] = useState<{ order: QueueOrder; action: "void" | "refund" } | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  async function loadOrders() {
+    try {
+      const response = await fetch("/api/queue", { cache: "no-store" });
+      const payload = await response.json() as { data?: { recent?: QueueOrder[] }; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to load recent orders.");
+      setOrders(payload.data?.recent ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load recent orders.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function reverseOrder(order: QueueOrder, action: "void" | "refund") {
+    try {
+      const response = await fetch("/api/order-actions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: order.order_id, action }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || `Unable to ${action} order.`);
+      setPendingAction(null);
+      await loadOrders();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : `Unable to ${action} order.`);
+    }
+  }
+
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => { void loadOrders(); }, 0);
+    return () => window.clearTimeout(initialLoad);
+  }, []);
+
+  return <main className="p-8" style={{ maxWidth: 1000 }}>
+    <div style={{ marginBottom: 18 }}>
+      <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 28, color: "#3D2B1F", margin: 0 }}>Void & Refund</h1>
+      <p style={{ color: "#9C8278", fontSize: 13, margin: "5px 0 0" }}>Undo recent orders and return their ingredients and add-ons to inventory.</p>
+    </div>
+    <div className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 18 }}>
+      {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
+      {loading ? <p style={{ color: "#9C8278", margin: 0 }}>Loading recent orders...</p> : orders.length === 0 ? <p style={{ color: "#9C8278", margin: 0 }}>No recent orders.</p> : orders.map((order) => <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderTop: "1px solid #F0E8E2" }}><strong style={{ color: "#D97706", minWidth: 48 }}>#{order.queue_number}</strong><span style={{ flex: 1, color: "#6B4C3B", fontSize: 12 }}>{order.items}<small style={{ display: "block", marginTop: 3, color: order.status === "completed" ? "#9C8278" : "#B91C1C", fontWeight: 700, textTransform: "uppercase" }}>{order.status}</small></span>{order.status === "completed" && user.canVoidOrders && <button onClick={() => setPendingAction({ order, action: "void" })} style={{ border: "1px solid #B91C1C", background: "#FEF2F2", color: "#B91C1C", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Void</button>}{order.status === "completed" && user.canRefundOrders && <button onClick={() => setPendingAction({ order, action: "refund" })} style={{ border: "1px solid #B91C1C", background: "#FEF2F2", color: "#B91C1C", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Refund</button>}</div>)}
+    </div>
+    {pendingAction && <div role="dialog" aria-modal="true" aria-labelledby="reverse-order-title" onClick={() => setPendingAction(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 500px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-3"><div><p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Review order reversal</p><h2 id="reverse-order-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{pendingAction.action === "void" ? "Void" : "Refund"} Order #{pendingAction.order.order_id}</h2></div><button type="button" onClick={() => setPendingAction(null)} aria-label="Close reversal confirmation" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 18, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{pendingAction.order.order_details.map((detail, index) => <div key={`${pendingAction.order.order_id}-${index}`} style={{ padding: "11px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", color: "#6B4C3B", fontSize: 13 }}><strong>{detail.product_name}{detail.size_label ? ` · ${detail.size_label}` : ""}{detail.temperature === "hot" ? " · Hot" : detail.temperature === "cold" ? " · Cold" : ""} × {detail.quantity}</strong>{detail.additions.length > 0 && <div style={{ marginTop: 5, color: "#7E22CE", fontSize: 12 }}>Add-ons: {detail.additions.map((addition) => `${addition.name} × ${addition.quantity}`).join(", ")}</div>}</div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(pendingAction.order.total_amount ?? 0).toFixed(2)}</strong></div><p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.5 }}>This will restore the order&apos;s ingredients and add-ons to inventory. This action cannot be undone.</p><div className="flex justify-end gap-2" style={{ marginTop: 20 }}><button type="button" onClick={() => setPendingAction(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 14px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Cancel</button><button type="button" onClick={() => void reverseOrder(pendingAction.order, pendingAction.action)} style={{ border: "1px solid #B91C1C", borderRadius: 9, padding: "10px 14px", background: "#B91C1C", color: "#fff", cursor: "pointer", fontWeight: 700 }}>Confirm {pendingAction.action === "void" ? "void" : "refund"}</button></div></section></div>}
+  </main>;
+}
+
+function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void }) {
+  const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const loadAccount = async () => {
+      const response = await fetch("/api/auth/account", { cache: "no-store" });
+      if (response.ok) {
+        const payload = await response.json();
+        setCreatedAt(payload.data?.createdAt ?? null);
+      }
+    };
+    void loadAccount();
+  }, []);
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const response = await fetch("/api/auth/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to change password.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password changed successfully.");
+    } catch (changeError) {
+      setError(changeError instanceof Error ? changeError.message : "Unable to change password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return <main className="p-8" style={{ maxWidth: 1280 }}>
     <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 28, color: "#3D2B1F", margin: 0 }}>Account Management</h1>
-    <div className="rounded-2xl flex items-center justify-center mt-6" style={{ minHeight: 260, background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>
-      <p>Account management screens will be added here.</p>
+    <div className="flex items-start justify-between gap-4"><div><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13 }}>View your cashier access and manage your account password.</p></div><button type="button" onClick={onSignOut} style={{ border: "1px solid #FECACA", borderRadius: 9, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>Sign out</button></div>
+    <div className="grid gap-5 mt-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
+        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>My account</p>
+        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>{user.fullName}</h2>
+        <div style={{ display: "grid", gap: 12, color: "#6B4C3B", fontSize: 13 }}>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Email</span>{user.email}</div>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Role</span><span style={{ textTransform: "capitalize" }}>{user.role}</span></div>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Permissions</span>{user.canVoidOrders || user.canRefundOrders ? <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>{user.canVoidOrders && <span style={{ padding: "4px 8px", borderRadius: 20, background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700 }}>Can void orders</span>}{user.canRefundOrders && <span style={{ padding: "4px 8px", borderRadius: 20, background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700 }}>Can refund orders</span>}</div> : <span style={{ color: "#9C8278" }}>No reversal permissions</span>}</div>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Account created</span><span style={{ color: "#9C8278" }}>{createdAt ? new Date(createdAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not available in the database"}</span></div>
+        </div>
+      </section>
+      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
+        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Security</p>
+        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>Change password</h2>
+        {message && <p style={{ color: "#166534", fontSize: 13 }}>{message}</p>}{error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
+        <form onSubmit={changePassword} className="flex flex-col gap-3"><label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Current password</span><input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label><label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>New password</span><input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label><label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Confirm new password</span><input type="password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label><button type="submit" disabled={saving} style={{ marginTop: 6, border: "none", borderRadius: 9, padding: "11px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: saving ? "default" : "pointer", fontWeight: 700 }}>{saving ? "Saving..." : "Change password"}</button></form>
+      </section>
     </div>
   </main>;
+}
+
+function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => void; onConfirm: () => void; signingOut: boolean }) {
+  return <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.4)", zIndex: 100 }} role="dialog" aria-modal="true" aria-labelledby="sign-out-title">
+    <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 380px)", background: "#FDF9F5", boxShadow: "0 20px 60px rgba(61,43,31,0.25)" }}>
+      <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Session</p>
+      <h2 id="sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Sign out?</h2>
+      <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>You will need to sign in again to access the cashier portal.</p>
+      <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={onCancel} disabled={signingOut} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: signingOut ? "default" : "pointer" }}>Cancel</button><button type="button" onClick={onConfirm} disabled={signingOut} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: signingOut ? "#C9B8AF" : "#B91C1C", color: "#FFF", cursor: signingOut ? "default" : "pointer", fontWeight: 700 }}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
+    </div>
+  </div>;
 }
 
 function Login({ onLoggedIn }: { onLoggedIn: (session: Session) => void }) {
@@ -573,6 +706,7 @@ function Login({ onLoggedIn }: { onLoggedIn: (session: Session) => void }) {
     } finally {
       setSubmitting(false);
     }
+
   }
 
   return <main className="flex items-center justify-center min-h-screen p-6" style={{ background: "#F8F9FA" }}>
@@ -587,6 +721,8 @@ export default function App() {
   const [user, setUser] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [page, setPage] = useState<Page>("pos");
+  const [showSignOut, setShowSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [queueNumber, setQueueNumber] = useState<number | null>(null);
 
@@ -610,10 +746,20 @@ export default function App() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    setPage("pos");
+    setQueueNumber(null);
+    setShowSignOut(false);
+    setSigningOut(false);
     setUser(null);
   }
 
   if (authLoading) return <div className="min-h-screen" style={{ background: "#F8F9FA" }} />;
   if (!user) return <Login onLoggedIn={setUser} />;
-  return <div className="flex min-h-screen"><Sidebar current={page} collapsed={collapsed} queueNumber={queueNumber} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0"><TopBar page={page} user={user} onLogout={logout} /><div className="flex-1 app-content">{page === "pos" ? <POSPage onQueueAssigned={setQueueNumber} /> : page === "queue" ? <QueuePage /> : <AccountPage />}</div></div></div>;
+  const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
+  const visiblePage = page === "reversals" && !canManageReversals ? "pos" : page;
+  async function confirmSignOut() {
+    setSigningOut(true);
+    await logout();
+  }
+  return <div className="flex min-h-screen"><Sidebar current={visiblePage} collapsed={collapsed} queueNumber={queueNumber} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0"><TopBar page={visiblePage} user={user} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 app-content">{visiblePage === "pos" ? <POSPage onQueueAssigned={setQueueNumber} /> : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
 }

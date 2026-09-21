@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     const queueResult = await client.query(`
       SELECT COALESCE(MAX(queue_number), 0) + 1 AS queue_number
       FROM sales_orders
-      WHERE DATE(created_at AT TIME ZONE 'Asia/Manila') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
+      WHERE DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
     `);
     const queueNumber = Number(queueResult.rows[0].queue_number);
     const customerToken = randomUUID();
@@ -101,7 +101,8 @@ export async function POST(request: Request) {
     const order = await client.query(`
       INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token)
       VALUES (NULL, $1, 'completed', $2, 'waiting', 'online', $3)
-      RETURNING order_id, queue_number, created_at
+      RETURNING order_id, queue_number,
+        TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
     `, [total, queueNumber, customerToken]);
 
     for (const variant of variants.rows) {

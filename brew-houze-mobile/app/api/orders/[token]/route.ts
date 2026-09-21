@@ -8,7 +8,7 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
   try {
     const result = await pool.query(`
       SELECT order_id, queue_number, queue_status, order_source,
-        TO_CHAR(created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
+        TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
       FROM sales_orders
       WHERE customer_order_token = $1::uuid AND order_source = 'online'
     `, [token]);

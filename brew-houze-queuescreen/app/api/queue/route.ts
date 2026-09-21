@@ -18,7 +18,7 @@ export async function GET(request: Request) {
         so.order_id,
         so.queue_number,
         so.queue_status,
-        TO_CHAR(so.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
+        TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         COALESCE(
           STRING_AGG(
             p.product_name || CASE

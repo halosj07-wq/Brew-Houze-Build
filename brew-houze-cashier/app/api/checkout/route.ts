@@ -106,14 +106,15 @@ export async function POST(request: Request) {
     const queueResult = await client.query(`
       SELECT COALESCE(MAX(queue_number), 0) + 1 AS queue_number
       FROM sales_orders
-      WHERE DATE(created_at AT TIME ZONE 'Asia/Manila') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
+      WHERE DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
     `);
     const queueNumber = Number(queueResult.rows[0].queue_number);
     const total = variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0) + additionTotal;
     const order = await client.query(`
       INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status)
       VALUES ($1, $2, 'completed', $3, 'waiting')
-      RETURNING order_id, created_at, queue_number
+      RETURNING order_id, queue_number,
+        TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
     `, [session.adminId, total, queueNumber]);
 
     for (const variant of variants.rows) {

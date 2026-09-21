@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts";
+type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts" | "account";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -63,6 +63,9 @@ function IconDollar({ size = 20 }: { size?: number }) {
 function IconUsers({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
 }
+function IconUser({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
+}
 function IconSearch({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
 }
@@ -108,6 +111,7 @@ const navItems: { id: Page; label: string; Icon: React.FC<{ size?: number }> }[]
   { id: "additions", label: "Additions Management", Icon: IconSparkle },
   { id: "finance", label: "Finance", Icon: IconDollar },
   { id: "accounts", label: "Accounts & Employees", Icon: IconUsers },
+  { id: "account", label: "Account Management", Icon: IconUser },
 ];
 
 function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; collapsed: boolean; onChange: (p: Page) => void; onToggle: () => void }) {
@@ -129,16 +133,19 @@ function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; co
   );
 }
 
-function TopBar({ page, user, onLogout }: { page: Page; user: AdminSession; onLogout: () => Promise<void> }) {
-  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees" };
+function TopBar({ page, user, onAccount, onRequestLogout }: { page: Page; user: AdminSession; onAccount: () => void; onRequestLogout: () => void }) {
+  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management" };
   return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-2" style={{ color: "#9C8278" }}><IconChevron size={14} /><span style={{ fontFamily: "Inter, sans-serif", fontSize: 13 }}>{titles[page]}</span></div>
     <div className="flex items-center gap-5">
       <div className="text-right"><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: "#3D2B1F" }}>Brew Houze Cafe</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#D97706", letterSpacing: "0.06em" }}>ADMIN DASHBOARD</p></div>
-      <div className="flex items-center gap-3 rounded-xl px-4 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-        <div className="flex items-center justify-center rounded-full text-white font-bold text-sm" style={{ width: 32, height: 32, background: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif" }}>{user.fullName.charAt(0).toUpperCase()}</div>
-        <div><p style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize" }}>{user.role}</p></div>
-        <button onClick={() => void onLogout()} title="Log out" style={{ border: "none", background: "transparent", color: "#9C8278", cursor: "pointer", fontFamily: "Inter, sans-serif", fontSize: 12 }}>Log out</button>
+      <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+        <button type="button" onClick={onAccount} title="Open Account Management" aria-label="Open Account Management" className="flex items-center gap-3" style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
+          <div className="flex items-center justify-center rounded-full text-white font-bold text-sm" style={{ width: 34, height: 34, background: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif" }}>{user.fullName.charAt(0).toUpperCase()}</div>
+          <div><p style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3, margin: 0 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize", margin: "2px 0 0" }}>{user.role}</p></div>
+          <span aria-hidden="true" style={{ color: "#9C8278", fontSize: 16 }}>›</span>
+        </button>
+        <button onClick={onRequestLogout} title="Sign out" style={{ border: "none", borderLeft: "1px solid #D8C8BE", background: "transparent", color: "#9C8278", cursor: "pointer", fontFamily: "Inter, sans-serif", fontSize: 12, padding: "8px 0 8px 11px" }}>Sign out</button>
       </div>
     </div>
   </header>;
@@ -1411,7 +1418,7 @@ function Finance() {
       setExporting(true);
       setExportError("");
       try {
-        const query = new URLSearchParams({ period: exportMode === "period" ? period : "all" });
+        const query = new URLSearchParams({ period: exportMode === "period" ? period : "all", exclude_reversed: "1" });
         if (exportMode === "date") {
           query.set("history_date", exportDate);
           query.set("daily_date", exportDate);
@@ -1427,7 +1434,13 @@ function Finance() {
         if (!response.ok) throw new Error(payload?.error || "Failed to retrieve report data.");
         const reportOrders: SalesOrder[] = payload.data ?? [];
         const reportDailySales: DailySale[] = payload.dailySales ?? [];
-        if (reportOrders.length === 0 && reportDailySales.length === 0) {
+        const historyQuery = new URLSearchParams(query);
+        historyQuery.delete("exclude_reversed");
+        const historyResponse = await fetch(`/api/sales-orders?${historyQuery.toString()}`, { cache: "no-store" });
+        const historyPayload = await historyResponse.json();
+        if (!historyResponse.ok) throw new Error(historyPayload?.error || "Failed to retrieve order history.");
+        const reportHistoryOrders: SalesOrder[] = historyPayload.data ?? [];
+        if (reportOrders.length === 0 && reportHistoryOrders.length === 0 && reportDailySales.length === 0) {
           throw new Error(`No sales data found for ${exportMode === "period" ? periodLabel.toLowerCase() : exportMode === "date" ? exportDate : `${exportStart} to ${exportEnd}`}. Choose a different report period.`);
         }
         const workbook = XLSX.utils.book_new();
@@ -1491,7 +1504,7 @@ function Finance() {
           }
           if (exportSections.dailySales) appendSheet("Daily Sales", reportDailySales.map((day) => ({ Date: day.sale_date, Orders: day.order_count, "Items Sold": day.items_sold, Revenue: Number(day.revenue) })));
           if (exportSections.orderHistory) {
-            appendSheet("Order History", reportOrders.map((order) => ({
+            appendSheet("Order History", reportHistoryOrders.map((order) => ({
               "Order ID": order.order_id,
               "Order Date": formatFinanceDateTime(order.created_at),
               "Punched By": order.punched_by,
@@ -1555,7 +1568,7 @@ function Finance() {
     setDailyDetailLoading(true);
     setError("");
     try {
-      const query = new URLSearchParams({ period: "all", history_date: selectedDate });
+      const query = new URLSearchParams({ period: "all", history_date: selectedDate, exclude_reversed: "1" });
       const response = await fetch(`/api/sales-orders?${query.toString()}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to load daily sales details.");
@@ -1581,16 +1594,20 @@ function Finance() {
     <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Daily Sales</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Overall sales grouped by date · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue", "Inspect"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><button type="button" onClick={() => inspectSalesDate(day.sale_date)} aria-label={`Inspect sales for ${formatSalesDate(day.sale_date)}`} title="Inspect sales for this date" style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button></td></tr>)}</tbody></table></div></div>}</section>
     {exportOpen && <div role="dialog" aria-modal="true" onClick={() => !exporting && setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 560px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance report</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Export Excel report</h3></div><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} aria-label="Close export dialog" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Include sections</strong>{(["summary", "dailySales", "orderHistory", "productSales"] as const).map((section) => <label key={section} className="flex items-center gap-2" style={{ marginTop: 9, color: "#6B4C3B", fontSize: 13 }}><input type="checkbox" checked={exportSections[section]} onChange={(event) => setExportSections((current) => ({ ...current, [section]: event.target.checked }))} />{section === "summary" ? "Sales Summary" : section === "dailySales" ? "Daily Sales" : section === "orderHistory" ? "Order History" : "Product Sales"}</label>)}</div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Date range</strong><div className="flex flex-col gap-2"><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "period"} onChange={() => setExportMode("period")} />Use current period ({periodLabel})</label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "date"} onChange={() => setExportMode("date")} />Specific date<input type="date" value={exportDate} onChange={(event) => setExportDate(event.target.value)} disabled={exportMode !== "date"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "range"} onChange={() => setExportMode("range")} />Date range<input type="date" value={exportStart} onChange={(event) => setExportStart(event.target.value)} disabled={exportMode !== "range"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /><span>to</span><input type="date" value={exportEnd} onChange={(event) => setExportEnd(event.target.value)} disabled={exportMode !== "range"} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label></div></div>    {exportError && <p role="alert" style={{ marginTop: 18, marginBottom: 0, padding: "10px 12px", border: "1px solid #FECACA", borderRadius: 10, background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>{exportError}</p>}<div className="flex justify-end gap-3" style={{ marginTop: 26 }}><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 16px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => void exportFinanceReport()} disabled={exporting} style={{ border: "none", borderRadius: 10, padding: "9px 16px", background: exporting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: exporting ? "default" : "pointer", fontWeight: 700 }}>{exporting ? "Generating..." : "Download Excel"}</button></div></section></div>}
     {selectedDailyDate && <div role="dialog" aria-modal="true" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Daily sales record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{formatSalesDate(selectedDailyDate)}</h3></div><button type="button" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} aria-label="Close daily sales details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>{dailyDetailLoading ? <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>Loading purchases...</p> : <>{dailyDetailOrders.map((order) => <div key={order.order_id} style={{ marginTop: 22, borderTop: "1px solid #E8DDD5", paddingTop: 16 }}><div className="flex items-start justify-between gap-3"><div><strong style={{ fontSize: 17 }}>Order #{order.order_id}</strong><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 12 }}>Punched by: {order.punched_by} · {formatFinanceDateTime(order.created_at)}</div></div><strong>₱{Number(order.total_amount).toFixed(2)}</strong></div>{order.items.map((item, index) => <div key={`${order.order_id}-${item.product_id}-${index}`} className="flex items-start justify-between gap-3" style={{ marginTop: 14, paddingBottom: 12, borderBottom: "1px solid #F0E8E2" }}><div>    <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div><strong>₱{(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}</strong></div>)}</div>)}{!dailyDetailOrders.length && <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>No purchases found for this date.</p>}<div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total for the day</strong><strong style={{ fontSize: 20 }}>₱{dailyDetailOrders.reduce((total, order) => total + Number(order.total_amount), 0).toFixed(2)}</strong></div></>}</section></div>}
-    <section id="order-history"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Clearing..." : "DEV: Clear all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) =>     <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>Order #{order.order_id}<span style={{ color: "#2E7D32", background: "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span></div><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 11 }}>Punched by: {order.punched_by}</div><div style={{ marginTop: 4, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong>    <button type="button" onClick={() => setSelectedOrder(order)} aria-label={`Inspect order #${order.order_id}`} title="Inspect order" style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button><button type="button" onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}
+    <section id="order-history"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Clearing..." : "DEV: Clear all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) =>     <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>Order #{order.order_id}    <span style={{ color: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#B91C1C" : "#2E7D32", background: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#FEF2F2" : "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span></div><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 11 }}>Punched by: {order.punched_by}</div><div style={{ marginTop: 4, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong>    <button type="button" onClick={() => setSelectedOrder(order)} aria-label={`Inspect order #${order.order_id}`} title="Inspect order" style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button><button type="button" onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}
     {loading && orders.length > 0 && <div style={{ position: "sticky", bottom: 20, zIndex: 5, display: "flex", justifyContent: "center", pointerEvents: "none" }}><div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", color: "#6B4C3B", background: "rgba(253,249,245,.96)", border: "1px solid #E8DDD5", borderRadius: 999, boxShadow: "0 5px 18px rgba(61,43,31,.12)", fontSize: 12 }}><span style={{ width: 13, height: 13, border: "2px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Updating finance records...</div></div>}
     {clearConfirmOpen && <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section style={{ width: "min(100%, 440px)", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontSize: 18 }}>Clear all finance records?</h3><p style={{ margin: "10px 0 16px", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This permanently deletes every sales record and its order items. Type <strong>CLEAR_FINANCE_RECORDS</strong> to continue.</p><input autoFocus value={clearConfirmation} onChange={(event) => setClearConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void clearAllFinanceRecords(); }} placeholder="CLEAR_FINANCE_RECORDS" style={{ width: "100%", padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 8, color: "#3D2B1F", background: "#fff" }} /><div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><button onClick={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} disabled={clearingRecords} style={{ padding: "9px 13px", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: clearingRecords ? "default" : "pointer" }}>Cancel</button><button onClick={() => void clearAllFinanceRecords()} disabled={clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS"} style={{ padding: "9px 13px", border: "1px solid #FECACA", borderRadius: 8, background: "#B91C1C", color: "#fff", cursor: clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS" ? "default" : "pointer" }}>{clearingRecords ? "Clearing..." : "Clear records"}</button></div></section></div>}
    {selectedOrder && <div role="dialog" aria-modal="true" onClick={() => setSelectedOrder(null)} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Order #{selectedOrder.order_id}</h3></div><button onClick={() => setSelectedOrder(null)} aria-label="Close order details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="grid gap-3 mt-5" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Punched by</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.punched_by}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Order source</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.order_source === "online" ? "Online" : "Cashier"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Queue number</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.queue_number ?? "—"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Created</span><strong style={{ display: "block", marginTop: 4 }}>{new Date(selectedOrder.created_at).toLocaleString()}</strong></div></div><div style={{ marginTop: 22, borderTop: "1px solid #E8DDD5" }}>{selectedOrder.items.map((item, index) => <div key={`${item.product_id}-${index}`} style={{ padding: "14px 0", borderBottom: "1px solid #F0E8E2" }}><div className="flex items-start justify-between gap-3">   <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><strong>₱{(Number(item.unit_price) * item.quantity).toFixed(2)}</strong></div><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(selectedOrder.total_amount).toFixed(2)}</strong></div></section></div>}
   </main>;
 }
-type CashierAccount = { id: number; fullName: string; email: string; role: string; isActive: boolean };
+type EmployeeTimeLog = { id: number; timeIn: string; timeOut: string | null };
+type EmployeeTransaction = { id: number; amount: number; status: string; createdAt: string; reversalType: string | null; reversedAt: string | null };
+type EmployeeReversal = { id: number; amount: number; status: string; reversedAt: string | null };
+type CashierAccount = { id: number; fullName: string; email: string; role: string; isActive: boolean; canVoidOrders: boolean; canRefundOrders: boolean; timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[] };
 
 function Accounts() {
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
+  const [permissionAccount, setPermissionAccount] = useState<CashierAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -1599,7 +1616,9 @@ function Accounts() {
       const response = await fetch("/api/cashier-accounts", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to load cashier accounts.");
-      setAccounts(payload.data ?? []);
+      const nextAccounts = payload.data ?? [];
+      setAccounts(nextAccounts);
+      setPermissionAccount((current) => current ? nextAccounts.find((account: CashierAccount) => account.id === current.id) ?? null : null);
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load cashier accounts.");
@@ -1607,6 +1626,41 @@ function Accounts() {
       setLoading(false);
     }
   };
+
+  async function updatePermissions(account: CashierAccount, changes: Partial<Pick<CashierAccount, "canVoidOrders" | "canRefundOrders">>) {
+    const nextAccount = { ...account, ...changes };
+    setAccounts((current) => current.map((item) => item.id === account.id ? nextAccount : item));
+    setPermissionAccount((current) => current?.id === account.id ? nextAccount : current);
+    try {
+      const response = await fetch("/api/cashier-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: account.id, canVoidOrders: nextAccount.canVoidOrders, canRefundOrders: nextAccount.canRefundOrders }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to update cashier permissions.");
+    } catch (updateError) {
+      setAccounts((current) => current.map((item) => item.id === account.id ? account : item));
+      setError(updateError instanceof Error ? updateError.message : "Failed to update cashier permissions.");
+    }
+
+  }
+
+  async function clearEmployeeLogs(account: CashierAccount) {
+    if (!window.confirm(`Clear all attendance history for ${account.fullName}? This development action cannot be undone.`)) return;
+    try {
+      const response = await fetch("/api/cashier-accounts", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: account.id, confirmation: "CLEAR_EMPLOYEE_LOGS" }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to clear employee log history.");
+      await loadAccounts();
+    } catch (clearError) {
+      setError(clearError instanceof Error ? clearError.message : "Failed to clear employee log history.");
+    }
+  }
 
   useEffect(() => {
     const initialLoad = window.setTimeout(() => { void loadAccounts(); }, 0);
@@ -1632,8 +1686,101 @@ function Accounts() {
       <div className="rounded-xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Access status</div><div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: activeCount ? "#2E7D32" : "#B91C1C" }}>{activeCount ? "Ready for POS" : "No active cashier"}</div></div>
     </div>
     {error && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
-    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading cashier accounts...</div> : accounts.length === 0 ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier accounts found. Create an active cashier in the <code>admin_users</code> table to enable POS access.</div> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Cashier", "Email", "Role", "Status"].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{accounts.map((account) => <tr key={account.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "15px 16px", fontWeight: 700 }}>{account.fullName}</td><td style={{ padding: "15px 16px", color: "#6B4C3B", fontSize: 13 }}>{account.email}</td><td style={{ padding: "15px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{account.role}</td><td style={{ padding: "15px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "5px 9px", background: account.isActive ? "#DCFCE7" : "#F3EDE5", color: account.isActive ? "#166534" : "#9C8278", fontSize: 11, fontWeight: 700 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: account.isActive ? "#22C55E" : "#B9A398" }} />{account.isActive ? "Active" : "Inactive"}</span></td></tr>)}</tbody></table></div></div>}
+    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading employees...</div> : accounts.length === 0 ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier employees found.</div> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Email", "Role", "Status", "Manage"].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{accounts.map((account) => <tr key={account.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "15px 16px", fontWeight: 700 }}>{account.fullName}</td><td style={{ padding: "15px 16px", color: "#6B4C3B", fontSize: 13 }}>{account.email}</td><td style={{ padding: "15px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{account.role}</td><td style={{ padding: "15px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "5px 9px", background: account.isActive ? "#DCFCE7" : "#F3EDE5", color: account.isActive ? "#166534" : "#9C8278", fontSize: 11, fontWeight: 700 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: account.isActive ? "#22C55E" : "#B9A398" }} />{account.isActive ? "Active" : "Inactive"}</span></td><td style={{ padding: "12px 16px" }}><button type="button" onClick={() => setPermissionAccount(account)} style={{ border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Manage employee</button></td></tr>)}</tbody></table></div></div>}
+    {permissionAccount && <div role="dialog" aria-modal="true" aria-labelledby="cashier-employee-title" onClick={() => setPermissionAccount(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>DEV: Clear log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></div>}
   </main>;
+}
+
+function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut: () => void }) {
+  const [createdAt, setCreatedAt] = useState<string | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch("/api/auth/account", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Unable to retrieve account details.");
+        if (active) setCreatedAt(payload.data?.createdAt ?? null);
+      } catch (accountError) {
+        console.error("Account Management: failed to load account details", accountError);
+      }
+    })();
+    return () => { active = false; };
+  }, []);
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    setError("");
+    if (newPassword !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await fetch("/api/auth/account", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to change password.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setMessage("Password changed successfully.");
+    } catch (passwordError) {
+      setError(passwordError instanceof Error ? passwordError.message : "Unable to change password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <main className="p-8" style={{ maxWidth: 1280 }}>
+    <div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>View your administrator profile and manage your account password.</p></div><button type="button" onClick={onSignOut} style={{ border: "1px solid #FECACA", borderRadius: 9, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>Sign out</button></div>
+    <div className="grid gap-5 mt-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
+      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
+        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>My account</p>
+        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>{user.fullName}</h2>
+        <div style={{ display: "grid", gap: 12, color: "#6B4C3B", fontSize: 13 }}>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Email</span>{user.email}</div>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Role</span><span style={{ textTransform: "capitalize" }}>{user.role}</span></div>
+          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Account created</span><span style={{ color: "#9C8278" }}>{createdAt ? new Date(createdAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not available in the database"}</span></div>
+        </div>
+      </section>
+      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
+        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Security</p>
+        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>Change password</h2>
+        {message && <p style={{ color: "#166534", fontSize: 13 }}>{message}</p>}
+        {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
+        <form onSubmit={changePassword} className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Current password</span><input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label>
+          <label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>New password</span><input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label>
+          <label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Confirm new password</span><input type="password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label>
+          <button type="submit" disabled={saving} style={{ marginTop: 6, border: "none", borderRadius: 9, padding: "11px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: saving ? "default" : "pointer", fontWeight: 700 }}>{saving ? "Saving..." : "Change password"}</button>
+        </form>
+      </section>
+    </div>
+  </main>;
+}
+
+function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => void; onConfirm: () => void; signingOut: boolean }) {
+  return <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.4)", zIndex: 100 }} role="dialog" aria-modal="true" aria-labelledby="admin-sign-out-title">
+    <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 380px)", background: "#FDF9F5", boxShadow: "0 20px 60px rgba(61,43,31,0.25)" }}>
+      <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Session</p>
+      <h2 id="admin-sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Sign out?</h2>
+      <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>You will need to sign in again to access the admin portal.</p>
+      <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={onCancel} disabled={signingOut} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: signingOut ? "default" : "pointer" }}>Cancel</button><button type="button" onClick={onConfirm} disabled={signingOut} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: signingOut ? "#C9B8AF" : "#B91C1C", color: "#FFF", cursor: signingOut ? "default" : "pointer", fontWeight: 700 }}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
+    </div>
+  </div>;
 }
 
 function AdminLogin({ onLoggedIn }: { onLoggedIn: (session: AdminSession) => void }) {
@@ -1676,6 +1823,8 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
+  const [showSignOut, setShowSignOut] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [additions, setAdditions] = useState<ProductAddition[]>([]);
@@ -1697,7 +1846,15 @@ export default function App() {
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
+    setPage("dashboard");
+    setShowSignOut(false);
+    setSigningOut(false);
     setAuthUser(null);
+  }
+
+  async function confirmSignOut() {
+    setSigningOut(true);
+    await handleLogout();
   }
 
   async function refreshInventory() {
@@ -1923,7 +2080,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management" };
 
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
   if (!authUser) return <AdminLogin onLoggedIn={setAuthUser} />;
@@ -1931,7 +2088,7 @@ export default function App() {
   return <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
     <Sidebar current={page} collapsed={sidebarCollapsed} onChange={handlePageChange} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar page={page} user={authUser} onLogout={handleLogout} />
+      <TopBar page={page} user={authUser} onAccount={() => setPage("account")} onRequestLogout={() => setShowSignOut(true)} />
       <div className="app-page-heading px-8 pt-7 pb-2" style={{ background: "#F8F9FA", flexShrink: 0 }}><h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", letterSpacing: "-0.02em", margin: 0 }}>{pageTitles[page]}</h1></div>
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
         {page === "dashboard" && <Dashboard inventory={inventory} />}
@@ -1940,7 +2097,9 @@ export default function App() {
         {page === "products" && <ProductManagement products={products} inventory={inventory} additions={additions} categories={categories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
         {page === "finance" && <Finance />}
         {page === "accounts" && <Accounts />}
+        {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}
       </div>
     </div>
+    {showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}
   </div>;
 }

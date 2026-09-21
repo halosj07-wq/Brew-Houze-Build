@@ -8,7 +8,11 @@ export async function GET(request: Request) {
       const signatureResult = await pool.query(`
         SELECT COUNT(*)::int AS total,
           COALESCE(MAX(order_id), 0)::int AS latest_order_id,
-          COALESCE(MAX(created_at), TIMESTAMP 'epoch') AS latest_created_at
+          COALESCE(MAX(created_at), TIMESTAMP 'epoch') AS latest_created_at,
+          COALESCE(MAX(reversed_at), TIMESTAMP 'epoch') AS latest_reversed_at,
+          COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_count,
+          COUNT(*) FILTER (WHERE status = 'voided')::int AS voided_count,
+          COUNT(*) FILTER (WHERE status = 'refunded')::int AS refunded_count
         FROM sales_orders
       `);
       return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
@@ -20,6 +24,7 @@ export async function GET(request: Request) {
     const dailySalesEnd = searchParams.get("daily_end") ?? "";
     const orderHistoryStart = searchParams.get("history_start") ?? "";
     const orderHistoryEnd = searchParams.get("history_end") ?? "";
+    const excludeReversed = searchParams.get("exclude_reversed") === "1";
     const isCurrentWeek = period === "week";
     const days = period === "all" ? null : Number(period);
     if (!isCurrentWeek && days !== null && (![7, 30, 90].includes(days) || !Number.isInteger(days))) {
@@ -34,27 +39,35 @@ export async function GET(request: Request) {
     }
     const financeTimeZone = "Asia/Manila";
     const overviewClause = isCurrentWeek
-      ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
-      : days === null ? "" : `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
+      ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+      : days === null ? "WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date - ($1::int - 1))`;
     const overviewParams: (string | number)[] = isCurrentWeek || days === null ? [] : [days];
     const dailyClause = dailySalesDate
-      ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') = $1::date`
+      ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') = $1::date`
       : dailySalesStart || dailySalesEnd
-        ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE '${financeTimeZone}') <= $2::date`
+        ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') <= $2::date`
         : isCurrentWeek
-          ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
-          : days === null ? "" : `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
+          ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+            : days === null ? "WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date - ($1::int - 1))`;
     const dailyParams: (string | number)[] = dailySalesDate
       ? [dailySalesDate]
       : dailySalesStart || dailySalesEnd
         ? [dailySalesStart || dailySalesEnd, dailySalesEnd || dailySalesStart]
         : isCurrentWeek || days === null ? [] : [days];
     const historyClause = orderHistoryDate
-      ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') = $1::date`
+      ? `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') = $1::date`
       : orderHistoryStart || orderHistoryEnd
-        ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE '${financeTimeZone}') <= $2::date`
-        : "";
-    const historyParams: (string | number)[] = orderHistoryDate ? [orderHistoryDate] : orderHistoryStart || orderHistoryEnd ? [orderHistoryStart || orderHistoryEnd, orderHistoryEnd || orderHistoryStart] : [];
+        ? `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') <= $2::date`
+        : isCurrentWeek
+          ? `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+          : days === null
+            ? excludeReversed ? "WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : ""
+            : `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
+    const historyParams: (string | number)[] = orderHistoryDate
+      ? [orderHistoryDate]
+      : orderHistoryStart || orderHistoryEnd
+        ? [orderHistoryStart || orderHistoryEnd, orderHistoryEnd || orderHistoryStart]
+        : isCurrentWeek || days === null ? [] : [days];
     const additionTableResult = await pool.query(`
       SELECT to_regclass('public.sales_order_item_additions') IS NOT NULL AS available
     `);
@@ -84,7 +97,7 @@ export async function GET(request: Request) {
         so.order_id,
         so.total_amount,
         so.status,
-        TO_CHAR(so.created_at AT TIME ZONE '${financeTimeZone}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
+        TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         so.queue_number,
         so.queue_status,
         so.order_source,
@@ -148,7 +161,7 @@ export async function GET(request: Request) {
 
     const dailySalesResult = await pool.query(`
       WITH filtered_orders AS (
-        SELECT so.order_id, DATE(so.created_at AT TIME ZONE '${financeTimeZone}') AS sale_date, so.total_amount
+        SELECT so.order_id, DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') AS sale_date, so.total_amount
         FROM sales_orders so
         ${dailyClause}
       )
