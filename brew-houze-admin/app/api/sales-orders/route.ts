@@ -32,20 +32,27 @@ export async function GET(request: Request) {
     if ((dailySalesStart && dailySalesEnd && dailySalesStart > dailySalesEnd) || (orderHistoryStart && orderHistoryEnd && orderHistoryStart > orderHistoryEnd)) {
       return NextResponse.json({ error: "Start dates must not be after end dates." }, { status: 400 });
     }
+    const financeTimeZone = "Asia/Manila";
     const overviewClause = isCurrentWeek
-      ? "WHERE so.created_at >= DATE_TRUNC('week', CURRENT_TIMESTAMP)"
-      : days === null ? "" : "WHERE so.created_at >= CURRENT_TIMESTAMP - ($1::int * INTERVAL '1 day')";
+      ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+      : days === null ? "" : `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
     const overviewParams: (string | number)[] = isCurrentWeek || days === null ? [] : [days];
     const dailyClause = dailySalesDate
-      ? "WHERE so.created_at >= $1::date AND so.created_at < ($1::date + INTERVAL '1 day')"
+      ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') = $1::date`
       : dailySalesStart || dailySalesEnd
-        ? `WHERE so.created_at >= $1::date AND so.created_at < ($2::date + INTERVAL '1 day')`
-        : "";
-    const dailyParams: (string | number)[] = dailySalesDate ? [dailySalesDate] : dailySalesStart || dailySalesEnd ? [dailySalesStart || dailySalesEnd, dailySalesEnd || dailySalesStart] : [];
+        ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE '${financeTimeZone}') <= $2::date`
+        : isCurrentWeek
+          ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+          : days === null ? "" : `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
+    const dailyParams: (string | number)[] = dailySalesDate
+      ? [dailySalesDate]
+      : dailySalesStart || dailySalesEnd
+        ? [dailySalesStart || dailySalesEnd, dailySalesEnd || dailySalesStart]
+        : isCurrentWeek || days === null ? [] : [days];
     const historyClause = orderHistoryDate
-      ? "WHERE so.created_at >= $1::date AND so.created_at < ($1::date + INTERVAL '1 day')"
+      ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') = $1::date`
       : orderHistoryStart || orderHistoryEnd
-        ? `WHERE so.created_at >= $1::date AND so.created_at < ($2::date + INTERVAL '1 day')`
+        ? `WHERE DATE(so.created_at AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE '${financeTimeZone}') <= $2::date`
         : "";
     const historyParams: (string | number)[] = orderHistoryDate ? [orderHistoryDate] : orderHistoryStart || orderHistoryEnd ? [orderHistoryStart || orderHistoryEnd, orderHistoryEnd || orderHistoryStart] : [];
     const additionTableResult = await pool.query(`
@@ -64,13 +71,20 @@ export async function GET(request: Request) {
           WHERE soia.order_item_id = soi.order_item_id
         ), '[]'::json)`
       : "'[]'::json";
+    const additionRevenueExpression = additionTableResult.rows[0]?.available
+      ? `COALESCE((
+          SELECT SUM(soia.quantity * soia.unit_price)
+          FROM sales_order_item_additions soia
+          WHERE soia.order_item_id = soi.order_item_id
+        ), 0)`
+      : "0";
 
     const result = await pool.query(`
       SELECT
         so.order_id,
         so.total_amount,
         so.status,
-        so.created_at,
+        TO_CHAR(so.created_at AT TIME ZONE '${financeTimeZone}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         so.queue_number,
         so.queue_status,
         so.order_source,
@@ -83,6 +97,7 @@ export async function GET(request: Request) {
               'product_category', p.product_category,
               'variant_id', soi.product_variant_id,
               'size_label', pv.size_label,
+              'temperature', pv.temperature,
               'quantity', soi.quantity,
               'unit_price', soi.unit_price,
               'additions', ${additionsExpression}
@@ -103,16 +118,25 @@ export async function GET(request: Request) {
 
     const summaryResult = await pool.query(`
       SELECT
-        COUNT(DISTINCT so.order_id)::int AS order_count,
+        COUNT(*)::int AS order_count,
         COALESCE(SUM(so.total_amount), 0) AS revenue,
-        COALESCE(SUM(soi.quantity), 0)::int AS items_sold
+        COALESCE((
+          SELECT SUM(soi.quantity)
+          FROM sales_order_items soi
+          WHERE soi.order_id IN (
+            SELECT overview_orders.order_id
+            FROM sales_orders overview_orders
+            ${overviewClause.replaceAll("so.", "overview_orders.")}
+          )
+        ), 0)::int AS items_sold
       FROM sales_orders so
-      LEFT JOIN sales_order_items soi ON soi.order_id = so.order_id
       ${overviewClause}
     `, overviewParams);
 
     const topProductsResult = await pool.query(`
-      SELECT p.product_name, COALESCE(SUM(soi.quantity), 0)::int AS quantity, COALESCE(SUM(soi.quantity * soi.unit_price), 0) AS revenue
+      SELECT p.product_name,
+        COALESCE(SUM(soi.quantity), 0)::int AS quantity,
+        COALESCE(SUM(soi.quantity * soi.unit_price + ${additionRevenueExpression}), 0) AS revenue
       FROM sales_order_items soi
       JOIN sales_orders so ON so.order_id = soi.order_id
       JOIN products p ON p.product_id = soi.product_id
@@ -123,16 +147,24 @@ export async function GET(request: Request) {
     `, overviewParams);
 
     const dailySalesResult = await pool.query(`
+      WITH filtered_orders AS (
+        SELECT so.order_id, DATE(so.created_at AT TIME ZONE '${financeTimeZone}') AS sale_date, so.total_amount
+        FROM sales_orders so
+        ${dailyClause}
+      )
       SELECT
-        TO_CHAR(DATE(so.created_at), 'YYYY-MM-DD') AS sale_date,
-        COUNT(DISTINCT so.order_id)::int AS order_count,
-        COALESCE(SUM(so.total_amount), 0) AS revenue,
-        COALESCE(SUM(soi.quantity), 0)::int AS items_sold
-      FROM sales_orders so
-      LEFT JOIN sales_order_items soi ON soi.order_id = so.order_id
-      ${dailyClause}
-      GROUP BY DATE(so.created_at)
-      ORDER BY sale_date DESC
+        TO_CHAR(filtered_orders.sale_date, 'YYYY-MM-DD') AS sale_date,
+        COUNT(*)::int AS order_count,
+        COALESCE(SUM(filtered_orders.total_amount), 0) AS revenue,
+        COALESCE(SUM(item_totals.items_sold), 0)::int AS items_sold
+      FROM filtered_orders
+      LEFT JOIN (
+        SELECT soi.order_id, SUM(soi.quantity)::int AS items_sold
+        FROM sales_order_items soi
+        GROUP BY soi.order_id
+      ) item_totals ON item_totals.order_id = filtered_orders.order_id
+      GROUP BY filtered_orders.sale_date
+      ORDER BY filtered_orders.sale_date DESC
     `, dailyParams);
 
     return NextResponse.json({

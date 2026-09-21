@@ -89,11 +89,11 @@ export async function POST(request: Request) {
       }
     }
 
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-' || CURRENT_DATE::text))");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-' || ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date)::text))");
     const queueResult = await client.query(`
       SELECT COALESCE(MAX(queue_number), 0) + 1 AS queue_number
       FROM sales_orders
-      WHERE created_at >= CURRENT_DATE AND created_at < CURRENT_DATE + INTERVAL '1 day'
+      WHERE DATE(created_at AT TIME ZONE 'Asia/Manila') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
     `);
     const queueNumber = Number(queueResult.rows[0].queue_number);
     const customerToken = randomUUID();

@@ -13,9 +13,7 @@ export async function GET(request: Request) {
         COALESCE(MAX(order_id), 0)::int AS latest_order_id,
         COALESCE(MAX(served_at), TIMESTAMP 'epoch') AS latest_served_at
       FROM sales_orders
-      WHERE created_at >= CURRENT_DATE
-        AND created_at < CURRENT_DATE + INTERVAL '1 day'
-        AND queue_status IN ('waiting', 'served')
+      WHERE queue_status IN ('waiting', 'served')
     `);
     if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
       return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
@@ -26,11 +24,12 @@ export async function GET(request: Request) {
         so.queue_number,
         so.queue_status,
         so.order_source,
-        so.created_at,
+        TO_CHAR(so.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         COALESCE((
           SELECT json_agg(json_build_object(
             'product_name', detail_product.product_name,
             'size_label', detail_variant.size_label,
+            'temperature', detail_variant.temperature,
             'quantity', detail_item.quantity,
             'additions', COALESCE((
               SELECT json_agg(json_build_object(
@@ -49,9 +48,15 @@ export async function GET(request: Request) {
         ), '[]'::json) AS order_details,
         COALESCE(
           STRING_AGG(
-            p.product_name || CASE WHEN pv.size_label IS NULL THEN '' ELSE ' (' || pv.size_label || ')' END
+            p.product_name || CASE
+              WHEN pv.size_label IS NULL THEN ''
+              ELSE ' (' || pv.size_label || CASE
+                WHEN pv.temperature IN ('hot', 'cold') THEN ' · ' || INITCAP(pv.temperature)
+                ELSE ''
+              END || ')'
+            END
             || ' x' || soi.quantity::text,
-            ', ' ORDER BY p.product_name, pv.size_label
+            ', ' ORDER BY p.product_name, pv.size_label, pv.temperature
           ),
           'Order'
         ) AS items
@@ -59,9 +64,7 @@ export async function GET(request: Request) {
       JOIN sales_order_items soi ON soi.order_id = so.order_id
       JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
-      WHERE so.created_at >= CURRENT_DATE
-        AND so.created_at < CURRENT_DATE + INTERVAL '1 day'
-        AND so.queue_status IN ('waiting', 'served')
+      WHERE so.queue_status IN ('waiting', 'served')
       GROUP BY so.order_id
       ORDER BY so.queue_status DESC, so.queue_number ASC
     `);

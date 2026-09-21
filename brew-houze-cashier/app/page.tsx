@@ -6,7 +6,7 @@ import Image from "next/image";
 type Page = "pos" | "queue" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string };
 type IconProps = { size?: number };
-type QueueOrderDetail = { product_name: string; size_label: string | null; quantity: number; additions: { name: string; quantity: number }[] };
+type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
 type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[] };
 
 function IconCoffee({ size = 20 }: IconProps) {
@@ -79,7 +79,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both"; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
   type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; image_url?: string | null; additions: Addition[]; variants: Variant[] };
   type ProductsResponse = { data?: Product[] };
-  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; qty: number; price: number; ingredients: Ingredient[]; additions: Addition[] };
+  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both"; qty: number; price: number; ingredients: Ingredient[]; additions: Addition[] };
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -237,7 +237,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
     const price = variant ? Number(variant.price) : 0;
     setCart((prev) => {
       if (variant && getCartLimit(variant, prev, key) <= 0) return prev;
-      return [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, qty: 1, price, ingredients: variant?.ingredients ?? [], additions: [] }];
+      return [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, temperature: variant?.temperature, qty: 1, price, ingredients: variant?.ingredients ?? [], additions: [] }];
     });
   }
 
@@ -358,7 +358,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number) =
           {cart.map((item) => (
             <div key={item.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 700 }}>{item.name}{item.size ? ` — ${item.size}` : ""}</div>
+                <div style={{ fontWeight: 700 }}>{item.name}{item.size ? ` — ${item.size}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</div>
                 <div style={{ fontSize: 12, color: "#9C8278" }}>₱{(item.price).toFixed(2)} • x{item.qty}</div>
                 {item.additions.length > 0 && <div style={{ marginTop: 5, fontSize: 11, color: "#6B4C3B" }}>+ {item.additions.map((addition) => `${addition.addition_name} (₱${Number(addition.price).toFixed(2)})`).join(", ")}</div>}
                 <div style={{ marginTop: 7, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -533,7 +533,7 @@ function QueuePage() {
             </div>
             {expanded && <div style={{ margin: "12px 0 0 74px", padding: "10px 12px", background: "rgba(255,255,255,0.72)", border: "1px solid #E8DDD5", borderRadius: 10 }}>
               {order.order_details.map((detail, index) => <div key={`${order.order_id}-${index}`} style={{ padding: index === 0 ? 0 : "9px 0 0", marginTop: index === 0 ? 0 : 9, borderTop: index === 0 ? "none" : "1px solid #F0E8E2", color: "#6B4C3B", fontSize: 12 }}>
-                <strong>{detail.product_name}{detail.size_label ? ` · ${detail.size_label}` : ""} × {detail.quantity}</strong>
+                <strong>{detail.product_name}{detail.size_label ? ` · ${detail.size_label}` : ""}{detail.temperature === "hot" ? " · Hot" : detail.temperature === "cold" ? " · Cold" : ""} × {detail.quantity}</strong>
                 {detail.additions.length > 0 && <div style={{ marginTop: 5, color: "#7E22CE" }}>Additions: {detail.additions.map((addition) => `${addition.name} × ${addition.quantity}`).join(", ")}</div>}
               </div>)}
             </div>}
