@@ -1,17 +1,45 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+
+async function getAdminId(): Promise<number | null> {
+  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  return session?.adminId ?? null;
+}
 
 const fixedUnits = new Map([
   ["ml", { label: "mL", threshold: 500, whole: false }],
   ["milliliter", { label: "mL", threshold: 500, whole: false }],
   ["milliliters", { label: "mL", threshold: 500, whole: false }],
+  ["l", { label: "L", threshold: 2, whole: false }],
+  ["liter", { label: "L", threshold: 2, whole: false }],
+  ["liters", { label: "L", threshold: 2, whole: false }],
+  ["litre", { label: "L", threshold: 2, whole: false }],
+  ["litres", { label: "L", threshold: 2, whole: false }],
   ["gram", { label: "grams", threshold: 500, whole: false }],
   ["grams", { label: "grams", threshold: 500, whole: false }],
   ["g", { label: "grams", threshold: 500, whole: false }],
+  ["kg", { label: "kg", threshold: 2, whole: false }],
+  ["kilogram", { label: "kg", threshold: 2, whole: false }],
+  ["kilograms", { label: "kg", threshold: 2, whole: false }],
+  ["oz", { label: "oz", threshold: 16, whole: false }],
+  ["ounce", { label: "oz", threshold: 16, whole: false }],
+  ["ounces", { label: "oz", threshold: 16, whole: false }],
   ["piece", { label: "Pieces", threshold: 10, whole: true }],
   ["pieces", { label: "Pieces", threshold: 10, whole: true }],
   ["pc", { label: "Pieces", threshold: 10, whole: true }],
   ["#", { label: "Pieces", threshold: 10, whole: true }],
+  ["bottle", { label: "Bottles", threshold: 3, whole: true }],
+  ["bottles", { label: "Bottles", threshold: 3, whole: true }],
+  ["box", { label: "Boxes", threshold: 3, whole: true }],
+  ["boxes", { label: "Boxes", threshold: 3, whole: true }],
+  ["pack", { label: "Packs", threshold: 5, whole: true }],
+  ["packs", { label: "Packs", threshold: 5, whole: true }],
+  ["packet", { label: "Packs", threshold: 5, whole: true }],
+  ["packets", { label: "Packs", threshold: 5, whole: true }],
+  ["sachet", { label: "Sachets", threshold: 20, whole: true }],
+  ["sachets", { label: "Sachets", threshold: 20, whole: true }],
 ]);
 
 function resolveUnit(value: unknown) {
@@ -39,6 +67,7 @@ export async function GET() {
           WHERE vi.inventory_id = inventory.inventory_id
         ) AS is_permanent
       FROM inventory
+      WHERE is_archived = FALSE
       ORDER BY ingredient_category ASC, item_name ASC
     `);
 
@@ -76,7 +105,13 @@ export async function POST(request: Request) {
         FALSE AS is_permanent
     `, [ingredientCategory, itemName, unitOfMeasure.label, quantity, unitOfMeasure.threshold, unitOfMeasure.whole]);
 
-    return NextResponse.json({ data: result.rows[0] }, { status: 201 });
+    const createdItem = result.rows[0];
+    await pool.query(`
+      INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
+      VALUES ($1, $2, $3, $4, 'created', 0, $5, $5, $6, 'admin')
+    `, [createdItem.inventory_id, createdItem.item_name, createdItem.ingredient_category, createdItem.unit_of_measure, createdItem.quantity, await getAdminId()]);
+
+    return NextResponse.json({ data: createdItem }, { status: 201 });
   } catch (error) {
     console.error("POST /api/inventory failed:", error);
     return NextResponse.json({ error: "Could not create inventory item." }, { status: 500 });
@@ -92,6 +127,7 @@ export async function PATCH(request: Request) {
         UPDATE inventory
         SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
         WHERE inventory_id = $2
+          AND is_archived = FALSE
           AND (NOT is_whole_unit OR $1::numeric = TRUNC($1::numeric))
         RETURNING
           inventory_id,
@@ -109,7 +145,12 @@ export async function PATCH(request: Request) {
       if (stockResult.rowCount === 0) {
         return NextResponse.json({ error: "Inventory item not found or quantity is invalid for its unit." }, { status: 400 });
       }
-      return NextResponse.json({ data: stockResult.rows[0] });
+      const restockedItem = stockResult.rows[0];
+      await pool.query(`
+        INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
+        VALUES ($1, $2, $3, $4, 'restocked', $5, $6, $7, $8, 'admin')
+      `, [restockedItem.inventory_id, restockedItem.item_name, restockedItem.ingredient_category, restockedItem.unit_of_measure, Number(restockedItem.quantity) - quantityDelta, restockedItem.quantity, quantityDelta, await getAdminId()]);
+      return NextResponse.json({ data: restockedItem });
     }
     const {
       inventory_id,
@@ -134,14 +175,20 @@ export async function PATCH(request: Request) {
     }
 
     const usageResult = await pool.query(`
-      SELECT (
+      SELECT quantity, (
         EXISTS (SELECT 1 FROM product_ingredients WHERE inventory_id = $1)
         OR EXISTS (SELECT 1 FROM variant_ingredients WHERE inventory_id = $1)
       ) AS is_permanent
+      FROM inventory
+      WHERE inventory_id = $1 AND is_archived = FALSE
     `, [Number(inventory_id)]);
+    if (usageResult.rowCount === 0) {
+      return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
+    }
     if (usageResult.rows[0]?.is_permanent) {
       return NextResponse.json({ error: "Permanent inventory items cannot be edited. Add stock using the plus button instead." }, { status: 409 });
     }
+    const quantityBefore = Number(usageResult.rows[0].quantity);
 
     const result = await pool.query(`
       UPDATE inventory
@@ -153,7 +200,7 @@ export async function PATCH(request: Request) {
         low_stock_threshold = $5,
         is_whole_unit = $6,
         updated_at = CURRENT_TIMESTAMP
-      WHERE inventory_id = $7
+      WHERE inventory_id = $7 AND is_archived = FALSE
       RETURNING
         inventory_id,
         ingredient_category,
@@ -177,7 +224,15 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
     }
 
-    return NextResponse.json({ data: result.rows[0] });
+    const editedItem = result.rows[0];
+    if (parsedQuantity !== quantityBefore) {
+      await pool.query(`
+        INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
+        VALUES ($1, $2, $3, $4, 'manual_edit', $5, $6, $7, $8, 'admin')
+      `, [editedItem.inventory_id, editedItem.item_name, editedItem.ingredient_category, editedItem.unit_of_measure, quantityBefore, parsedQuantity, parsedQuantity - quantityBefore, await getAdminId()]);
+    }
+
+    return NextResponse.json({ data: editedItem });
   } catch (error) {
     console.error("PATCH /api/inventory failed:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not update inventory data." }, { status: 500 });
@@ -220,22 +275,24 @@ export async function DELETE(request: Request) {
     }
 
     const result = await pool.query(`
-      DELETE FROM inventory
-      WHERE inventory_id = $1
-      RETURNING inventory_id
-    `, [inventoryId]);
+      UPDATE inventory
+      SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2
+      WHERE inventory_id = $1 AND is_archived = FALSE
+      RETURNING inventory_id, item_name, ingredient_category, unit_of_measure, quantity
+    `, [inventoryId, await getAdminId()]);
 
     if (result.rowCount === 0) {
       return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
     }
 
-    return NextResponse.json({ data: { inventory_id: result.rows[0].inventory_id } });
+    const deletedItem = result.rows[0];
+    await pool.query(`
+      INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
+      VALUES ($1, $2, $3, $4, 'deleted', $5, 0, $6, $7, 'admin')
+    `, [deletedItem.inventory_id, deletedItem.item_name, deletedItem.ingredient_category, deletedItem.unit_of_measure, deletedItem.quantity, -Number(deletedItem.quantity), await getAdminId()]);
+
+    return NextResponse.json({ data: { inventory_id: deletedItem.inventory_id } });
   } catch (error) {
-    // Safety net in case a recipe was added between the usage check and the delete.
-    const pgError = error as { code?: string };
-    if (pgError?.code === "23503") {
-      return NextResponse.json({ error: "This item is used in one or more product recipes. Remove it from those recipes before deleting it." }, { status: 409 });
-    }
     console.error("DELETE /api/inventory failed:", error);
     return NextResponse.json({ error: "Could not archive inventory item." }, { status: 500 });
   }

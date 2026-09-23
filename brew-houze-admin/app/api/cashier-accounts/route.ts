@@ -14,7 +14,7 @@ export async function GET() {
     const logsResult = await pool.query(`
       SELECT time_log_id, admin_id, time_in, time_out
       FROM employee_time_logs
-      WHERE admin_id = ANY($1::int[])
+      WHERE admin_id = ANY($1::int[]) AND is_archived = FALSE
       ORDER BY time_in DESC
     `, [result.rows.map((account) => Number(account.admin_id))]);
     const logsByAccount = new Map<number, { id: number; timeIn: string; timeOut: string | null }[]>();
@@ -29,7 +29,7 @@ export async function GET() {
         reversal_type,
         TO_CHAR(reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at
       FROM sales_orders
-      WHERE cashier_admin_id = ANY($1::int[])
+      WHERE cashier_admin_id = ANY($1::int[]) AND is_archived = FALSE
       ORDER BY created_at DESC, order_id DESC
     `, [result.rows.map((account) => Number(account.admin_id))]);
     const transactionsByAccount = new Map<number, {

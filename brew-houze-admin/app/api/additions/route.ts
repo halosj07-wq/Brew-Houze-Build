@@ -1,5 +1,12 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+
+async function getAdminId(): Promise<number | null> {
+  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  return session?.adminId ?? null;
+}
 
 export async function GET() {
   try {
@@ -98,30 +105,25 @@ export async function DELETE(request: Request) {
       WHERE addition_id = $1
       LIMIT 1
     `, [additionId]);
-    if ((historicalUsageResult.rowCount ?? 0) > 0) {
-      return NextResponse.json({
-        error: "This addition is included in completed sales and cannot be permanently archived without removing historical finance details.",
-      }, { status: 409 });
-    }
 
     const result = await pool.query(`
-      DELETE FROM additions
+      UPDATE additions
+      SET is_active = FALSE, archived_at = CURRENT_TIMESTAMP, archived_by = $2
       WHERE addition_id = $1 AND is_active = TRUE
       RETURNING addition_id
-    `, [additionId]);
+    `, [additionId, await getAdminId()]);
 
     if (result.rowCount === 0) {
       return NextResponse.json({ error: "Addition item not found." }, { status: 404 });
     }
 
-    return NextResponse.json({ data: { addition_id: result.rows[0].addition_id } });
+    return NextResponse.json({
+      data: {
+        addition_id: result.rows[0].addition_id,
+        hadHistoricalSales: (historicalUsageResult.rowCount ?? 0) > 0,
+      },
+    });
   } catch (error) {
-    const pgError = error as { code?: string };
-    if (pgError.code === "23503") {
-      return NextResponse.json({
-        error: "This addition is still referenced by a product. Remove it from that product before archiving it.",
-      }, { status: 409 });
-    }
     console.error("DELETE /api/additions failed:", error);
     return NextResponse.json({ error: "Could not archive addition item." }, { status: 500 });
   }

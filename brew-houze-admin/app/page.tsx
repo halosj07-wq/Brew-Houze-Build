@@ -19,6 +19,22 @@ type InventoryItem = {
   is_permanent: boolean;
 };
 
+type InventoryLogEntry = {
+  log_id: number;
+  inventory_id: number | null;
+  item_name: string;
+  ingredient_category: string;
+  unit_of_measure: string;
+  change_type: string;
+  quantity_before: number;
+  quantity_after: number;
+  quantity_delta: number;
+  order_id: number | null;
+  source_app: string;
+  admin_name: string | null;
+  created_at: string;
+};
+
 type AdditionItem = {
   addition_id: number;
   addition_name: string;
@@ -31,24 +47,44 @@ type AdditionItem = {
 
 type ProductCategory = { id: number; name: string };
 
-const inventoryUnits = ["mL", "grams", "Pieces"] as const;
+const inventoryUnits = ["mL", "L", "grams", "kg", "oz", "Pieces", "Bottles", "Boxes", "Packs", "Sachets"] as const;
 const fixedLowStockThresholds: Record<(typeof inventoryUnits)[number], number> = {
   "mL": 500,
+  L: 2,
   grams: 500,
+  kg: 2,
+  oz: 16,
   Pieces: 10,
+  Bottles: 3,
+  Boxes: 3,
+  Packs: 5,
+  Sachets: 20,
 };
+const wholeUnitInventoryUnits: ReadonlySet<(typeof inventoryUnits)[number]> = new Set(["Pieces", "Bottles", "Boxes", "Packs", "Sachets"]);
 
 function normalizeInventoryUnit(value: string): (typeof inventoryUnits)[number] | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === "ml") return "mL";
+  if (normalized === "l" || normalized === "liter" || normalized === "liters" || normalized === "litre" || normalized === "litres") return "L";
   if (normalized === "gram" || normalized === "grams" || normalized === "g") return "grams";
+  if (normalized === "kg" || normalized === "kilogram" || normalized === "kilograms") return "kg";
+  if (normalized === "oz" || normalized === "ounce" || normalized === "ounces") return "oz";
   if (normalized === "piece" || normalized === "pieces" || normalized === "pc" || normalized === "#") return "Pieces";
+  if (normalized === "bottle" || normalized === "bottles") return "Bottles";
+  if (normalized === "box" || normalized === "boxes") return "Boxes";
+  if (normalized === "pack" || normalized === "packs" || normalized === "packet" || normalized === "packets") return "Packs";
+  if (normalized === "sachet" || normalized === "sachets") return "Sachets";
   return null;
 }
 
 function getFixedLowStockThreshold(unit: string): number {
   const normalized = normalizeInventoryUnit(unit);
   return normalized ? fixedLowStockThresholds[normalized] : 0;
+}
+
+function isWholeUnit(unit: string): boolean {
+  const normalized = normalizeInventoryUnit(unit);
+  return normalized ? wholeUnitInventoryUnits.has(normalized) : false;
 }
 
 function IconGrid({ size = 20 }: { size?: number }) {
@@ -93,6 +129,9 @@ function IconX({ size = 14 }: { size?: number }) {
 }
 function IconPlus({ size = 14 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>;
+}
+function IconDownload({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></svg>;
 }
 function IconCopy({ size = 12 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>;
@@ -411,6 +450,11 @@ function Inventory({
   const [stockItem, setStockItem] = useState<InventoryItem | null>(null);
   const [stockQuantity, setStockQuantity] = useState("");
   const [addingStock, setAddingStock] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportStart, setReportStart] = useState(getFinanceDateStamp());
+  const [reportEnd, setReportEnd] = useState(getFinanceDateStamp());
+  const [exportingReport, setExportingReport] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     const syncTimer = window.setTimeout(() => setItems(initialItems), 0);
@@ -468,7 +512,7 @@ function Inventory({
     const quantity = Number(newItem.quantity);
     const normalizedUnit = normalizeInventoryUnit(newItem.unit_of_measure);
     if (!newItem.ingredient_category.trim() || !newItem.item_name.trim() || !normalizedUnit || !Number.isFinite(quantity) || quantity < 0) return;
-    const finalQuantity = normalizedUnit === "Pieces" ? Math.round(quantity) : quantity;
+    const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(quantity) : quantity;
 
     try {
       setAdding(true);
@@ -501,7 +545,7 @@ function Inventory({
       return;
     }
 
-    const finalQuantity = normalizedUnit === "Pieces" ? Math.round(Number(draft.quantity)) : Number(draft.quantity);
+    const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(Number(draft.quantity)) : Number(draft.quantity);
 
     try {
       setActionError("");
@@ -596,6 +640,70 @@ function Inventory({
     }
   }
 
+  async function exportInventoryReport() {
+    if (reportStart > reportEnd) {
+      setReportError("Start date must not be after end date.");
+      return;
+    }
+    setExportingReport(true);
+    setReportError("");
+    try {
+      const response = await fetch(`/api/inventory/report?start=${reportStart}&end=${reportEnd}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to retrieve inventory report.");
+      const logs: InventoryLogEntry[] = payload.data ?? [];
+      if (logs.length === 0) {
+        throw new Error(`No inventory changes found between ${reportStart} and ${reportEnd}.`);
+      }
+      const changeTypeLabels: Record<string, string> = {
+        created: "Item Created",
+        restocked: "Restocked",
+        manual_edit: "Manual Edit",
+        order_deduction: "Order Deduction",
+        void_restore: "Void Restoration",
+        refund_restore: "Refund Restoration",
+        deleted: "Item Deleted",
+      };
+      const sourceAppLabels: Record<string, string> = { admin: "Admin", cashier: "Cashier", mobile: "Mobile Menu" };
+      const workbook = XLSX.utils.book_new();
+      const summaryRows = Object.entries(
+        logs.reduce<Record<string, number>>((counts, log) => {
+          const label = changeTypeLabels[log.change_type] ?? log.change_type;
+          counts[label] = (counts[label] ?? 0) + 1;
+          return counts;
+        }, {})
+      ).map(([changeType, count]) => ({ "Change Type": changeType, "Occurrences": count }));
+      const summarySheet = XLSX.utils.json_to_sheet([
+        { "Report Range": `${reportStart} to ${reportEnd}`, Generated: formatFinanceDateTime(new Date().toISOString()), "Total Entries": logs.length },
+        {},
+        ...summaryRows,
+      ]);
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+      const logRows = logs.map((log) => ({
+        Date: formatFinanceDateTime(log.created_at),
+        Item: log.item_name,
+        Category: log.ingredient_category,
+        Unit: log.unit_of_measure,
+        "Change Type": changeTypeLabels[log.change_type] ?? log.change_type,
+        "Quantity Before": Number(log.quantity_before),
+        "Quantity After": Number(log.quantity_after),
+        "Quantity Change": Number(log.quantity_delta),
+        "Order ID": log.order_id ?? "",
+        "Performed By": log.admin_name ?? "",
+        Source: sourceAppLabels[log.source_app] ?? log.source_app,
+      }));
+      const logSheet = XLSX.utils.json_to_sheet(logRows);
+      logSheet["!cols"] = Object.keys(logRows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
+      XLSX.utils.book_append_sheet(workbook, logSheet, "Change Log");
+      XLSX.writeFile(workbook, `brew-houze-inventory-report-${reportStart}-to-${reportEnd}.xlsx`);
+      setShowReportModal(false);
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : "Failed to export inventory report.");
+    } finally {
+      setExportingReport(false);
+    }
+  }
+
   const editInputStyle: React.CSSProperties = {
     border: "1px solid #D97706",
     borderRadius: 8,
@@ -632,7 +740,10 @@ function Inventory({
           {categories.map((c) => <option key={c}>{c}</option>)}
         </select>
       </div>
-      <button onClick={() => { setActionError(""); setShowAddModal(true); }} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "#3D2B1F", color: "#FDF9F5", border: "none", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}><IconPlus size={15} />Add Inventory</button>
+      <div className="flex items-center gap-3">
+        <button onClick={() => { setReportError(""); setShowReportModal(true); }} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "#FDF9F5", color: "#3D2B1F", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}><IconDownload size={15} />Export Report</button>
+        <button onClick={() => { setActionError(""); setShowAddModal(true); }} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "#3D2B1F", color: "#FDF9F5", border: "none", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}><IconPlus size={15} />Add Inventory</button>
+      </div>
     </div>
 
     {!loading && !error && actionError && (
@@ -703,10 +814,10 @@ function Inventory({
                         <input
                           type="number"
                           min={0}
-                          step={normalizeInventoryUnit(draft?.unit_of_measure ?? "") === "Pieces" ? 1 : "any"}
+                          step={isWholeUnit(draft?.unit_of_measure ?? "") ? 1 : "any"}
                           style={{ ...editInputStyle, width: 90 }}
                           value={draft?.quantity ?? 0}
-                          onChange={(e) => setDraft((d) => d ? { ...d, quantity: Number(normalizeInventoryUnit(d.unit_of_measure) === "Pieces" ? sanitizeWholeUnitValue(e.target.value) : e.target.value) } : d)}
+                          onChange={(e) => setDraft((d) => d ? { ...d, quantity: Number(isWholeUnit(d.unit_of_measure) ? sanitizeWholeUnitValue(e.target.value) : e.target.value) } : d)}
                         />
                       ) : (
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
@@ -769,10 +880,26 @@ function Inventory({
           <div className="grid gap-4 px-6 py-6">
             {(["ingredient_category", "item_name"] as const).map((field) => <div key={field} className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{field.replaceAll("_", " ")}</label><input value={newItem[field]} onChange={(event) => setNewItem((current) => ({ ...current, [field]: event.target.value }))} placeholder={field === "item_name" ? "e.g. Matcha powder" : "e.g. Flavoring"} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>)}
             <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={newItem.unit_of_measure} onChange={(event) => setNewItem((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select><span style={{ fontSize: 11, color: "#9C8278" }}>Fixed low-stock threshold: {getFixedLowStockThreshold(newItem.unit_of_measure)} {newItem.unit_of_measure}</span></div>
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={newItem.unit_of_measure === "Pieces" ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: current.unit_of_measure === "Pieces" ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
             {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowAddModal(false)} disabled={adding} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: adding ? "default" : "pointer" }}>Cancel</button><button onClick={addItem} disabled={adding || !newItem.ingredient_category.trim() || !newItem.item_name.trim() || !newItem.unit_of_measure.trim() || newItem.quantity === ""} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: adding ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: adding ? "default" : "pointer" }}>{adding ? "Adding..." : "Add Inventory"}</button></div>
+        </div>
+      </div>
+    )}
+    {showReportModal && (
+      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.45)", zIndex: 50 }} onClick={(event) => { if (event.target === event.currentTarget && !exportingReport) setShowReportModal(false); }}>
+        <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 460, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Export Inventory Report</p><button onClick={() => setShowReportModal(false)} disabled={exportingReport} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: exportingReport ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
+          <div className="grid gap-4 px-6 py-6">
+            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#6B4C3B" }}>Choose a date range to export every restock, manual edit, order deduction, and void/refund restoration for that period as an Excel file.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>From</label><input type="date" value={reportStart} max={reportEnd} onChange={(event) => setReportStart(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>To</label><input type="date" value={reportEnd} min={reportStart} max={getFinanceDateStamp()} onChange={(event) => setReportEnd(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            </div>
+            {reportError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{reportError}</p>}
+          </div>
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowReportModal(false)} disabled={exportingReport} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: exportingReport ? "default" : "pointer" }}>Cancel</button><button onClick={exportInventoryReport} disabled={exportingReport} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: exportingReport ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: exportingReport ? "default" : "pointer" }}>{exportingReport ? "Exporting..." : "Export .xlsx"}</button></div>
         </div>
       </div>
     )}
@@ -1651,6 +1778,7 @@ function Accounts() {
   const [myActivity, setMyActivity] = useState<MyActivity | null>(null);
   const [myActivityLoading, setMyActivityLoading] = useState(true);
   const [myActivityError, setMyActivityError] = useState("");
+  const [exportingAccountId, setExportingAccountId] = useState<number | null>(null);
 
   const loadMyActivity = async () => {
     try {
@@ -1717,6 +1845,64 @@ function Accounts() {
     }
   }
 
+  async function exportEmployeeReport(account: CashierAccount) {
+    setExportingAccountId(account.id);
+    setError("");
+    try {
+      const workbook = XLSX.utils.book_new();
+      const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
+        if (rows.length) {
+          const sheet = XLSX.utils.json_to_sheet(rows);
+          sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
+          XLSX.utils.book_append_sheet(workbook, sheet, name);
+        }
+      };
+      const completedTransactions = account.transactions.filter((transaction) => !transaction.reversalType);
+      const totalRevenue = completedTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
+      appendSheet("Employee Summary", [{
+        Employee: account.fullName,
+        Email: account.email,
+        Role: account.role,
+        Status: account.isActive ? "Active" : "Inactive",
+        "Can Void Orders": account.canVoidOrders ? "Yes" : "No",
+        "Can Refund Orders": account.canRefundOrders ? "Yes" : "No",
+        Generated: formatFinanceDateTime(new Date().toISOString()),
+        "Transactions On Record": account.transactions.length,
+        "Completed Transactions": completedTransactions.length,
+        "Void/Refund Count": account.reversals.length,
+        "Completed Revenue": totalRevenue,
+        "Attendance Entries On Record": account.timeLogs.length,
+      }]);
+      appendSheet("Transaction Record", account.transactions.map((transaction) => ({
+        "Order ID": transaction.id,
+        "Order Date": formatFinanceDateTime(transaction.createdAt),
+        Amount: transaction.amount,
+        Status: transaction.status,
+        "Reversal Type": transaction.reversalType || "",
+        "Reversed At": transaction.reversedAt ? formatFinanceDateTime(transaction.reversedAt) : "",
+      })));
+      appendSheet("Void & Refund Activity", account.reversals.map((reversal) => ({
+        "Order ID": reversal.id,
+        "Reversed At": reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown",
+        Amount: reversal.amount,
+        Status: reversal.status,
+      })));
+      appendSheet("Attendance History", account.timeLogs.map((log) => ({
+        "Time In": formatFinanceDateTime(log.timeIn),
+        "Time Out": log.timeOut ? formatFinanceDateTime(log.timeOut) : "Currently signed in",
+      })));
+      if (workbook.SheetNames.length === 0) {
+        throw new Error(`No activity found for ${account.fullName} yet.`);
+      }
+      const fileNameSafeName = account.fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      XLSX.writeFile(workbook, `brew-houze-employee-${fileNameSafeName}-${getFinanceDateStamp()}.xlsx`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Failed to export employee report.");
+    } finally {
+      setExportingAccountId(null);
+    }
+  }
+
   useEffect(() => {
     const initialLoad = window.setTimeout(() => { void loadAccounts(); void loadMyActivity(); }, 0);
     const intervalId = window.setInterval(() => {
@@ -1741,7 +1927,7 @@ function Accounts() {
       <div className="rounded-xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Access status</div><div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: activeCount ? "#2E7D32" : "#B91C1C" }}>{activeCount ? "Ready for POS" : "No active cashier"}</div></div>
     </div>
     {error && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
-    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading employees...</div> : accounts.length === 0 ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier employees found.</div> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Email", "Role", "Status", "Manage"].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{accounts.map((account) => <tr key={account.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "15px 16px", fontWeight: 700 }}>{account.fullName}</td><td style={{ padding: "15px 16px", color: "#6B4C3B", fontSize: 13 }}>{account.email}</td><td style={{ padding: "15px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{account.role}</td><td style={{ padding: "15px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "5px 9px", background: account.isActive ? "#DCFCE7" : "#F3EDE5", color: account.isActive ? "#166534" : "#9C8278", fontSize: 11, fontWeight: 700 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: account.isActive ? "#22C55E" : "#B9A398" }} />{account.isActive ? "Active" : "Inactive"}</span></td><td style={{ padding: "12px 16px" }}><button type="button" onClick={() => setPermissionAccount(account)} style={{ border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Manage employee</button></td></tr>)}</tbody></table></div></div>}
+    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading employees...</div> : accounts.length === 0 ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier employees found.</div> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Email", "Role", "Status", "Manage"].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{accounts.map((account) => <tr key={account.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "15px 16px", fontWeight: 700 }}>{account.fullName}</td><td style={{ padding: "15px 16px", color: "#6B4C3B", fontSize: 13 }}>{account.email}</td><td style={{ padding: "15px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{account.role}</td><td style={{ padding: "15px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "5px 9px", background: account.isActive ? "#DCFCE7" : "#F3EDE5", color: account.isActive ? "#166534" : "#9C8278", fontSize: 11, fontWeight: 700 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: account.isActive ? "#22C55E" : "#B9A398" }} />{account.isActive ? "Active" : "Inactive"}</span></td><td style={{ padding: "12px 16px" }}><div className="flex items-center gap-2"><button type="button" onClick={() => setPermissionAccount(account)} style={{ border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Manage employee</button><button type="button" onClick={() => void exportEmployeeReport(account)} disabled={exportingAccountId === account.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 11px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === account.id ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{exportingAccountId === account.id ? "Exporting..." : "Export report"}</button></div></td></tr>)}</tbody></table></div></div>}
 
     <section className="mt-8">
       <div className="flex items-start justify-between gap-4 mb-4">
@@ -1756,7 +1942,7 @@ function Accounts() {
       </div>}
     </section>
 
-    {permissionAccount && <div role="dialog" aria-modal="true" aria-labelledby="cashier-employee-title" onClick={() => setPermissionAccount(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>DEV: Clear log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></div>}
+    {permissionAccount && <div role="dialog" aria-modal="true" aria-labelledby="cashier-employee-title" onClick={() => setPermissionAccount(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="flex justify-end" style={{ marginTop: 14 }}><button type="button" onClick={() => void exportEmployeeReport(permissionAccount)} disabled={exportingAccountId === permissionAccount.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 12px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === permissionAccount.id ? "default" : "pointer", fontSize: 12, fontWeight: 700 }}>{exportingAccountId === permissionAccount.id ? "Exporting..." : "Export report (.xlsx)"}</button></div><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>DEV: Clear log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></div>}
   </main>;
 }
 

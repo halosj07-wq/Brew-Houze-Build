@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
 export async function GET(request: Request) {
   try {
@@ -14,6 +16,7 @@ export async function GET(request: Request) {
           COUNT(*) FILTER (WHERE status = 'voided')::int AS voided_count,
           COUNT(*) FILTER (WHERE status = 'refunded')::int AS refunded_count
         FROM sales_orders
+        WHERE is_archived = FALSE
       `);
       return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
     }
@@ -39,30 +42,30 @@ export async function GET(request: Request) {
     }
     const financeTimeZone = "Asia/Manila";
     const overviewClause = isCurrentWeek
-      ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
-      : days === null ? "WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date - ($1::int - 1))`;
+      ? `WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+      : days === null ? "WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : `WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date - ($1::int - 1))`;
     const overviewParams: (string | number)[] = isCurrentWeek || days === null ? [] : [days];
     const dailyClause = dailySalesDate
-      ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') = $1::date`
+      ? `WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') = $1::date`
       : dailySalesStart || dailySalesEnd
-        ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') <= $2::date`
+        ? `WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') <= $2::date`
         : isCurrentWeek
-          ? `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
-            : days === null ? "WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : `WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date - ($1::int - 1))`;
+          ? `WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+            : days === null ? "WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : `WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date - ($1::int - 1))`;
     const dailyParams: (string | number)[] = dailySalesDate
       ? [dailySalesDate]
       : dailySalesStart || dailySalesEnd
         ? [dailySalesStart || dailySalesEnd, dailySalesEnd || dailySalesStart]
         : isCurrentWeek || days === null ? [] : [days];
     const historyClause = orderHistoryDate
-      ? `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') = $1::date`
+      ? `WHERE so.is_archived = FALSE AND ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') = $1::date`
       : orderHistoryStart || orderHistoryEnd
-        ? `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') <= $2::date`
+        ? `WHERE so.is_archived = FALSE AND ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= $1::date AND DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') <= $2::date`
         : isCurrentWeek
-          ? `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
+          ? `WHERE so.is_archived = FALSE AND ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= DATE_TRUNC('week', (CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date)::date`
           : days === null
-            ? excludeReversed ? "WHERE so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : ""
-            : `WHERE ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
+            ? excludeReversed ? "WHERE so.is_archived = FALSE AND so.status NOT IN ('void', 'voided', 'refund', 'refunded')" : "WHERE so.is_archived = FALSE"
+            : `WHERE so.is_archived = FALSE AND ${excludeReversed ? "so.status NOT IN ('void', 'voided', 'refund', 'refunded') AND " : ""}DATE(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${financeTimeZone}') >= ((CURRENT_TIMESTAMP AT TIME ZONE '${financeTimeZone}')::date - ($1::int - 1))`;
     const historyParams: (string | number)[] = orderHistoryDate
       ? [orderHistoryDate]
       : orderHistoryStart || orderHistoryEnd
@@ -201,6 +204,7 @@ export async function DELETE(request: Request) {
   try {
     const body = await request.json();
     const orderId = Number(body?.order_id);
+    const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return NextResponse.json({ error: "A valid order_id is required." }, { status: 400 });
@@ -208,8 +212,8 @@ export async function DELETE(request: Request) {
 
     await client.query("BEGIN");
     const result = await client.query(
-      "DELETE FROM sales_orders WHERE order_id = $1 RETURNING order_id",
-      [orderId]
+      "UPDATE sales_orders SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE order_id = $1 AND is_archived = FALSE RETURNING order_id",
+      [orderId, session?.adminId ?? null]
     );
 
     if (result.rowCount === 0) {
@@ -232,12 +236,16 @@ export async function PATCH(request: Request) {
   const client = await pool.connect();
   try {
     const body = await request.json();
+    const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
     if (body?.action !== "clear_all" || body?.confirmation !== "CLEAR_FINANCE_RECORDS") {
       return NextResponse.json({ error: "Explicit finance records confirmation is required." }, { status: 400 });
     }
 
     await client.query("BEGIN");
-    const result = await client.query("DELETE FROM sales_orders RETURNING order_id");
+    const result = await client.query(
+      "UPDATE sales_orders SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $1 WHERE is_archived = FALSE RETURNING order_id",
+      [session?.adminId ?? null]
+    );
     await client.query("COMMIT");
 
     return NextResponse.json({ data: { deleted_count: result.rowCount ?? 0 } });

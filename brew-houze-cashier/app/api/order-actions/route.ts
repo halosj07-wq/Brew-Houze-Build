@@ -74,12 +74,24 @@ export async function POST(request: Request) {
       const inventoryId = Number(row.inventory_id);
       restorations.set(inventoryId, (restorations.get(inventoryId) ?? 0) + Number(row.quantity));
     }
+    const restorationDetails = new Map<number, { itemName: string; category: string; unit: string; quantityBefore: number; quantityAfter: number }>();
     for (const [inventoryId, quantity] of restorations) {
-      await client.query(`
+      const restored = await client.query(`
         UPDATE inventory
         SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
         WHERE inventory_id = $2
+        RETURNING item_name, ingredient_category, unit_of_measure, quantity
       `, [quantity, inventoryId]);
+      const row = restored.rows[0];
+      if (row) {
+        restorationDetails.set(inventoryId, {
+          itemName: row.item_name,
+          category: row.ingredient_category,
+          unit: row.unit_of_measure,
+          quantityAfter: Number(row.quantity),
+          quantityBefore: Number(row.quantity) - quantity,
+        });
+      }
     }
 
     const updated = await client.query(`
@@ -92,6 +104,13 @@ export async function POST(request: Request) {
       WHERE order_id = $1
       RETURNING order_id, status, total_amount
     `, [orderId, action, session.adminId]);
+
+    for (const [inventoryId, detail] of restorationDetails) {
+      await client.query(`
+        INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, order_id, admin_id, source_app)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'cashier')
+      `, [inventoryId, detail.itemName, detail.category, detail.unit, action === "void" ? "void_restore" : "refund_restore", detail.quantityBefore, detail.quantityAfter, detail.quantityAfter - detail.quantityBefore, orderId, session.adminId]);
+    }
     await client.query("COMMIT");
     return NextResponse.json({ data: updated.rows[0] });
   } catch (error) {

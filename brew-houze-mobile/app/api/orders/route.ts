@@ -76,17 +76,26 @@ export async function POST(request: Request) {
       }
     }
 
+    const deductionDetails = new Map<number, { itemName: string; category: string; unit: string; quantityBefore: number; quantityAfter: number }>();
     for (const [inventoryId, deduction] of deductions) {
       const updated = await client.query(`
         UPDATE inventory
         SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
         WHERE inventory_id = $2 AND quantity >= $1
-        RETURNING inventory_id
+        RETURNING inventory_id, item_name, ingredient_category, unit_of_measure, quantity
       `, [deduction, inventoryId]);
       if (updated.rowCount !== 1) {
         const item = await client.query("SELECT item_name FROM inventory WHERE inventory_id = $1", [inventoryId]);
         throw new Error(`Insufficient stock for ${item.rows[0]?.item_name ?? "an ingredient"}.`);
       }
+      const row = updated.rows[0];
+      deductionDetails.set(inventoryId, {
+        itemName: row.item_name,
+        category: row.ingredient_category,
+        unit: row.unit_of_measure,
+        quantityAfter: Number(row.quantity),
+        quantityBefore: Number(row.quantity) + deduction,
+      });
     }
 
     await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-' || ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date)::text))");
@@ -104,6 +113,13 @@ export async function POST(request: Request) {
       RETURNING order_id, queue_number,
         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
     `, [total, queueNumber, customerToken]);
+
+    for (const [inventoryId, detail] of deductionDetails) {
+      await client.query(`
+        INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, order_id, source_app)
+        VALUES ($1, $2, $3, $4, 'order_deduction', $5, $6, $7, $8, 'mobile')
+      `, [inventoryId, detail.itemName, detail.category, detail.unit, detail.quantityBefore, detail.quantityAfter, detail.quantityAfter - detail.quantityBefore, order.rows[0].order_id]);
+    }
 
     for (const variant of variants.rows) {
       for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {

@@ -1,5 +1,12 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+
+async function getAdminId(): Promise<number | null> {
+  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  return session?.adminId ?? null;
+}
 
 type ProductRow = {
   product_id: number;
@@ -201,11 +208,12 @@ export async function GET() {
         ,${productAdditionsExpression} AS product_additions
       FROM products p
       LEFT JOIN product_variants pv
-        ON pv.product_id = p.product_id
+        ON pv.product_id = p.product_id AND pv.is_archived = FALSE
       LEFT JOIN variant_ingredients vi
         ON vi.product_variant_id = pv.product_variant_id
       LEFT JOIN inventory vi_item
         ON vi_item.inventory_id = vi.inventory_id
+      WHERE p.is_archived = FALSE
       ORDER BY p.product_category ASC, p.product_name ASC, pv.product_variant_id ASC, vi.variant_ingredient_id ASC
     `);
 
@@ -322,7 +330,7 @@ export async function POST(request: Request) {
           WHERE pa.product_id = p.product_id
         ) AS product_additions
       FROM products p
-      LEFT JOIN product_variants pv ON pv.product_id = p.product_id
+      LEFT JOIN product_variants pv ON pv.product_id = p.product_id AND pv.is_archived = FALSE
       LEFT JOIN variant_ingredients vi ON vi.product_variant_id = pv.product_variant_id
       LEFT JOIN inventory vi_item ON vi_item.inventory_id = vi.inventory_id
       WHERE p.product_id = $1
@@ -401,7 +409,7 @@ export async function PATCH(request: Request) {
     }
 
     const existingVariantsResult = await client.query(
-      "SELECT product_variant_id, size_label, temperature FROM product_variants WHERE product_id = $1",
+      "SELECT product_variant_id, size_label, temperature FROM product_variants WHERE product_id = $1 AND is_archived = FALSE",
       [productId]
     );
     const existingVariants = new Map<string, number>(
@@ -422,15 +430,10 @@ export async function PATCH(request: Request) {
     for (const existing of existingVariantsResult.rows) {
       const existingKey = `${String(existing.size_label).trim().toLowerCase()}|${String(existing.temperature ?? "both").toLowerCase()}`;
       if (!submittedSizes.has(existingKey)) {
-        const salesResult = await client.query(
-          "SELECT COUNT(*)::int AS count FROM sales_order_items WHERE product_variant_id = $1",
-          [existing.product_variant_id]
+        await client.query(
+          "UPDATE product_variants SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE product_variant_id = $1",
+          [existing.product_variant_id, await getAdminId()]
         );
-        if (Number(salesResult.rows[0]?.count ?? 0) > 0) {
-          throw new Error(`The ${existing.size_label} variant cannot be removed because it is included in completed sales.`);
-        }
-        await client.query("DELETE FROM variant_ingredients WHERE product_variant_id = $1", [existing.product_variant_id]);
-        await client.query("DELETE FROM product_variants WHERE product_variant_id = $1", [existing.product_variant_id]);
       }
     }
 
@@ -485,7 +488,7 @@ export async function PATCH(request: Request) {
           WHERE pa.product_id = p.product_id
         ) AS product_additions
       FROM products p
-      LEFT JOIN product_variants pv ON pv.product_id = p.product_id
+      LEFT JOIN product_variants pv ON pv.product_id = p.product_id AND pv.is_archived = FALSE
       LEFT JOIN variant_ingredients vi ON vi.product_variant_id = pv.product_variant_id
       LEFT JOIN inventory vi_item ON vi_item.inventory_id = vi.inventory_id
       WHERE p.product_id = $1
@@ -509,6 +512,7 @@ export async function DELETE(request: Request) {
     const productId = Number(body?.product_id);
     const variantSize = body && "variant_size" in body && body.variant_size ? String(body.variant_size).trim() : "";
     const [requestedSize, requestedTemperature] = variantSize.split("|");
+    const adminId = await getAdminId();
 
     if (!Number.isInteger(productId) || productId <= 0) {
       return NextResponse.json({ error: "A valid product_id is required." }, { status: 400 });
@@ -521,6 +525,7 @@ export async function DELETE(request: Request) {
         FROM product_variants
         WHERE product_id = $1 AND LOWER(size_label) = LOWER($2)
           AND ($3 = '' OR LOWER(COALESCE(temperature, 'both')) = LOWER($3))
+          AND is_archived = FALSE
         LIMIT 1
       `, [productId, requestedSize || variantSize, requestedTemperature || ""]);
       if (variantResult.rowCount === 0) {
@@ -529,16 +534,8 @@ export async function DELETE(request: Request) {
       }
 
       const variantId = Number(variantResult.rows[0].product_variant_id);
-      const salesResult = await client.query(
-        "SELECT COUNT(*)::int AS count FROM sales_order_items WHERE product_variant_id = $1",
-        [variantId]
-      );
-      if (Number(salesResult.rows[0]?.count ?? 0) > 0) {
-        await client.query("ROLLBACK");
-        return NextResponse.json({ error: `The ${variantSize} variant cannot be archived because it is included in completed sales.` }, { status: 409 });
-      }
       const variantCount = await client.query(
-        "SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1",
+        "SELECT COUNT(*)::int AS count FROM product_variants WHERE product_id = $1 AND is_archived = FALSE",
         [productId]
       );
       if (Number(variantCount.rows[0]?.count ?? 0) <= 1) {
@@ -546,35 +543,25 @@ export async function DELETE(request: Request) {
         return NextResponse.json({ error: "Archive the whole product instead of archiving its final variant." }, { status: 409 });
       }
 
-      await client.query("DELETE FROM variant_ingredients WHERE product_variant_id = $1", [variantId]);
-      await client.query("DELETE FROM product_variants WHERE product_variant_id = $1", [variantId]);
+      await client.query(
+        "UPDATE product_variants SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE product_variant_id = $1",
+        [variantId, adminId]
+      );
       await client.query("COMMIT");
       return NextResponse.json({ data: { product_id: productId, variant_size: variantSize } });
     }
 
-    const salesResult = await client.query(`
-      SELECT COUNT(*)::int AS count
-      FROM sales_order_items
-      WHERE product_id = $1
-    `, [productId]);
-
-    if (Number(salesResult.rows[0]?.count ?? 0) > 0) {
-      await client.query("ROLLBACK");
-      return NextResponse.json({
-        error: "This product cannot be archived because it is included in completed sales. Remove the related test sale from Finance first.",
-      }, { status: 409 });
-    }
-
-    await client.query("DELETE FROM variant_ingredients WHERE product_variant_id IN (SELECT product_variant_id FROM product_variants WHERE product_id = $1)", [productId]);
-    await client.query("DELETE FROM product_variants WHERE product_id = $1", [productId]);
-    await client.query("DELETE FROM product_ingredients WHERE product_id = $1", [productId]);
-    await client.query("DELETE FROM product_additions WHERE product_id = $1", [productId]);
+    await client.query(
+      "UPDATE product_variants SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE product_id = $1 AND is_archived = FALSE",
+      [productId, adminId]
+    );
 
     const result = await client.query(`
-      DELETE FROM products
+      UPDATE products
+      SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2
       WHERE product_id = $1
       RETURNING product_id
-    `, [productId]);
+    `, [productId, adminId]);
 
     if (result.rowCount === 0) {
       await client.query("ROLLBACK");
@@ -586,12 +573,6 @@ export async function DELETE(request: Request) {
   } catch (error) {
     await client.query("ROLLBACK");
     console.error("DELETE /api/products failed:", error);
-    const pgError = error as { code?: string };
-    if (pgError.code === "23503") {
-      return NextResponse.json({
-        error: "This product is still referenced by existing records and cannot be archived.",
-      }, { status: 409 });
-    }
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not archive product." }, { status: 500 });
   } finally {
     client.release();
