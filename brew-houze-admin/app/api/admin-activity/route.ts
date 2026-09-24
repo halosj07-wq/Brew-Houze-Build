@@ -23,7 +23,7 @@ export async function GET() {
     const logsResult = await pool.query(`
       SELECT time_log_id, time_in, time_out
       FROM employee_time_logs
-      WHERE admin_id = $1
+      WHERE admin_id = $1 AND is_archived = FALSE
       ORDER BY time_in DESC
       LIMIT 20
     `, [session.adminId]);
@@ -34,7 +34,7 @@ export async function GET() {
         reversal_type,
         TO_CHAR(reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at
       FROM sales_orders
-      WHERE cashier_admin_id = $1
+      WHERE cashier_admin_id = $1 AND is_archived = FALSE
       ORDER BY created_at DESC, order_id DESC
       LIMIT 30
     `, [session.adminId]);
@@ -43,7 +43,7 @@ export async function GET() {
       SELECT order_id, total_amount, status,
         TO_CHAR(reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at
       FROM sales_orders
-      WHERE reversed_by_admin_id = $1
+      WHERE reversed_by_admin_id = $1 AND is_archived = FALSE
       ORDER BY reversed_at DESC, order_id DESC
       LIMIT 30
     `, [session.adminId]);
