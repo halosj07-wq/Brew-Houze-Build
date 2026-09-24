@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
 
@@ -8,6 +9,28 @@ type CheckoutItem = { product_variant_id: number; quantity: number; addition_ids
 function parseAdditionIds(value: unknown): number[] {
   if (!Array.isArray(value)) return [];
   return value.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0);
+}
+
+// Redirects any bound (derived) inventory item's deduction onto its source item, scaled by
+// its ratio, so bound items (which never carry their own stock) never fail the stock check.
+async function resolveBoundDeductions(client: PoolClient, deductions: Map<number, number>) {
+  for (let depth = 0; depth < 10; depth++) {
+    const ids = Array.from(deductions.keys());
+    if (ids.length === 0) break;
+    const bindings = await client.query(
+      "SELECT inventory_id, derived_from_inventory_id, derived_ratio FROM inventory WHERE inventory_id = ANY($1::int[]) AND derived_from_inventory_id IS NOT NULL FOR UPDATE",
+      [ids]
+    );
+    if (bindings.rowCount === 0) break;
+    for (const row of bindings.rows) {
+      const inventoryId = Number(row.inventory_id);
+      const parentId = Number(row.derived_from_inventory_id);
+      const ratio = Number(row.derived_ratio);
+      const boundQuantity = deductions.get(inventoryId) ?? 0;
+      deductions.delete(inventoryId);
+      deductions.set(parentId, (deductions.get(parentId) ?? 0) + boundQuantity * ratio);
+    }
+  }
 }
 
 export async function POST(request: Request) {
@@ -88,6 +111,8 @@ export async function POST(request: Request) {
         }
       }
     }
+
+    await resolveBoundDeductions(client, deductions);
 
     const deductionDetails = new Map<number, { itemName: string; category: string; unit: string; quantityBefore: number; quantityAfter: number }>();
     for (const [inventoryId, deduction] of deductions) {

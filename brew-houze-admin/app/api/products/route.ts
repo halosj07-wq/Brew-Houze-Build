@@ -273,7 +273,7 @@ export async function POST(request: Request) {
     for (const variant of normalizedVariants) {
       const variantResult = await client.query("INSERT INTO product_variants (product_id, size_label, price, temperature) VALUES ($1, $2, $3, $4) RETURNING product_variant_id", [product.product_id, variant.size, variant.price, variant.temperature]);
       for (const ingredient of variant.ingredients) {
-        const inventoryResult = await client.query("SELECT inventory_id FROM inventory WHERE inventory_id = $1", [ingredient.inventoryId]);
+        const inventoryResult = await client.query("SELECT inventory_id FROM inventory WHERE inventory_id = $1 AND is_archived = FALSE", [ingredient.inventoryId]);
         if (inventoryResult.rowCount === 0) throw new Error(`Inventory item ${ingredient.inventoryId} does not exist.`);
         await client.query("INSERT INTO variant_ingredients (product_variant_id, inventory_id, required_quantity) VALUES ($1, $2, $3)", [variantResult.rows[0].product_variant_id, ingredient.inventoryId, ingredient.requiredQuantity]);
       }
@@ -449,7 +449,7 @@ export async function PATCH(request: Request) {
         variantId = Number(variantResult.rows[0].product_variant_id);
       }
       for (const ingredient of variant.ingredients) {
-        const inventoryResult = await client.query("SELECT inventory_id FROM inventory WHERE inventory_id = $1", [ingredient.inventoryId]);
+        const inventoryResult = await client.query("SELECT inventory_id FROM inventory WHERE inventory_id = $1 AND is_archived = FALSE", [ingredient.inventoryId]);
         if (inventoryResult.rowCount === 0) throw new Error(`Inventory item ${ingredient.inventoryId} does not exist.`);
         await client.query("INSERT INTO variant_ingredients (product_variant_id, inventory_id, required_quantity) VALUES ($1, $2, $3)", [variantId, ingredient.inventoryId, ingredient.requiredQuantity]);
       }

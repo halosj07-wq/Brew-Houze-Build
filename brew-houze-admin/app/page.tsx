@@ -4,7 +4,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts" | "account";
+type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -17,6 +17,11 @@ type InventoryItem = {
   low_stock_threshold: number;
   is_whole_unit: boolean;
   is_permanent: boolean;
+  derived_from_inventory_id?: number | null;
+  derived_ratio?: number | null;
+  derived_from_item_name?: string | null;
+  derived_from_unit_of_measure?: string | null;
+  derived_from_available_quantity?: number | null;
 };
 
 type InventoryLogEntry = {
@@ -117,6 +122,9 @@ function IconChevron({ size = 16 }: { size?: number }) {
 function IconPencil({ size = 14 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>;
 }
+function IconLink({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" /></svg>;
+}
 function IconCheck({ size = 14 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>;
 }
@@ -148,6 +156,12 @@ function IconImage({ size = 20 }: { size?: number }) {
 function IconSparkle({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>;
 }
+function IconArchive({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="5" rx="1" /><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" /><path d="M10 12h4" /></svg>;
+}
+function IconRotateCcw({ size = 14 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>;
+}
 
 const navItems: { id: Page; label: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: "dashboard", label: "Dashboard", Icon: IconGrid },
@@ -156,6 +170,7 @@ const navItems: { id: Page; label: string; Icon: React.FC<{ size?: number }> }[]
   { id: "additions", label: "Additions Management", Icon: IconSparkle },
   { id: "finance", label: "Finance", Icon: IconDollar },
   { id: "accounts", label: "Accounts & Employees", Icon: IconUsers },
+  { id: "archives", label: "Archives", Icon: IconArchive },
   { id: "account", label: "Account Management", Icon: IconUser },
 ];
 
@@ -179,7 +194,7 @@ function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; co
 }
 
 function TopBar({ page, user, onAccount, onRequestLogout }: { page: Page; user: AdminSession; onAccount: () => void; onRequestLogout: () => void }) {
-  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management" };
+  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management", archives: "Archives" };
   return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-2" style={{ color: "#9C8278" }}><IconChevron size={14} /><span style={{ fontFamily: "Inter, sans-serif", fontSize: 13 }}>{titles[page]}</span></div>
     <div className="flex items-center gap-5">
@@ -446,10 +461,16 @@ function Inventory({
   const [draft, setDraft] = useState<InventoryItem | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newItem, setNewItem] = useState({ ingredient_category: "", item_name: "", unit_of_measure: "grams", quantity: "" });
+  const [newItemBound, setNewItemBound] = useState(false);
+  const [newItemDerivedFrom, setNewItemDerivedFrom] = useState("");
+  const [newItemRatio, setNewItemRatio] = useState("");
   const [adding, setAdding] = useState(false);
   const [stockItem, setStockItem] = useState<InventoryItem | null>(null);
   const [stockQuantity, setStockQuantity] = useState("");
   const [addingStock, setAddingStock] = useState(false);
+  const [bindItem, setBindItem] = useState<InventoryItem | null>(null);
+  const [bindDraft, setBindDraft] = useState({ ingredient_category: "", item_name: "", unit_of_measure: "grams", derived_from_inventory_id: "", derived_ratio: "" });
+  const [savingBind, setSavingBind] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportStart, setReportStart] = useState(getFinanceDateStamp());
   const [reportEnd, setReportEnd] = useState(getFinanceDateStamp());
@@ -499,6 +520,7 @@ function Inventory({
   const permanentItems = useMemo(() => filtered.filter((item) => item.is_permanent), [filtered]);
 
   function startEdit(row: InventoryItem) {
+    if (row.derived_from_inventory_id) return;
     setEditingId(row.inventory_id);
     setDraft({ ...row });
   }
@@ -508,11 +530,87 @@ function Inventory({
     setDraft(null);
   }
 
+  function startBindEdit(row: InventoryItem) {
+    setActionError("");
+    setBindItem(row);
+    setBindDraft({
+      ingredient_category: row.ingredient_category,
+      item_name: row.item_name,
+      unit_of_measure: row.unit_of_measure,
+      derived_from_inventory_id: row.derived_from_inventory_id ? String(row.derived_from_inventory_id) : "",
+      derived_ratio: row.derived_ratio ? String(row.derived_ratio) : "",
+    });
+  }
+
+  function cancelBindEdit() {
+    setBindItem(null);
+  }
+
+  async function saveBindEdit() {
+    if (!bindItem) return;
+    const normalizedUnit = normalizeInventoryUnit(bindDraft.unit_of_measure);
+    if (!bindDraft.ingredient_category.trim() || !bindDraft.item_name.trim() || !normalizedUnit) {
+      setActionError("Ingredient category, item name, and a valid unit are required.");
+      return;
+    }
+    const wantsBound = bindDraft.derived_from_inventory_id !== "";
+    if (wantsBound) {
+      const ratio = Number(bindDraft.derived_ratio);
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        setActionError("Enter a valid positive binding ratio.");
+        return;
+      }
+    }
+
+    try {
+      setSavingBind(true);
+      setActionError("");
+      const response = await fetch("/api/inventory", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          bind_edit: true,
+          inventory_id: bindItem.inventory_id,
+          ingredient_category: bindDraft.ingredient_category,
+          item_name: bindDraft.item_name,
+          unit_of_measure: normalizedUnit,
+          derived_from_inventory_id: wantsBound ? Number(bindDraft.derived_from_inventory_id) : null,
+          derived_ratio: wantsBound ? Number(bindDraft.derived_ratio) : null,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to update binding.");
+      const updatedItem = payload.data as InventoryItem;
+      setItems((prev) => prev.map((item) => item.inventory_id === updatedItem.inventory_id ? updatedItem : item));
+      setBindItem(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update binding.");
+    } finally {
+      setSavingBind(false);
+    }
+  }
+
   async function addItem() {
-    const quantity = Number(newItem.quantity);
     const normalizedUnit = normalizeInventoryUnit(newItem.unit_of_measure);
-    if (!newItem.ingredient_category.trim() || !newItem.item_name.trim() || !normalizedUnit || !Number.isFinite(quantity) || quantity < 0) return;
-    const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(quantity) : quantity;
+    if (!newItem.ingredient_category.trim() || !newItem.item_name.trim() || !normalizedUnit) return;
+
+    let body: Record<string, unknown>;
+    if (newItemBound) {
+      const ratio = Number(newItemRatio);
+      if (!newItemDerivedFrom || !Number.isFinite(ratio) || ratio <= 0) return;
+      body = {
+        ingredient_category: newItem.ingredient_category,
+        item_name: newItem.item_name,
+        unit_of_measure: normalizedUnit,
+        derived_from_inventory_id: Number(newItemDerivedFrom),
+        derived_ratio: ratio,
+      };
+    } else {
+      const quantity = Number(newItem.quantity);
+      if (!Number.isFinite(quantity) || quantity < 0) return;
+      const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(quantity) : quantity;
+      body = { ...newItem, unit_of_measure: normalizedUnit, quantity: finalQuantity };
+    }
 
     try {
       setAdding(true);
@@ -520,7 +618,7 @@ function Inventory({
       const response = await fetch("/api/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...newItem, unit_of_measure: normalizedUnit, quantity: finalQuantity }),
+        body: JSON.stringify(body),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to add inventory item.");
@@ -528,6 +626,9 @@ function Inventory({
       setItems((prev) => [...prev, createdItem].sort((a, b) => a.ingredient_category.localeCompare(b.ingredient_category) || a.item_name.localeCompare(b.item_name)));
       await onAdd(createdItem);
       setNewItem({ ingredient_category: "", item_name: "", unit_of_measure: "grams", quantity: "" });
+      setNewItemBound(false);
+      setNewItemDerivedFrom("");
+      setNewItemRatio("");
       setShowAddModal(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to add inventory item.");
@@ -820,9 +921,16 @@ function Inventory({
                           onChange={(e) => setDraft((d) => d ? { ...d, quantity: Number(isWholeUnit(d.unit_of_measure) ? sanitizeWholeUnitValue(e.target.value) : e.target.value) } : d)}
                         />
                       ) : (
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                          <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: getQtyColor(quantity, isLowStock(row)) }}>{row.is_whole_unit ? Math.round(quantity) : row.quantity}</span>
-                          {quantity <= 0 && <span className="rounded-md px-2 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, background: "#FEE2E2", color: "#C0392B" }}>OUT</span>}
+                        <span className="flex flex-col" style={{ gap: 2 }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: getQtyColor(quantity, isLowStock(row)) }}>{row.is_whole_unit ? Math.round(quantity) : row.quantity}</span>
+                            {quantity <= 0 && <span className="rounded-md px-2 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, background: "#FEE2E2", color: "#C0392B" }}>OUT</span>}
+                          </span>
+                          {row.derived_from_inventory_id && (
+                            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", display: "inline-flex", alignItems: "center", gap: 3 }}>
+                              <IconLink size={9} />= {row.derived_ratio} {row.derived_from_unit_of_measure} of {row.derived_from_item_name} each
+                            </span>
+                          )}
                         </span>
                       )}
                     </td>
@@ -834,9 +942,17 @@ function Inventory({
                         </div>
                       ) : (
                         <div className="flex items-center justify-center gap-2">
-                          {row.is_permanent ? <button onClick={() => void addStock(row)} title="Add stock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button> : <button onClick={() => startEdit(row)} title="Edit row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
-                            <IconPencil size={14} />
-                          </button>}
+                          {row.derived_from_inventory_id ? (
+                            <button onClick={() => startBindEdit(row)} title="Edit binding" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
+                              <IconLink size={14} />
+                            </button>
+                          ) : row.is_permanent ? (
+                            <button onClick={() => void addStock(row)} title="Add stock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button>
+                          ) : (
+                            <button onClick={() => startEdit(row)} title="Edit row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
+                              <IconPencil size={14} />
+                            </button>
+                          )}
                           {!row.is_permanent && <button onClick={() => deleteItem(row.inventory_id)} title="Archive row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
                             <IconTrash size={14} />
                           </button>}
@@ -880,10 +996,44 @@ function Inventory({
           <div className="grid gap-4 px-6 py-6">
             {(["ingredient_category", "item_name"] as const).map((field) => <div key={field} className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{field.replaceAll("_", " ")}</label><input value={newItem[field]} onChange={(event) => setNewItem((current) => ({ ...current, [field]: event.target.value }))} placeholder={field === "item_name" ? "e.g. Matcha powder" : "e.g. Flavoring"} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>)}
             <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={newItem.unit_of_measure} onChange={(event) => setNewItem((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select><span style={{ fontSize: 11, color: "#9C8278" }}>Fixed low-stock threshold: {getFixedLowStockThreshold(newItem.unit_of_measure)} {newItem.unit_of_measure}</span></div>
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            <label className="flex items-center gap-2" style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3D2B1F", cursor: "pointer" }}>
+              <input type="checkbox" checked={newItemBound} onChange={(event) => setNewItemBound(event.target.checked)} />
+              Bind this item&apos;s stock to another inventory item
+            </label>
+            {newItemBound ? (
+              <div className="grid gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+                <span style={{ fontSize: 11.5, color: "#6B4C3B" }}>This item will have no stock of its own — its available quantity is always computed from the source item below.</span>
+                <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Source item</label><select value={newItemDerivedFrom} onChange={(event) => setNewItemDerivedFrom(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}><option value="">Choose source item</option>{items.filter((item) => !item.derived_from_inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}</select></div>
+                <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Amount of source used per {newItem.unit_of_measure || "unit"}</label><input type="number" min={0} step="any" value={newItemRatio} onChange={(event) => setNewItemRatio(event.target.value)} placeholder="e.g. 18" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            )}
             {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowAddModal(false)} disabled={adding} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: adding ? "default" : "pointer" }}>Cancel</button><button onClick={addItem} disabled={adding || !newItem.ingredient_category.trim() || !newItem.item_name.trim() || !newItem.unit_of_measure.trim() || newItem.quantity === ""} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: adding ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: adding ? "default" : "pointer" }}>{adding ? "Adding..." : "Add Inventory"}</button></div>
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowAddModal(false)} disabled={adding} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: adding ? "default" : "pointer" }}>Cancel</button><button onClick={addItem} disabled={adding || !newItem.ingredient_category.trim() || !newItem.item_name.trim() || !newItem.unit_of_measure.trim() || (newItemBound ? (!newItemDerivedFrom || !newItemRatio) : newItem.quantity === "")} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: adding ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: adding ? "default" : "pointer" }}>{adding ? "Adding..." : "Add Inventory"}</button></div>
+        </div>
+      </div>
+    )}
+    {bindItem && (
+      <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !savingBind) cancelBindEdit(); }}>
+        <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 480, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
+            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Edit Binding</p>
+            <button onClick={cancelBindEdit} disabled={savingBind} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingBind ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
+          </div>
+          <div className="grid gap-4 px-6 py-6">
+            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Ingredient category</label><input value={bindDraft.ingredient_category} onChange={(event) => setBindDraft((current) => ({ ...current, ingredient_category: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Item name</label><input value={bindDraft.item_name} onChange={(event) => setBindDraft((current) => ({ ...current, item_name: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={bindDraft.unit_of_measure} onChange={(event) => setBindDraft((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select></div>
+            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Source item</label><select value={bindDraft.derived_from_inventory_id} onChange={(event) => setBindDraft((current) => ({ ...current, derived_from_inventory_id: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}><option value="">Unbind — this item will keep its currently computed stock</option>{items.filter((item) => !item.derived_from_inventory_id && item.inventory_id !== bindItem.inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}</select></div>
+            {bindDraft.derived_from_inventory_id !== "" && <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Amount of source used per {bindDraft.unit_of_measure || "unit"}</label><input type="number" min={0} step="any" value={bindDraft.derived_ratio} onChange={(event) => setBindDraft((current) => ({ ...current, derived_ratio: event.target.value }))} placeholder="e.g. 18" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>}
+            {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
+          </div>
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+            <button onClick={cancelBindEdit} disabled={savingBind} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: savingBind ? "default" : "pointer" }}>Cancel</button>
+            <button onClick={saveBindEdit} disabled={savingBind || !bindDraft.ingredient_category.trim() || !bindDraft.item_name.trim() || (bindDraft.derived_from_inventory_id !== "" && !bindDraft.derived_ratio)} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: savingBind ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: savingBind ? "default" : "pointer" }}>{savingBind ? "Saving..." : "Save"}</button>
+          </div>
         </div>
       </div>
     )}
@@ -1946,6 +2096,117 @@ function Accounts() {
   </main>;
 }
 
+type ArchivedProduct = { id: number; name: string; category: string | null; price: number; archivedAt: string | null; archivedBy: string | null };
+type ArchivedProductVariant = { id: number; productId: number; productName: string; size: string | null; temperature: string | null; price: number; archivedAt: string | null; archivedBy: string | null };
+type ArchivedInventoryItem = { id: number; itemName: string; category: string | null; unit: string | null; quantity: number; archivedAt: string | null; archivedBy: string | null };
+type ArchivedAddition = { id: number; name: string; itemName: string; unit: string | null; quantity: number; price: number; archivedAt: string | null; archivedBy: string | null };
+type ArchivedSalesOrder = { id: number; totalAmount: number; status: string; createdAt: string; cashierName: string | null; archivedAt: string | null; archivedBy: string | null };
+type ArchivedEmployeeTimeLog = { id: number; employeeName: string; timeIn: string; timeOut: string | null; archivedAt: string | null; archivedBy: string | null };
+type ArchivesData = {
+  products: ArchivedProduct[];
+  productVariants: ArchivedProductVariant[];
+  inventory: ArchivedInventoryItem[];
+  additions: ArchivedAddition[];
+  salesOrders: ArchivedSalesOrder[];
+  employeeTimeLogs: ArchivedEmployeeTimeLog[];
+};
+type RestoreType = "product" | "product_variant" | "inventory" | "addition" | "sales_order" | "employee_time_log";
+type ArchiveTab = "products" | "inventory" | "additions" | "sales" | "attendance";
+
+function RestoreButton({ type, id, restoringKey, onRestore }: { type: RestoreType; id: number; restoringKey: string | null; onRestore: (type: RestoreType, id: number) => void }) {
+  const key = `${type}:${id}`;
+  return <button type="button" onClick={() => onRestore(type, id)} disabled={restoringKey === key} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: restoringKey === key ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}><IconRotateCcw size={12} />{restoringKey === key ? "Restoring..." : "Restore"}</button>;
+}
+
+function ArchivesEmptyState({ label }: { label: string }) {
+  return <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No archived {label} found.</div>;
+}
+
+function Archives() {
+  const [data, setData] = useState<ArchivesData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [tab, setTab] = useState<ArchiveTab>("products");
+  const [restoringKey, setRestoringKey] = useState<string | null>(null);
+
+  const loadArchives = async () => {
+    try {
+      const response = await fetch("/api/archives", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to load archives.");
+      setData(payload.data ?? null);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load archives.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void loadArchives(); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  async function restore(type: RestoreType, id: number) {
+    const key = `${type}:${id}`;
+    setRestoringKey(key);
+    try {
+      const response = await fetch("/api/archives", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type, id }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to restore this record.");
+      await loadArchives();
+    } catch (restoreError) {
+      setError(restoreError instanceof Error ? restoreError.message : "Failed to restore this record.");
+    } finally {
+      setRestoringKey(null);
+    }
+  }
+
+  const tabs: { id: ArchiveTab; label: string; count: number }[] = data ? [
+    { id: "products", label: "Products", count: data.products.length + data.productVariants.length },
+    { id: "inventory", label: "Inventory", count: data.inventory.length },
+    { id: "additions", label: "Additions", count: data.additions.length },
+    { id: "sales", label: "Sales Records", count: data.salesOrders.length },
+    { id: "attendance", label: "Attendance Logs", count: data.employeeTimeLogs.length },
+  ] : [];
+
+  return <main className="p-8">
+    <div className="mb-6"><div style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Nothing is ever lost</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, letterSpacing: "-.03em" }}>Archives</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13, maxWidth: 640 }}>Products, inventory items, additions, sales records, and cleared attendance logs are archived here instead of being permanently deleted. Restore anything back to where it came from at any time.</p></div>
+
+    {error && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
+
+    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading archives...</div> : !data ? null : <>
+      <div className="flex items-center gap-2 mb-5" style={{ flexWrap: "wrap" }}>
+        {tabs.map(({ id, label, count }) => <button key={id} type="button" onClick={() => setTab(id)} style={{ border: tab === id ? "1px solid #D97706" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 14px", background: tab === id ? "#3D2B1F" : "#FDF9F5", color: tab === id ? "#FDF9F5" : "#6B4C3B", cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>{label} <span style={{ opacity: 0.7 }}>({count})</span></button>)}
+      </div>
+
+      {tab === "products" && <div className="flex flex-col gap-6">
+        <section>
+          <h3 style={{ margin: "0 0 10px", fontWeight: 800, fontSize: 15 }}>Archived products</h3>
+          {data.products.length === 0 ? <ArchivesEmptyState label="products" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Category", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.products.map((product) => <tr key={product.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{product.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{product.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{product.archivedAt ? formatFinanceDateTime(product.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="product" id={product.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>}
+        </section>
+        <section>
+          <h3 style={{ margin: "0 0 10px", fontWeight: 800, fontSize: 15 }}>Archived variants <span style={{ color: "#9C8278", fontWeight: 400, fontSize: 12 }}>(product itself is still active)</span></h3>
+          {data.productVariants.length === 0 ? <ArchivesEmptyState label="variants" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Variant", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.productVariants.map((variant) => <tr key={variant.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{variant.productName}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{variant.size}{variant.temperature && variant.temperature !== "both" ? ` (${variant.temperature})` : ""}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{variant.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{variant.archivedAt ? formatFinanceDateTime(variant.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{variant.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="product_variant" id={variant.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>}
+        </section>
+      </div>}
+
+      {tab === "inventory" && (data.inventory.length === 0 ? <ArchivesEmptyState label="inventory items" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Item", "Category", "Last Qty", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.inventory.map((item) => <tr key={item.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{item.itemName}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{item.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>{item.quantity} {item.unit}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{item.archivedAt ? formatFinanceDateTime(item.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{item.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="inventory" id={item.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+
+      {tab === "additions" && (data.additions.length === 0 ? <ArchivesEmptyState label="additions" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Addition", "Uses", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.additions.map((addition) => <tr key={addition.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{addition.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{addition.quantity} {addition.unit} of {addition.itemName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{addition.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{addition.archivedAt ? formatFinanceDateTime(addition.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{addition.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="addition" id={addition.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+
+      {tab === "sales" && (data.salesOrders.length === 0 ? <ArchivesEmptyState label="sales records" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Order", "Cashier", "Amount", "Status", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.salesOrders.map((order) => <tr key={order.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>#{order.id}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{order.cashierName || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{order.totalAmount.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{order.status}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{order.archivedAt ? formatFinanceDateTime(order.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{order.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="sales_order" id={order.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+
+      {tab === "attendance" && (data.employeeTimeLogs.length === 0 ? <ArchivesEmptyState label="attendance logs" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Time in", "Time out", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.employeeTimeLogs.map((log) => <tr key={log.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{log.employeeName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{formatFinanceDateTime(log.timeIn)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.timeOut ? formatFinanceDateTime(log.timeOut) : "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.archivedAt ? formatFinanceDateTime(log.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{log.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="employee_time_log" id={log.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+    </>}
+  </main>;
+}
+
 function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut: () => void }) {
   const [createdAt, setCreatedAt] = useState<string | null>(null);
   const [currentPassword, setCurrentPassword] = useState("");
@@ -2344,7 +2605,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management", archives: "Archives" };
 
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
   if (!authUser) return <AdminLogin onLoggedIn={setAuthUser} />;
@@ -2361,6 +2622,7 @@ export default function App() {
         {page === "products" && <ProductManagement products={products} inventory={inventory} additions={additions} categories={categories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
         {page === "finance" && <Finance />}
         {page === "accounts" && <Accounts />}
+        {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}
       </div>
     </div>

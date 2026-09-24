@@ -60,7 +60,8 @@ export async function GET() {
           '[]'::json
         ) AS variants
       FROM products p
-      LEFT JOIN product_variants pv ON pv.product_id = p.product_id
+      LEFT JOIN product_variants pv ON pv.product_id = p.product_id AND pv.is_archived = FALSE
+      WHERE p.is_archived = FALSE
       GROUP BY p.product_id
       ORDER BY p.product_category ASC NULLS LAST, p.product_name ASC
     `);

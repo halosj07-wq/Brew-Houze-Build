@@ -58,7 +58,7 @@ export async function GET() {
       SELECT order_id, reversed_by_admin_id, total_amount, status,
         TO_CHAR(reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at
       FROM sales_orders
-      WHERE reversed_by_admin_id = ANY($1::int[])
+      WHERE reversed_by_admin_id = ANY($1::int[]) AND is_archived = FALSE
       ORDER BY reversed_at DESC, order_id DESC
     `, [result.rows.map((account) => Number(account.admin_id))]);
     const reversalsByAccount = new Map<number, { id: number; amount: number; status: string; reversedAt: string | null }[]>();
@@ -131,7 +131,10 @@ export async function DELETE(request: Request) {
     if (!Number.isInteger(id) || id <= 0 || body.confirmation !== "CLEAR_EMPLOYEE_LOGS") {
       return NextResponse.json({ error: "Explicit employee log confirmation is required." }, { status: 400 });
     }
-    const result = await pool.query("DELETE FROM employee_time_logs WHERE admin_id = $1 RETURNING time_log_id", [id]);
+    const result = await pool.query(
+      "UPDATE employee_time_logs SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE admin_id = $1 AND is_archived = FALSE RETURNING time_log_id",
+      [id, session.adminId ?? null]
+    );
     return NextResponse.json({ data: { deletedCount: result.rowCount ?? 0 } });
   } catch (error) {
     console.error("DELETE /api/cashier-accounts failed:", error);

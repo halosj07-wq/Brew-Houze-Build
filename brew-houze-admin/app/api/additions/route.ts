@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Addition name, inventory item, quantity, and a valid non-negative price are required." }, { status: 400 });
     }
 
-    const inventoryResult = await pool.query("SELECT inventory_id, is_whole_unit FROM inventory WHERE inventory_id = $1", [inventoryId]);
+    const inventoryResult = await pool.query("SELECT inventory_id, is_whole_unit FROM inventory WHERE inventory_id = $1 AND is_archived = FALSE", [inventoryId]);
     if (inventoryResult.rowCount === 0) return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
     if (inventoryResult.rows[0].is_whole_unit && !Number.isInteger(quantity)) {
       return NextResponse.json({ error: "Pieces quantity must be a whole number." }, { status: 400 });
