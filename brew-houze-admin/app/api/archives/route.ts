@@ -12,6 +12,7 @@ async function requireAdmin() {
 const RESTORE_TYPES = ["product", "product_variant", "inventory", "addition", "sales_order", "employee_time_log"] as const;
 type RestoreType = (typeof RESTORE_TYPES)[number];
 
+<<<<<<< HEAD
 type PurgeConfig = {
   table: string;
   pk: string;
@@ -48,6 +49,8 @@ function friendlyForeignKeyError(error: unknown, label: string): string | null {
   return `This ${label} cannot be permanently deleted because it is still referenced by ${referencing}. It will remain in Archives until those references are removed.`;
 }
 
+=======
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21
 export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Only an admin can view archives." }, { status: 403 });
@@ -271,6 +274,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Could not restore the archived record." }, { status: 500 });
   }
 }
+<<<<<<< HEAD
 
 // Permanently and irreversibly removes archived record(s). Supports a single record
 // (`{ type, id }`) or clearing every archived record of a type (`{ type, clear_all: true }`).
@@ -364,3 +368,5 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not permanently delete the archived record(s)." }, { status: 500 });
   }
 }
+=======
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21

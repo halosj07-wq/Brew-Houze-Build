@@ -2118,6 +2118,7 @@ function RestoreButton({ type, id, restoringKey, onRestore }: { type: RestoreTyp
   return <button type="button" onClick={() => onRestore(type, id)} disabled={restoringKey === key} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: restoringKey === key ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}><IconRotateCcw size={12} />{restoringKey === key ? "Restoring..." : "Restore"}</button>;
 }
 
+<<<<<<< HEAD
 function PurgeButton({ type, id, label, purgingKey, onPurge }: { type: RestoreType; id: number; label: string; purgingKey: string | null; onPurge: (type: RestoreType, id: number, label: string) => void }) {
   const key = `${type}:${id}`;
   return <button type="button" onClick={() => onPurge(type, id, label)} disabled={purgingKey === key} title="Permanently delete" style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: purgingKey === key ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}><IconTrash size={12} />{purgingKey === key ? "Deleting..." : "Delete forever"}</button>;
@@ -2128,6 +2129,8 @@ function ClearAllButton({ type, label, count, clearingType, onClearAll }: { type
   return <button type="button" onClick={() => onClearAll(type, label)} disabled={clearingType === type} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #FECACA", borderRadius: 8, padding: "8px 12px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingType === type ? "default" : "pointer", fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}><IconTrash size={12} />{clearingType === type ? "Clearing..." : `Permanently clear all (${count})`}</button>;
 }
 
+=======
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21
 function ArchivesEmptyState({ label }: { label: string }) {
   return <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No archived {label} found.</div>;
 }
@@ -2136,11 +2139,16 @@ function Archives() {
   const [data, setData] = useState<ArchivesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+<<<<<<< HEAD
   const [notice, setNotice] = useState("");
   const [tab, setTab] = useState<ArchiveTab>("products");
   const [restoringKey, setRestoringKey] = useState<string | null>(null);
   const [purgingKey, setPurgingKey] = useState<string | null>(null);
   const [clearingType, setClearingType] = useState<RestoreType | null>(null);
+=======
+  const [tab, setTab] = useState<ArchiveTab>("products");
+  const [restoringKey, setRestoringKey] = useState<string | null>(null);
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21
 
   const loadArchives = async () => {
     try {
@@ -2180,6 +2188,7 @@ function Archives() {
     }
   }
 
+<<<<<<< HEAD
   async function purge(type: RestoreType, id: number, label: string) {
     const confirmed = window.confirm(`Permanently delete this ${label}? This cannot be undone.`);
     if (!confirmed) return;
@@ -2231,6 +2240,8 @@ function Archives() {
     }
   }
 
+=======
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21
   const tabs: { id: ArchiveTab; label: string; count: number }[] = data ? [
     { id: "products", label: "Products", count: data.products.length + data.productVariants.length },
     { id: "inventory", label: "Inventory", count: data.inventory.length },
@@ -2243,7 +2254,10 @@ function Archives() {
     <div className="mb-6"><div style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Nothing is ever lost</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, letterSpacing: "-.03em" }}>Archives</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13, maxWidth: 640 }}>Products, inventory items, additions, sales records, and cleared attendance logs are archived here instead of being permanently deleted. Restore anything back to where it came from at any time.</p></div>
 
     {error && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
+<<<<<<< HEAD
     {notice && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", color: "#15803D", fontSize: 13 }}>{notice}</div>}
+=======
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21
 
     {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading archives...</div> : !data ? null : <>
       <div className="flex items-center gap-2 mb-5" style={{ flexWrap: "wrap" }}>
@@ -2252,6 +2266,7 @@ function Archives() {
 
       {tab === "products" && <div className="flex flex-col gap-6">
         <section>
+<<<<<<< HEAD
           <div className="flex items-center justify-between gap-3" style={{ marginBottom: 10 }}><h3 style={{ margin: 0, fontWeight: 800, fontSize: 15 }}>Archived products</h3><ClearAllButton type="product" label="product" count={data.products.length} clearingType={clearingType} onClearAll={clearAll} /></div>
           {data.products.length === 0 ? <ArchivesEmptyState label="products" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Category", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.products.map((product) => <tr key={product.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{product.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{product.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{product.archivedAt ? formatFinanceDateTime(product.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="product" id={product.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="product" id={product.id} label="product" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
         </section>
@@ -2280,6 +2295,24 @@ function Archives() {
         <div className="flex items-center justify-end"><ClearAllButton type="employee_time_log" label="attendance log" count={data.employeeTimeLogs.length} clearingType={clearingType} onClearAll={clearAll} /></div>
         {data.employeeTimeLogs.length === 0 ? <ArchivesEmptyState label="attendance logs" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Time in", "Time out", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.employeeTimeLogs.map((log) => <tr key={log.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{log.employeeName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{formatFinanceDateTime(log.timeIn)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.timeOut ? formatFinanceDateTime(log.timeOut) : "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.archivedAt ? formatFinanceDateTime(log.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{log.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="employee_time_log" id={log.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="employee_time_log" id={log.id} label="attendance log" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
       </div>}
+=======
+          <h3 style={{ margin: "0 0 10px", fontWeight: 800, fontSize: 15 }}>Archived products</h3>
+          {data.products.length === 0 ? <ArchivesEmptyState label="products" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Category", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.products.map((product) => <tr key={product.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{product.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{product.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{product.archivedAt ? formatFinanceDateTime(product.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="product" id={product.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>}
+        </section>
+        <section>
+          <h3 style={{ margin: "0 0 10px", fontWeight: 800, fontSize: 15 }}>Archived variants <span style={{ color: "#9C8278", fontWeight: 400, fontSize: 12 }}>(product itself is still active)</span></h3>
+          {data.productVariants.length === 0 ? <ArchivesEmptyState label="variants" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Variant", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.productVariants.map((variant) => <tr key={variant.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{variant.productName}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{variant.size}{variant.temperature && variant.temperature !== "both" ? ` (${variant.temperature})` : ""}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{variant.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{variant.archivedAt ? formatFinanceDateTime(variant.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{variant.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="product_variant" id={variant.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>}
+        </section>
+      </div>}
+
+      {tab === "inventory" && (data.inventory.length === 0 ? <ArchivesEmptyState label="inventory items" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Item", "Category", "Last Qty", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.inventory.map((item) => <tr key={item.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{item.itemName}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{item.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>{item.quantity} {item.unit}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{item.archivedAt ? formatFinanceDateTime(item.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{item.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="inventory" id={item.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+
+      {tab === "additions" && (data.additions.length === 0 ? <ArchivesEmptyState label="additions" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Addition", "Uses", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.additions.map((addition) => <tr key={addition.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{addition.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{addition.quantity} {addition.unit} of {addition.itemName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{addition.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{addition.archivedAt ? formatFinanceDateTime(addition.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{addition.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="addition" id={addition.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+
+      {tab === "sales" && (data.salesOrders.length === 0 ? <ArchivesEmptyState label="sales records" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Order", "Cashier", "Amount", "Status", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.salesOrders.map((order) => <tr key={order.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>#{order.id}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{order.cashierName || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{order.totalAmount.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{order.status}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{order.archivedAt ? formatFinanceDateTime(order.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{order.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="sales_order" id={order.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+
+      {tab === "attendance" && (data.employeeTimeLogs.length === 0 ? <ArchivesEmptyState label="attendance logs" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Time in", "Time out", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.employeeTimeLogs.map((log) => <tr key={log.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{log.employeeName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{formatFinanceDateTime(log.timeIn)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.timeOut ? formatFinanceDateTime(log.timeOut) : "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.archivedAt ? formatFinanceDateTime(log.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{log.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><RestoreButton type="employee_time_log" id={log.id} restoringKey={restoringKey} onRestore={restore} /></td></tr>)}</tbody></table></div></div>)}
+>>>>>>> 06aa81c93ff9e5cb647da5c968e974dc58080c21
     </>}
   </main>;
 }
