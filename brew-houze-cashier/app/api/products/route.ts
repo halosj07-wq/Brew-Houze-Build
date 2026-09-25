@@ -25,11 +25,19 @@ export async function GET() {
             'price', a.price,
             'unit_of_measure', i_addition.unit_of_measure,
             'inventory_id', a.inventory_id,
-            'available_quantity', i_addition.quantity
+            'available_quantity', CASE
+              WHEN i_addition.derived_from_inventory_id IS NOT NULL THEN
+                CASE
+                  WHEN i_addition.is_whole_unit THEN FLOOR(COALESCE(i_addition_parent.quantity, 0) / i_addition.derived_ratio)
+                  ELSE COALESCE(i_addition_parent.quantity, 0) / i_addition.derived_ratio
+                END
+              ELSE i_addition.quantity
+            END
           ) ORDER BY a.addition_name)
           FROM product_additions pa
           JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
           JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
+          LEFT JOIN inventory i_addition_parent ON i_addition_parent.inventory_id = i_addition.derived_from_inventory_id
           WHERE pa.product_id = p.product_id
         ), '[]'::json) AS additions,
         COALESCE(
@@ -40,19 +48,37 @@ export async function GET() {
               'size_label', pv.size_label,
               'temperature', pv.temperature,
               'max_quantity', COALESCE((
-                SELECT FLOOR(MIN(inv_check.quantity / NULLIF(vi_check.required_quantity, 0)))::int
+                SELECT FLOOR(MIN(
+                  (CASE
+                    WHEN inv_check.derived_from_inventory_id IS NOT NULL THEN
+                      CASE
+                        WHEN inv_check.is_whole_unit THEN FLOOR(COALESCE(inv_check_parent.quantity, 0) / inv_check.derived_ratio)
+                        ELSE COALESCE(inv_check_parent.quantity, 0) / inv_check.derived_ratio
+                      END
+                    ELSE inv_check.quantity
+                  END) / NULLIF(vi_check.required_quantity, 0)
+                ))::int
                 FROM variant_ingredients vi_check
                 JOIN inventory inv_check ON inv_check.inventory_id = vi_check.inventory_id
+                LEFT JOIN inventory inv_check_parent ON inv_check_parent.inventory_id = inv_check.derived_from_inventory_id
                 WHERE vi_check.product_variant_id = pv.product_variant_id
               ), 0),
               'ingredients', COALESCE((
                 SELECT json_agg(json_build_object(
                   'inventory_id', vi_detail.inventory_id,
                   'required_quantity', vi_detail.required_quantity,
-                  'available_quantity', inv_detail.quantity
+                  'available_quantity', CASE
+                    WHEN inv_detail.derived_from_inventory_id IS NOT NULL THEN
+                      CASE
+                        WHEN inv_detail.is_whole_unit THEN FLOOR(COALESCE(inv_detail_parent.quantity, 0) / inv_detail.derived_ratio)
+                        ELSE COALESCE(inv_detail_parent.quantity, 0) / inv_detail.derived_ratio
+                      END
+                    ELSE inv_detail.quantity
+                  END
                 ) ORDER BY vi_detail.inventory_id)
                 FROM variant_ingredients vi_detail
                 JOIN inventory inv_detail ON inv_detail.inventory_id = vi_detail.inventory_id
+                LEFT JOIN inventory inv_detail_parent ON inv_detail_parent.inventory_id = inv_detail.derived_from_inventory_id
                 WHERE vi_detail.product_variant_id = pv.product_variant_id
               ), '[]'::json),
               'additions', COALESCE((
@@ -69,9 +95,19 @@ export async function GET() {
                 WHERE pa.product_id = p.product_id
               ), '[]'::json),
               'available', COALESCE((
-                SELECT FLOOR(MIN(inv_check.quantity / NULLIF(vi_check.required_quantity, 0)))::int
+                SELECT FLOOR(MIN(
+                  (CASE
+                    WHEN inv_check.derived_from_inventory_id IS NOT NULL THEN
+                      CASE
+                        WHEN inv_check.is_whole_unit THEN FLOOR(COALESCE(inv_check_parent.quantity, 0) / inv_check.derived_ratio)
+                        ELSE COALESCE(inv_check_parent.quantity, 0) / inv_check.derived_ratio
+                      END
+                    ELSE inv_check.quantity
+                  END) / NULLIF(vi_check.required_quantity, 0)
+                ))::int
                 FROM variant_ingredients vi_check
                 JOIN inventory inv_check ON inv_check.inventory_id = vi_check.inventory_id
+                LEFT JOIN inventory inv_check_parent ON inv_check_parent.inventory_id = inv_check.derived_from_inventory_id
                 WHERE vi_check.product_variant_id = pv.product_variant_id
               ), 0) > 0
             )

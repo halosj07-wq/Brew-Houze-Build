@@ -19,11 +19,19 @@ export async function GET() {
             'price', a.price,
             'unit', i_addition.unit_of_measure,
             'inventoryId', a.inventory_id,
-            'availableQuantity', i_addition.quantity
+            'availableQuantity', CASE
+              WHEN i_addition.derived_from_inventory_id IS NOT NULL THEN
+                CASE
+                  WHEN i_addition.is_whole_unit THEN FLOOR(COALESCE(i_addition_parent.quantity, 0) / i_addition.derived_ratio)
+                  ELSE COALESCE(i_addition_parent.quantity, 0) / i_addition.derived_ratio
+                END
+              ELSE i_addition.quantity
+            END
           ) ORDER BY a.addition_name)
           FROM product_additions pa
           JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
           JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
+          LEFT JOIN inventory i_addition_parent ON i_addition_parent.inventory_id = i_addition.derived_from_inventory_id
           WHERE pa.product_id = p.product_id
         ), '[]'::json) AS additions,
         COALESCE(
@@ -34,25 +42,53 @@ export async function GET() {
               'temperature', pv.temperature,
               'price', pv.price,
               'maxQuantity', COALESCE((
-                SELECT FLOOR(MIN(i.quantity / NULLIF(vi.required_quantity, 0)))::int
+                SELECT FLOOR(MIN(
+                  (CASE
+                    WHEN i.derived_from_inventory_id IS NOT NULL THEN
+                      CASE
+                        WHEN i.is_whole_unit THEN FLOOR(COALESCE(i_parent.quantity, 0) / i.derived_ratio)
+                        ELSE COALESCE(i_parent.quantity, 0) / i.derived_ratio
+                      END
+                    ELSE i.quantity
+                  END) / NULLIF(vi.required_quantity, 0)
+                ))::int
                 FROM variant_ingredients vi
                 JOIN inventory i ON i.inventory_id = vi.inventory_id
+                LEFT JOIN inventory i_parent ON i_parent.inventory_id = i.derived_from_inventory_id
                 WHERE vi.product_variant_id = pv.product_variant_id
               ), 0),
               'available', COALESCE((
-                SELECT FLOOR(MIN(i.quantity / NULLIF(vi.required_quantity, 0)))::int
+                SELECT FLOOR(MIN(
+                  (CASE
+                    WHEN i.derived_from_inventory_id IS NOT NULL THEN
+                      CASE
+                        WHEN i.is_whole_unit THEN FLOOR(COALESCE(i_parent.quantity, 0) / i.derived_ratio)
+                        ELSE COALESCE(i_parent.quantity, 0) / i.derived_ratio
+                      END
+                    ELSE i.quantity
+                  END) / NULLIF(vi.required_quantity, 0)
+                ))::int
                 FROM variant_ingredients vi
                 JOIN inventory i ON i.inventory_id = vi.inventory_id
+                LEFT JOIN inventory i_parent ON i_parent.inventory_id = i.derived_from_inventory_id
                 WHERE vi.product_variant_id = pv.product_variant_id
               ), 0) > 0,
               'ingredients', COALESCE((
                 SELECT json_agg(json_build_object(
                   'inventoryId', vi.inventory_id,
                   'requiredQuantity', vi.required_quantity,
-                  'availableQuantity', i.quantity
+                  'availableQuantity', CASE
+                    WHEN i.derived_from_inventory_id IS NOT NULL THEN
+                      CASE
+                        WHEN i.is_whole_unit THEN FLOOR(COALESCE(i_parent.quantity, 0) / i.derived_ratio)
+                        ELSE COALESCE(i_parent.quantity, 0) / i.derived_ratio
+                      END
+                    ELSE i.quantity
+                  END
                 ) ORDER BY vi.inventory_id)
                 FROM variant_ingredients vi
                 JOIN inventory i ON i.inventory_id = vi.inventory_id
+                LEFT JOIN inventory i_parent ON i_parent.inventory_id = i.derived_from_inventory_id
                 WHERE vi.product_variant_id = pv.product_variant_id
               ), '[]'::json)
             ) ORDER BY pv.product_variant_id
