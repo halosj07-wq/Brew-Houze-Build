@@ -12,6 +12,42 @@ async function requireAdmin() {
 const RESTORE_TYPES = ["product", "product_variant", "inventory", "addition", "sales_order", "employee_time_log"] as const;
 type RestoreType = (typeof RESTORE_TYPES)[number];
 
+type PurgeConfig = {
+  table: string;
+  pk: string;
+  archivedWhere: string; // SQL fragment identifying archived rows for this table
+  label: string; // human label used in messages, e.g. "product"
+};
+
+const PURGE_CONFIG: Record<RestoreType, PurgeConfig> = {
+  product: { table: "products", pk: "product_id", archivedWhere: "is_archived = TRUE", label: "product" },
+  product_variant: { table: "product_variants", pk: "product_variant_id", archivedWhere: "is_archived = TRUE", label: "variant" },
+  inventory: { table: "inventory", pk: "inventory_id", archivedWhere: "is_archived = TRUE", label: "inventory item" },
+  addition: { table: "additions", pk: "addition_id", archivedWhere: "is_active = FALSE", label: "addition" },
+  sales_order: { table: "sales_orders", pk: "order_id", archivedWhere: "is_archived = TRUE", label: "sales record" },
+  employee_time_log: { table: "employee_time_logs", pk: "time_log_id", archivedWhere: "is_archived = TRUE", label: "attendance log" },
+};
+
+// Postgres includes the referencing table name in the FK-violation detail message, e.g.
+// `Key (product_id)=(5) is still referenced from table "sales_order_items".`
+const FRIENDLY_REFERENCE_NAMES: Record<string, string> = {
+  sales_order_items: "past sales records",
+  sales_order_item_additions: "past sales records",
+  variant_ingredients: "a product recipe",
+  product_ingredients: "a product recipe",
+  additions: "an add-on",
+  product_additions: "a product's add-on list",
+  inventory: "another bound inventory item",
+};
+
+function friendlyForeignKeyError(error: unknown, label: string): string | null {
+  if (!error || typeof error !== "object" || (error as { code?: string }).code !== "23503") return null;
+  const detail = String((error as { detail?: unknown }).detail ?? "");
+  const match = detail.match(/is still referenced from table "([^"]+)"/);
+  const referencing = match ? FRIENDLY_REFERENCE_NAMES[match[1]] ?? match[1] : "other existing records";
+  return `This ${label} cannot be permanently deleted because it is still referenced by ${referencing}. It will remain in Archives until those references are removed.`;
+}
+
 export async function GET() {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Only an admin can view archives." }, { status: 403 });
@@ -233,5 +269,98 @@ export async function PATCH(request: Request) {
   } catch (error) {
     console.error("PATCH /api/archives failed:", error);
     return NextResponse.json({ error: "Could not restore the archived record." }, { status: 500 });
+  }
+}
+
+// Permanently and irreversibly removes archived record(s). Supports a single record
+// (`{ type, id }`) or clearing every archived record of a type (`{ type, clear_all: true }`).
+export async function DELETE(request: Request) {
+  const session = await requireAdmin();
+  if (!session) return NextResponse.json({ error: "Only an admin can permanently delete archived records." }, { status: 403 });
+
+  try {
+    const body = await request.json() as { type?: unknown; id?: unknown; clear_all?: unknown };
+    const type = String(body?.type ?? "") as RestoreType;
+    if (!RESTORE_TYPES.includes(type)) {
+      return NextResponse.json({ error: "A valid archive type is required." }, { status: 400 });
+    }
+    const config = PURGE_CONFIG[type];
+    const clearAll = body?.clear_all === true;
+
+    if (!clearAll) {
+      const id = Number(body?.id);
+      if (!Number.isInteger(id) || id <= 0) {
+        return NextResponse.json({ error: "A valid id is required." }, { status: 400 });
+      }
+
+      if (type === "inventory") {
+        const boundDependents = await pool.query(
+          "SELECT item_name FROM inventory WHERE derived_from_inventory_id = $1",
+          [id]
+        );
+        if ((boundDependents.rowCount ?? 0) > 0) {
+          const names = boundDependents.rows.map((row) => row.item_name as string).join(", ");
+          return NextResponse.json({ error: `This item cannot be permanently deleted because it is still the source for bound item(s) (${names}). Unbind or permanently delete those first.` }, { status: 409 });
+        }
+      }
+
+      try {
+        const result = await pool.query(
+          `DELETE FROM ${config.table} WHERE ${config.pk} = $1 AND ${config.archivedWhere} RETURNING ${config.pk}`,
+          [id]
+        );
+        if (result.rowCount === 0) {
+          return NextResponse.json({ error: `Archived ${config.label} not found.` }, { status: 404 });
+        }
+        return NextResponse.json({ data: { type, id, permanentlyDeleted: true } });
+      } catch (deleteError) {
+        const friendly = friendlyForeignKeyError(deleteError, config.label);
+        if (friendly) return NextResponse.json({ error: friendly }, { status: 409 });
+        throw deleteError;
+      }
+    }
+
+    // Clear-all: attempt every archived row individually so unrelated rows still get
+    // purged even if some are blocked by references elsewhere in the database.
+    const idsResult = await pool.query(
+      `SELECT ${config.pk} AS id${type === "inventory" ? ", item_name" : ""} FROM ${config.table} WHERE ${config.archivedWhere}`
+    );
+
+    let deletedCount = 0;
+    const skipped: { id: number; reason: string }[] = [];
+
+    for (const row of idsResult.rows) {
+      const id = Number(row.id);
+      if (type === "inventory") {
+        const boundDependents = await pool.query("SELECT 1 FROM inventory WHERE derived_from_inventory_id = $1", [id]);
+        if ((boundDependents.rowCount ?? 0) > 0) {
+          skipped.push({ id, reason: "still the source for a bound item" });
+          continue;
+        }
+      }
+      try {
+        const result = await pool.query(
+          `DELETE FROM ${config.table} WHERE ${config.pk} = $1 AND ${config.archivedWhere} RETURNING ${config.pk}`,
+          [id]
+        );
+        if (result.rowCount ?? 0) deletedCount += 1;
+      } catch (deleteError) {
+        const friendly = friendlyForeignKeyError(deleteError, config.label);
+        skipped.push({ id, reason: friendly ?? "blocked by other existing records" });
+      }
+    }
+
+    return NextResponse.json({
+      data: {
+        type,
+        permanentlyDeleted: true,
+        deletedCount,
+        skippedCount: skipped.length,
+        skipped,
+      },
+    });
+  } catch (error) {
+    console.error("DELETE /api/archives failed:", error);
+    return NextResponse.json({ error: "Could not permanently delete the archived record(s)." }, { status: 500 });
   }
 }
