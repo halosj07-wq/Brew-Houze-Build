@@ -233,10 +233,15 @@ export async function PATCH(request: Request) {
           }
         }
         const result = await pool.query(
-          "UPDATE inventory SET is_archived = FALSE, archived_at = NULL, archived_by = NULL WHERE inventory_id = $1 AND is_archived = TRUE RETURNING inventory_id",
+          "UPDATE inventory SET is_archived = FALSE, archived_at = NULL, archived_by = NULL WHERE inventory_id = $1 AND is_archived = TRUE RETURNING inventory_id, item_name, ingredient_category, unit_of_measure, quantity",
           [id]
         );
         if (result.rowCount === 0) return NextResponse.json({ error: "Archived inventory item not found." }, { status: 404 });
+        const restoredItem = result.rows[0];
+        await pool.query(`
+          INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app, note)
+          VALUES ($1, $2, $3, $4, 'restored', $5, $5, 0, $6, 'admin', 'Restored from archive')
+        `, [restoredItem.inventory_id, restoredItem.item_name, restoredItem.ingredient_category, restoredItem.unit_of_measure, restoredItem.quantity, session.adminId ?? null]);
         break;
       }
       case "addition": {
@@ -305,12 +310,22 @@ export async function DELETE(request: Request) {
       }
 
       try {
+        const returningCols = type === "inventory" ? `${config.pk}, item_name, ingredient_category, unit_of_measure, quantity` : config.pk;
         const result = await pool.query(
-          `DELETE FROM ${config.table} WHERE ${config.pk} = $1 AND ${config.archivedWhere} RETURNING ${config.pk}`,
+          `DELETE FROM ${config.table} WHERE ${config.pk} = $1 AND ${config.archivedWhere} RETURNING ${returningCols}`,
           [id]
         );
         if (result.rowCount === 0) {
           return NextResponse.json({ error: `Archived ${config.label} not found.` }, { status: 404 });
+        }
+        if (type === "inventory") {
+          const purged = result.rows[0];
+          // inventory_id is left NULL: the row is already gone, and the FK would reject
+          // referencing a deleted id, so the item's name/category/unit text is preserved instead.
+          await pool.query(`
+            INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app, note)
+            VALUES (NULL, $1, $2, $3, 'purged', $4, 0, $5, $6, 'admin', 'Permanently deleted from archive')
+          `, [purged.item_name, purged.ingredient_category, purged.unit_of_measure, purged.quantity, -Number(purged.quantity), session.adminId ?? null]);
         }
         return NextResponse.json({ data: { type, id, permanentlyDeleted: true } });
       } catch (deleteError) {
@@ -323,7 +338,7 @@ export async function DELETE(request: Request) {
     // Clear-all: attempt every archived row individually so unrelated rows still get
     // purged even if some are blocked by references elsewhere in the database.
     const idsResult = await pool.query(
-      `SELECT ${config.pk} AS id${type === "inventory" ? ", item_name" : ""} FROM ${config.table} WHERE ${config.archivedWhere}`
+      `SELECT ${config.pk} AS id${type === "inventory" ? ", item_name, ingredient_category, unit_of_measure, quantity" : ""} FROM ${config.table} WHERE ${config.archivedWhere}`
     );
 
     let deletedCount = 0;
@@ -343,7 +358,15 @@ export async function DELETE(request: Request) {
           `DELETE FROM ${config.table} WHERE ${config.pk} = $1 AND ${config.archivedWhere} RETURNING ${config.pk}`,
           [id]
         );
-        if (result.rowCount ?? 0) deletedCount += 1;
+        if (result.rowCount ?? 0) {
+          deletedCount += 1;
+          if (type === "inventory") {
+            await pool.query(`
+              INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app, note)
+              VALUES (NULL, $1, $2, $3, 'purged', $4, 0, $5, $6, 'admin', 'Permanently deleted from archive (bulk clear)')
+            `, [row.item_name, row.ingredient_category, row.unit_of_measure, row.quantity, -Number(row.quantity), session.adminId ?? null]);
+          }
+        }
       } catch (deleteError) {
         const friendly = friendlyForeignKeyError(deleteError, config.label);
         skipped.push({ id, reason: friendly ?? "blocked by other existing records" });

@@ -474,13 +474,14 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
     }
 
-    const deletedItem = result.rows[0];
+    const archivedItem = result.rows[0];
+    // Archiving doesn't change stock on hand, only visibility, so before/after/delta stay flat.
     await pool.query(`
-      INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
-      VALUES ($1, $2, $3, $4, 'deleted', $5, 0, $6, $7, 'admin')
-    `, [deletedItem.inventory_id, deletedItem.item_name, deletedItem.ingredient_category, deletedItem.unit_of_measure, deletedItem.quantity, -Number(deletedItem.quantity), await getAdminId()]);
+      INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app, note)
+      VALUES ($1, $2, $3, $4, 'archived', $5, $5, 0, $6, 'admin', 'Archived')
+    `, [archivedItem.inventory_id, archivedItem.item_name, archivedItem.ingredient_category, archivedItem.unit_of_measure, archivedItem.quantity, await getAdminId()]);
 
-    return NextResponse.json({ data: { inventory_id: deletedItem.inventory_id } });
+    return NextResponse.json({ data: { inventory_id: archivedItem.inventory_id } });
   } catch (error) {
     console.error("DELETE /api/inventory failed:", error);
     return NextResponse.json({ error: "Could not archive inventory item." }, { status: 500 });

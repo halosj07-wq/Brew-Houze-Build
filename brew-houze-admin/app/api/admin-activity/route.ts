@@ -48,6 +48,49 @@ export async function GET() {
       LIMIT 30
     `, [session.adminId]);
 
+    // Archiving log: everything this admin has personally archived, across every
+    // archivable table, merged and sorted by when it was archived. Scoped to
+    // archived_by = this admin so it never surfaces another admin's actions.
+    const [archivedProducts, archivedVariants, archivedInventory, archivedAdditions, archivedSalesOrders, archivedTimeLogs] = await Promise.all([
+      pool.query(`
+        SELECT product_name AS name, TO_CHAR(archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at
+        FROM products WHERE archived_by = $1 AND is_archived = TRUE ORDER BY archived_at DESC LIMIT 10
+      `, [session.adminId]),
+      pool.query(`
+        SELECT p.product_name || ' · ' || pv.size_label AS name, TO_CHAR(pv.archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at
+        FROM product_variants pv JOIN products p ON p.product_id = pv.product_id
+        WHERE pv.archived_by = $1 AND pv.is_archived = TRUE ORDER BY pv.archived_at DESC LIMIT 10
+      `, [session.adminId]),
+      pool.query(`
+        SELECT item_name AS name, TO_CHAR(archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at
+        FROM inventory WHERE archived_by = $1 AND is_archived = TRUE ORDER BY archived_at DESC LIMIT 10
+      `, [session.adminId]),
+      pool.query(`
+        SELECT addition_name AS name, TO_CHAR(archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at
+        FROM additions WHERE archived_by = $1 AND is_active = FALSE ORDER BY archived_at DESC LIMIT 10
+      `, [session.adminId]),
+      pool.query(`
+        SELECT 'Order #' || order_id AS name, TO_CHAR(archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at
+        FROM sales_orders WHERE archived_by = $1 AND is_archived = TRUE ORDER BY archived_at DESC LIMIT 10
+      `, [session.adminId]),
+      pool.query(`
+        SELECT au.full_name AS name, TO_CHAR(etl.archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at
+        FROM employee_time_logs etl JOIN admin_users au ON au.admin_id = etl.admin_id
+        WHERE etl.archived_by = $1 AND etl.is_archived = TRUE ORDER BY etl.archived_at DESC LIMIT 10
+      `, [session.adminId]),
+    ]);
+
+    const archives = [
+      ...archivedProducts.rows.map((row) => ({ kind: "Product", name: row.name as string, archivedAt: row.archived_at as string })),
+      ...archivedVariants.rows.map((row) => ({ kind: "Variant", name: row.name as string, archivedAt: row.archived_at as string })),
+      ...archivedInventory.rows.map((row) => ({ kind: "Inventory item", name: row.name as string, archivedAt: row.archived_at as string })),
+      ...archivedAdditions.rows.map((row) => ({ kind: "Addition", name: row.name as string, archivedAt: row.archived_at as string })),
+      ...archivedSalesOrders.rows.map((row) => ({ kind: "Sales record", name: row.name as string, archivedAt: row.archived_at as string })),
+      ...archivedTimeLogs.rows.map((row) => ({ kind: "Attendance log", name: row.name as string, archivedAt: row.archived_at as string })),
+    ]
+      .sort((a, b) => new Date(b.archivedAt).getTime() - new Date(a.archivedAt).getTime())
+      .slice(0, 30);
+
     return NextResponse.json({
       data: {
         fullName: accountResult.rows[0].full_name,
@@ -67,6 +110,7 @@ export async function GET() {
           status: reversal.status,
           reversedAt: reversal.reversed_at,
         })),
+        archives,
       },
     });
   } catch (error) {
