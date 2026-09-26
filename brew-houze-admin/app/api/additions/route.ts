@@ -8,6 +8,7 @@ async function getAdminId(): Promise<number | null> {
 }
 
 export async function GET() {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
@@ -35,6 +36,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const body = await request.json();
     const additionName = String(body?.addition_name ?? "").trim();
@@ -72,7 +74,48 @@ export async function POST(request: Request) {
   }
 }
 
+// Edits an add-on. Past sales keep the name, amount and price recorded when they were sold.
+export async function PATCH(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  try {
+    const body = await request.json();
+    const additionId = Number(body?.addition_id);
+    const additionName = String(body?.addition_name ?? "").trim();
+    const inventoryId = Number(body?.inventory_id);
+    const quantity = Number(body?.quantity);
+    const price = Number(body?.price);
+    if (!Number.isInteger(additionId) || additionId <= 0 || !additionName || !Number.isInteger(inventoryId) || inventoryId <= 0 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) {
+      return NextResponse.json({ error: "Name, inventory item, amount, and a price of 0 or more are required." }, { status: 400 });
+    }
+    const inventoryResult = await pool.query("SELECT is_whole_unit FROM inventory WHERE inventory_id = $1 AND is_archived = FALSE", [inventoryId]);
+    if (inventoryResult.rowCount === 0) return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
+    if (inventoryResult.rows[0].is_whole_unit && !Number.isInteger(quantity)) {
+      return NextResponse.json({ error: "This item is counted in whole units, so the amount must be a whole number." }, { status: 400 });
+    }
+    const result = await pool.query(`
+      UPDATE additions SET addition_name = $2, inventory_id = $3, quantity = $4, price = $5
+      WHERE addition_id = $1 AND is_active = TRUE
+      RETURNING addition_id
+    `, [additionId, additionName, inventoryId, quantity, price]);
+    if (result.rowCount === 0) return NextResponse.json({ error: "Add-on not found." }, { status: 404 });
+    const fullResult = await pool.query(`
+      SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
+             i.unit_of_measure, a.quantity, a.price
+      FROM additions a JOIN inventory i ON i.inventory_id = a.inventory_id
+      WHERE a.addition_id = $1
+    `, [additionId]);
+    return NextResponse.json({ data: fullResult.rows[0] });
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "23505") {
+      return NextResponse.json({ error: "An add-on with this name already exists." }, { status: 409 });
+    }
+    console.error("PATCH /api/additions failed:", error);
+    return NextResponse.json({ error: "Could not update the add-on." }, { status: 500 });
+  }
+}
+
 export async function DELETE(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const body = await request.json();
     const additionId = Number(body?.addition_id);

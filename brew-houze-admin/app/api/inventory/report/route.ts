@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { getSession } from "@/lib/sessions";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -8,6 +9,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // restocks, manual edits, order deductions, void/refund restorations,
 // and item creation/deletion.
 export async function GET(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const searchParams = new URL(request.url).searchParams;
     const end = searchParams.get("end") || new Date().toISOString().slice(0, 10);

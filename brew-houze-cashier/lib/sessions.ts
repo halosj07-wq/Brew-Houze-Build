@@ -113,3 +113,31 @@ export async function endAllSessions(adminId: number, reason: "password_reset" |
   await closeAttendanceIfSignedOutEverywhere(adminId, db);
   return result.rowCount ?? 0;
 }
+
+// This account's signed-in devices, with the one making the request marked as current.
+export async function listSessions(adminId: number, currentSessionId: string) {
+  const result = await pool.query(`
+    SELECT session_id, app, device_label, created_at, last_seen_at, token_hash = $2 AS is_current
+    FROM user_sessions
+    WHERE admin_id = $1 AND ended_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+    ORDER BY (token_hash = $2) DESC, last_seen_at DESC
+  `, [adminId, hashSessionId(currentSessionId)]);
+  return result.rows.map((row) => ({
+    id: Number(row.session_id),
+    app: String(row.app),
+    device: String(row.device_label ?? "Unknown device"),
+    signedInAt: row.created_at as string,
+    lastSeenAt: row.last_seen_at as string,
+    isCurrent: Boolean(row.is_current),
+  }));
+}
+
+// Signs the account out everywhere except the device making the request (after a password
+// change, or "Sign out other devices"). Attendance continues, since this device is still signed in.
+export async function endOtherSessions(adminId: number, currentSessionId: string, reason: "signed_out" | "password_reset"): Promise<number> {
+  const result = await pool.query(`
+    UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, end_reason = $3
+    WHERE admin_id = $1 AND token_hash <> $2 AND ended_at IS NULL
+  `, [adminId, hashSessionId(currentSessionId), reason]);
+  return result.rowCount ?? 0;
+}

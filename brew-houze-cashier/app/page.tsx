@@ -40,7 +40,7 @@ const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
   { id: "pos", label: "Point of Sale", Icon: IconGrid },
   { id: "queue", label: "Queue", Icon: IconList },
   { id: "reversals", label: "Void & Refund", Icon: IconUndo },
-  { id: "accounts", label: "Account Management", Icon: IconUsers },
+  { id: "accounts", label: "My Account", Icon: IconUsers },
 ];
 
 // The last queue number this terminal punched, kept across reloads for the rest of the shift.
@@ -106,28 +106,414 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
   </aside>;
 }
 
+// Initials on a colour picked from the name, so each cashier is recognisable at a glance.
+const avatarColors = ["#B45309", "#9A3412", "#6B4C3B", "#0F766E", "#7E22CE", "#1D4ED8", "#BE185D"];
+
+function UserAvatar({ name, size = 36 }: { name: string; size?: number }) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const initials = ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+  const color = avatarColors[Array.from(name).reduce((sum, character) => sum + character.charCodeAt(0), 0) % avatarColors.length];
+  return <span aria-hidden="true" className="flex items-center justify-center rounded-full" style={{ width: size, height: size, flexShrink: 0, background: color, color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: size * 0.38, boxShadow: "0 0 0 2px #FDF9F5, 0 0 0 4px rgba(217,119,6,0.35)" }}>{initials}</span>;
+}
+
+function IconSwitchUser({ size = 18 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="7" r="4" /><path d="M2 21v-1a6 6 0 0 1 6-6h2" /><path d="m16 14 3 3-3 3" /><path d="M22 17h-7" /></svg>;
+}
+
+function IconSignal({ size = 16 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.94 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></svg>;
+}
+
+type ConnectionState = "checking" | "online" | "slow" | "database" | "offline";
+
+// Round trips slower than this feel sluggish at the counter.
+const SLOW_CONNECTION_MS = 1500;
+const CONNECTION_CHECK_INTERVAL_MS = 20_000;
+const CONNECTION_TIMEOUT_MS = 8000;
+
+const connectionStyles: Record<ConnectionState, { label: string; color: string; background: string; border: string }> = {
+  checking: { label: "Checking…", color: "#6B4C3B", background: "#F3EDE5", border: "#E8DDD5" },
+  online: { label: "Online", color: "#15803D", background: "#F0FDF4", border: "#BBF7D0" },
+  slow: { label: "Slow connection", color: "#B45309", background: "#FEF3C7", border: "#FCD34D" },
+  database: { label: "Database issue", color: "#B91C1C", background: "#FEF2F2", border: "#FECACA" },
+  offline: { label: "Offline", color: "#B91C1C", background: "#FEF2F2", border: "#FECACA" },
+};
+
+// Shows whether the tablet has internet, reaches the Brew Houze server, and whether the database
+// answers (and how fast). Checks every 20 seconds while visible and whenever Wi-Fi drops or returns.
+function ConnectionIndicator() {
+  const [state, setState] = useState<ConnectionState>("checking");
+  const [internet, setInternet] = useState(true);
+  const [serverReachable, setServerReachable] = useState<boolean | null>(null);
+  const [roundTripMs, setRoundTripMs] = useState<number | null>(null);
+  const [dbMs, setDbMs] = useState<number | null>(null);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [open, setOpen] = useState(false);
+  const checking = useRef(false);
+
+  const check = useCallback(async () => {
+    if (checking.current) return;
+    checking.current = true;
+    const browserOnline = navigator.onLine;
+    setInternet(browserOnline);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), CONNECTION_TIMEOUT_MS);
+    const started = performance.now();
+    try {
+      const response = await fetch("/api/health", { cache: "no-store", signal: controller.signal });
+      const elapsed = Math.round(performance.now() - started);
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; dbMs?: number };
+      setServerReachable(true);
+      setRoundTripMs(elapsed);
+      setInternet(true);
+      if (!response.ok || !payload.ok) {
+        setDbMs(null);
+        setState("database");
+      } else {
+        setDbMs(typeof payload.dbMs === "number" ? payload.dbMs : null);
+        setState(elapsed > SLOW_CONNECTION_MS ? "slow" : "online");
+      }
+    } catch {
+      setServerReachable(false);
+      setRoundTripMs(null);
+      setDbMs(null);
+      setState("offline");
+    } finally {
+      window.clearTimeout(timeout);
+      setCheckedAt(new Date());
+      checking.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const whenVisible = () => { if (document.visibilityState === "visible") void check(); };
+    const wentOffline = () => { setInternet(false); setServerReachable(false); setState("offline"); setCheckedAt(new Date()); };
+    const first = window.setTimeout(() => void check(), 0);
+    const intervalId = window.setInterval(whenVisible, CONNECTION_CHECK_INTERVAL_MS);
+    window.addEventListener("online", whenVisible);
+    window.addEventListener("offline", wentOffline);
+    document.addEventListener("visibilitychange", whenVisible);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(intervalId);
+      window.removeEventListener("online", whenVisible);
+      window.removeEventListener("offline", wentOffline);
+      document.removeEventListener("visibilitychange", whenVisible);
+    };
+  }, [check]);
+
+  const style = connectionStyles[state];
+  const row = (label: string, value: string, ok: boolean | null) => <div className="flex items-center justify-between gap-4" style={{ padding: "7px 0", borderTop: "1px solid #F0E8E2", fontSize: 12.5 }}>
+    <span style={{ color: "#6B4C3B" }}>{label}</span>
+    <span className="flex items-center gap-1.5" style={{ color: ok === null ? "#9C8278" : ok ? "#15803D" : "#B91C1C", fontWeight: 700 }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: ok === null ? "#C9B8AF" : ok ? "#22C55E" : "#DC2626" }} />{value}
+    </span>
+  </div>;
+
+  return <div style={{ position: "relative" }}>
+    <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={`Connection: ${style.label}. Show details`} title="Connection status" className="connection-chip" style={{ display: "flex", alignItems: "center", gap: 7, height: 38, padding: "0 12px", borderRadius: 11, border: `1px solid ${style.border}`, background: style.background, color: style.color, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+      <span className={state === "online" ? "" : "connection-pulse"} style={{ width: 8, height: 8, borderRadius: "50%", background: style.color }} />
+      <IconSignal size={16} />
+      <span className="connection-label">{style.label}</span>
+    </button>
+    {open && <>
+      <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+      <div role="dialog" aria-label="Connection details" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 41, width: 290, padding: 14, borderRadius: 14, background: "#FFFFFF", border: "1px solid #E8DDD5", boxShadow: "0 16px 40px rgba(61,43,31,0.18)" }}>
+        <p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, color: style.color }}>{style.label}</p>
+        <p style={{ margin: "3px 0 8px", color: "#9C8278", fontSize: 11.5, lineHeight: 1.45 }}>{state === "online" ? "Orders and payments are saving normally." : state === "slow" ? "Saving works but responses are slow. Avoid tapping Checkout twice." : state === "database" ? "The server is up but the database is not answering. Orders cannot be saved right now." : state === "offline" ? (internet ? "The tablet has Wi-Fi but cannot reach the Brew Houze server." : "The tablet has no internet connection. Check the Wi-Fi.") : "Checking the connection…"}</p>
+        {row("Internet", internet ? "Connected" : "Not connected", internet)}
+        {row("Brew Houze server", serverReachable === null ? "Checking" : serverReachable ? `Reachable${roundTripMs !== null ? ` · ${roundTripMs} ms` : ""}` : "Not reachable", serverReachable)}
+        {row("Database", state === "checking" ? "Checking" : state === "database" ? "Not responding" : dbMs !== null ? `Responding · ${dbMs} ms` : "Unknown", state === "checking" ? null : state === "database" || state === "offline" ? false : dbMs !== null)}
+        <div className="flex items-center justify-between gap-3" style={{ marginTop: 10 }}>
+          <span style={{ color: "#9C8278", fontSize: 11 }}>{checkedAt ? `Checked ${checkedAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+          <button type="button" onClick={() => void check()} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "7px 12px", background: "#F3EDE5", color: "#3D2B1F", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Check again</button>
+        </div>
+      </div>
+    </>}
+  </div>;
+}
+
 function TopBar({ page, user, shift, onOpenShift, onCloseShift, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onAccount: () => void; onRequestLogout: () => void }) {
-  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : "Account Management";
-  return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
-    <div className="flex items-center gap-4" style={{ color: "#9C8278" }}>
-      <span className="flex items-center gap-2"><IconChevron size={14} /><span style={{ fontSize: 13 }}>{title}</span></span>
+  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : "My Account";
+  const isAdmin = user.role.toLowerCase() === "admin";
+  return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
+    <div className="flex items-center gap-4 min-w-0">
+      <span className="topbar-title" style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F", whiteSpace: "nowrap" }}>{title}</span>
       <ShiftChip shift={shift} onOpenShift={onOpenShift} onCloseShift={onCloseShift} />
     </div>
-    <div className="flex items-center gap-5">
-      <div className="text-right"><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: "#3D2B1F" }}>Brew Houze Cafe</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#D97706", letterSpacing: "0.06em" }}>CASHIER PORTAL</p></div>
-      <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-        <button type="button" onClick={onAccount} title="Open Account Management" aria-label="Open Account Management" className="flex items-center gap-3" style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
-          <div className="flex items-center justify-center rounded-full text-white font-bold text-sm" style={{ width: 34, height: 34, background: "#3D2B1F" }}>{user.fullName.charAt(0).toUpperCase()}</div>
-          <div><p style={{ fontWeight: 700, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3, margin: 0 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize", margin: "2px 0 0" }}>{user.role}</p></div>
-          <span aria-hidden="true" style={{ color: "#9C8278", fontSize: 16 }}>›</span>
-        </button>
-        <button onClick={onRequestLogout} title="Sign out so another cashier can sign in" style={{ border: "none", borderLeft: "1px solid #D8C8BE", background: "transparent", color: "#9C8278", cursor: "pointer", fontSize: 12, padding: "8px 0 8px 11px" }}>Switch cashier</button>
-      </div>
+    <div className="flex items-center gap-2.5">
+      <ConnectionIndicator />
+      <button type="button" onClick={onAccount} aria-label={`My account: ${user.fullName}`} title="My account" className="topbar-profile" style={{ display: "flex", alignItems: "center", gap: 10, height: 46, padding: "0 12px 0 6px", borderRadius: 13, border: page === "accounts" ? "1px solid #D97706" : "1px solid #E8DDD5", background: page === "accounts" ? "#FFF7ED" : "#FFFFFF", cursor: "pointer", textAlign: "left" }}>
+        <UserAvatar name={user.fullName} size={34} />
+        <span className="topbar-profile-text flex flex-col" style={{ lineHeight: 1.2 }}>
+          <strong style={{ fontSize: 13, color: "#3D2B1F", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.fullName}</strong>
+          <span style={{ alignSelf: "flex-start", marginTop: 3, padding: "1px 7px", borderRadius: 999, background: isAdmin ? "#3D2B1F" : "#FFF7ED", color: isAdmin ? "#FDF9F5" : "#C2410C", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>{isAdmin ? "Admin" : "Cashier"}</span>
+        </span>
+      </button>
+      <button type="button" onClick={onRequestLogout} title="Sign out so another cashier can sign in" className="topbar-switch" style={{ display: "flex", alignItems: "center", gap: 8, height: 46, padding: "0 14px", borderRadius: 13, border: "none", background: "#3D2B1F", color: "#FDF9F5", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 14px rgba(61,43,31,0.18)" }}>
+        <IconSwitchUser size={18} />
+        <span className="topbar-switch-label">Switch cashier</span>
+      </button>
     </div>
   </header>;
 }
 
+type AccountDevice = { id: number; app: string; device: string; signedInAt: string; lastSeenAt: string; isCurrent: boolean };
+type AccountDetails = { createdAt: string | null; clockedInAt: string | null; shift: { shiftId: number; openedAt: string; orders: number; sales: number; reversals: number } | null; devices: AccountDevice[] };
+
+function formatDuration(fromIso: string, now: number): string {
+  const minutes = Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 60_000));
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+function AccountSection({ eyebrow, title, action, children }: { eyebrow: string; title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return <section className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 20, boxShadow: "0 4px 14px rgba(61,43,31,0.04)" }}>
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>{eyebrow}</p>
+        <h2 style={{ margin: "5px 0 0", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 19 }}>{title}</h2>
+      </div>
+      {action}
+    </div>
+    <div style={{ marginTop: 14 }}>{children}</div>
+  </section>;
+}
+
+function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void }) {
+  const [details, setDetails] = useState<AccountDetails | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [devicesMessage, setDevicesMessage] = useState("");
+  const [signingOutOthers, setSigningOutOthers] = useState(false);
+
+  const loadDetails = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/account", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to load your account.");
+      setDetails(payload.data as AccountDetails);
+      setLoadError("");
+      setNow(Date.now());
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load your account.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const first = window.setTimeout(() => void loadDetails(), 0);
+    const intervalId = window.setInterval(() => { if (document.visibilityState === "visible") void loadDetails(); }, 30_000);
+    return () => { window.clearTimeout(first); window.clearInterval(intervalId); };
+  }, [loadDetails]);
+
+  async function signOutOtherDevices() {
+    setSigningOutOthers(true);
+    setDevicesMessage("");
+    try {
+      const response = await fetch("/api/auth/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sign_out_other_devices" }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not sign out the other devices.");
+      const count = Number(payload.data?.signedOutDevices ?? 0);
+      setDevicesMessage(count > 0 ? `Signed out ${count} other device${count === 1 ? "" : "s"}.` : "No other devices were signed in.");
+      await loadDetails();
+    } catch (error) {
+      setDevicesMessage(error instanceof Error ? error.message : "Could not sign out the other devices.");
+    } finally {
+      setSigningOutOthers(false);
+    }
+  }
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordMessage("");
+    setPasswordError("");
+    if (newPassword.length < 8) { setPasswordError("Use at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setPasswordError("The new passwords do not match."); return; }
+    setSavingPassword(true);
+    try {
+      const response = await fetch("/api/auth/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to change password.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      const count = Number(payload.data?.signedOutDevices ?? 0);
+      setPasswordMessage(`Password changed.${count > 0 ? ` ${count} other device${count === 1 ? " was" : "s were"} signed out.` : ""}`);
+      await loadDetails();
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "Unable to change password.");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  const isAdmin = user.role.toLowerCase() === "admin";
+  const currentDevice = details?.devices.find((device) => device.isCurrent);
+  const otherDevices = (details?.devices ?? []).filter((device) => !device.isCurrent);
+  const stat = (label: string, value: string, sub?: string) => <div className="rounded-xl" style={{ padding: "12px 14px", background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+    <p style={{ margin: 0, color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</p>
+    <p style={{ margin: "5px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 22, color: "#3D2B1F" }}>{value}</p>
+    {sub && <p style={{ margin: "2px 0 0", color: "#9C8278", fontSize: 11.5 }}>{sub}</p>}
+  </div>;
+  const permission = (label: string, allowed: boolean) => <div className="flex items-center gap-3" style={{ padding: "10px 12px", borderRadius: 12, background: allowed ? "#F0FDF4" : "#FFFFFF", border: `1px solid ${allowed ? "#BBF7D0" : "#F0E8E2"}` }}>
+    <span className="flex items-center justify-center rounded-full" style={{ width: 26, height: 26, background: allowed ? "#16A34A" : "#E8DDD5", color: "#FFFFFF", fontWeight: 800, fontSize: 13 }}>{allowed ? "✓" : "–"}</span>
+    <span style={{ fontSize: 13.5, color: "#3D2B1F", fontWeight: 600 }}>{label}</span>
+    <span style={{ marginLeft: "auto", color: allowed ? "#15803D" : "#9C8278", fontSize: 12, fontWeight: 700 }}>{allowed ? "Allowed" : "Not allowed"}</span>
+  </div>;
+
+  return <main className="account-page p-6" style={{ maxWidth: 1180 }}>
+    <section className="account-hero rounded-2xl flex items-center gap-5" style={{ padding: 22, background: "linear-gradient(135deg, #3D2B1F 0%, #5B4030 100%)", color: "#FDF9F5", boxShadow: "0 10px 30px rgba(61,43,31,0.18)" }}>
+      <UserAvatar name={user.fullName} size={68} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26 }}>{user.fullName}</h1>
+          <span style={{ padding: "2px 9px", borderRadius: 999, background: isAdmin ? "#FDF9F5" : "#D97706", color: isAdmin ? "#3D2B1F" : "#FFFFFF", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase" }}>{isAdmin ? "Admin" : "Cashier"}</span>
+        </div>
+        <p style={{ margin: "5px 0 0", color: "rgba(253,249,245,0.75)", fontSize: 13.5 }}>{user.email}</p>
+        <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
+      </div>
+      <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconSwitchUser size={17} />Switch cashier</button>
+    </section>
+
+    {loadError && <p style={{ margin: "14px 0 0", padding: "10px 14px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{loadError}</p>}
+
+    <div className="account-grid grid gap-5" style={{ marginTop: 20, gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", alignItems: "start" }}>
+      <div className="flex flex-col gap-5">
+        <AccountSection eyebrow="Today" title="This shift">
+          {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : <>
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))" }}>
+              {stat("Clocked in", details.clockedInAt ? new Date(details.clockedInAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) : "—", details.clockedInAt ? `for ${formatDuration(details.clockedInAt, now)}` : "Not clocked in")}
+              {stat("Orders you punched", details.shift ? String(details.shift.orders) : "—", details.shift ? `₱${details.shift.sales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in sales` : "No shift open")}
+              {stat("Voids & refunds", details.shift ? String(details.shift.reversals) : "—", details.shift ? "made by you this shift" : undefined)}
+            </div>
+            {!details.shift && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>No shift is open. Totals appear once a shift is opened.</p>}
+          </>}
+        </AccountSection>
+
+        <AccountSection eyebrow="Access" title="What you can do">
+          <div className="flex flex-col gap-2">
+            {permission("Take orders & checkout", true)}
+            {permission("Void orders", Boolean(user.canVoidOrders))}
+            {permission("Refund orders", Boolean(user.canRefundOrders))}
+          </div>
+          {!isAdmin && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Permissions are set by an admin in the admin portal.</p>}
+        </AccountSection>
+
+        <AccountSection eyebrow="Security" title="Signed-in devices" action={otherDevices.length > 0 ? <button type="button" onClick={() => void signOutOtherDevices()} disabled={signingOutOthers} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 12px", background: "#FEF2F2", color: "#B91C1C", fontSize: 12, fontWeight: 700, cursor: signingOutOthers ? "default" : "pointer", whiteSpace: "nowrap" }}>{signingOutOthers ? "Signing out…" : "Sign out other devices"}</button> : undefined}>
+          {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : <div className="flex flex-col" style={{ border: "1px solid #F0E8E2", borderRadius: 12, overflow: "hidden", background: "#FFFFFF" }}>
+            {details.devices.map((device, index) => <div key={device.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", fontSize: 13 }}>
+              <span>
+                <strong style={{ color: "#3D2B1F" }}>{device.device}</strong>
+                {device.isCurrent && <span style={{ marginLeft: 8, padding: "1px 7px", borderRadius: 999, background: "#DCFCE7", color: "#15803D", fontSize: 10.5, fontWeight: 800 }}>This device</span>}
+                <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+              </span>
+            </div>)}
+          </div>}
+          {devicesMessage && <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 12.5 }}>{devicesMessage}</p>}
+        </AccountSection>
+      </div>
+
+      <AccountSection eyebrow="Security" title="Change password">
+        <form onSubmit={changePassword} className="flex flex-col">
+          <div style={{ marginTop: -16 }} />
+          <AuthPasswordField label="Current password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" placeholder="Your current password" />
+          <AuthPasswordField label="New password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" placeholder="At least 8 characters" />
+          <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
+          <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+            <li style={{ color: newPassword.length >= 8 ? "#15803D" : "#9C8278" }}>{newPassword.length >= 8 ? "✓" : "•"} At least 8 characters</li>
+            <li style={{ color: confirmPassword !== "" && newPassword === confirmPassword ? "#15803D" : "#9C8278" }}>{confirmPassword !== "" && newPassword === confirmPassword ? "✓" : "•"} Both new passwords match</li>
+          </ul>
+          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Changing your password signs out your other devices. This tablet stays signed in.</p>
+          {passwordError && <AuthAlert tone="error">{passwordError}</AuthAlert>}
+          {passwordMessage && <AuthAlert tone="success">{passwordMessage}</AuthAlert>}
+          <button type="submit" disabled={savingPassword} className="login-submit">{savingPassword ? "Saving…" : "Change password"}</button>
+        </form>
+      </AccountSection>
+    </div>
+  </main>;
+}
+
+
 const ADDONS_TAB = "__addons__";
+
+// ─── Windows ─────────────────────────────────────────────────────────────────
+// Every pop-up window uses this frame. It closes with Escape or a tap on the backdrop (unless
+// something is saving), keeps keyboard focus inside the window, returns focus to whatever opened
+// it, and stops the page behind from scrolling. On phones it opens as a sheet from the bottom.
+const openModals: symbol[] = [];
+
+function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60, children }: { onClose: () => void; closeDisabled?: boolean; label?: string; labelledBy?: string; zIndex?: number; children: React.ReactNode }) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const latest = useRef({ onClose, closeDisabled });
+  useEffect(() => { latest.current = { onClose, closeDisabled }; });
+
+  useEffect(() => {
+    const id = Symbol("modal");
+    openModals.push(id);
+    const backdrop = backdropRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(backdrop?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])
+      .filter((element) => element.offsetParent !== null);
+    if (backdrop && !backdrop.contains(document.activeElement)) {
+      (backdrop.querySelector<HTMLElement>("[data-autofocus]") ?? focusable()[0] ?? backdrop).focus();
+    }
+    // Pages scroll inside .app-content rather than the body, so lock those while a window is open.
+    const scrollers = Array.from(document.querySelectorAll<HTMLElement>(".app-content"));
+    const previousOverflow = scrollers.map((element) => element.style.overflowY);
+    scrollers.forEach((element) => { element.style.overflowY = "hidden"; });
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Only the top-most window reacts when windows are stacked.
+      if (openModals[openModals.length - 1] !== id) return;
+      if (event.key === "Escape") {
+        if (!latest.current.closeDisabled) {
+          event.preventDefault();
+          latest.current.onClose();
+        }
+      } else if (event.key === "Tab") {
+        const items = focusable();
+        if (items.length === 0) { event.preventDefault(); return; }
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !backdrop?.contains(document.activeElement))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      openModals.splice(openModals.indexOf(id), 1);
+      scrollers.forEach((element, index) => { element.style.overflowY = previousOverflow[index]; });
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+
+  return <div
+    ref={backdropRef}
+    className="ui-modal-backdrop"
+    style={{ zIndex }}
+    role="dialog"
+    aria-modal="true"
+    aria-label={labelledBy ? undefined : label}
+    aria-labelledby={labelledBy}
+    tabIndex={-1}
+    // mousedown (not click), so dragging a text selection out of the window does not close it.
+    onMouseDown={(event) => { if (event.target === event.currentTarget && !closeDisabled) onClose(); }}
+  >
+    {children}
+  </div>;
+}
 
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
@@ -509,7 +895,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     </aside>
 
     {selectionProduct && (
-      <div role="dialog" aria-modal="true" aria-label={`Choose ${selectionProduct.product_name}`} onClick={() => setSelectionProduct(null)} style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, background: "rgba(61,43,31,0.42)" }}>
+      <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
             <div>
@@ -530,7 +916,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
           </div>
           <button type="button" onClick={() => setSelectionProduct(null)} style={{ width: "100%", marginTop: 14, padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 9, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontWeight: 600 }}>Cancel</button>
         </section>
-      </div>
+      </Modal>
     )}
   </main>;
 }
@@ -878,7 +1264,7 @@ function ReversalsPage({ user }: { user: Session }) {
         })}
       </div>}
 
-    {pendingAction && <div role="dialog" aria-modal="true" aria-labelledby="reverse-order-title" onClick={() => { if (!submitting) setPendingAction(null); }} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.4)" }}>
+    {pendingAction && <Modal onClose={() => setPendingAction(null)} closeDisabled={submitting} labelledBy="reverse-order-title" zIndex={50}>
       <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 480px)", maxHeight: "88vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
         <div style={{ padding: "18px 22px", background: pendingAction.action === "void" ? "#FEF2F2" : "#FAF5FF", borderBottom: `1px solid ${pendingAction.action === "void" ? "#FECACA" : "#E9D5FF"}` }}>
           <div className="flex items-start justify-between gap-3">
@@ -910,91 +1296,20 @@ function ReversalsPage({ user }: { user: Session }) {
           </div>
         </div>
       </section>
-    </div>}
+    </Modal>}
   </main>;
 }
 
-function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void }) {
-  const [createdAt, setCreatedAt] = useState<string | null>(null);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    const loadAccount = async () => {
-      const response = await fetch("/api/auth/account", { cache: "no-store" });
-      if (response.ok) {
-        const payload = await response.json();
-        setCreatedAt(payload.data?.createdAt ?? null);
-      }
-    };
-    void loadAccount();
-  }, []);
-
-  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage("");
-    setError("");
-    if (newPassword !== confirmPassword) {
-      setError("New passwords do not match.");
-      return;
-    }
-    setSaving(true);
-    try {
-      const response = await fetch("/api/auth/account", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Unable to change password.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setMessage("Password changed successfully.");
-    } catch (changeError) {
-      setError(changeError instanceof Error ? changeError.message : "Unable to change password.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return <main className="p-8" style={{ maxWidth: 1280 }}>
-    <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 28, color: "#3D2B1F", margin: 0 }}>Account Management</h1>
-    <div className="flex items-start justify-between gap-4"><div><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13 }}>View your cashier access and manage your account password.</p></div><button type="button" onClick={onSignOut} style={{ border: "1px solid #FECACA", borderRadius: 9, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>Sign out</button></div>
-    <div className="grid gap-5 mt-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
-      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>My account</p>
-        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>{user.fullName}</h2>
-        <div style={{ display: "grid", gap: 12, color: "#6B4C3B", fontSize: 13 }}>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Email</span>{user.email}</div>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Role</span><span style={{ textTransform: "capitalize" }}>{user.role}</span></div>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Permissions</span>{user.canVoidOrders || user.canRefundOrders ? <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 5 }}>{user.canVoidOrders && <span style={{ padding: "4px 8px", borderRadius: 20, background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700 }}>Can void orders</span>}{user.canRefundOrders && <span style={{ padding: "4px 8px", borderRadius: 20, background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700 }}>Can refund orders</span>}</div> : <span style={{ color: "#9C8278" }}>No reversal permissions</span>}</div>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Account created</span><span style={{ color: "#9C8278" }}>{createdAt ? new Date(createdAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not available in the database"}</span></div>
-        </div>
-      </section>
-      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Security</p>
-        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>Change password</h2>
-        {message && <p style={{ color: "#166534", fontSize: 13 }}>{message}</p>}{error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
-        <form onSubmit={changePassword} className="flex flex-col gap-3"><label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Current password</span><input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label><label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>New password</span><input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label><label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Confirm new password</span><input type="password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label><button type="submit" disabled={saving} style={{ marginTop: 6, border: "none", borderRadius: 9, padding: "11px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: saving ? "default" : "pointer", fontWeight: 700 }}>{saving ? "Saving..." : "Change password"}</button></form>
-      </section>
-    </div>
-  </main>;
-}
 
 function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => void; onConfirm: () => void; signingOut: boolean }) {
-  return <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.4)", zIndex: 100 }} role="dialog" aria-modal="true" aria-labelledby="sign-out-title">
+  return <Modal onClose={onCancel} closeDisabled={signingOut} labelledBy="sign-out-title" zIndex={100}>
     <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 380px)", background: "#FDF9F5", boxShadow: "0 20px 60px rgba(61,43,31,0.25)" }}>
       <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Session</p>
       <h2 id="sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Switch cashier?</h2>
       <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This signs you out so the next cashier can sign in. Your attendance ends unless you are still signed in on another device.</p>
       <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={onCancel} disabled={signingOut} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: signingOut ? "default" : "pointer" }}>Cancel</button><button type="button" onClick={onConfirm} disabled={signingOut} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: signingOut ? "#C9B8AF" : "#B91C1C", color: "#FFF", cursor: signingOut ? "default" : "pointer", fontWeight: 700 }}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
     </div>
-  </div>;
+  </Modal>;
 }
 
 function LoginEyeIcon({ hidden }: { hidden: boolean }) {
@@ -1287,14 +1602,14 @@ function ShiftChip({ shift, onOpenShift, onCloseShift }: { shift: CurrentShift |
   if (shift === null) {
     return <div className="flex items-center gap-2 rounded-xl" style={{ padding: "5px 6px 5px 12px", background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 12.5, fontWeight: 700 }}>
       <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#DC2626" }} />
-      No open shift
+      <span className="shift-chip-text">No open shift</span>
       <button type="button" onClick={onOpenShift} style={{ ...chipButton, background: "#D97706", color: "#FFFFFF" }}>Open shift</button>
     </div>;
   }
   const longShift = shift.hoursOpen >= LONG_SHIFT_HOURS;
   return <div className="flex items-center gap-2 rounded-xl" title={longShift ? "This shift has been open unusually long. Close it at the end of the business day." : undefined} style={{ padding: "5px 6px 5px 12px", background: longShift ? "#FEF3C7" : "#F0FDF4", border: `1px solid ${longShift ? "#FCD34D" : "#BBF7D0"}`, color: longShift ? "#B45309" : "#15803D", fontSize: 12.5, fontWeight: 700 }}>
     <span style={{ width: 8, height: 8, borderRadius: "50%", background: longShift ? "#F59E0B" : "#22C55E" }} />
-    <span>Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
+    <span className="shift-chip-text">Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
     <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>
   </div>;
 }
@@ -1326,8 +1641,8 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
     }
   }
 
-  return <main style={{ height: "100%", minHeight: 420, display: "grid", placeItems: "center", padding: 24 }}>
-    <form onSubmit={openShift} className="rounded-2xl" style={{ width: "min(100%, 440px)", background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 16px 40px rgba(61,43,31,0.12)", padding: 28 }}>
+  return <main style={{ height: "100%", minHeight: 420, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", placeItems: "center", padding: 24 }}>
+    <form onSubmit={openShift} className="rounded-2xl" style={{ width: "100%", maxWidth: 440, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 16px 40px rgba(61,43,31,0.12)", padding: 28 }}>
       <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Start of business day</p>
       <h2 style={{ margin: "6px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 26, fontWeight: 800, color: "#3D2B1F" }}>Open a shift</h2>
       <p style={{ margin: "8px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.55 }}>Sales, queue numbers, employee attendance and stock changes are recorded under this shift until it is closed, even past midnight.</p>
@@ -1408,7 +1723,7 @@ function CloseShiftDialog({ shiftId, onCancel, onClosed }: { shiftId: number; on
   const liveDifference = summary && countedCash.trim() !== "" && Number.isFinite(counted) ? describeCashDifference(counted - summary.expectedCash) : null;
   const sectionLabel: React.CSSProperties = { margin: "16px 0 4px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase" };
 
-  return <div role="dialog" aria-modal="true" aria-labelledby="close-shift-title" onClick={() => { if (!closing && !closedSummary) onCancel(); }} style={{ position: "fixed", inset: 0, zIndex: 70, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.45)" }}>
+  return <Modal onClose={onCancel} closeDisabled={closing || Boolean(closedSummary)} labelledBy="close-shift-title" zIndex={70}>
     <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 500px)", maxHeight: "90vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
       {closedSummary ? (
         <div style={{ padding: 26, textAlign: "center" }}>
@@ -1479,7 +1794,7 @@ function CloseShiftDialog({ shiftId, onCancel, onClosed }: { shiftId: number; on
         </div>
       </>}
     </section>
-  </div>;
+  </Modal>;
 }
 
 export default function App() {

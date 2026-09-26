@@ -1,10 +1,10 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "inventory" | "additions" | "products" | "finance" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "inventory" | "products" | "finance" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -32,27 +32,6 @@ type InventoryItem = {
 
 // How a stock item is bought, e.g. "Nescafe Bean Bag 1 kg" containing 1000 grams of Coffee Bean.
 type InventoryPackaging = { packagingId: number; name: string; brand: string | null; contentQuantity: number | string; lastPackPrice: number | string | null; lastRestockedAt: string | null };
-
-type InventoryUsageGroup = "unused" | "recipe" | "direct" | "both";
-
-const inventoryUsageGroupOrder: InventoryUsageGroup[] = ["unused", "recipe", "direct", "both"];
-const inventoryUsageGroupLabels: Record<InventoryUsageGroup, string> = {
-  unused: "Not used · not linked to any product or add-on yet",
-  recipe: "Used in recipes · consumed by recipe products or add-ons",
-  direct: "Sold directly · linked to a direct-sale product",
-  both: "Used in recipes and sold directly",
-};
-
-// Groups by how active products consume the item: as a recipe component (including add-ons),
-// as the stock behind a direct-sale product, or both.
-function getInventoryUsageGroup(item: InventoryItem): InventoryUsageGroup {
-  const inRecipes = (item.recipe_products?.length ?? 0) + (item.addition_names?.length ?? 0) > 0;
-  const soldDirectly = (item.direct_sale_products?.length ?? 0) > 0;
-  if (inRecipes && soldDirectly) return "both";
-  if (soldDirectly) return "direct";
-  if (inRecipes) return "recipe";
-  return "unused";
-}
 
 function toOptionalNumber(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -104,22 +83,10 @@ type AdditionItem = {
 
 type ProductCategory = { id: number; name: string };
 
-const inventoryUnits = ["mL", "L", "grams", "kg", "oz", "Pieces", "Bottles", "Boxes", "Packs", "Sachets"] as const;
-const fixedLowStockThresholds: Record<(typeof inventoryUnits)[number], number> = {
-  "mL": 500,
-  L: 2,
-  grams: 500,
-  kg: 2,
-  oz: 16,
-  Pieces: 10,
-  Bottles: 3,
-  Boxes: 3,
-  Packs: 5,
-  Sachets: 20,
-};
-const wholeUnitInventoryUnits: ReadonlySet<(typeof inventoryUnits)[number]> = new Set(["Pieces", "Bottles", "Boxes", "Packs", "Sachets"]);
+type InventoryUnit = "mL" | "L" | "grams" | "kg" | "oz" | "Pieces" | "Bottles" | "Boxes" | "Packs" | "Sachets";
+const wholeUnitInventoryUnits: ReadonlySet<InventoryUnit> = new Set(["Pieces", "Bottles", "Boxes", "Packs", "Sachets"]);
 
-function normalizeInventoryUnit(value: string): (typeof inventoryUnits)[number] | null {
+function normalizeInventoryUnit(value: string): InventoryUnit | null {
   const normalized = value.trim().toLowerCase();
   if (normalized === "ml") return "mL";
   if (normalized === "l" || normalized === "liter" || normalized === "liters" || normalized === "litre" || normalized === "litres") return "L";
@@ -132,11 +99,6 @@ function normalizeInventoryUnit(value: string): (typeof inventoryUnits)[number] 
   if (normalized === "pack" || normalized === "packs" || normalized === "packet" || normalized === "packets") return "Packs";
   if (normalized === "sachet" || normalized === "sachets") return "Sachets";
   return null;
-}
-
-function getFixedLowStockThreshold(unit: string): number {
-  const normalized = normalizeInventoryUnit(unit);
-  return normalized ? fixedLowStockThresholds[normalized] : 0;
 }
 
 function isWholeUnit(unit: string): boolean {
@@ -155,9 +117,6 @@ function IconDollar({ size = 20 }: { size?: number }) {
 }
 function IconUsers({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
-}
-function IconUser({ size = 20 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
 }
 function IconSearch({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
@@ -215,277 +174,1004 @@ function IconRotateCcw({ size = 14 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>;
 }
 
-const navItems: { id: Page; label: string; Icon: React.FC<{ size?: number }> }[] = [
-  { id: "dashboard", label: "Dashboard", Icon: IconGrid },
-  { id: "inventory", label: "Inventory", Icon: IconBox },
-  { id: "products", label: "Product Management", Icon: IconTag },
-  { id: "additions", label: "Additions Management", Icon: IconSparkle },
-  { id: "finance", label: "Finance", Icon: IconDollar },
-  { id: "accounts", label: "Accounts & Employees", Icon: IconUsers },
-  { id: "archives", label: "Archives", Icon: IconArchive },
-  { id: "account", label: "Account Management", Icon: IconUser },
-];
+// ─── Windows ─────────────────────────────────────────────────────────────────
+// Every pop-up window uses this frame. It closes with Escape or a tap on the backdrop (unless
+// something is saving), keeps keyboard focus inside the window, returns focus to whatever opened
+// it, and stops the page behind from scrolling. On phones it opens as a sheet from the bottom.
+const openModals: symbol[] = [];
 
-function Sidebar({ current, collapsed, onChange, onToggle }: { current: Page; collapsed: boolean; onChange: (p: Page) => void; onToggle: () => void }) {
-  return (
-    <aside style={{ background: "#3D2B1F", minHeight: "100vh", width: collapsed ? 52 : 240, flexShrink: 0 }} className={`app-sidebar ${collapsed ? "is-collapsed" : "is-expanded"} flex flex-col`}>
-      <div className="flex items-center gap-3 px-6 py-7 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-        <div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#D97706" }}><IconCoffee size={20} /></div>
-        <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 14, color: "#FDF9F5", lineHeight: 1.2 }}>Brew Houze</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.45)", letterSpacing: "0.05em" }}>CAFE</p></div>
-      </div>
-      <div className="sidebar-toggle-row"><button onClick={onToggle} title={collapsed ? "Expand sidebar" : "Minimize sidebar"} aria-label={collapsed ? "Expand sidebar" : "Minimize sidebar"} style={{ width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #6B4C3B", borderRadius: 6, background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", boxShadow: "0 2px 6px rgba(61,43,31,0.2)", transform: collapsed ? "rotate(180deg)" : "none" }}><IconChevron size={14} /></button></div>
-      <nav className="flex flex-col gap-1 px-3 pt-5 flex-1">
-        {navItems.map(({ id, label, Icon }) => {
-          const active = current === id;
-          return <button key={id} onClick={() => onChange(id)} className="flex items-center gap-3 py-3 rounded-xl text-left transition-all duration-150 w-full" style={{ paddingLeft: collapsed ? 0 : id === "additions" ? 32 : 16, paddingRight: collapsed ? 0 : 16, background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: id === "additions" ? 12.5 : 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}><Icon size={id === "additions" ? 15 : 17} /><span>{label}</span></button>;
-        })}
-      </nav>
-      <div className="px-6 py-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.25)", letterSpacing: "0.04em" }}>v1.0.0 — Admin Panel</p></div>
-    </aside>
-  );
+function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60, children }: { onClose: () => void; closeDisabled?: boolean; label?: string; labelledBy?: string; zIndex?: number; children: React.ReactNode }) {
+  const backdropRef = useRef<HTMLDivElement>(null);
+  const latest = useRef({ onClose, closeDisabled });
+  useEffect(() => { latest.current = { onClose, closeDisabled }; });
+
+  useEffect(() => {
+    const id = Symbol("modal");
+    openModals.push(id);
+    const backdrop = backdropRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => Array.from(backdrop?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])
+      .filter((element) => element.offsetParent !== null);
+    if (backdrop && !backdrop.contains(document.activeElement)) {
+      (backdrop.querySelector<HTMLElement>("[data-autofocus]") ?? focusable()[0] ?? backdrop).focus();
+    }
+    // Pages scroll inside .app-content rather than the body, so lock those while a window is open.
+    const scrollers = Array.from(document.querySelectorAll<HTMLElement>(".app-content"));
+    const previousOverflow = scrollers.map((element) => element.style.overflowY);
+    scrollers.forEach((element) => { element.style.overflowY = "hidden"; });
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Only the top-most window reacts when windows are stacked.
+      if (openModals[openModals.length - 1] !== id) return;
+      if (event.key === "Escape") {
+        if (!latest.current.closeDisabled) {
+          event.preventDefault();
+          latest.current.onClose();
+        }
+      } else if (event.key === "Tab") {
+        const items = focusable();
+        if (items.length === 0) { event.preventDefault(); return; }
+        const first = items[0];
+        const last = items[items.length - 1];
+        if (event.shiftKey && (document.activeElement === first || !backdrop?.contains(document.activeElement))) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      openModals.splice(openModals.indexOf(id), 1);
+      scrollers.forEach((element, index) => { element.style.overflowY = previousOverflow[index]; });
+      previouslyFocused?.focus?.();
+    };
+  }, []);
+
+  return <div
+    ref={backdropRef}
+    className="ui-modal-backdrop"
+    style={{ zIndex }}
+    role="dialog"
+    aria-modal="true"
+    aria-label={labelledBy ? undefined : label}
+    aria-labelledby={labelledBy}
+    tabIndex={-1}
+    // mousedown (not click), so dragging a text selection out of the window does not close it.
+    onMouseDown={(event) => { if (event.target === event.currentTarget && !closeDisabled) onClose(); }}
+  >
+    {children}
+  </div>;
 }
 
-function TopBar({ page, user, onAccount, onRequestLogout }: { page: Page; user: AdminSession; onAccount: () => void; onRequestLogout: () => void }) {
-  const titles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management", archives: "Archives" };
-  return <header className="app-topbar flex items-center justify-between px-8 py-4 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
-    <div className="flex items-center gap-2" style={{ color: "#9C8278" }}><IconChevron size={14} /><span style={{ fontFamily: "Inter, sans-serif", fontSize: 13 }}>{titles[page]}</span></div>
-    <div className="flex items-center gap-5">
-      <div className="text-right"><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: "#3D2B1F" }}>Brew Houze Cafe</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#D97706", letterSpacing: "0.06em" }}>ADMIN DASHBOARD</p></div>
-      <div className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-        <button type="button" onClick={onAccount} title="Open Account Management" aria-label="Open Account Management" className="flex items-center gap-3" style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", textAlign: "left" }}>
-          <div className="flex items-center justify-center rounded-full text-white font-bold text-sm" style={{ width: 34, height: 34, background: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif" }}>{user.fullName.charAt(0).toUpperCase()}</div>
-          <div><p style={{ fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3, margin: 0 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize", margin: "2px 0 0" }}>{user.role}</p></div>
-          <span aria-hidden="true" style={{ color: "#9C8278", fontSize: 16 }}>›</span>
-        </button>
-        <button onClick={onRequestLogout} title="Sign out" style={{ border: "none", borderLeft: "1px solid #D8C8BE", background: "transparent", color: "#9C8278", cursor: "pointer", fontFamily: "Inter, sans-serif", fontSize: 12, padding: "8px 0 8px 11px" }}>Sign out</button>
+// Confirmation dialog in the Brew Houze style, replacing the browser's confirm() pop-up.
+// Usage: const confirmAction = useConfirm(); if (!(await confirmAction({ title, message }))) return;
+// Destructive confirmations focus "Cancel" first, so an accidental Enter never deletes anything.
+type ConfirmOptions = { title: string; message: React.ReactNode; confirmLabel?: string; cancelLabel?: string; tone?: "danger" | "default" };
+type ConfirmRequest = ConfirmOptions & { resolve: (confirmed: boolean) => void };
+
+const ConfirmContext = createContext<(options: ConfirmOptions) => Promise<boolean>>(async () => false);
+
+function useConfirm() {
+  return useContext(ConfirmContext);
+}
+
+function ConfirmProvider({ children }: { children: React.ReactNode }) {
+  const [request, setRequest] = useState<ConfirmRequest | null>(null);
+  const confirm = useCallback((options: ConfirmOptions) => new Promise<boolean>((resolve) => {
+    setRequest((previous) => {
+      previous?.resolve(false);
+      return { ...options, resolve };
+    });
+  }), []);
+
+  function settle(confirmed: boolean) {
+    if (!request) return;
+    request.resolve(confirmed);
+    setRequest(null);
+  }
+
+  const danger = request?.tone !== "default";
+  return <ConfirmContext.Provider value={confirm}>
+    {children}
+    {request && <Modal onClose={() => settle(false)} labelledBy="ui-confirm-title" zIndex={200}>
+      <section className="ui-confirm">
+        <div className="ui-confirm-icon" data-tone={danger ? "danger" : "default"} aria-hidden="true">{danger ? "!" : "?"}</div>
+        <h2 id="ui-confirm-title">{request.title}</h2>
+        <div className="ui-confirm-message">{request.message}</div>
+        <div className="ui-confirm-actions">
+          <button type="button" className="ui-button ui-button-secondary" onClick={() => settle(false)} data-autofocus>{request.cancelLabel ?? "Cancel"}</button>
+          <button type="button" className={`ui-button ${danger ? "ui-button-danger" : "ui-button-primary"}`} onClick={() => settle(true)}>{request.confirmLabel ?? "Confirm"}</button>
+        </div>
+      </section>
+    </Modal>}
+  </ConfirmContext.Provider>;
+}
+
+// ─── App shell ────────────────────────────────────────────────────────────────
+// Built for the two devices the admin uses: a tablet in landscape (sidebar) and a phone in
+// portrait (bottom tab bar + "More" sheet). Shares its look with the cashier app.
+
+const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?: number }> }[] = [
+  { id: "dashboard", label: "Dashboard", short: "Home", Icon: IconGrid },
+  { id: "inventory", label: "Inventory", short: "Inventory", Icon: IconBox },
+  { id: "products", label: "Menu", short: "Menu", Icon: IconCoffee },
+  { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
+  { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
+  { id: "archives", label: "Archives", short: "Archives", Icon: IconArchive },
+];
+
+const navGroups: { label: string; items: Page[] }[] = [
+  { label: "Overview", items: ["dashboard"] },
+  { label: "Menu & Stock", items: ["inventory", "products"] },
+  { label: "Business", items: ["finance", "accounts", "archives"] },
+];
+
+// Destinations on the phone tab bar; everything else is under "More".
+const mobileTabs: Page[] = ["dashboard", "inventory", "products", "finance"];
+
+// Initials on a colour picked from the name, the same as in the cashier app.
+const avatarColors = ["#B45309", "#9A3412", "#6B4C3B", "#0F766E", "#7E22CE", "#1D4ED8", "#BE185D"];
+
+function UserAvatar({ name, size = 36 }: { name: string; size?: number }) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const initials = ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+  const color = avatarColors[Array.from(name).reduce((sum, character) => sum + character.charCodeAt(0), 0) % avatarColors.length];
+  return <span aria-hidden="true" className="flex items-center justify-center rounded-full" style={{ width: size, height: size, flexShrink: 0, background: color, color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: size * 0.38, boxShadow: "0 0 0 2px #FDF9F5, 0 0 0 4px rgba(217,119,6,0.35)" }}>{initials}</span>;
+}
+
+function IconSignal({ size = 16 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0" /><path d="M1.42 9a16 16 0 0 1 21.16 0" /><path d="M8.53 16.11a6 6 0 0 1 6.94 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></svg>;
+}
+
+function IconLogOut({ size = 18 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
+}
+
+function IconMore({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></svg>;
+}
+
+type ConnectionState = "checking" | "online" | "slow" | "database" | "offline";
+
+// Round trips slower than this make saving feel sluggish.
+const SLOW_CONNECTION_MS = 1500;
+const CONNECTION_CHECK_INTERVAL_MS = 20_000;
+const CONNECTION_TIMEOUT_MS = 8000;
+
+const connectionStyles: Record<ConnectionState, { label: string; color: string; background: string; border: string }> = {
+  checking: { label: "Checking…", color: "#6B4C3B", background: "#F3EDE5", border: "#E8DDD5" },
+  online: { label: "Online", color: "#15803D", background: "#F0FDF4", border: "#BBF7D0" },
+  slow: { label: "Slow connection", color: "#B45309", background: "#FEF3C7", border: "#FCD34D" },
+  database: { label: "Database issue", color: "#B91C1C", background: "#FEF2F2", border: "#FECACA" },
+  offline: { label: "Offline", color: "#B91C1C", background: "#FEF2F2", border: "#FECACA" },
+};
+
+// Shows whether this device has internet, reaches the Brew Houze server, and whether the database
+// answers (and how fast). Checks every 20 seconds while visible and whenever the network changes.
+function ConnectionIndicator() {
+  const [state, setState] = useState<ConnectionState>("checking");
+  const [internet, setInternet] = useState(true);
+  const [serverReachable, setServerReachable] = useState<boolean | null>(null);
+  const [roundTripMs, setRoundTripMs] = useState<number | null>(null);
+  const [dbMs, setDbMs] = useState<number | null>(null);
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [open, setOpen] = useState(false);
+  const checking = useRef(false);
+
+  const check = useCallback(async () => {
+    if (checking.current) return;
+    checking.current = true;
+    setInternet(navigator.onLine);
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), CONNECTION_TIMEOUT_MS);
+    const started = performance.now();
+    try {
+      const response = await fetch("/api/health", { cache: "no-store", signal: controller.signal });
+      const elapsed = Math.round(performance.now() - started);
+      const payload = await response.json().catch(() => ({})) as { ok?: boolean; dbMs?: number };
+      setServerReachable(true);
+      setRoundTripMs(elapsed);
+      setInternet(true);
+      if (!response.ok || !payload.ok) {
+        setDbMs(null);
+        setState("database");
+      } else {
+        setDbMs(typeof payload.dbMs === "number" ? payload.dbMs : null);
+        setState(elapsed > SLOW_CONNECTION_MS ? "slow" : "online");
+      }
+    } catch {
+      setServerReachable(false);
+      setRoundTripMs(null);
+      setDbMs(null);
+      setState("offline");
+    } finally {
+      window.clearTimeout(timeout);
+      setCheckedAt(new Date());
+      checking.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    const whenVisible = () => { if (document.visibilityState === "visible") void check(); };
+    const wentOffline = () => { setInternet(false); setServerReachable(false); setState("offline"); setCheckedAt(new Date()); };
+    const first = window.setTimeout(() => void check(), 0);
+    const intervalId = window.setInterval(whenVisible, CONNECTION_CHECK_INTERVAL_MS);
+    window.addEventListener("online", whenVisible);
+    window.addEventListener("offline", wentOffline);
+    document.addEventListener("visibilitychange", whenVisible);
+    return () => {
+      window.clearTimeout(first);
+      window.clearInterval(intervalId);
+      window.removeEventListener("online", whenVisible);
+      window.removeEventListener("offline", wentOffline);
+      document.removeEventListener("visibilitychange", whenVisible);
+    };
+  }, [check]);
+
+  const style = connectionStyles[state];
+  const row = (label: string, value: string, ok: boolean | null) => <div className="flex items-center justify-between gap-4" style={{ padding: "7px 0", borderTop: "1px solid #F0E8E2", fontSize: 12.5 }}>
+    <span style={{ color: "#6B4C3B" }}>{label}</span>
+    <span className="flex items-center gap-1.5" style={{ color: ok === null ? "#9C8278" : ok ? "#15803D" : "#B91C1C", fontWeight: 700 }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: ok === null ? "#C9B8AF" : ok ? "#22C55E" : "#DC2626" }} />{value}
+    </span>
+  </div>;
+
+  return <div style={{ position: "relative" }}>
+    <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} aria-label={`Connection: ${style.label}. Show details`} title="Connection status" className="connection-chip" style={{ display: "flex", alignItems: "center", gap: 7, height: 40, padding: "0 12px", borderRadius: 11, border: `1px solid ${style.border}`, background: style.background, color: style.color, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
+      <span className={state === "online" ? "" : "connection-pulse"} style={{ width: 8, height: 8, borderRadius: "50%", background: style.color }} />
+      <IconSignal size={16} />
+      <span className="connection-label">{style.label}</span>
+    </button>
+    {open && <>
+      <div onClick={() => setOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+      <div role="dialog" aria-label="Connection details" className="connection-popover" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 41, width: 290, padding: 14, borderRadius: 14, background: "#FFFFFF", border: "1px solid #E8DDD5", boxShadow: "0 16px 40px rgba(61,43,31,0.18)" }}>
+        <p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, color: style.color }}>{style.label}</p>
+        <p style={{ margin: "3px 0 8px", color: "#9C8278", fontSize: 11.5, lineHeight: 1.45 }}>{state === "online" ? "Changes are saving normally." : state === "slow" ? "Saving works but responses are slow. Avoid tapping Save twice." : state === "database" ? "The server is up but the database is not answering. Changes cannot be saved right now." : state === "offline" ? (internet ? "This device has internet but cannot reach the Brew Houze server." : "This device has no internet connection. Check Wi-Fi or mobile data.") : "Checking the connection…"}</p>
+        {row("Internet", internet ? "Connected" : "Not connected", internet)}
+        {row("Brew Houze server", serverReachable === null ? "Checking" : serverReachable ? `Reachable${roundTripMs !== null ? ` · ${roundTripMs} ms` : ""}` : "Not reachable", serverReachable)}
+        {row("Database", state === "checking" ? "Checking" : state === "database" ? "Not responding" : dbMs !== null ? `Responding · ${dbMs} ms` : "Unknown", state === "checking" ? null : state === "database" || state === "offline" ? false : dbMs !== null)}
+        <div className="flex items-center justify-between gap-3" style={{ marginTop: 10 }}>
+          <span style={{ color: "#9C8278", fontSize: 11 }}>{checkedAt ? `Checked ${checkedAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+          <button type="button" onClick={() => void check()} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "7px 12px", background: "#F3EDE5", color: "#3D2B1F", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Check again</button>
+        </div>
       </div>
+    </>}
+  </div>;
+}
+
+function Sidebar({ current, collapsed, user, onChange, onToggle, onAccount }: { current: Page; collapsed: boolean; user: AdminSession; onChange: (page: Page) => void; onToggle: () => void; onAccount: () => void }) {
+  return <aside className={`admin-sidebar ${collapsed ? "is-collapsed" : ""}`}>
+    <div className="admin-sidebar-brand">
+      <div className="flex items-center justify-center rounded-xl" style={{ width: 40, height: 40, flexShrink: 0, background: "#D97706", color: "#FDF9F5", boxShadow: "0 8px 18px rgba(217,119,6,0.3)" }}><IconCoffee size={21} /></div>
+      <div className="admin-sidebar-text"><p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, color: "#FDF9F5", lineHeight: 1.15 }}>Brew Houze</p><p style={{ margin: "2px 0 0", fontFamily: "JetBrains Mono, monospace", fontSize: 9.5, color: "#F59E0B", letterSpacing: "0.1em" }}>ADMIN PORTAL</p></div>
+      <button type="button" onClick={onToggle} className="admin-sidebar-toggle" title={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} style={{ transform: collapsed ? "rotate(180deg)" : "none" }}><IconChevron size={14} /></button>
+    </div>
+    <nav className="admin-sidebar-nav" aria-label="Admin sections">
+      {navGroups.map((group) => <div key={group.label} className="admin-nav-group">
+        <p className="admin-nav-group-label">{group.label}</p>
+        {group.items.map((id) => {
+          const item = navItems.find((entry) => entry.id === id)!;
+          const active = current === id;
+          return <button key={id} type="button" onClick={() => onChange(id)} title={collapsed ? item.label : undefined} aria-current={active ? "page" : undefined} className={`admin-nav-item ${active ? "is-active" : ""}`}>
+            <item.Icon size={18} /><span className="admin-sidebar-text">{item.label}</span>
+          </button>;
+        })}
+      </div>)}
+    </nav>
+    <button type="button" onClick={onAccount} className={`admin-sidebar-profile ${current === "account" ? "is-active" : ""}`} title={collapsed ? "My account" : undefined} aria-label={`My account: ${user.fullName}`}>
+      <UserAvatar name={user.fullName} size={34} />
+      <span className="admin-sidebar-text flex flex-col" style={{ minWidth: 0, textAlign: "left" }}>
+        <strong style={{ color: "#FDF9F5", fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.fullName}</strong>
+        <span style={{ color: "rgba(253,249,245,0.55)", fontSize: 11 }}>My account</span>
+      </span>
+    </button>
+  </aside>;
+}
+
+function TopBar({ title, page, user, onAccount, onRequestLogout }: { title: string; page: Page; user: AdminSession; onAccount: () => void; onRequestLogout: () => void }) {
+  return <header className="admin-topbar">
+    <div className="flex items-center gap-3 min-w-0">
+      <div className="admin-topbar-logo flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, flexShrink: 0, background: "#D97706", color: "#FDF9F5" }}><IconCoffee size={19} /></div>
+      <h1 className="admin-topbar-title">{title}</h1>
+    </div>
+    <div className="flex items-center gap-2.5">
+      <ConnectionIndicator />
+      <button type="button" onClick={onAccount} aria-label={`My account: ${user.fullName}`} title="My account" className="admin-topbar-profile" style={{ border: page === "account" ? "1px solid #D97706" : "1px solid #E8DDD5", background: page === "account" ? "#FFF7ED" : "#FFFFFF" }}>
+        <UserAvatar name={user.fullName} size={32} />
+        <span className="admin-topbar-profile-text flex flex-col" style={{ lineHeight: 1.2 }}>
+          <strong style={{ fontSize: 13, color: "#3D2B1F", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.fullName}</strong>
+          <span style={{ alignSelf: "flex-start", marginTop: 3, padding: "1px 7px", borderRadius: 999, background: "#3D2B1F", color: "#FDF9F5", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em" }}>ADMIN</span>
+        </span>
+      </button>
+      <button type="button" onClick={onRequestLogout} title="Sign out" className="admin-topbar-signout">
+        <IconLogOut size={17} /><span>Sign out</span>
+      </button>
     </div>
   </header>;
 }
 
-function Dashboard({ inventory }: { inventory: InventoryItem[] }) {
-  const totalItems = inventory.length;
-  const lowStockItems = inventory.filter((item) => Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.low_stock_threshold)).length;
-  const outOfStockItems = inventory.filter((item) => Number(item.quantity) === 0).length;
-  const [weeklySales, setWeeklySales] = useState<number | null>(null);
+// Phone only: thumb-friendly tabs for the pages used most, and "More" for the rest.
+function MobileTabBar({ current, moreOpen, onChange, onMore }: { current: Page; moreOpen: boolean; onChange: (page: Page) => void; onMore: () => void }) {
+  const moreActive = moreOpen || !mobileTabs.includes(current);
+  return <nav className="admin-tabbar" aria-label="Admin sections">
+    {mobileTabs.map((id) => {
+      const item = navItems.find((entry) => entry.id === id)!;
+      const active = current === id && !moreOpen;
+      return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className={`admin-tab ${active ? "is-active" : ""}`}>
+        <item.Icon size={21} /><span>{item.short}</span>
+      </button>;
+    })}
+    <button type="button" onClick={onMore} aria-expanded={moreOpen} className={`admin-tab ${moreActive ? "is-active" : ""}`}>
+      <IconMore size={21} /><span>More</span>
+    </button>
+  </nav>;
+}
 
+function MoreSheet({ current, user, onChange, onAccount, onRequestLogout, onClose }: { current: Page; user: AdminSession; onChange: (page: Page) => void; onAccount: () => void; onRequestLogout: () => void; onClose: () => void }) {
   useEffect(() => {
-    let active = true;
-    let requestInFlight = false;
-    async function loadWeeklySales() {
-      if (requestInFlight || document.visibilityState !== "visible") return;
-      requestInFlight = true;
-      try {
-        const response = await fetch("/api/sales-orders?period=week", { cache: "no-store" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Failed to load weekly sales.");
-        if (active) setWeeklySales(Number(payload.summary?.revenue ?? 0));
-      } catch (error) {
-        console.error("Dashboard: failed to load weekly sales", error);
-      } finally {
-        requestInFlight = false;
-      }
-    }
-    void loadWeeklySales();
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadWeeklySales();
-    }, 15_000);
-    return () => { active = false; window.clearInterval(intervalId); };
-  }, []);
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-  return <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
-    <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
-      <div className="rounded-2xl p-6" style={{ background: "#3D2B1F", boxShadow: "0 4px 24px rgba(61,43,31,0.18)" }}><p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "rgba(255,255,255,0.55)", textTransform: "uppercase" }}>Total Sales This Week</p><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 34, color: "#FDF9F5", marginTop: 10 }}>{weeklySales === null ? "—" : `₱${weeklySales.toFixed(2)}`}</p></div>
-      <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}><p style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#9C8278", textTransform: "uppercase" }}>Inventory Summary</p><div className="grid grid-cols-3 gap-3 mt-5 text-center"><div><p className="text-2xl font-bold" style={{ color: "#3D2B1F" }}>{totalItems}</p><p className="text-xs" style={{ color: "#9C8278" }}>Total Items</p></div><div><p className="text-2xl font-bold" style={{ color: "#D97706" }}>{lowStockItems}</p><p className="text-xs" style={{ color: "#9C8278" }}>Low Stock</p></div><div><p className="text-2xl font-bold" style={{ color: "#C0392B" }}>{outOfStockItems}</p><p className="text-xs" style={{ color: "#9C8278" }}>Out of Stock</p></div></div></div>
+  return <div className="admin-sheet-backdrop" onClick={onClose}>
+    <div role="dialog" aria-modal="true" aria-label="All admin sections" className="admin-sheet" onClick={(event) => event.stopPropagation()}>
+      <div className="admin-sheet-handle" />
+      <button type="button" onClick={onAccount} className="flex items-center gap-3 w-full" style={{ padding: "12px 14px", borderRadius: 14, border: current === "account" ? "1px solid #D97706" : "1px solid #E8DDD5", background: current === "account" ? "#FFF7ED" : "#FFFFFF", cursor: "pointer", textAlign: "left" }}>
+        <UserAvatar name={user.fullName} size={42} />
+        <span className="flex flex-col" style={{ flex: 1, minWidth: 0 }}>
+          <strong style={{ fontSize: 15, color: "#3D2B1F" }}>{user.fullName}</strong>
+          <span style={{ fontSize: 12, color: "#9C8278", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.email}</span>
+        </span>
+        <span style={{ color: "#D97706", fontSize: 12.5, fontWeight: 700 }}>My account ›</span>
+      </button>
+      {navGroups.map((group) => <div key={group.label} style={{ marginTop: 16 }}>
+        <p style={{ margin: "0 0 8px 2px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase" }}>{group.label}</p>
+        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}>
+          {group.items.map((id) => {
+            const item = navItems.find((entry) => entry.id === id)!;
+            const active = current === id;
+            return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className="flex flex-col items-center justify-center gap-1.5" style={{ minHeight: 76, padding: "10px 6px", borderRadius: 14, border: active ? "1px solid #D97706" : "1px solid #E8DDD5", background: active ? "#D97706" : "#FFFFFF", color: active ? "#FFFFFF" : "#3D2B1F", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "center" }}>
+              <item.Icon size={21} /><span style={{ lineHeight: 1.2 }}>{item.short}</span>
+            </button>;
+          })}
+        </div>
+      </div>)}
+      <button type="button" onClick={onRequestLogout} className="flex items-center justify-center gap-2 w-full" style={{ marginTop: 18, height: 48, borderRadius: 14, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
+        <IconLogOut size={18} />Sign out
+      </button>
     </div>
-    <div className="rounded-2xl flex flex-col" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden" }}>
-      <div className="flex items-center gap-3 px-6 py-4 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}><IconSparkle size={16} /><div><p style={{ fontWeight: 700, color: "#3D2B1F" }}>AI Insights</p><p style={{ fontSize: 11, color: "#9C8278" }}>No AI data configured yet</p></div></div>
-      <div className="px-6 py-12 text-center" style={{ color: "#9C8278" }}>AI insights will appear here once the AI service is connected.</div>
-              </div>
   </div>;
 }
 
-function getQtyColor(quantity: number, lowStock = false): string {
-  if (quantity === 0) return "#C0392B";
-  if (lowStock) return "#D97706";
-  return "#3D2B1F";
+type MyDevice = { id: number; app: string; device: string; signedInAt: string; lastSeenAt: string; isCurrent: boolean };
+type AdminAccountDetails = { createdAt: string | null; shift: { shiftId: number; openedAt: string; openedByName: string | null; orders: number; netSales: number; reversals: number } | null; devices: MyDevice[] };
+
+function formatElapsed(fromIso: string, now: number): string {
+  const minutes = Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 60_000));
+  const hours = Math.floor(minutes / 60);
+  return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
+}
+
+function AccountSection({ eyebrow, title, action, children }: { eyebrow: string; title: string; action?: React.ReactNode; children: React.ReactNode }) {
+  return <section className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 20, boxShadow: "0 4px 14px rgba(61,43,31,0.04)" }}>
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div>
+        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>{eyebrow}</p>
+        <h2 style={{ margin: "5px 0 0", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 19 }}>{title}</h2>
+      </div>
+      {action}
+    </div>
+    <div style={{ marginTop: 14 }}>{children}</div>
+  </section>;
+}
+
+function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut: () => void }) {
+  const [details, setDetails] = useState<AdminAccountDetails | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
+  const [passwordError, setPasswordError] = useState("");
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [devicesMessage, setDevicesMessage] = useState("");
+  const [signingOutOthers, setSigningOutOthers] = useState(false);
+
+  const loadDetails = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth/account", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to load your account.");
+      setDetails(payload.data as AdminAccountDetails);
+      setLoadError("");
+      setNow(Date.now());
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to load your account.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const first = window.setTimeout(() => void loadDetails(), 0);
+    const intervalId = window.setInterval(() => { if (document.visibilityState === "visible") void loadDetails(); }, 30_000);
+    return () => { window.clearTimeout(first); window.clearInterval(intervalId); };
+  }, [loadDetails]);
+
+  async function signOutOtherDevices() {
+    setSigningOutOthers(true);
+    setDevicesMessage("");
+    try {
+      const response = await fetch("/api/auth/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "sign_out_other_devices" }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not sign out the other devices.");
+      const count = Number(payload.data?.signedOutDevices ?? 0);
+      setDevicesMessage(count > 0 ? `Signed out ${count} other device${count === 1 ? "" : "s"}.` : "No other devices were signed in.");
+      await loadDetails();
+    } catch (error) {
+      setDevicesMessage(error instanceof Error ? error.message : "Could not sign out the other devices.");
+    } finally {
+      setSigningOutOthers(false);
+    }
+  }
+
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPasswordMessage("");
+    setPasswordError("");
+    if (newPassword.length < 8) { setPasswordError("Use at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setPasswordError("The new passwords do not match."); return; }
+    setSavingPassword(true);
+    try {
+      const response = await fetch("/api/auth/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to change password.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      const count = Number(payload.data?.signedOutDevices ?? 0);
+      setPasswordMessage(`Password changed.${count > 0 ? ` ${count} other device${count === 1 ? " was" : "s were"} signed out.` : ""}`);
+      await loadDetails();
+    } catch (error) {
+      setPasswordError(error instanceof Error ? error.message : "Unable to change password.");
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  const currentDevice = details?.devices.find((device) => device.isCurrent);
+  const otherDevices = (details?.devices ?? []).filter((device) => !device.isCurrent);
+  const stat = (label: string, value: string, sub?: string) => <div className="rounded-xl" style={{ padding: "12px 14px", background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+    <p style={{ margin: 0, color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</p>
+    <p style={{ margin: "5px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 22, color: "#3D2B1F" }}>{value}</p>
+    {sub && <p style={{ margin: "2px 0 0", color: "#9C8278", fontSize: 11.5 }}>{sub}</p>}
+  </div>;
+
+  return <main className="account-page" style={{ maxWidth: 1180, padding: 24 }}>
+    <section className="account-hero rounded-2xl flex items-center gap-5" style={{ padding: 22, background: "linear-gradient(135deg, #3D2B1F 0%, #5B4030 100%)", color: "#FDF9F5", boxShadow: "0 10px 30px rgba(61,43,31,0.18)" }}>
+      <UserAvatar name={user.fullName} size={68} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h2 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26 }}>{user.fullName}</h2>
+          <span style={{ padding: "2px 9px", borderRadius: 999, background: "#FDF9F5", color: "#3D2B1F", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em" }}>ADMIN</span>
+        </div>
+        <p style={{ margin: "5px 0 0", color: "rgba(253,249,245,0.75)", fontSize: 13.5 }}>{user.email}</p>
+        <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
+      </div>
+      <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconLogOut size={17} />Sign out</button>
+    </section>
+
+    {loadError && <p style={{ margin: "14px 0 0", padding: "10px 14px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{loadError}</p>}
+
+    <div className="grid gap-5" style={{ marginTop: 20, gridTemplateColumns: "repeat(auto-fit, minmax(min(340px, 100%), 1fr))", alignItems: "start" }}>
+      <div className="flex flex-col gap-5">
+        <AccountSection eyebrow="Right now" title={details?.shift ? "The café is open" : "The café is closed"}>
+          {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : details.shift ? <>
+            <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))" }}>
+              {stat("Shift open", formatElapsed(details.shift.openedAt, now), `since ${new Date(details.shift.openedAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}${details.shift.openedByName ? ` by ${details.shift.openedByName.split(" ")[0]}` : ""}`)}
+              {stat("Orders", String(details.shift.orders), `${details.shift.reversals} voided/refunded`)}
+              {stat("Net sales", `₱${details.shift.netSales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, "so far this shift")}
+            </div>
+            <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Full shift reports are in Finance.</p>
+          </> : <p style={{ margin: 0, color: "#6B4C3B", fontSize: 13, lineHeight: 1.55 }}>No shift is open. A cashier opens one from the cashier app to start taking orders; the mobile menu shows the café as closed until then.</p>}
+        </AccountSection>
+
+        <AccountSection eyebrow="Security" title="Signed-in devices" action={otherDevices.length > 0 ? <button type="button" onClick={() => void signOutOtherDevices()} disabled={signingOutOthers} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 12px", background: "#FEF2F2", color: "#B91C1C", fontSize: 12, fontWeight: 700, cursor: signingOutOthers ? "default" : "pointer", whiteSpace: "nowrap" }}>{signingOutOthers ? "Signing out…" : "Sign out other devices"}</button> : undefined}>
+          {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : <div className="flex flex-col" style={{ border: "1px solid #F0E8E2", borderRadius: 12, overflow: "hidden", background: "#FFFFFF" }}>
+            {details.devices.map((device, index) => <div key={device.id} style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", fontSize: 13 }}>
+              <strong style={{ color: "#3D2B1F" }}>{device.device}</strong>
+              {device.isCurrent && <span style={{ marginLeft: 8, padding: "1px 7px", borderRadius: 999, background: "#DCFCE7", color: "#15803D", fontSize: 10.5, fontWeight: 800 }}>This device</span>}
+              <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+            </div>)}
+          </div>}
+          {devicesMessage && <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 12.5 }}>{devicesMessage}</p>}
+        </AccountSection>
+      </div>
+
+      <AccountSection eyebrow="Security" title="Change password">
+        <form onSubmit={changePassword} className="flex flex-col">
+          <div style={{ marginTop: -16 }} />
+          <AuthPasswordField label="Current password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" placeholder="Your current password" />
+          <AuthPasswordField label="New password" value={newPassword} onChange={setNewPassword} autoComplete="new-password" placeholder="At least 8 characters" />
+          <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
+          <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+            <li style={{ color: newPassword.length >= 8 ? "#15803D" : "#9C8278" }}>{newPassword.length >= 8 ? "✓" : "•"} At least 8 characters</li>
+            <li style={{ color: confirmPassword !== "" && newPassword === confirmPassword ? "#15803D" : "#9C8278" }}>{confirmPassword !== "" && newPassword === confirmPassword ? "✓" : "•"} Both new passwords match</li>
+          </ul>
+          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Changing your password signs out your other devices. This one stays signed in.</p>
+          {passwordError && <AuthAlert tone="error">{passwordError}</AuthAlert>}
+          {passwordMessage && <AuthAlert tone="success">{passwordMessage}</AuthAlert>}
+          <button type="submit" disabled={savingPassword} className="login-submit">{savingPassword ? "Saving…" : "Change password"}</button>
+        </form>
+      </AccountSection>
+    </div>
+  </main>;
+}
+
+// ─── Dashboard ───────────────────────────────────────────────────────────────
+// One glance at the café: the shift in progress (or the last one while closed), how the week is
+// selling, what is running low, and the latest orders. Refreshes every 30 seconds while visible.
+type DashboardShift = {
+  shiftId: number; openedAt: string; closedAt: string | null; openedByName: string | null; closedByName: string | null;
+  orderCount: number; mobileOrderCount: number; itemsSold: number; grossSales: number; cashSales: number; onlineSales: number;
+  voidCount: number; refundCount: number; reversedAmount: number; netSales: number;
+  startingCash: number; expectedCash: number; countedCash: number | null; cashDifference: number | null; costOfGoods: number; uncostedItems: number;
+};
+type DashboardOrder = { orderId: number; queueNumber: number | null; status: string; total: number; paymentMethod: string; orderSource: string; createdAt: string; punchedBy: string; items: string };
+type DashboardData = {
+  shift: DashboardShift | null;
+  previousShift: DashboardShift | null;
+  trend: { day: string; orders: number; revenue: number }[];
+  week: { costOfGoods: number; costedRevenue: number; uncostedItems: number; itemsSold: number };
+  topProducts: { name: string; category: string; quantity: number; revenue: number }[];
+  hourly: { hour: number; orders: number; revenue: number }[];
+  queue: { waiting: number; ready: number };
+  staffOnDuty: { name: string; role: string; timeIn: string }[];
+  recentOrders: DashboardOrder[];
+  generatedAt: string;
+};
+type DashBar = { key: string; label: string; sub?: string; value: number; highlight?: boolean; title: string };
+
+const DASHBOARD_REFRESH_MS = 30_000;
+const HOUR_MS = 3_600_000;
+
+function manilaHour(value: string | number): number {
+  return Number(new Date(value).toLocaleString("en-US", { timeZone: "Asia/Manila", hour: "numeric", hourCycle: "h23" })) % 24;
+}
+
+function manilaDay(value: string | number): string {
+  return new Date(value).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function hourLabel(hour: number): string {
+  return `${hour % 12 === 0 ? 12 : hour % 12}${hour < 12 ? "a" : "p"}`;
+}
+
+function compactPeso(value: number): string {
+  if (Math.abs(value) >= 1000) return `₱${(value / 1000).toFixed(Math.abs(value) >= 10_000 ? 0 : 1)}k`;
+  return `₱${Math.round(value)}`;
+}
+
+function clockTime(value: string): string {
+  return new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
+}
+
+function isReversedStatus(status: string): boolean {
+  return ["void", "voided", "refund", "refunded"].includes(status);
+}
+
+function isProductSellable(product: Product, inventory: InventoryItem[]): boolean {
+  const recipes = product.variants.length ? product.variants.map((variant) => variant.ingredients) : [product.ingredients];
+  return recipes.some((ingredients) => areIngredientsAvailable(ingredients, inventory));
+}
+
+// Clock hours covered by a shift, oldest first (at most the last 24), with that hour's sales.
+function shiftHourBars(shift: DashboardShift, hourly: DashboardData["hourly"], now: number): DashBar[] {
+  const end = shift.closedAt ? new Date(shift.closedAt).getTime() : now;
+  const opened = new Date(shift.openedAt).getTime();
+  const first = Math.max(Math.floor(opened / HOUR_MS) * HOUR_MS, Math.floor(end / HOUR_MS) * HOUR_MS - 23 * HOUR_MS);
+  const byHour = new Map(hourly.map((entry) => [entry.hour, entry]));
+  const currentHour = shift.closedAt ? -1 : manilaHour(now);
+  const bars: DashBar[] = [];
+  for (let time = first; time <= end; time += HOUR_MS) {
+    const hour = manilaHour(time);
+    const entry = byHour.get(hour);
+    bars.push({
+      key: String(time),
+      label: hourLabel(hour),
+      value: entry?.revenue ?? 0,
+      highlight: hour === currentHour,
+      title: `${hourLabel(hour)}–${hourLabel((hour + 1) % 24)}: ${peso(entry?.revenue ?? 0)} from ${entry?.orders ?? 0} order${entry?.orders === 1 ? "" : "s"}`,
+    });
+  }
+  return bars;
+}
+
+function DashBars({ bars, emptyLabel }: { bars: DashBar[]; emptyLabel: string }) {
+  const max = Math.max(0, ...bars.map((bar) => bar.value));
+  const peakKey = max > 0 ? bars.find((bar) => bar.value === max)?.key : undefined;
+  const crowded = bars.length > 8;
+  const labelEvery = bars.length > 16 ? 3 : bars.length > 10 ? 2 : 1;
+  return <div className="dash-chart">
+    <div className={`dash-bars${crowded ? " is-crowded" : ""}`}>
+      {bars.map((bar, index) => <div key={bar.key} className="dash-bar-col" title={bar.title}>
+        <div className="dash-bar-track">
+          {bar.value > 0 && (!crowded || bar.key === peakKey || bar.highlight) && <span className="dash-bar-value">{compactPeso(bar.value)}</span>}
+          <div className={`dash-bar${bar.highlight ? " is-highlight" : ""}${bar.value > 0 && bar.key === peakKey ? " is-peak" : ""}`} style={{ height: `${max > 0 ? Math.max(3, (bar.value / max) * 82) : 3}%` }} />
+        </div>
+        <span className="dash-bar-label">{index % labelEvery === 0 || bar.highlight ? <><b>{bar.label}</b>{bar.sub && <span>{bar.sub}</span>}</> : " "}</span>
+      </div>)}
+    </div>
+    {max === 0 && <p className="dash-chart-empty">{emptyLabel}</p>}
+  </div>;
+}
+
+function DashCard({ title, sub, action, className = "", children }: { title: React.ReactNode; sub?: React.ReactNode; action?: React.ReactNode; className?: string; children: React.ReactNode }) {
+  return <section className={`dash-card ${className}`}>
+    <div className="dash-card-head">
+      <div style={{ minWidth: 0 }}>
+        <h2 className="dash-card-title">{title}</h2>
+        {sub && <p className="dash-card-sub">{sub}</p>}
+      </div>
+      {action}
+    </div>
+    {children}
+  </section>;
+}
+
+function DashLink({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button type="button" className="dash-link" onClick={onClick}>{label} <IconChevron size={13} /></button>;
+}
+
+function DashKpi({ label, value, note, accent }: { label: string; value: React.ReactNode; note?: React.ReactNode; accent?: string }) {
+  return <div className="dash-card dash-kpi">
+    <p className="dash-kpi-label">{label}</p>
+    <p className="dash-kpi-value" style={accent ? { color: accent } : undefined}>{value}</p>
+    {note && <div className="dash-kpi-note">{note}</div>}
+  </div>;
+}
+
+function darkCashDifference(difference: number | null): { text: string; color: string } {
+  const label = cashDifferenceLabel(difference);
+  if (difference === null) return { text: "Not counted", color: "rgba(253,249,245,0.6)" };
+  if (Math.abs(difference) < 0.005) return { text: label.text, color: "#86EFAC" };
+  return { text: label.text, color: difference > 0 ? "#FCD34D" : "#FCA5A5" };
+}
+
+function DashboardShiftCard({ shift, previousShift, now, onOpenReports }: { shift: DashboardShift | null; previousShift: DashboardShift | null; now: number; onOpenReports: () => void }) {
+  if (shift) {
+    const paid = shift.cashSales + shift.onlineSales;
+    const cashShare = paid > 0 ? (shift.cashSales / paid) * 100 : 0;
+    const reversals = shift.voidCount + shift.refundCount;
+    const longOpen = (now - new Date(shift.openedAt).getTime()) / HOUR_MS > LONG_OPEN_SHIFT_HOURS;
+    return <section className="dash-shift">
+      <div className="dash-shift-top">
+        <span className="dash-shift-pill is-open"><span className="dash-live-dot" />Shift open</span>
+        <button type="button" className="dash-shift-link" onClick={onOpenReports}>Shift reports <IconChevron size={13} /></button>
+      </div>
+      <p className="dash-shift-label">Net sales this shift</p>
+      <p className="dash-shift-value">{peso(shift.netSales)}</p>
+      <p className="dash-shift-meta">Open for {formatElapsed(shift.openedAt, now)} · opened by {shift.openedByName ?? "a cashier"} at {clockTime(shift.openedAt)}</p>
+      <div className="dash-shift-stats">
+        <div><span>Orders</span><strong>{shift.orderCount}</strong><em>{shift.mobileOrderCount > 0 ? `${shift.mobileOrderCount} from mobile` : `${shift.itemsSold} item${shift.itemsSold === 1 ? "" : "s"} sold`}</em></div>
+        <div><span>Avg. order</span><strong>{shift.orderCount > 0 ? peso(shift.grossSales / shift.orderCount) : "—"}</strong><em>per receipt</em></div>
+        <div><span>Voids & refunds</span><strong>{reversals}</strong><em>{shift.reversedAmount > 0 ? `−${peso(shift.reversedAmount)}` : "None so far"}</em></div>
+      </div>
+      <div className="dash-drawer">
+        <div className="dash-drawer-row"><span>Expected in cash drawer</span><strong>{peso(shift.expectedCash)}</strong></div>
+        <div className="dash-split" aria-hidden="true"><span style={{ width: `${cashShare}%` }} /></div>
+        <div className="dash-drawer-legend">
+          <span><i className="is-cash" />Cash {peso(shift.cashSales)}</span>
+          <span><i className="is-online" />Online {peso(shift.onlineSales)}</span>
+          <span>Started with {peso(shift.startingCash)}</span>
+        </div>
+      </div>
+      {longOpen && <p className="dash-shift-warning">This shift has been open for over {LONG_OPEN_SHIFT_HOURS} hours. Remind the cashier to close it so the day is recorded correctly.</p>}
+    </section>;
+  }
+
+  const count = previousShift ? darkCashDifference(previousShift.cashDifference) : null;
+  return <section className="dash-shift is-closed">
+    <div className="dash-shift-top">
+      <span className="dash-shift-pill">Store closed</span>
+      {previousShift && <button type="button" className="dash-shift-link" onClick={onOpenReports}>Shift reports <IconChevron size={13} /></button>}
+    </div>
+    {previousShift ? <>
+      <p className="dash-shift-label">Net sales last shift</p>
+      <p className="dash-shift-value">{peso(previousShift.netSales)}</p>
+      <p className="dash-shift-meta">{shiftTime(previousShift.openedAt)} – {shiftTime(previousShift.closedAt)}{previousShift.closedByName ? ` · closed by ${previousShift.closedByName}` : ""}</p>
+      <div className="dash-shift-stats">
+        <div><span>Orders</span><strong>{previousShift.orderCount}</strong><em>{previousShift.itemsSold} item{previousShift.itemsSold === 1 ? "" : "s"} sold</em></div>
+        <div><span>Avg. order</span><strong>{previousShift.orderCount > 0 ? peso(previousShift.grossSales / previousShift.orderCount) : "—"}</strong><em>per receipt</em></div>
+        <div><span>Cash count</span><strong style={{ color: count?.color, fontSize: 15 }}>{count?.text}</strong><em>{previousShift.countedCash === null ? "—" : `${peso(previousShift.countedCash)} counted`}</em></div>
+      </div>
+    </> : <>
+      <p className="dash-shift-label">No shifts yet</p>
+      <p className="dash-shift-value" style={{ fontSize: 30 }}>Ready to open</p>
+    </>}
+    <p className="dash-shift-note">A cashier opens the next shift from the cashier app. Mobile ordering stays closed until then.</p>
+  </section>;
+}
+
+function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { user: AdminSession; inventory: InventoryItem[]; products: Product[]; onNavigate: (page: Page) => void; onRefreshStock: () => Promise<unknown> }) {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the dashboard.");
+      setData(payload.data);
+      setLoadError("");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load the dashboard.");
+    } finally {
+      setNow(Date.now());
+    }
+  }, []);
+
+  useEffect(() => {
+    let inFlight = false;
+    const refresh = () => {
+      if (inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      void load().finally(() => { inFlight = false; });
+    };
+    const firstLoad = window.setTimeout(refresh, 0);
+    const intervalId = window.setInterval(refresh, DASHBOARD_REFRESH_MS);
+    const clockId = window.setInterval(() => setNow(Date.now()), 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearTimeout(firstLoad);
+      window.clearInterval(intervalId);
+      window.clearInterval(clockId);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [load]);
+
+  async function refreshNow() {
+    setRefreshing(true);
+    await Promise.all([load(), onRefreshStock()]);
+    setRefreshing(false);
+  }
+
+  const stock = useMemo(() => {
+    const out = inventory.filter((item) => Number(item.quantity) <= 0);
+    const low = inventory.filter((item) => isLowStock(item));
+    const noCost = inventory.filter((item) => toOptionalNumber(item.effective_unit_cost ?? item.unit_cost) === null);
+    const alerts = [...out, ...low.sort((a, b) => Number(a.quantity) / Math.max(1e-9, Number(a.low_stock_threshold)) - Number(b.quantity) / Math.max(1e-9, Number(b.low_stock_threshold)))];
+    return { out, low, noCost, alerts };
+  }, [inventory]);
+  const menu = useMemo(() => {
+    const soldOut = products.filter((product) => !isProductSellable(product, inventory));
+    return { total: products.length, soldOut };
+  }, [products, inventory]);
+
+  const firstName = user.fullName.trim().split(/\s+/)[0] || user.fullName;
+  const hour = manilaHour(now);
+  const greeting = hour < 5 ? "Good evening" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const dateLabel = new Date(now).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long", month: "long", day: "numeric", year: "numeric" });
+
+  const trend = data?.trend ?? [];
+  const thisWeek = trend.slice(-7);
+  const lastWeek = trend.slice(0, Math.max(0, trend.length - 7));
+  const weekSales = thisWeek.reduce((sum, day) => sum + day.revenue, 0);
+  const weekOrders = thisWeek.reduce((sum, day) => sum + day.orders, 0);
+  const lastWeekSales = lastWeek.reduce((sum, day) => sum + day.revenue, 0);
+  const weekChange = lastWeekSales > 0 ? ((weekSales - lastWeekSales) / lastWeekSales) * 100 : null;
+  const todayKey = thisWeek[thisWeek.length - 1]?.day ?? manilaDay(now);
+  const grossProfit = data ? data.week.costedRevenue - data.week.costOfGoods : 0;
+  const margin = data && data.week.costedRevenue > 0 ? (grossProfit / data.week.costedRevenue) * 100 : null;
+  const best = thisWeek.reduce<(typeof thisWeek)[number] | null>((top, day) => (day.revenue > (top?.revenue ?? 0) ? day : top), null);
+
+  const trendBars: DashBar[] = thisWeek.map((day) => {
+    const date = new Date(`${day.day}T00:00:00+08:00`);
+    const weekday = date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short" });
+    return {
+      key: day.day,
+      label: day.day === todayKey ? "Today" : weekday,
+      sub: date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" }),
+      value: day.revenue,
+      highlight: day.day === todayKey,
+      title: `${date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long", month: "short", day: "numeric" })}: ${peso(day.revenue)} from ${day.orders} order${day.orders === 1 ? "" : "s"}`,
+    };
+  });
+
+  const hourShift = data?.shift ?? data?.previousShift ?? null;
+  const hourBars = hourShift && data ? shiftHourBars(hourShift, data.hourly, now) : [];
+  const peakHour = data?.hourly.reduce<DashboardData["hourly"][number] | null>((top, entry) => (entry.revenue > (top?.revenue ?? 0) ? entry : top), null) ?? null;
+
+  const statusParts: string[] = [];
+  if (data) {
+    statusParts.push(data.shift ? `Shift open for ${formatElapsed(data.shift.openedAt, now)}` : "The store is closed");
+    if (data.queue.waiting > 0) statusParts.push(`${data.queue.waiting} order${data.queue.waiting === 1 ? "" : "s"} being prepared`);
+  }
+  if (stock.out.length > 0) statusParts.push(`${stock.out.length} item${stock.out.length === 1 ? "" : "s"} out of stock`);
+  else if (stock.low.length > 0) statusParts.push(`${stock.low.length} item${stock.low.length === 1 ? "" : "s"} running low`);
+
+  const topMax = Math.max(1, ...(data?.topProducts ?? []).map((product) => product.quantity));
+
+  return <div className="dash-wrap">
+    <div className="dash">
+      <header className="dash-head">
+        <div style={{ minWidth: 0 }}>
+          <p className="dash-eyebrow">{dateLabel}</p>
+          <h1 className="dash-greeting">{greeting}, {firstName}</h1>
+          {statusParts.length > 0 && <p className="dash-status">{statusParts.join(" · ")}</p>}
+        </div>
+        <div className="dash-head-actions">
+          {data && <span className="dash-updated">Updated {clockTime(data.generatedAt)}</span>}
+          <button type="button" className="dash-refresh" onClick={() => void refreshNow()} disabled={refreshing}>
+            <span style={{ display: "inline-flex", animation: refreshing ? "spin 0.8s linear infinite" : undefined }}><IconRotateCcw size={14} /></span>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      </header>
+
+      {loadError && <div className="dash-error" role="alert">
+        <span>{data ? "Could not refresh. Showing the last loaded figures." : loadError}</span>
+        <button type="button" onClick={() => void refreshNow()}>Try again</button>
+      </div>}
+
+      {!data ? (loadError ? null : <div className="dash-hero" aria-busy="true">
+        <div className="dash-skeleton" style={{ minHeight: 300 }} />
+        <div className="dash-kpis">{[0, 1, 2, 3].map((index) => <div key={index} className="dash-skeleton" style={{ minHeight: 130 }} />)}</div>
+      </div>) : <>
+        <div className="dash-hero">
+          <DashboardShiftCard shift={data.shift} previousShift={data.previousShift} now={now} onOpenReports={() => onNavigate("finance")} />
+          <div className="dash-kpis">
+            <DashKpi
+              label="Sales · last 7 days"
+              value={peso(weekSales)}
+              note={weekChange === null
+                ? <span>{weekOrders} order{weekOrders === 1 ? "" : "s"}</span>
+                : <span><b className={weekChange >= 0 ? "dash-up" : "dash-down"}>{weekChange >= 0 ? "▲" : "▼"} {Math.abs(weekChange).toFixed(0)}%</b> vs the 7 days before</span>}
+            />
+            <DashKpi
+              label="Gross profit · 7 days"
+              value={margin === null ? "—" : peso(grossProfit)}
+              accent={margin !== null && grossProfit < 0 ? "#B91C1C" : undefined}
+              note={margin === null
+                ? <span>{data.week.itemsSold > 0 ? "Add item costs in Inventory to see profit" : "No sales yet"}</span>
+                : <span>{margin.toFixed(0)}% margin{data.week.uncostedItems > 0 ? <> · <b className="dash-warn">{data.week.uncostedItems} without cost</b></> : null}</span>}
+            />
+            <DashKpi
+              label="Queue now"
+              value={<>{data.queue.waiting}<small> preparing</small></>}
+              accent={data.queue.waiting > 0 ? "#B45309" : undefined}
+              note={<span>{data.queue.ready} ready for pickup</span>}
+            />
+            <DashKpi
+              label="Staff on duty"
+              value={data.staffOnDuty.length}
+              note={data.staffOnDuty.length === 0
+                ? <span>Nobody is clocked in</span>
+                : <div className="dash-staff">
+                  {data.staffOnDuty.slice(0, 3).map((person) => <span key={`${person.name}-${person.timeIn}`} className="dash-staff-person" title={`${person.name} · in since ${clockTime(person.timeIn)}`}>
+                    <UserAvatar name={person.name} size={22} />
+                    <span>{person.name.split(/\s+/)[0]}<em> · {clockTime(person.timeIn)}</em></span>
+                  </span>)}
+                  {data.staffOnDuty.length > 3 && <span className="dash-staff-more">+{data.staffOnDuty.length - 3} more</span>}
+                </div>}
+            />
+          </div>
+        </div>
+
+        <div className="dash-row">
+          <DashCard
+            title="Sales this week"
+            sub={<>{peso(weekSales)} from {weekOrders} order{weekOrders === 1 ? "" : "s"}{best ? <> · best day {new Date(`${best.day}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long" })}</> : null}</>}
+            action={<DashLink label="Finance" onClick={() => onNavigate("finance")} />}
+          >
+            <DashBars bars={trendBars} emptyLabel="No sales in the last 7 days yet." />
+          </DashCard>
+          <DashCard title="Top sellers" sub="Most ordered in the last 7 days" action={<DashLink label="Products" onClick={() => onNavigate("products")} />}>
+            {data.topProducts.length === 0
+              ? <p className="dash-empty">Best sellers will show here once orders come in.</p>
+              : <ol className="dash-rank">
+                {data.topProducts.map((product, index) => <li key={product.name}>
+                  <span className={`dash-rank-num${index === 0 ? " is-first" : ""}`}>{index + 1}</span>
+                  <div className="dash-rank-main">
+                    <div className="dash-rank-line"><strong>{product.name}</strong><span>{product.quantity} sold</span></div>
+                    <div className="dash-meter"><span style={{ width: `${(product.quantity / topMax) * 100}%` }} /></div>
+                    <div className="dash-rank-sub"><span>{product.category || "Uncategorized"}</span><span>{peso(product.revenue)}</span></div>
+                  </div>
+                </li>)}
+              </ol>}
+          </DashCard>
+        </div>
+
+        <div className="dash-row is-flipped">
+          <DashCard
+            title="Stock alerts"
+            sub={menu.total > 0 ? <>{menu.total - menu.soldOut.length} of {menu.total} menu items can be sold right now</> : "Items at or below their alert level"}
+            action={<DashLink label="Inventory" onClick={() => onNavigate("inventory")} />}
+          >
+            <div className="dash-chips">
+              <span className={`dash-chip${stock.out.length ? " is-out" : ""}`}><b>{stock.out.length}</b> out of stock</span>
+              <span className={`dash-chip${stock.low.length ? " is-low" : ""}`}><b>{stock.low.length}</b> running low</span>
+              <span className={`dash-chip${stock.noCost.length ? " is-info" : ""}`}><b>{stock.noCost.length}</b> without cost</span>
+            </div>
+            {stock.alerts.length === 0
+              ? <div className="dash-all-good"><span><IconCheck size={16} /></span>Everything is well stocked.</div>
+              : <ul className="dash-stock">
+                {stock.alerts.slice(0, 6).map((item) => {
+                  const quantity = Number(item.quantity);
+                  const threshold = Number(item.low_stock_threshold);
+                  const isOut = quantity <= 0;
+                  return <li key={item.inventory_id}>
+                    <div className="dash-stock-main"><strong>{item.item_name}</strong><span>{item.ingredient_category}</span></div>
+                    <div className="dash-stock-qty">
+                      <strong style={{ color: isOut ? "#B91C1C" : "#B45309" }}>{formatAmount(quantity)} {quantity === 1 ? singularUnit(item.unit_of_measure) : item.unit_of_measure}</strong>
+                      <div className="dash-meter is-small"><span style={{ width: `${threshold > 0 ? Math.min(100, (quantity / threshold) * 100) : 0}%`, background: isOut ? "#B91C1C" : "#D97706" }} /></div>
+                    </div>
+                    <span className={`dash-tag ${isOut ? "is-out" : "is-low"}`}>{isOut ? "Out" : "Low"}</span>
+                  </li>;
+                })}
+                {stock.alerts.length > 6 && <li className="dash-stock-more">+{stock.alerts.length - 6} more in Inventory</li>}
+              </ul>}
+            {menu.soldOut.length > 0 && <p className="dash-soldout"><b>Sold out on the menu:</b> {menu.soldOut.slice(0, 5).map((product) => product.name).join(", ")}{menu.soldOut.length > 5 ? ` and ${menu.soldOut.length - 5} more` : ""}</p>}
+          </DashCard>
+          <DashCard title="Recent orders" sub="The latest orders from the counter and the mobile menu" action={<DashLink label="Finance" onClick={() => onNavigate("finance")} />}>
+            {data.recentOrders.length === 0
+              ? <p className="dash-empty">No orders yet.</p>
+              : <ul className="dash-orders">
+                {data.recentOrders.map((order) => {
+                  const reversed = isReversedStatus(order.status);
+                  const when = manilaDay(order.createdAt) === manilaDay(now) ? clockTime(order.createdAt) : shiftTime(order.createdAt);
+                  const channel = order.orderSource === "online" ? "Mobile" : order.paymentMethod === "online" ? "Online" : "Cash";
+                  return <li key={order.orderId}>
+                    <span className="dash-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
+                    <div className="dash-order-main">
+                      <strong>{order.items || "Order"}</strong>
+                      <span>{when} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b></span>
+                    </div>
+                    <div className="dash-order-total">
+                      <strong className={reversed ? "is-reversed" : ""}>{peso(order.total)}</strong>
+                      {reversed && <span className="dash-tag is-out">{order.status.startsWith("void") ? "Voided" : "Refunded"}</span>}
+                    </div>
+                  </li>;
+                })}
+              </ul>}
+          </DashCard>
+        </div>
+
+        <div className="dash-row">
+          <DashCard
+            title={data.shift ? "Sales by hour · this shift" : data.previousShift ? "Sales by hour · last shift" : "Sales by hour"}
+            sub={peakHour ? <>Busiest hour {hourLabel(peakHour.hour)}–{hourLabel((peakHour.hour + 1) % 24)} with {peso(peakHour.revenue)} from {peakHour.orders} order{peakHour.orders === 1 ? "" : "s"}</> : "Hourly sales show here once a shift has orders"}
+          >
+            {hourBars.length > 0
+              ? <DashBars bars={hourBars} emptyLabel="No orders in this shift yet." />
+              : <p className="dash-empty">No shifts yet.</p>}
+          </DashCard>
+          <section className="dash-card dash-ai">
+            <div className="dash-card-head">
+              <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+                <span className="dash-ai-icon"><IconSparkle size={16} /></span>
+                <div>
+                  <h2 className="dash-card-title">AI Insights</h2>
+                  <p className="dash-card-sub">No AI data configured yet</p>
+                </div>
+              </div>
+            </div>
+            <div className="dash-ai-empty">AI insights will appear here once the AI service is connected.</div>
+          </section>
+        </div>
+      </>}
+    </div>
+  </div>;
 }
 
 function isLowStock(item: InventoryItem): boolean {
   return Number(item.quantity) > 0 && Number(item.quantity) <= Number(item.low_stock_threshold);
-}
-
-function DrinkCategoryManagement({ categories, onChange }: { categories: ProductCategory[]; onChange: (categories: ProductCategory[]) => void }) {
-  const [name, setName] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-
-  async function addCategory(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!name.trim()) return;
-    setSaving(true);
-    setError("");
-    try {
-      const response = await fetch("/api/product-categories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category_name: name }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to create drink category.");
-      onChange([...categories, payload.data].sort((a, b) => a.name.localeCompare(b.name)));
-      setName("");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to create drink category.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function archiveCategory(id: number) {
-    if (!window.confirm("Archive this drink category?")) return;
-    setError("");
-    try {
-      const response = await fetch("/api/product-categories", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ category_id: id }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to archive drink category.");
-      onChange(categories.filter((category) => category.id !== id));
-    } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : "Failed to archive drink category.");
-    }
-  }
-
-  return <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
-    <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconTag size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Product Categories</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Organize products into categories shown in Product Management.</p></div></div>
-    <form onSubmit={addCategory} className="flex flex-wrap gap-3" style={{ alignItems: "end" }}>
-      <label className="flex flex-col gap-1.5" style={{ flex: "1 1 240px" }}><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category Name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Non-Coffee Drinks, Snacks" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none", width: "100%" }} /></label>
-      <button type="submit" disabled={saving} style={{ border: "none", borderRadius: 10, padding: "11px 16px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Adding..." : "Add Category"}</button>
-    </form>
-    {error && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{error}</p>}
-    <div className="flex flex-wrap gap-2" style={{ marginTop: 18 }}>{categories.map((category) => <div key={category.id} className="flex items-center gap-2 rounded-xl px-3 py-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", color: "#6B4C3B", fontSize: 13 }}><span>{category.name}</span><button type="button" onClick={() => archiveCategory(category.id)} aria-label={`Archive ${category.name}`} style={{ border: "none", background: "transparent", color: "#B91C1C", cursor: "pointer", fontWeight: 700, lineHeight: 1 }}>×</button></div>)}</div>
-  </section>;
-}
-
-function AdditionsManagement({ inventory, categories, onCategoriesChange }: { inventory: InventoryItem[]; categories: ProductCategory[]; onCategoriesChange: (categories: ProductCategory[]) => void }) {
-  const [items, setItems] = useState<AdditionItem[]>([]);
-  const [additionName, setAdditionName] = useState("");
-  const [inventoryId, setInventoryId] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [price, setPrice] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [actionError, setActionError] = useState("");
-  const selectedInventory = inventory.find((item) => String(item.inventory_id) === inventoryId);
-  const additionInputBase = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none", width: "100%" };
-
-  async function loadItems() {
-    try {
-      setLoading(true);
-      const response = await fetch("/api/additions", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to load additions.");
-      setItems((payload.data ?? []).map((item: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number; }) => ({
-        addition_id: Number(item.id),
-        addition_name: item.name,
-        inventory_id: Number(item.inventoryId),
-        item_name: item.itemName,
-        unit_of_measure: item.unit,
-        quantity: Number(item.quantity),
-        price: Number(item.price),
-      })));
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load additions.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void loadItems(); }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    const parsedQuantity = Number(quantity);
-    const parsedPrice = Number(price);
-    if (!additionName.trim() || !selectedInventory || !Number.isFinite(parsedQuantity) || parsedQuantity <= 0 || !Number.isFinite(parsedPrice) || parsedPrice < 0) {
-      setError("Addition name, inventory item, quantity, and a valid non-negative price are required.");
-      return;
-    }
-
-    if (selectedInventory.is_whole_unit && !Number.isInteger(parsedQuantity)) {
-      setError("Pieces quantity must be a whole number.");
-      return;
-    }
-    try {
-      setSaving(true);
-      const response = await fetch("/api/additions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addition_name: additionName, inventory_id: selectedInventory.inventory_id, quantity: parsedQuantity, price: parsedPrice }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to create addition.");
-      setItems((current) => [...current, {
-        ...payload.data,
-        quantity: Number(payload.data.quantity),
-        price: Number(payload.data.price),
-      }]);
-      setAdditionName("");
-      setInventoryId("");
-      setQuantity("");
-      setPrice("");
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to create addition.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function archiveItem(id: number) {
-    if (!window.confirm("Archive this addition item?")) return;
-    try {
-      setActionError("");
-      const response = await fetch("/api/additions", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addition_id: id }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to archive addition.");
-      setItems((current) => current.filter((item) => item.addition_id !== id));
-    } catch (archiveError) {
-      setActionError(archiveError instanceof Error ? archiveError.message : "Failed to archive addition.");
-    }
-  }
-
-  return <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
-    <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
-      <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconSparkle size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Add an Addition Item</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Choose the inventory item consumed by this addition. Additions can be attached to any recipe item in the cashier cart or mobile menu.</p></div></div>
-      <form onSubmit={submit} className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", alignItems: "end" }}>
-        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Addition Name</span><input required value={additionName} onChange={(event) => setAdditionName(event.target.value)} placeholder="Extra Shot" style={additionInputBase} /></label>
-        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Inventory Item</span><select required value={inventoryId} onChange={(event) => setInventoryId(event.target.value)} style={additionInputBase}><option value="">Choose inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select></label>
-        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Unit of Measure</span><input readOnly value={selectedInventory?.unit_of_measure ?? ""} placeholder="Auto-filled" style={{ ...additionInputBase, background: "#F3EDE5" }} /></label>
-        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Quantity</span><input required type="number" min="0.01" step={selectedInventory?.is_whole_unit ? "1" : "0.01"} value={quantity} onChange={(event) => setQuantity(event.target.value)} placeholder="0" style={additionInputBase} /></label>
-        <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Selling Price</span><input required type="number" min="0" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="0.00" style={additionInputBase} /></label>
-        <button type="submit" disabled={saving || loading} style={{ border: "none", borderRadius: 10, padding: "11px 16px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Adding..." : "Add Addition"}</button>
-      </form>
-      {error && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{error}</p>}
-      {actionError && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{actionError}</p>}
-    </div>
-    <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-      <div className="px-6 py-4 border-b" style={{ borderColor: "#E8DDD5" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>Addition Items</h3></div>
-      {loading ? <p className="p-6" style={{ color: "#9C8278" }}>Loading additions...</p> : items.length === 0 ? <p className="p-6" style={{ color: "#9C8278" }}>No addition items yet.</p> : <div className="divide-y">{items.map((item) => <div key={item.addition_id} className="flex items-center justify-between gap-4 px-6 py-4" style={{ borderColor: "#E8DDD5" }}><div><p style={{ margin: 0, color: "#3D2B1F", fontWeight: 700 }}>{item.addition_name}</p><p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 12 }}>Uses {item.item_name}</p></div><div className="flex items-center gap-4"><p style={{ margin: 0, color: "#6B4C3B", fontFamily: "JetBrains Mono, monospace", fontSize: 13 }}>{item.quantity} {item.unit_of_measure} · ₱{Number(item.price).toFixed(2)}</p><button type="button" onClick={() => archiveItem(item.addition_id)} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "6px 10px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Archive</button></div></div>)}</div>}
-    </div>
-    <DrinkCategoryManagement categories={categories} onChange={onCategoriesChange} />
-  </div>;
 }
 
 // Unit cost input, stored per unit of measure. Buying prices are usually known per purchase
@@ -538,22 +1224,11 @@ function previewWeightedAverage(currentQuantity: number, currentUnitCost: number
     : (onHand * currentUnitCost + addedTotalCost) / (onHand + addedQuantity);
 }
 
-// "≈ 3 × Nescafe Bean Bag 1 kg + 450 grams", using the most recently restocked packaging.
-function describeInPacks(item: InventoryItem): string | null {
-  const pack = item.packagings?.[0];
-  const quantity = Number(item.quantity);
-  const content = pack ? Number(pack.contentQuantity) : 0;
-  if (!pack || !(content > 0) || !(quantity > 0)) return null;
-  const packs = Math.floor(quantity / content + 1e-9);
-  const loose = quantity - packs * content;
-  if (packs === 0) return `< 1 ${pack.name}`;
-  return `≈ ${packs} × ${pack.name}${loose > 0.005 ? ` + ${formatAmount(loose)} ${item.unit_of_measure}` : ""}`;
-}
-
 const packagingLabel: React.CSSProperties = { fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" };
 const packagingInput: React.CSSProperties = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", width: "100%", minWidth: 0 };
 
 function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; onClose: () => void; onChanged: (updated: InventoryItem) => void }) {
+  const confirmAction = useConfirm();
   const packagings = item.packagings ?? [];
   const emptyDraft = { name: "", brand: "", content: "", price: "" };
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -595,8 +1270,8 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
     else void send("PATCH", { packaging_id: editingId, ...fields }, "Failed to update the packaging.");
   }
 
-  function archive(pack: InventoryPackaging) {
-    if (!window.confirm(`Archive "${pack.name}"? Past restock records keep its name.`)) return;
+  async function archive(pack: InventoryPackaging) {
+    if (!(await confirmAction({ title: `Archive ${pack.name}?`, message: "It will no longer be offered when restocking. Past restock records keep its name.", confirmLabel: "Archive packaging" }))) return;
     void send("DELETE", { packaging_id: pack.packagingId }, "Failed to archive the packaging.");
   }
 
@@ -604,7 +1279,7 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
   const draftPrice = Number(draft.price);
   const draftPerUnit = draft.price !== "" && draftContent > 0 && Number.isFinite(draftPrice) ? draftPrice / draftContent : null;
 
-  return <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+  return <Modal onClose={onClose} closeDisabled={saving} label="Packaging">
     <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, maxHeight: "90vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
       <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
         <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Packaging</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>How {item.item_name} is bought · stock stays in {item.unit_of_measure}</p></div>
@@ -647,7 +1322,7 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
         </form>
       </div>
     </div>
-  </div>;
+  </Modal>;
 }
 
 function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item: InventoryItem; onClose: () => void; onRestocked: (updated: InventoryItem) => void; onManagePackaging: () => void }) {
@@ -700,7 +1375,7 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
 
   const tab = (value: "package" | "quantity", label: string) => <button type="button" onClick={() => setMode(value)} aria-pressed={mode === value} style={{ flex: 1, border: mode === value ? "1px solid #3D2B1F" : "1px solid #E8DDD5", background: mode === value ? "#3D2B1F" : "#FDF9F5", color: mode === value ? "#FDF9F5" : "#6B4C3B", borderRadius: 9, padding: "8px 10px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>;
 
-  return <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+  return <Modal onClose={onClose} closeDisabled={saving} label="Restock">
     <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 460, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
       <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
         <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Restock</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>{item.item_name} · {formatAmount(Number(item.quantity))} {item.unit_of_measure} on hand</p></div>
@@ -741,7 +1416,7 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
         <button type="submit" disabled={saving || !valid} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !valid ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 600, cursor: saving || !valid ? "default" : "pointer" }}>{saving ? "Adding..." : "Add stock"}</button>
       </div>
     </form>
-  </div>;
+  </Modal>;
 }
 
 // "1 shot (30 mL) of this item uses 9 grams of Coffee Bean": the ratio (source units per one
@@ -770,6 +1445,757 @@ function BindingRatioField({ itemUnit, source, ratio, onChange }: { itemUnit: st
   </div>;
 }
 
+// ─── Inventory ────────────────────────────────────────────────────────────────
+// Listed the way stock is bought: the package on top (Nescafe Bean Bag 1 kg), opening to the
+// measured item inside it (Coffee Bean, grams) and the portions drawn from that item (Espresso
+// Shot, mL). Stock itself always lives on the measured item, so recipes never depend on a brand.
+
+type StockStatus = "out" | "low" | "ok";
+type StockGroup = { item: InventoryItem; packs: InventoryPackaging[]; portions: InventoryItem[]; status: StockStatus; orphan: boolean; lastRestockedAt: number };
+type InventoryFilters = {
+  search: string;
+  category: string;
+  status: "all" | "attention" | "out" | "low" | "ok";
+  kind: "all" | "packaged" | "loose" | "portions";
+  usage: "all" | "recipe" | "direct" | "addon" | "unused";
+  cost: "all" | "set" | "missing";
+  sort: "category" | "name" | "stock" | "restocked";
+};
+type AddPreset = { kind?: "packaged" | "loose" | "portion"; sourceId?: number; existingItemId?: number };
+
+const defaultInventoryFilters: InventoryFilters = { search: "", category: "all", status: "all", kind: "all", usage: "all", cost: "all", sort: "category" };
+const inventoryUnitGroups: [string, string[]][] = [["Weight", ["grams", "kg", "oz"]], ["Volume", ["mL", "L"]], ["Count", ["Pieces", "Bottles", "Sachets", "Packs", "Boxes"]]];
+const stockStatusLabels: Record<StockStatus, string> = { out: "Out of stock", low: "Running low", ok: "In stock" };
+
+function stockStatusOf(item: InventoryItem): StockStatus {
+  if (Number(item.quantity) <= 0) return "out";
+  return isLowStock(item) ? "low" : "ok";
+}
+
+function unitWord(quantity: number, unit: string): string {
+  return Math.abs(quantity) === 1 ? singularUnit(unit) : unit;
+}
+
+function formatStock(quantity: number, unit: string): string {
+  return `${formatAmount(quantity)} ${unitWord(quantity, unit)}`;
+}
+
+function buildStockGroups(items: InventoryItem[]): StockGroup[] {
+  const ids = new Set(items.map((item) => item.inventory_id));
+  const portionsBySource = new Map<number, InventoryItem[]>();
+  for (const item of items) {
+    const sourceId = item.derived_from_inventory_id;
+    if (sourceId && ids.has(sourceId)) portionsBySource.set(sourceId, [...(portionsBySource.get(sourceId) ?? []), item]);
+  }
+  return items
+    .filter((item) => !item.derived_from_inventory_id || !ids.has(item.derived_from_inventory_id))
+    .map((item) => {
+      const packs = item.packagings ?? [];
+      return {
+        item,
+        packs,
+        portions: (portionsBySource.get(item.inventory_id) ?? []).sort((a, b) => a.item_name.localeCompare(b.item_name)),
+        status: stockStatusOf(item),
+        orphan: Boolean(item.derived_from_inventory_id),
+        lastRestockedAt: packs.reduce((latest, pack) => Math.max(latest, pack.lastRestockedAt ? new Date(pack.lastRestockedAt).getTime() : 0), 0),
+      };
+    });
+}
+
+function groupUses(group: StockGroup) {
+  const all = [group.item, ...group.portions];
+  const recipe = all.some((item) => (item.recipe_products?.length ?? 0) > 0);
+  const direct = all.some((item) => (item.direct_sale_products?.length ?? 0) > 0);
+  const addon = all.some((item) => (item.addition_names?.length ?? 0) > 0);
+  return { recipe, direct, addon, unused: !recipe && !direct && !addon };
+}
+
+// Stock in packs when the item has a package: "3 packs" and "+ 450 grams loose".
+function stockInPacks(group: StockGroup): { main: string; sub: string } {
+  const quantity = Number(group.item.quantity);
+  const unit = group.item.unit_of_measure;
+  const pack = group.packs[0];
+  const content = pack ? Number(pack.contentQuantity) : 0;
+  if (!pack || !(content > 0)) return { main: formatStock(quantity, unit), sub: group.orphan ? "source item missing" : "on hand" };
+  if (quantity <= 0) return { main: "0 packs", sub: `0 ${unit}` };
+  const packs = Math.floor(quantity / content + 1e-9);
+  const loose = quantity - packs * content;
+  if (packs === 0) return { main: formatStock(quantity, unit), sub: "less than 1 pack" };
+  return { main: `${packs} pack${packs === 1 ? "" : "s"}`, sub: loose > 0.005 ? `+ ${formatStock(loose, unit)} · ${formatStock(quantity, unit)} total` : formatStock(quantity, unit) };
+}
+
+function InventoryUsageChips({ item }: { item: InventoryItem }) {
+  const chips = [
+    ...(item.recipe_products ?? []).map((name) => ({ name, kind: "Recipe", className: "is-recipe" })),
+    ...(item.direct_sale_products ?? []).map((name) => ({ name, kind: "Sold directly", className: "is-direct" })),
+    ...(item.addition_names ?? []).map((name) => ({ name, kind: "Add-on", className: "is-addon" })),
+  ];
+  if (chips.length === 0) return <span className="inv-usage-none">Not used by any product or add-on yet</span>;
+  return <span className="inv-usage">
+    {chips.slice(0, 6).map((chip) => <span key={`${chip.kind}-${chip.name}`} title={chip.kind} className={`inv-usage-chip ${chip.className}`}>{chip.name}</span>)}
+    {chips.length > 6 && <span className="inv-usage-chip" title={chips.slice(6).map((chip) => `${chip.name} (${chip.kind})`).join(", ")}>+{chips.length - 6} more</span>}
+  </span>;
+}
+
+function DialogHeader({ title, sub, onClose, disabled }: { title: string; sub?: string; onClose: () => void; disabled?: boolean }) {
+  return <div className="flex items-center justify-between gap-3 px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
+    <div style={{ minWidth: 0 }}>
+      <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F" }}>{title}</p>
+      {sub && <p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>{sub}</p>}
+    </div>
+    <button type="button" onClick={onClose} disabled={disabled} title="Close" style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 9, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: disabled ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
+  </div>;
+}
+
+function UnitSelect({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
+  return <select value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} style={{ ...packagingInput, opacity: disabled ? 0.65 : 1 }}>
+    {inventoryUnitGroups.map(([label, units]) => <optgroup key={label} label={label}>{units.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</optgroup>)}
+  </select>;
+}
+
+function WizardField({ label, hint, children }: { label: React.ReactNode; hint?: React.ReactNode; children: React.ReactNode }) {
+  return <label className="flex flex-col gap-1.5" style={{ minWidth: 0 }}>
+    <span style={packagingLabel}>{label}</span>
+    {children}
+    {hint && <span style={{ fontSize: 11.5, color: "#9C8278", lineHeight: 1.45 }}>{hint}</span>}
+  </label>;
+}
+
+const optionalTag = <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span>;
+
+// ─── Add inventory: package first, then what is inside it ─────────────────────
+function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: { items: InventoryItem[]; categories: string[]; preset: AddPreset; onClose: () => void; onCreated: () => Promise<void> }) {
+  const stockItems = items.filter((item) => !item.derived_from_inventory_id);
+  const [kind, setKind] = useState<AddPreset["kind"]>(preset.kind);
+  const [pack, setPack] = useState({ name: "", brand: "", price: "" });
+  const [inside, setInside] = useState<"new" | "existing">(preset.existingItemId ? "existing" : "new");
+  const [existingId, setExistingId] = useState(preset.existingItemId ? String(preset.existingItemId) : "");
+  const [detail, setDetail] = useState({ name: "", category: "", unit: "grams", content: "", packs: "", loose: "", quantity: "", unitCost: "" });
+  const [sourceId, setSourceId] = useState(preset.sourceId ? String(preset.sourceId) : "");
+  const [ratio, setRatio] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const existing = stockItems.find((item) => String(item.inventory_id) === existingId);
+  const source = stockItems.find((item) => String(item.inventory_id) === sourceId);
+  const unit = kind === "packaged" && inside === "existing" ? existing?.unit_of_measure ?? "units" : detail.unit;
+  const whole = isWholeUnit(unit);
+  const update = (field: keyof typeof detail, value: string) => setDetail((current) => ({ ...current, [field]: value }));
+  const wholeAware = (value: string) => (whole ? sanitizeWholeUnitValue(value) : value);
+
+  const content = Number(detail.content);
+  const packCount = detail.packs === "" ? 0 : Number(detail.packs);
+  const loose = detail.loose === "" ? 0 : Number(detail.loose);
+  const packPrice = pack.price === "" ? null : Number(pack.price);
+  const startingStock = packCount * (content > 0 ? content : 0) + (inside === "new" ? loose : 0);
+  const perUnitCost = packPrice !== null && content > 0 ? packPrice / content : null;
+
+  const problem = (() => {
+    if (kind === "packaged") {
+      if (!pack.name.trim()) return "Name the package, e.g. Nescafe Bean Bag 1 kg.";
+      if (inside === "new" && (!detail.name.trim() || !detail.category.trim())) return "Name the item inside the package and give it a category.";
+      if (inside === "existing" && !existing) return "Choose the item this package contains.";
+      if (!(content > 0) || (whole && !Number.isInteger(content))) return `Enter how many ${unit} one package contains${whole ? " (a whole number)" : ""}.`;
+      if (packPrice !== null && !(packPrice >= 0)) return "The package price must be 0 or more.";
+      if (!Number.isInteger(packCount) || packCount < 0) return "Packages on hand must be a whole number.";
+      if (!(loose >= 0) || (whole && !Number.isInteger(loose))) return "The loose amount must be 0 or more.";
+      return "";
+    }
+    if (kind === "loose") {
+      if (!detail.name.trim() || !detail.category.trim()) return "Name the item and give it a category.";
+      const quantity = Number(detail.quantity || 0);
+      if (!(quantity >= 0) || (whole && !Number.isInteger(quantity))) return "Enter the stock on hand (0 or more).";
+      if (detail.unitCost !== "" && !(Number(detail.unitCost) >= 0)) return "The unit cost must be 0 or more.";
+      return "";
+    }
+    if (kind === "portion") {
+      if (!detail.name.trim() || !detail.category.trim()) return "Name the portion and give it a category.";
+      if (!source) return "Choose the item this portion is drawn from.";
+      if (!(Number(ratio) > 0)) return "Enter how much of the source one portion uses.";
+      return "";
+    }
+    return "Choose what you are adding.";
+  })();
+
+  async function request(method: string, url: string, body: Record<string, unknown>, fallback: string) {
+    const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || fallback);
+    return payload.data as InventoryItem;
+  }
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (problem || saving) { setError(problem); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const packaging = { packaging_name: pack.name.trim(), brand: pack.brand.trim(), content_quantity: content, pack_price: packPrice };
+      if (kind === "packaged" && inside === "new") {
+        await request("POST", "/api/inventory", {
+          ingredient_category: detail.category.trim(), item_name: detail.name.trim(), unit_of_measure: detail.unit, quantity: 0, unit_cost: null,
+          packaging, initial_packs: packCount, initial_loose: loose,
+        }, "Could not add the package.");
+      } else if (kind === "packaged" && existing) {
+        const updated = await request("POST", "/api/inventory/packaging", { inventory_id: existing.inventory_id, ...packaging }, "Could not add the package.");
+        const created = (updated.packagings ?? []).find((entry) => entry.name.toLowerCase() === packaging.packaging_name.toLowerCase());
+        if (created && packCount > 0) {
+          await request("PATCH", "/api/inventory", { restock_packaging: true, packaging_id: created.packagingId, packs: packCount, pack_price: packPrice }, "The package was added, but its stock could not be added. Restock it from the list.");
+        }
+      } else if (kind === "loose") {
+        await request("POST", "/api/inventory", {
+          ingredient_category: detail.category.trim(), item_name: detail.name.trim(), unit_of_measure: detail.unit,
+          quantity: Number(detail.quantity || 0), unit_cost: detail.unitCost === "" ? null : Number(detail.unitCost),
+        }, "Could not add the item.");
+      } else if (kind === "portion" && source) {
+        await request("POST", "/api/inventory", {
+          ingredient_category: detail.category.trim(), item_name: detail.name.trim(), unit_of_measure: detail.unit,
+          derived_from_inventory_id: source.inventory_id, derived_ratio: Number(ratio),
+        }, "Could not add the portion.");
+      }
+      await onCreated();
+      onClose();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Could not save.");
+      await onCreated().catch(() => undefined);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const categoryList = <datalist id="inventory-category-options">{categories.map((category) => <option key={category} value={category} />)}</datalist>;
+  const kindOptions: { id: NonNullable<AddPreset["kind"]>; title: string; text: string; example: string; Icon: React.FC<{ size?: number }> }[] = [
+    { id: "packaged", title: "A packaged product", text: "Bought in a bag, box, carton or case. You restock by package.", example: "Nescafe Bean Bag 1 kg → Coffee Bean (grams)", Icon: IconBox },
+    { id: "loose", title: "A loose item", text: "Counted directly, with no package to track.", example: "Ice (grams), Lemons (pieces)", Icon: IconTag },
+    { id: "portion", title: "A portion of an item", text: "Has no stock of its own. It is drawn from another item.", example: "Espresso Shot (mL) from Coffee Bean", Icon: IconLink },
+  ];
+
+  const titles: Record<string, string> = { packaged: "Add a packaged product", loose: "Add a loose item", portion: "Add a portion" };
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Add inventory" zIndex={50}>
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 620, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={kind ? titles[kind] : "What are you adding?"} sub={kind === "packaged" ? "Start with the package you buy, then what is inside it." : kind ? undefined : "Pick the option that matches how the café buys it."} onClose={onClose} disabled={saving} />
+      {categoryList}
+      <div className="flex flex-col gap-5 px-6 py-5" style={{ overflowY: "auto" }}>
+        {!kind && <div className="inv-kind-options">
+          {kindOptions.map((option) => <button key={option.id} type="button" className="inv-kind-option" onClick={() => { setKind(option.id); setError(""); }}>
+            <span className={`inv-kind-icon is-${option.id}`}><option.Icon size={20} /></span>
+            <span className="inv-kind-text"><strong>{option.title}</strong><span>{option.text}</span><em>{option.example}</em></span>
+            <IconChevron size={16} />
+          </button>)}
+        </div>}
+
+        {kind === "packaged" && <>
+          <section className="inv-step">
+            <p className="inv-step-title"><span>1</span>The package</p>
+            <div className="inv-step-grid">
+              <WizardField label="Package name"><input data-autofocus value={pack.name} onChange={(event) => setPack((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Nescafe Bean Bag 1 kg" style={packagingInput} /></WizardField>
+              <WizardField label={<>Brand {optionalTag}</>}><input value={pack.brand} onChange={(event) => setPack((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></WizardField>
+              <WizardField label={<>Price per package (₱) {optionalTag}</>} hint="Sets the item cost. Restocks update it as a weighted average."><input type="number" min={0} step="0.01" value={pack.price} onChange={(event) => setPack((current) => ({ ...current, price: event.target.value }))} placeholder="e.g. 850" style={packagingInput} /></WizardField>
+            </div>
+          </section>
+
+          <section className="inv-step">
+            <p className="inv-step-title"><span>2</span>What is inside one package</p>
+            <div className="inv-segment" role="group" aria-label="Item inside the package">
+              <button type="button" aria-pressed={inside === "new"} onClick={() => setInside("new")}>A new item</button>
+              <button type="button" aria-pressed={inside === "existing"} onClick={() => setInside("existing")} disabled={stockItems.length === 0}>An item already listed</button>
+            </div>
+            {inside === "new" ? <div className="inv-step-grid">
+              <WizardField label="Item name" hint="What recipes use, without the brand."><input value={detail.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Coffee Bean, Coke Can" style={packagingInput} /></WizardField>
+              <WizardField label="Category"><input list="inventory-category-options" value={detail.category} onChange={(event) => update("category", event.target.value)} placeholder="e.g. Coffee, Canned Drinks" style={packagingInput} /></WizardField>
+              <WizardField label="Counted in" hint="The unit recipes and sales use."><UnitSelect value={detail.unit} onChange={(value) => update("unit", value)} /></WizardField>
+              <WizardField label={`One package contains (${unit})`}><input type="number" min={0} step={whole ? 1 : "any"} value={detail.content} onChange={(event) => update("content", wholeAware(event.target.value))} placeholder={whole ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></WizardField>
+            </div> : <div className="inv-step-grid">
+              <WizardField label="Item">
+                <select value={existingId} onChange={(event) => setExistingId(event.target.value)} style={packagingInput}>
+                  <option value="">Choose an item</option>
+                  {stockItems.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}
+                </select>
+              </WizardField>
+              <WizardField label={`One package contains (${unit})`} hint="Use this for another brand or size of the same item."><input type="number" min={0} step={whole ? 1 : "any"} value={detail.content} onChange={(event) => update("content", wholeAware(event.target.value))} placeholder={whole ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></WizardField>
+            </div>}
+          </section>
+
+          <section className="inv-step">
+            <p className="inv-step-title"><span>3</span>Stock on hand now</p>
+            <div className="inv-step-grid">
+              <WizardField label="Full packages"><input type="number" min={0} step={1} value={detail.packs} onChange={(event) => update("packs", sanitizeWholeUnitValue(event.target.value))} placeholder="0" style={packagingInput} /></WizardField>
+              {inside === "new" && <WizardField label={<>Plus loose ({unit}) {optionalTag}</>} hint="From an opened package."><input type="number" min={0} step={whole ? 1 : "any"} value={detail.loose} onChange={(event) => update("loose", wholeAware(event.target.value))} placeholder="0" style={packagingInput} /></WizardField>}
+            </div>
+          </section>
+
+          {(pack.name.trim() || detail.name.trim() || existing) && <div className="inv-preview" aria-live="polite">
+            <p className="inv-preview-label">Preview</p>
+            <div className="inv-preview-tree">
+              <div><span className="inv-kind-icon is-packaged"><IconBox size={15} /></span><strong>{pack.name.trim() || "Package"}</strong>{pack.brand.trim() && <em>{pack.brand.trim()}</em>}{content > 0 && <span>{formatStock(content, unit)} each{packPrice !== null ? ` · ${peso(packPrice)}` : ""}</span>}</div>
+              <div className="is-child"><span className="inv-kind-icon is-loose"><IconTag size={15} /></span><strong>{inside === "existing" ? existing?.item_name ?? "Item" : detail.name.trim() || "Item"}</strong><span>{inside === "existing" && existing ? `${formatStock(Number(existing.quantity), unit)} now → ${formatStock(Number(existing.quantity) + packCount * (content > 0 ? content : 0), unit)}` : `${formatStock(startingStock, unit)} on hand`}{perUnitCost !== null ? ` · ${formatPeso(perUnitCost)} per ${singularUnit(unit)}` : ""}</span></div>
+            </div>
+          </div>}
+        </>}
+
+        {kind === "loose" && <section className="inv-step">
+          <div className="inv-step-grid">
+            <WizardField label="Item name"><input data-autofocus value={detail.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Ice, Lemon" style={packagingInput} /></WizardField>
+            <WizardField label="Category"><input list="inventory-category-options" value={detail.category} onChange={(event) => update("category", event.target.value)} placeholder="e.g. Produce" style={packagingInput} /></WizardField>
+            <WizardField label="Counted in"><UnitSelect value={detail.unit} onChange={(value) => update("unit", value)} /></WizardField>
+            <WizardField label={`Stock on hand (${detail.unit})`}><input type="number" min={0} step={whole ? 1 : "any"} value={detail.quantity} onChange={(event) => update("quantity", wholeAware(event.target.value))} placeholder="0" style={packagingInput} /></WizardField>
+          </div>
+          <UnitCostField unit={detail.unit} value={detail.unitCost} onChange={(value) => update("unitCost", value)} />
+          <p className="inv-hint">If you later start buying it in packages, open the item and add its package.</p>
+        </section>}
+
+        {kind === "portion" && <section className="inv-step">
+          <div className="inv-step-grid">
+            <WizardField label="Portion name"><input data-autofocus value={detail.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Espresso Shot" style={packagingInput} /></WizardField>
+            <WizardField label="Category"><input list="inventory-category-options" value={detail.category} onChange={(event) => update("category", event.target.value)} placeholder="e.g. Coffee" style={packagingInput} /></WizardField>
+            <WizardField label="Counted in"><UnitSelect value={detail.unit} onChange={(value) => update("unit", value)} /></WizardField>
+            <WizardField label="Drawn from">
+              <select value={sourceId} onChange={(event) => setSourceId(event.target.value)} style={packagingInput}>
+                <option value="">Choose the source item</option>
+                {stockItems.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}
+              </select>
+            </WizardField>
+          </div>
+          {source && <BindingRatioField key={source.inventory_id} itemUnit={detail.unit} source={source} ratio={ratio} onChange={setRatio} />}
+          <p className="inv-hint">A portion has no stock of its own. Selling it uses up the source item, and its cost follows the source.</p>
+        </section>}
+
+        {error && <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+      </div>
+      {kind && <div className="flex items-center justify-between gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        {preset.kind ? <span /> : <button type="button" onClick={() => { setKind(undefined); setError(""); }} disabled={saving} className="ui-button ui-button-secondary">Back</button>}
+        <div className="flex items-center gap-3">
+          {problem && <span className="inv-footer-note">{problem}</span>}
+          <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary" style={{ opacity: saving || problem ? 0.55 : 1 }}>{saving ? "Saving…" : kind === "packaged" ? "Add package" : kind === "portion" ? "Add portion" : "Add item"}</button>
+        </div>
+      </div>}
+    </form>
+  </Modal>;
+}
+
+// ─── Edit a measured item: details and a stock count ──────────────────────────
+function InventoryItemDialog({ item, categories, unitLockReason, onClose, onSaved }: { item: InventoryItem; categories: string[]; unitLockReason: string | null; onClose: () => void; onSaved: (updated: InventoryItem) => void }) {
+  const [draft, setDraft] = useState({ name: item.item_name, category: item.ingredient_category, unit: item.unit_of_measure, quantity: String(Number(item.quantity)) });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const whole = isWholeUnit(draft.unit);
+  const counted = Number(draft.quantity);
+  const difference = draft.quantity === "" ? 0 : counted - Number(item.quantity);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft.name.trim() || !draft.category.trim() || draft.quantity === "" || !(counted >= 0)) { setError("Enter a name, a category and a stock count of 0 or more."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ details_edit: true, inventory_id: item.inventory_id, item_name: draft.name.trim(), ingredient_category: draft.category.trim(), unit_of_measure: draft.unit, quantity: counted }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the item.");
+      onSaved(payload.data as InventoryItem);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the item.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Edit item">
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title="Edit item" sub={`${item.item_name} · stock is counted in ${item.unit_of_measure}`} onClose={onClose} disabled={saving} />
+      <datalist id="inventory-edit-category-options">{categories.map((category) => <option key={category} value={category} />)}</datalist>
+      <div className="flex flex-col gap-4 px-6 py-5">
+        <div className="inv-step-grid">
+          <WizardField label="Item name"><input data-autofocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} style={packagingInput} /></WizardField>
+          <WizardField label="Category"><input list="inventory-edit-category-options" value={draft.category} onChange={(event) => setDraft((current) => ({ ...current, category: event.target.value }))} style={packagingInput} /></WizardField>
+          <WizardField label="Counted in" hint={unitLockReason ?? undefined}><UnitSelect value={draft.unit} onChange={(value) => setDraft((current) => ({ ...current, unit: value }))} disabled={Boolean(unitLockReason)} /></WizardField>
+          <WizardField label={`Stock count (${draft.unit})`} hint={difference !== 0 && Number.isFinite(difference) ? <span style={{ color: difference > 0 ? "#15803D" : "#B91C1C" }}>{difference > 0 ? "+" : "−"}{formatStock(Math.abs(difference), draft.unit)}, recorded in History as a manual correction</span> : "Change this after a physical count."}>
+            <input type="number" min={0} step={whole ? 1 : "any"} value={draft.quantity} onChange={(event) => setDraft((current) => ({ ...current, quantity: whole ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} style={packagingInput} />
+          </WizardField>
+        </div>
+        <p className="inv-hint">To add stock you bought, use <b>Restock</b> instead, so the cost is averaged and the purchase is recorded.</p>
+        {error && <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving} className="ui-button ui-button-primary">{saving ? "Saving…" : "Save changes"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+// ─── One package / loose item, with what it contains ──────────────────────────
+type StockGroupActions = {
+  onRestock: (item: InventoryItem) => void;
+  onEdit: (item: InventoryItem) => void;
+  onCost: (item: InventoryItem) => void;
+  onPackages: (item: InventoryItem) => void;
+  onAddPortion: (item: InventoryItem) => void;
+  onEditPortion: (item: InventoryItem) => void;
+  onArchive: (item: InventoryItem) => void;
+  onHistory: (group: StockGroup) => void;
+};
+
+function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGroup; expanded: boolean; onToggle: () => void; actions: StockGroupActions }) {
+  const { item, packs, portions, status, orphan } = group;
+  const primary = packs[0];
+  const stock = stockInPacks(group);
+  const unitCost = toOptionalNumber(item.effective_unit_cost ?? item.unit_cost);
+  const packPrice = primary ? toOptionalNumber(primary.lastPackPrice) : null;
+  const unit = item.unit_of_measure;
+  const kindClass = orphan ? "is-portion" : primary ? "is-packaged" : "is-loose";
+  const KindIcon = orphan ? IconLink : primary ? IconBox : IconTag;
+  const title = primary ? primary.name : item.item_name;
+  const subtitle = orphan
+    ? `Portion of an archived item · ${item.ingredient_category}`
+    : primary
+      ? `${formatStock(Number(primary.contentQuantity), unit)} of ${item.item_name} per pack · ${item.ingredient_category}`
+      : `Loose item · counted in ${unit} · ${item.ingredient_category}`;
+  const detailId = `inventory-detail-${item.inventory_id}`;
+
+  return <article className={`inv-group is-${status}${expanded ? " is-open" : ""}`}>
+    <div className="inv-row">
+      <button type="button" className="inv-row-main" onClick={onToggle} aria-expanded={expanded} aria-controls={detailId}>
+        <span className="inv-chevron" aria-hidden="true"><IconChevron size={16} /></span>
+        <span className={`inv-kind-icon ${kindClass}`}><KindIcon size={18} /></span>
+        <span className="inv-title-block">
+          <span className="inv-title">
+            <span className="inv-title-text">{title}</span>
+            {primary?.brand && <span className="inv-brand">{primary.brand}</span>}
+            {packs.length > 1 && <span className="inv-more">+{packs.length - 1} more package{packs.length > 2 ? "s" : ""}</span>}
+            {portions.length > 0 && <span className="inv-more">{portions.length} portion{portions.length === 1 ? "" : "s"}</span>}
+          </span>
+          <span className="inv-subtitle">{subtitle}</span>
+        </span>
+      </button>
+      <div className="inv-cell inv-stock">
+        <strong className={`is-${status}`}>{stock.main}</strong>
+        <span>{stock.sub}</span>
+      </div>
+      <div className="inv-cell inv-cost">
+        <strong>{primary && packPrice !== null ? `${peso(packPrice)} / pack` : unitCost !== null ? formatPeso(unitCost) : "No cost"}</strong>
+        <span>{unitCost !== null ? `${primary && packPrice !== null ? `${formatPeso(unitCost)} ` : ""}per ${singularUnit(unit)}` : "cost not set"}</span>
+      </div>
+      <span className={`inv-status is-${status}`}>{stockStatusLabels[status]}</span>
+      <div className="inv-row-actions">
+        {!orphan && <button type="button" className="inv-restock" onClick={() => actions.onRestock(item)}><IconPlus size={14} />Restock</button>}
+      </div>
+    </div>
+
+    {expanded && <div className="inv-detail" id={detailId}>
+      {!orphan && <div className="inv-tree">
+        <section className="inv-node">
+          <header className="inv-node-head">
+            <p className="inv-node-label"><IconBox size={13} />Package{packs.length === 1 ? "" : "s"} · how it is bought</p>
+            <button type="button" className="inv-mini" onClick={() => actions.onPackages(item)}>{packs.length ? "Manage packages" : "+ Add package"}</button>
+          </header>
+          {packs.length === 0
+            ? <p className="inv-hint">Not bought in a package yet. Add one (for example a 1 kg bag or a case of 24) to restock by package and track prices.</p>
+            : <ul className="inv-pack-list">
+              {packs.map((entry, index) => {
+                const price = toOptionalNumber(entry.lastPackPrice);
+                const contentQuantity = Number(entry.contentQuantity);
+                return <li key={entry.packagingId}>
+                  <div className="inv-pack-name"><strong>{entry.name}</strong>{entry.brand && <span className="inv-brand">{entry.brand}</span>}{index === 0 && entry.lastRestockedAt && <span className="inv-latest">last bought</span>}</div>
+                  <span>{formatStock(contentQuantity, unit)} per pack{price !== null ? ` · ${peso(price)} (${formatPeso(price / contentQuantity)} per ${singularUnit(unit)})` : " · no price yet"}{entry.lastRestockedAt ? ` · restocked ${shiftTime(entry.lastRestockedAt)}` : ""}</span>
+                </li>;
+              })}
+            </ul>}
+        </section>
+
+        <section className="inv-node is-item">
+          <header className="inv-node-head">
+            <p className="inv-node-label"><IconTag size={13} />Item inside · stock is counted here</p>
+            <div className="inv-node-actions">
+              <button type="button" className="inv-mini" onClick={() => actions.onEdit(item)}><IconPencil size={12} />Edit</button>
+              <button type="button" className="inv-mini" onClick={() => actions.onHistory(group)}>History</button>
+              {!item.is_permanent && <button type="button" className="inv-mini is-danger" onClick={() => actions.onArchive(item)}><IconTrash size={12} />Archive</button>}
+            </div>
+          </header>
+          <div className="inv-facts">
+            <div><span>Item</span><strong>{item.item_name}</strong><em>{item.ingredient_category}</em></div>
+            <div><span>On hand</span><strong className={`is-${status}`}>{formatStock(Number(item.quantity), unit)}</strong><em>Low at {formatStock(Number(item.low_stock_threshold), unit)}</em></div>
+            <div><span>Cost</span><strong>{unitCost === null ? "Not set" : formatPeso(unitCost)}</strong><em>{unitCost === null ? "" : `per ${singularUnit(unit)}`} <button type="button" className="inv-link" onClick={() => actions.onCost(item)}>{unitCost === null ? "Set cost" : "Change"}</button></em></div>
+            <div><span>Stock value</span><strong>{unitCost === null ? "—" : peso(Math.max(0, Number(item.quantity)) * unitCost)}</strong><em>at current cost</em></div>
+          </div>
+          <div className="inv-used"><span>Used in</span><InventoryUsageChips item={item} /></div>
+        </section>
+
+        <section className="inv-node">
+          <header className="inv-node-head">
+            <p className="inv-node-label"><IconLink size={13} />Portions · drawn from {item.item_name}</p>
+            <button type="button" className="inv-mini" onClick={() => actions.onAddPortion(item)}>+ Add portion</button>
+          </header>
+          {portions.length === 0
+            ? <p className="inv-hint">None. A portion is measured differently from its source, like an espresso shot (mL) drawn from coffee beans (grams).</p>
+            : <ul className="inv-portion-list">
+              {portions.map((portion) => {
+                const portionStatus = stockStatusOf(portion);
+                const portionCost = toOptionalNumber(portion.effective_unit_cost);
+                return <li key={portion.inventory_id}>
+                  <div className="inv-portion-main">
+                    <strong>{portion.item_name}</strong>
+                    <span>1 {singularUnit(portion.unit_of_measure)} uses {formatAmount(Number(portion.derived_ratio))} {unitWord(Number(portion.derived_ratio), unit)} of {item.item_name}</span>
+                    <InventoryUsageChips item={portion} />
+                  </div>
+                  <div className="inv-portion-stock">
+                    <strong className={`is-${portionStatus}`}>{formatStock(Number(portion.quantity), portion.unit_of_measure)}</strong>
+                    <span>{portionCost === null ? "no cost" : `${formatPeso(portionCost)} per ${singularUnit(portion.unit_of_measure)}`}</span>
+                  </div>
+                  <div className="inv-node-actions">
+                    <button type="button" className="inv-mini" onClick={() => actions.onEditPortion(portion)}><IconPencil size={12} />Edit</button>
+                    {!portion.is_permanent && <button type="button" className="inv-mini is-danger" onClick={() => actions.onArchive(portion)} title="Archive portion"><IconTrash size={12} /></button>}
+                  </div>
+                </li>;
+              })}
+            </ul>}
+        </section>
+      </div>}
+      {orphan && <div className="inv-tree">
+        <section className="inv-node is-item">
+          <header className="inv-node-head">
+            <p className="inv-node-label"><IconLink size={13} />Portion without a source</p>
+            <div className="inv-node-actions">
+              <button type="button" className="inv-mini" onClick={() => actions.onEditPortion(item)}><IconPencil size={12} />Edit portion</button>
+              {!item.is_permanent && <button type="button" className="inv-mini is-danger" onClick={() => actions.onArchive(item)}><IconTrash size={12} />Archive</button>}
+            </div>
+          </header>
+          <p className="inv-hint">The item this portion was drawn from is archived. Restore it from Archives, or edit the portion to draw from another item.</p>
+          <div className="inv-used"><span>Used in</span><InventoryUsageChips item={item} /></div>
+        </section>
+      </div>}
+    </div>}
+  </article>;
+}
+
+// ─── History: every stock change, readable in the app ─────────────────────────
+const inventoryChangeLabels: Record<string, string> = {
+  created: "Item added", restocked: "Restocked", manual_edit: "Stock corrected", order_deduction: "Used by order",
+  void_restore: "Void returned", refund_restore: "Refund returned", deleted: "Item deleted", archived: "Archived",
+  restored: "Restored", purged: "Deleted for good", cost_updated: "Cost changed",
+};
+const inventoryChangeTone: Record<string, string> = {
+  created: "item", restocked: "restock", manual_edit: "manual", order_deduction: "order", void_restore: "return", refund_restore: "return",
+  deleted: "item", archived: "item", restored: "item", purged: "item", cost_updated: "cost",
+};
+const historyTypeFilters: { id: string; label: string; types: string[] | null }[] = [
+  { id: "all", label: "All changes", types: null },
+  { id: "restock", label: "Restocks", types: ["restocked"] },
+  { id: "orders", label: "Used by orders", types: ["order_deduction"] },
+  { id: "returns", label: "Void & refund returns", types: ["void_restore", "refund_restore"] },
+  { id: "manual", label: "Stock corrections", types: ["manual_edit"] },
+  { id: "cost", label: "Cost changes", types: ["cost_updated"] },
+  { id: "items", label: "Added & archived", types: ["created", "archived", "restored", "purged", "deleted"] },
+];
+const sourceAppLabels: Record<string, string> = { admin: "Admin", cashier: "Cashier", mobile: "Mobile Menu" };
+
+function describeInventoryLog(log: InventoryLogEntry): string {
+  const unit = log.unit_of_measure;
+  const costBefore = toOptionalNumber(log.unit_cost_before);
+  const costAfter = toOptionalNumber(log.unit_cost_after);
+  const costChange = costAfter !== null && costBefore !== costAfter ? ` · cost ${costBefore === null ? "not set" : formatPeso(costBefore)} → ${formatPeso(costAfter)} per ${singularUnit(unit)}` : "";
+  switch (log.change_type) {
+    case "restocked":
+      return log.packaging_name
+        ? `${log.packs_added ?? "?"} × ${log.packaging_name}${toOptionalNumber(log.pack_price) !== null ? ` at ${peso(Number(log.pack_price))} each` : ""}${costChange}`
+        : `Added by amount${costChange}`;
+    case "created":
+      return log.packaging_name ? `Started with ${log.packs_added ?? 0} × ${log.packaging_name}` : "New item";
+    case "order_deduction": return log.order_id ? `Order #${log.order_id}` : "Order";
+    case "void_restore": return log.order_id ? `Order #${log.order_id} voided, stock returned` : "Voided order";
+    case "refund_restore": return log.order_id ? `Order #${log.order_id} refunded, stock returned` : "Refunded order";
+    case "manual_edit": return "Changed by hand after a count";
+    case "cost_updated": return `${costBefore === null ? "Not set" : formatPeso(costBefore)} → ${costAfter === null ? "Not set" : formatPeso(costAfter)} per ${singularUnit(unit)}`;
+    case "archived": return "Moved to Archives";
+    case "restored": return "Restored from Archives";
+    default: return inventoryChangeLabels[log.change_type] ?? log.change_type;
+  }
+}
+
+function exportInventoryLogs(logs: InventoryLogEntry[], rangeLabel: string, fileStamp: string) {
+  const workbook = XLSX.utils.book_new();
+  const summaryRows = Object.entries(logs.reduce<Record<string, number>>((counts, log) => {
+    const label = inventoryChangeLabels[log.change_type] ?? log.change_type;
+    counts[label] = (counts[label] ?? 0) + 1;
+    return counts;
+  }, {})).map(([changeType, count]) => ({ "Change Type": changeType, Occurrences: count }));
+  const summarySheet = XLSX.utils.json_to_sheet([
+    { "Report Range": rangeLabel, Generated: formatFinanceDateTime(new Date().toISOString()), "Total Entries": logs.length },
+    {},
+    ...summaryRows,
+  ]);
+  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+  const logRows = logs.map((log) => ({
+    Date: formatFinanceDateTime(log.created_at),
+    Item: log.item_name,
+    Category: log.ingredient_category,
+    Unit: log.unit_of_measure,
+    "Change Type": inventoryChangeLabels[log.change_type] ?? log.change_type,
+    "Quantity Before": Number(log.quantity_before),
+    "Quantity After": Number(log.quantity_after),
+    "Quantity Change": Number(log.quantity_delta),
+    Details: describeInventoryLog(log),
+    Packaging: log.packaging_name ?? "",
+    Packs: log.packs_added ?? "",
+    "Price per Pack": toOptionalNumber(log.pack_price) ?? "",
+    "Unit Cost Before": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_before) ?? "Not set" : "",
+    "Unit Cost After": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_after) ?? "Not set" : "",
+    "Order ID": log.order_id ?? "",
+    "Performed By": log.admin_name ?? "",
+    Source: sourceAppLabels[log.source_app] ?? log.source_app,
+    Shift: log.shift_id ? `#${log.shift_id}` : "",
+  }));
+  const logSheet = XLSX.utils.json_to_sheet(logRows);
+  if (logRows.length > 0) logSheet["!cols"] = Object.keys(logRows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 36) }));
+  XLSX.utils.book_append_sheet(workbook, logSheet, "Change Log");
+  XLSX.writeFile(workbook, `brew-houze-inventory-history-${fileStamp}.xlsx`);
+}
+
+const HISTORY_PAGE_SIZE = 60;
+
+// Calendar arithmetic on YYYY-MM-DD strings.
+function addDays(day: string, offset: number): string {
+  const date = new Date(`${day}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + offset);
+  return date.toISOString().slice(0, 10);
+}
+
+function InventoryHistory({ focus, onClearFocus }: { focus: { ids: number[]; label: string } | null; onClearFocus: () => void }) {
+  const today = getFinanceDateStamp();
+  const [range, setRange] = useState<"today" | "7" | "30" | "custom">("7");
+  const [custom, setCustom] = useState({ start: today, end: today });
+  const [logs, setLogs] = useState<InventoryLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [visible, setVisible] = useState(HISTORY_PAGE_SIZE);
+  const [exportNote, setExportNote] = useState("");
+
+  const start = range === "custom" ? custom.start : addDays(today, range === "today" ? 0 : 1 - Number(range));
+  const end = range === "custom" ? custom.end : today;
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setLoadError("");
+      try {
+        if (start > end) throw new Error("The start date must not be after the end date.");
+        const response = await fetch(`/api/inventory/report?start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the stock history.");
+        if (active) { setLogs(payload.data ?? []); setVisible(HISTORY_PAGE_SIZE); }
+      } catch (error) {
+        if (active) setLoadError(error instanceof Error ? error.message : "Could not load the stock history.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [start, end]);
+
+  const scoped = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return logs.filter((log) => (!focus || (log.inventory_id !== null && focus.ids.includes(log.inventory_id)))
+      && (sourceFilter === "all" || log.source_app === sourceFilter)
+      && (!query || log.item_name.toLowerCase().includes(query) || (log.ingredient_category ?? "").toLowerCase().includes(query) || (log.packaging_name ?? "").toLowerCase().includes(query) || (log.admin_name ?? "").toLowerCase().includes(query) || String(log.order_id ?? "") === query.replace("#", "")));
+  }, [logs, focus, search, sourceFilter]);
+  const typeCounts = useMemo(() => Object.fromEntries(historyTypeFilters.map((filter) => [filter.id, filter.types ? scoped.filter((log) => filter.types!.includes(log.change_type)).length : scoped.length])), [scoped]);
+  const shown = useMemo(() => {
+    const types = historyTypeFilters.find((filter) => filter.id === typeFilter)?.types ?? null;
+    return types ? scoped.filter((log) => types.includes(log.change_type)) : scoped;
+  }, [scoped, typeFilter]);
+
+  const days: { day: string; entries: InventoryLogEntry[] }[] = [];
+  for (const log of shown.slice(0, visible)) {
+    const day = manilaDay(log.created_at);
+    if (days.length === 0 || days[days.length - 1].day !== day) days.push({ day, entries: [] });
+    days[days.length - 1].entries.push(log);
+  }
+  const yesterday = addDays(today, -1);
+  const dayLabel = (day: string) => day === today ? "Today" : day === yesterday ? "Yesterday" : new Date(`${day}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  const rangeLabel = start === end ? start : `${start} to ${end}`;
+
+  function exportShown() {
+    if (shown.length === 0) { setExportNote("Nothing to export for these filters."); return; }
+    setExportNote("");
+    exportInventoryLogs(shown, `${rangeLabel}${focus ? ` · ${focus.label}` : ""}${typeFilter !== "all" ? ` · ${historyTypeFilters.find((filter) => filter.id === typeFilter)?.label}` : ""}`, start === end ? start : `${start}-to-${end}`);
+  }
+
+  return <div className="flex flex-col gap-4">
+    <div className="inv-toolbar">
+      <div className="inv-range" role="group" aria-label="Date range">
+        {([["today", "Today"], ["7", "7 days"], ["30", "30 days"], ["custom", "Custom"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={range === id} onClick={() => setRange(id)}>{label}</button>)}
+      </div>
+      {range === "custom" && <div className="inv-dates">
+        <input type="date" value={custom.start} max={custom.end} onChange={(event) => setCustom((current) => ({ ...current, start: event.target.value }))} aria-label="From" />
+        <span>to</span>
+        <input type="date" value={custom.end} min={custom.start} max={today} onChange={(event) => setCustom((current) => ({ ...current, end: event.target.value }))} aria-label="To" />
+      </div>}
+      <div className="inv-search">
+        <IconSearch size={14} />
+        <input value={search} onChange={(event) => { setSearch(event.target.value); setVisible(HISTORY_PAGE_SIZE); }} placeholder="Search item, person, order #" />
+        {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+      </div>
+      <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="inv-select" aria-label="Done from">
+        <option value="all">All apps</option>
+        <option value="admin">Admin</option>
+        <option value="cashier">Cashier</option>
+        <option value="mobile">Mobile Menu</option>
+      </select>
+      <button type="button" className="inv-secondary" onClick={exportShown} disabled={loading}><IconDownload size={14} />Export {shown.length > 0 ? `${shown.length} ` : ""}to Excel</button>
+    </div>
+
+    {focus && <div className="inv-focus">
+      <span>Showing the history of <b>{focus.label}</b>{focus.ids.length > 1 ? " and its portions" : ""}</span>
+      <button type="button" onClick={onClearFocus}>Show all items <IconX size={12} /></button>
+    </div>}
+
+    <div className="inv-type-chips" role="group" aria-label="Type of change">
+      {historyTypeFilters.map((filter) => <button key={filter.id} type="button" aria-pressed={typeFilter === filter.id} onClick={() => { setTypeFilter(filter.id); setVisible(HISTORY_PAGE_SIZE); }}>
+        {filter.label}<b>{typeCounts[filter.id] ?? 0}</b>
+      </button>)}
+    </div>
+    {exportNote && <p style={{ margin: 0, fontSize: 12.5, color: "#B45309" }}>{exportNote}</p>}
+
+    {loading ? <div className="inv-empty">Loading the stock history…</div>
+      : loadError ? <div className="inv-empty is-error">{loadError}</div>
+        : shown.length === 0 ? <div className="inv-empty">No stock changes {focus ? `for ${focus.label} ` : ""}in this period{typeFilter !== "all" || search || sourceFilter !== "all" ? " match these filters" : ""}.</div>
+          : <div className="invh">
+            {days.map((group) => <section key={group.day} className="invh-day">
+              <p className="invh-day-label">{dayLabel(group.day)}<span>{group.entries.length} change{group.entries.length === 1 ? "" : "s"}</span></p>
+              <ul>
+                {group.entries.map((log) => {
+                  const delta = Number(log.quantity_delta);
+                  const tone = inventoryChangeTone[log.change_type] ?? "item";
+                  const who = log.admin_name ?? (log.source_app === "mobile" ? "Mobile order" : "System");
+                  return <li key={log.log_id} className="invh-row">
+                    <span className="invh-time">{clockTime(log.created_at)}</span>
+                    <span className={`invh-type is-${tone}`}>{inventoryChangeLabels[log.change_type] ?? log.change_type}</span>
+                    <div className="invh-main">
+                      <strong>{log.item_name}</strong>
+                      <span>{describeInventoryLog(log)}</span>
+                    </div>
+                    <div className="invh-delta">
+                      {log.change_type === "cost_updated"
+                        ? <strong>—</strong>
+                        : <strong className={delta > 0 ? "is-plus" : delta < 0 ? "is-minus" : ""}>{delta > 0 ? "+" : delta < 0 ? "−" : ""}{formatStock(Math.abs(delta), log.unit_of_measure)}</strong>}
+                      <span>{formatAmount(Number(log.quantity_before))} → {formatAmount(Number(log.quantity_after))}</span>
+                    </div>
+                    <span className="invh-by">{who}<em>{sourceAppLabels[log.source_app] ?? log.source_app}{log.shift_id ? ` · shift #${log.shift_id}` : ""}</em></span>
+                  </li>;
+                })}
+              </ul>
+            </section>)}
+            {shown.length > visible && <button type="button" className="inv-secondary" style={{ alignSelf: "center" }} onClick={() => setVisible((count) => count + HISTORY_PAGE_SIZE)}>Show {Math.min(HISTORY_PAGE_SIZE, shown.length - visible)} more of {shown.length - visible}</button>}
+            {logs.length >= 5000 && <p className="inv-hint" style={{ textAlign: "center" }}>Only the latest 5,000 changes in this period are loaded. Pick a shorter range to see older ones.</p>}
+          </div>}
+  </div>;
+}
+
+// ─── Inventory page ───────────────────────────────────────────────────────────
 function Inventory({
   items: initialItems,
   onAdd,
@@ -779,40 +2205,38 @@ function Inventory({
   onUpdate: (updated: InventoryItem) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
 }) {
+  const confirmAction = useConfirm();
   const [items, setItems] = useState<InventoryItem[]>(initialItems);
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("All");
+  const [tab, setTab] = useState<"stock" | "history">("stock");
+  const [filters, setFilters] = useState<InventoryFilters>(defaultInventoryFilters);
+  const [showFilters, setShowFilters] = useState(false);
+  const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [draft, setDraft] = useState<InventoryItem | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const emptyNewItem = { ingredient_category: "", item_name: "", unit_of_measure: "grams", quantity: "", unit_cost: "", pack_name: "", pack_brand: "", pack_content: "", pack_price: "", initial_packs: "" };
-  const [newItem, setNewItem] = useState(emptyNewItem);
-  const [draftCost, setDraftCost] = useState("");
+  const [addPreset, setAddPreset] = useState<AddPreset | null>(null);
+  const [editItem, setEditItem] = useState<InventoryItem | null>(null);
+  const [historyFocus, setHistoryFocus] = useState<{ ids: number[]; label: string } | null>(null);
   const [costItem, setCostItem] = useState<InventoryItem | null>(null);
   const [costValue, setCostValue] = useState("");
   const [savingCost, setSavingCost] = useState(false);
-  const [newItemBound, setNewItemBound] = useState(false);
-  const [newItemDerivedFrom, setNewItemDerivedFrom] = useState("");
-  const [newItemRatio, setNewItemRatio] = useState("");
-  const [adding, setAdding] = useState(false);
   const [stockItem, setStockItem] = useState<InventoryItem | null>(null);
   const [packagingItem, setPackagingItem] = useState<InventoryItem | null>(null);
   const [bindItem, setBindItem] = useState<InventoryItem | null>(null);
   const [bindDraft, setBindDraft] = useState({ ingredient_category: "", item_name: "", unit_of_measure: "grams", derived_from_inventory_id: "", derived_ratio: "" });
   const [savingBind, setSavingBind] = useState(false);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [reportStart, setReportStart] = useState(getFinanceDateStamp());
-  const [reportEnd, setReportEnd] = useState(getFinanceDateStamp());
-  const [exportingReport, setExportingReport] = useState(false);
-  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     const syncTimer = window.setTimeout(() => setItems(initialItems), 0);
     return () => window.clearTimeout(syncTimer);
   }, [initialItems]);
+
+  const reload = useCallback(async () => {
+    const response = await fetch("/api/inventory", { cache: "no-store" });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || "Failed to load inventory.");
+    setItems(payload.data ?? []);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -820,45 +2244,79 @@ function Inventory({
       try {
         setLoading(true);
         setError("");
-        const response = await fetch("/api/inventory", { cache: "no-store" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Failed to load inventory.");
-        if (active) setItems(payload.data ?? []);
+        await reload();
       } catch (err) {
         if (active) setError(err instanceof Error ? err.message : "Failed to load inventory.");
       } finally {
         if (active) setLoading(false);
       }
-
     })();
-
     return () => { active = false; };
-  }, []);
+  }, [reload]);
 
-  const categories = useMemo(
-    () => ["All", ...Array.from(new Set(items.map((item) => item.ingredient_category)))],
-    [items]
-  );
+  const groups = useMemo(() => buildStockGroups(items), [items]);
+  const categories = useMemo(() => Array.from(new Set(items.map((item) => item.ingredient_category))).sort((a, b) => a.localeCompare(b)), [items]);
 
-  const filtered = useMemo(() => items.filter((row) => {
-    const matchesCategory = category === "All" || row.ingredient_category === category;
-    const query = search.toLowerCase().trim();
-    const matchesSearch = !query
-      || row.item_name.toLowerCase().includes(query)
-      || row.ingredient_category.toLowerCase().includes(query);
-    return matchesCategory && matchesSearch;
-  }), [items, category, search]);
-  const groupedItems = useMemo(
-    () => inventoryUsageGroupOrder.flatMap((group) => filtered.filter((item) => getInventoryUsageGroup(item) === group)),
-    [filtered]
-  );
+  const summary = useMemo(() => ({
+    total: groups.length,
+    packaged: groups.filter((group) => group.packs.length > 0).length,
+    low: groups.filter((group) => group.status === "low").length,
+    out: groups.filter((group) => group.status === "out").length,
+    noCost: groups.filter((group) => !group.orphan && toOptionalNumber(group.item.unit_cost) === null).length,
+    value: groups.reduce((sum, group) => {
+      const cost = group.orphan ? null : toOptionalNumber(group.item.unit_cost);
+      return cost === null ? sum : sum + Math.max(0, Number(group.item.quantity)) * cost;
+    }, 0),
+  }), [groups]);
 
-  function startEdit(row: InventoryItem) {
-    if (row.derived_from_inventory_id) return;
-    setEditingId(row.inventory_id);
-    setDraft({ ...row });
-    const cost = toOptionalNumber(row.unit_cost);
-    setDraftCost(cost === null ? "" : String(cost));
+  const { visibleGroups, autoExpanded } = useMemo(() => {
+    const query = filters.search.trim().toLowerCase();
+    const matchedChild = new Set<number>();
+    const list = groups.filter((group) => {
+      if (query) {
+        const own = [group.item.item_name, group.item.ingredient_category, ...group.packs.flatMap((pack) => [pack.name, pack.brand ?? ""])].some((text) => text.toLowerCase().includes(query));
+        const child = group.portions.some((portion) => portion.item_name.toLowerCase().includes(query));
+        if (!own && !child) return false;
+        if (!own && child) matchedChild.add(group.item.inventory_id);
+      }
+      if (filters.category !== "all" && group.item.ingredient_category !== filters.category) return false;
+      if (filters.status === "attention" ? group.status === "ok" : filters.status !== "all" && group.status !== filters.status) return false;
+      if (filters.kind === "packaged" && group.packs.length === 0) return false;
+      if (filters.kind === "loose" && (group.packs.length > 0 || group.orphan)) return false;
+      if (filters.kind === "portions" && group.portions.length === 0 && !group.orphan) return false;
+      if (filters.usage !== "all" && !groupUses(group)[filters.usage]) return false;
+      const hasCost = !group.orphan && toOptionalNumber(group.item.unit_cost) !== null;
+      if (filters.cost === "set" && !hasCost) return false;
+      if (filters.cost === "missing" && (hasCost || group.orphan)) return false;
+      return true;
+    });
+    const displayName = (group: StockGroup) => (group.packs[0]?.name ?? group.item.item_name).toLowerCase();
+    const statusRank: Record<StockStatus, number> = { out: 0, low: 1, ok: 2 };
+    const fill = (group: StockGroup) => Number(group.item.quantity) / Math.max(1e-9, Number(group.item.low_stock_threshold));
+    list.sort((a, b) => {
+      if (filters.sort === "stock") return statusRank[a.status] - statusRank[b.status] || fill(a) - fill(b);
+      if (filters.sort === "restocked") return b.lastRestockedAt - a.lastRestockedAt || displayName(a).localeCompare(displayName(b));
+      if (filters.sort === "category") return a.item.ingredient_category.localeCompare(b.item.ingredient_category) || displayName(a).localeCompare(displayName(b));
+      return displayName(a).localeCompare(displayName(b));
+    });
+    return { visibleGroups: list, autoExpanded: matchedChild };
+  }, [groups, filters]);
+
+  const activeFilterCount = (["category", "status", "kind", "usage", "cost"] as const).filter((key) => filters[key] !== "all").length;
+  const setFilter = <K extends keyof InventoryFilters>(key: K, value: InventoryFilters[K]) => setFilters((current) => ({ ...current, [key]: value }));
+  const toggle = (id: number) => setExpanded((current) => {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  function replaceItem(updated: InventoryItem) {
+    setItems((prev) => prev.map((item) => item.inventory_id === updated.inventory_id ? updated : item));
+  }
+
+  async function refreshAll() {
+    await reload();
+    await onAdd(items[0]);
   }
 
   function startCostEdit(row: InventoryItem) {
@@ -884,7 +2342,7 @@ function Inventory({
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to update cost.");
-      // Bound items derive their cost from this item, so reload them as well.
+      // Portions derive their cost from this item, so reload them as well.
       setItems((prev) => prev.map((item) => item.inventory_id === costItem.inventory_id ? payload.data : item.derived_from_inventory_id === costItem.inventory_id
         ? { ...item, effective_unit_cost: payload.data.unit_cost === null ? null : Number(payload.data.unit_cost) * Number(item.derived_ratio) }
         : item));
@@ -894,11 +2352,6 @@ function Inventory({
     } finally {
       setSavingCost(false);
     }
-  }
-
-  function cancelEdit() {
-    setEditingId(null);
-    setDraft(null);
   }
 
   function startBindEdit(row: InventoryItem) {
@@ -913,26 +2366,18 @@ function Inventory({
     });
   }
 
-  function cancelBindEdit() {
-    setBindItem(null);
-  }
-
   async function saveBindEdit() {
     if (!bindItem) return;
     const normalizedUnit = normalizeInventoryUnit(bindDraft.unit_of_measure);
     if (!bindDraft.ingredient_category.trim() || !bindDraft.item_name.trim() || !normalizedUnit) {
-      setActionError("Category, item name, and a valid unit are required.");
+      setActionError("Category, name, and a valid unit are required.");
       return;
     }
     const wantsBound = bindDraft.derived_from_inventory_id !== "";
-    if (wantsBound) {
-      const ratio = Number(bindDraft.derived_ratio);
-      if (!Number.isFinite(ratio) || ratio <= 0) {
-        setActionError("Enter a valid positive binding ratio.");
-        return;
-      }
+    if (wantsBound && !(Number(bindDraft.derived_ratio) > 0)) {
+      setActionError("Enter how much of the source one portion uses.");
+      return;
     }
-
     try {
       setSavingBind(true);
       setActionError("");
@@ -950,559 +2395,179 @@ function Inventory({
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to update binding.");
-      const updatedItem = payload.data as InventoryItem;
-      setItems((prev) => prev.map((item) => item.inventory_id === updatedItem.inventory_id ? updatedItem : item));
+      if (!response.ok) throw new Error(payload?.error || "Failed to update the portion.");
+      await reload();
       setBindItem(null);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to update binding.");
+      setActionError(err instanceof Error ? err.message : "Failed to update the portion.");
     } finally {
       setSavingBind(false);
     }
   }
 
-  async function addItem() {
-    const normalizedUnit = normalizeInventoryUnit(newItem.unit_of_measure);
-    if (!newItem.ingredient_category.trim() || !newItem.item_name.trim() || !normalizedUnit) return;
-
-    let body: Record<string, unknown>;
-    if (newItemBound) {
-      const ratio = Number(newItemRatio);
-      if (!newItemDerivedFrom || !Number.isFinite(ratio) || ratio <= 0) return;
-      body = {
-        ingredient_category: newItem.ingredient_category,
-        item_name: newItem.item_name,
-        unit_of_measure: normalizedUnit,
-        derived_from_inventory_id: Number(newItemDerivedFrom),
-        derived_ratio: ratio,
-      };
-    } else {
-      const hasPackaging = newItem.pack_name.trim() !== "";
-      const packContent = Number(newItem.pack_content);
-      const startsInPacks = hasPackaging && newItem.initial_packs !== "";
-      if (hasPackaging && !(packContent > 0)) {
-        setActionError(`Enter how many ${normalizedUnit} one pack contains.`);
-        return;
-      }
-      const quantity = startsInPacks ? Number(newItem.initial_packs) * packContent : Number(newItem.quantity);
-      if (!Number.isFinite(quantity) || quantity < 0) return;
-      if (newItem.unit_cost !== "" && (!Number.isFinite(Number(newItem.unit_cost)) || Number(newItem.unit_cost) < 0)) {
-        setActionError("Unit cost must be a valid non-negative amount, or left blank.");
-        return;
-      }
-      const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(quantity) : quantity;
-      body = {
-        ingredient_category: newItem.ingredient_category,
-        item_name: newItem.item_name,
-        unit_of_measure: normalizedUnit,
-        quantity: finalQuantity,
-        unit_cost: newItem.unit_cost === "" ? null : Number(newItem.unit_cost),
-        ...(hasPackaging ? {
-          packaging: { packaging_name: newItem.pack_name, brand: newItem.pack_brand, content_quantity: packContent, pack_price: newItem.pack_price === "" ? null : Number(newItem.pack_price) },
-          initial_packs: startsInPacks ? Number(newItem.initial_packs) : null,
-        } : {}),
-      };
-    }
-
-    try {
-      setAdding(true);
-      setActionError("");
-      const response = await fetch("/api/inventory", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to add inventory item.");
-      const createdItem = payload.data as InventoryItem;
-      setItems((prev) => [...prev, createdItem].sort((a, b) => a.ingredient_category.localeCompare(b.ingredient_category) || a.item_name.localeCompare(b.item_name)));
-      await onAdd(createdItem);
-      setNewItem(emptyNewItem);
-      setNewItemBound(false);
-      setNewItemDerivedFrom("");
-      setNewItemRatio("");
-      setShowAddModal(false);
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to add inventory item.");
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function saveEdit() {
-    if (!draft) return;
-    if (draft.is_permanent) return;
-    const normalizedUnit = normalizeInventoryUnit(draft.unit_of_measure);
-    if (!normalizedUnit) {
-      setActionError("Select a valid unit of measure.");
-      return;
-    }
-    if (draftCost !== "" && (!Number.isFinite(Number(draftCost)) || Number(draftCost) < 0)) {
-      setActionError("Unit cost must be a valid non-negative amount, or left blank.");
-      return;
-    }
-
-    const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(Number(draft.quantity)) : Number(draft.quantity);
-
+  async function archiveItem(target: InventoryItem) {
+    const portionCount = items.filter((item) => item.derived_from_inventory_id === target.inventory_id).length;
+    if (!(await confirmAction({
+      title: `Archive ${target.item_name}?`,
+      message: <>It is hidden from Inventory and can be restored from Archives.{portionCount > 0 ? <> Its {portionCount} portion{portionCount === 1 ? "" : "s"} will show as having no source until it is restored.</> : null} Items still used by a product or add-on cannot be archived.</>,
+      confirmLabel: "Archive item",
+    }))) return;
     try {
       setActionError("");
-      const response = await fetch("/api/inventory", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          inventory_id: draft.inventory_id,
-          ingredient_category: draft.ingredient_category,
-          item_name: draft.item_name,
-          unit_of_measure: normalizedUnit,
-          quantity: finalQuantity,
-          unit_cost: draftCost === "" ? null : Number(draftCost),
-        }),
-      });
-
+      const response = await fetch("/api/inventory", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inventory_id: target.inventory_id }) });
       const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to update inventory.");
-      }
-
-      const updatedItem = payload.data as InventoryItem;
-      setItems((prev) =>
-        prev.map((item) =>
-          item.inventory_id === updatedItem.inventory_id ? updatedItem : item
-        )
-      );
-      setEditingId(null);
-      setDraft(null);
+      if (!response.ok) throw new Error(payload?.error || "Failed to archive the item.");
+      setItems((prev) => prev.filter((item) => item.inventory_id !== target.inventory_id));
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to update inventory.");
+      setActionError(err instanceof Error ? err.message : "Failed to archive the item.");
     }
   }
 
-  function addStock(item: InventoryItem) {
-    setActionError("");
-    setStockItem(item);
+  function unitLockReason(item: InventoryItem): string | null {
+    if (item.is_permanent || (item.addition_names?.length ?? 0) > 0) return "Locked: products or add-ons are measured in this unit.";
+    if ((item.packagings?.length ?? 0) > 0) return "Locked: its packages are measured in this unit.";
+    if (items.some((other) => other.derived_from_inventory_id === item.inventory_id)) return "Locked: its portions are measured in this unit.";
+    return null;
   }
 
-  function replaceItem(updated: InventoryItem) {
-    setItems((prev) => prev.map((item) => item.inventory_id === updated.inventory_id ? updated : item));
-  }
-
-  async function deleteItem(id: number) {
-    const confirmed = window.confirm("Archive this inventory item?");
-    if (!confirmed) return;
-
-    try {
-      setActionError("");
-      const response = await fetch("/api/inventory", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inventory_id: id }),
-      });
-
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to archive inventory.");
-      }
-
-      setItems((prev) => prev.filter((item) => item.inventory_id !== id));
-
-      if (editingId === id) {
-        setEditingId(null);
-        setDraft(null);
-      }
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to archive inventory.");
-    }
-  }
-
-  async function exportInventoryReport() {
-    if (reportStart > reportEnd) {
-      setReportError("Start date must not be after end date.");
-      return;
-    }
-    setExportingReport(true);
-    setReportError("");
-    try {
-      const response = await fetch(`/api/inventory/report?start=${reportStart}&end=${reportEnd}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to retrieve inventory report.");
-      const logs: InventoryLogEntry[] = payload.data ?? [];
-      if (logs.length === 0) {
-        throw new Error(`No inventory changes found between ${reportStart} and ${reportEnd}.`);
-      }
-      const changeTypeLabels: Record<string, string> = {
-        created: "Item Created",
-        restocked: "Restocked",
-        manual_edit: "Manual Edit",
-        order_deduction: "Order Deduction",
-        void_restore: "Void Restoration",
-        refund_restore: "Refund Restoration",
-        deleted: "Item Deleted",
-        archived: "Archived",
-        restored: "Restored from Archive",
-        purged: "Permanently Deleted",
-        cost_updated: "Cost Updated",
-      };
-      const sourceAppLabels: Record<string, string> = { admin: "Admin", cashier: "Cashier", mobile: "Mobile Menu" };
-      const workbook = XLSX.utils.book_new();
-      const summaryRows = Object.entries(
-        logs.reduce<Record<string, number>>((counts, log) => {
-          const label = changeTypeLabels[log.change_type] ?? log.change_type;
-          counts[label] = (counts[label] ?? 0) + 1;
-          return counts;
-        }, {})
-      ).map(([changeType, count]) => ({ "Change Type": changeType, "Occurrences": count }));
-      const summarySheet = XLSX.utils.json_to_sheet([
-        { "Report Range": `${reportStart} to ${reportEnd}`, Generated: formatFinanceDateTime(new Date().toISOString()), "Total Entries": logs.length },
-        {},
-        ...summaryRows,
-      ]);
-      XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
-      const logRows = logs.map((log) => ({
-        Date: formatFinanceDateTime(log.created_at),
-        Item: log.item_name,
-        Category: log.ingredient_category,
-        Unit: log.unit_of_measure,
-        "Change Type": changeTypeLabels[log.change_type] ?? log.change_type,
-        "Quantity Before": Number(log.quantity_before),
-        "Quantity After": Number(log.quantity_after),
-        "Quantity Change": Number(log.quantity_delta),
-        Packaging: log.packaging_name ?? "",
-        Packs: log.packs_added ?? "",
-        "Price per Pack": toOptionalNumber(log.pack_price) ?? "",
-        "Unit Cost Before": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_before) ?? "Not set" : "",
-        "Unit Cost After": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_after) ?? "Not set" : "",
-        "Order ID": log.order_id ?? "",
-        "Performed By": log.admin_name ?? "",
-        Source: sourceAppLabels[log.source_app] ?? log.source_app,
-        Shift: log.shift_id ? `#${log.shift_id}` : "",
-      }));
-      const logSheet = XLSX.utils.json_to_sheet(logRows);
-      logSheet["!cols"] = Object.keys(logRows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
-      XLSX.utils.book_append_sheet(workbook, logSheet, "Change Log");
-      XLSX.writeFile(workbook, `brew-houze-inventory-report-${reportStart}-to-${reportEnd}.xlsx`);
-      setShowReportModal(false);
-    } catch (err) {
-      setReportError(err instanceof Error ? err.message : "Failed to export inventory report.");
-    } finally {
-      setExportingReport(false);
-    }
-  }
-
-  const editInputStyle: React.CSSProperties = {
-    border: "1px solid #D97706",
-    borderRadius: 8,
-    padding: "6px 10px",
-    fontFamily: "Inter, sans-serif",
-    fontSize: 13,
-    color: "#3D2B1F",
-    background: "#FFFBF5",
-    outline: "none",
-    width: "100%",
+  const actions: StockGroupActions = {
+    onRestock: (item) => { setActionError(""); setStockItem(item); },
+    onEdit: (item) => setEditItem(item),
+    onCost: startCostEdit,
+    onPackages: (item) => setPackagingItem(item),
+    onAddPortion: (item) => setAddPreset({ kind: "portion", sourceId: item.inventory_id }),
+    onEditPortion: startBindEdit,
+    onArchive: (item) => void archiveItem(item),
+    onHistory: (group) => { setHistoryFocus({ ids: [group.item.inventory_id, ...group.portions.map((portion) => portion.inventory_id)], label: group.item.item_name }); setTab("history"); },
   };
 
-  const thStyle: React.CSSProperties = {
-    padding: "14px 16px",
-    textAlign: "left",
-    fontFamily: "JetBrains Mono, monospace",
-    fontSize: 11,
-    fontWeight: 500,
-    color: "#9C8278",
-    letterSpacing: "0.05em",
-    textTransform: "uppercase",
-    borderBottom: "1px solid #E8DDD5",
-    whiteSpace: "nowrap",
-  };
+  const sections: { label: string | null; groups: StockGroup[] }[] = filters.sort === "category"
+    ? visibleGroups.reduce<{ label: string | null; groups: StockGroup[] }[]>((acc, group) => {
+      const label = group.item.ingredient_category;
+      if (acc.length === 0 || acc[acc.length - 1].label !== label) acc.push({ label, groups: [] });
+      acc[acc.length - 1].groups.push(group);
+      return acc;
+    }, [])
+    : [{ label: null, groups: visibleGroups }];
 
-  return <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
-    <div className="flex flex-wrap items-center gap-3 justify-between">
-      <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 rounded-xl px-4 py-2.5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-          <IconSearch size={14} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search inventory…" style={{ border: "none", background: "transparent", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", outline: "none", width: 200 }} />
+  const select = <K extends "category" | "status" | "kind" | "usage" | "cost" | "sort">(key: K, label: string, options: [InventoryFilters[K], string][]) =>
+    <label className="inv-filter">
+      <span>{label}</span>
+      <select value={filters[key]} onChange={(event) => setFilter(key, event.target.value as InventoryFilters[K])} className={`inv-select${key !== "sort" && filters[key] !== "all" ? " is-active" : ""}`}>
+        {options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}
+      </select>
+    </label>;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-head">
+        <div className="inv-tabs" role="tablist" aria-label="Inventory views">
+          <button type="button" role="tab" aria-selected={tab === "stock"} onClick={() => setTab("stock")}><IconBox size={15} />Stock</button>
+          <button type="button" role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}><IconRotateCcw size={14} />History</button>
         </div>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>
-          {categories.map((c) => <option key={c}>{c}</option>)}
-        </select>
+        {tab === "stock" && <button type="button" className="inv-primary" onClick={() => { setActionError(""); setAddPreset({}); }}><IconPlus size={15} />Add inventory</button>}
       </div>
-      <div className="flex items-center gap-3">
-        <button onClick={() => { setReportError(""); setShowReportModal(true); }} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "#FDF9F5", color: "#3D2B1F", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}><IconDownload size={15} />Export Report</button>
-        <button onClick={() => { setActionError(""); setShowAddModal(true); }} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: "#3D2B1F", color: "#FDF9F5", border: "none", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}><IconPlus size={15} />Add Inventory</button>
-      </div>
+
+      {actionError && <div className="inv-alert" role="alert">
+        <span>{actionError}</span>
+        <button type="button" onClick={() => setActionError("")} title="Dismiss"><IconX size={14} /></button>
+      </div>}
+
+      {tab === "history" ? <InventoryHistory focus={historyFocus} onClearFocus={() => setHistoryFocus(null)} /> : loading ? <div className="inv-empty">Loading inventory…</div>
+        : error ? <div className="inv-empty is-error">Unable to load inventory: {error}</div>
+          : <>
+            <div className="inv-summary">
+              <button type="button" className="inv-stat" aria-pressed={filters.status === "all" && filters.cost === "all"} onClick={() => setFilters((current) => ({ ...current, status: "all", cost: "all" }))}><span>Stock items</span><strong>{summary.total}</strong><em>{summary.packaged} bought in packages</em></button>
+              <button type="button" className="inv-stat is-low" aria-pressed={filters.status === "attention"} onClick={() => setFilters((current) => ({ ...current, status: current.status === "attention" ? "all" : "attention" }))}><span>Need restocking</span><strong>{summary.low + summary.out}</strong><em>{summary.out} out · {summary.low} low</em></button>
+              <button type="button" className="inv-stat is-info" aria-pressed={filters.cost === "missing"} onClick={() => setFilters((current) => ({ ...current, cost: current.cost === "missing" ? "all" : "missing" }))}><span>Without a cost</span><strong>{summary.noCost}</strong><em>profit can’t be counted</em></button>
+              <div className="inv-stat is-static"><span>Stock value</span><strong>{peso(summary.value)}</strong><em>items with a cost</em></div>
+            </div>
+
+            <div className="inv-toolbar">
+              <div className="inv-search is-wide">
+                <IconSearch size={14} />
+                <input value={filters.search} onChange={(event) => setFilter("search", event.target.value)} placeholder="Search package, brand, item or category" />
+                {filters.search && <button type="button" onClick={() => setFilter("search", "")} title="Clear search"><IconX size={12} /></button>}
+              </div>
+              <button type="button" className={`inv-secondary inv-filter-toggle${activeFilterCount ? " is-active" : ""}`} aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>Filters{activeFilterCount ? ` (${activeFilterCount})` : ""}</button>
+              <div className={`inv-filters${showFilters ? " is-open" : ""}`}>
+                {select("category", "Category", [["all", "All categories"], ...categories.map((category) => [category, category] as [string, string])])}
+                {select("status", "Stock", [["all", "Any level"], ["attention", "Needs restocking"], ["out", "Out of stock"], ["low", "Running low"], ["ok", "In stock"]])}
+                {select("kind", "Type", [["all", "All types"], ["packaged", "Bought in packages"], ["loose", "Loose items"], ["portions", "Has portions"]])}
+                {select("usage", "Used in", [["all", "Anything"], ["recipe", "Recipes"], ["direct", "Sold directly"], ["addon", "Add-ons"], ["unused", "Not used yet"]])}
+                {select("cost", "Cost", [["all", "Any"], ["set", "Cost set"], ["missing", "No cost"]])}
+                {select("sort", "Sort", [["category", "By category"], ["name", "Name A–Z"], ["stock", "Lowest stock first"], ["restocked", "Recently restocked"]])}
+                {(activeFilterCount > 0 || filters.search) && <button type="button" className="inv-clear" onClick={() => setFilters((current) => ({ ...defaultInventoryFilters, sort: current.sort }))}>Clear filters</button>}
+              </div>
+            </div>
+
+            {groups.length === 0 ? <div className="inv-onboard">
+              <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconBox size={24} /></span>
+              <h2>Add the first thing the café buys</h2>
+              <p>Start with the package, like a <b>Nescafe Bean Bag 1 kg</b> or a <b>case of 24 Coke cans</b>, then say what is inside it. Recipes and products use the item inside, so switching brands never breaks them.</p>
+              <button type="button" className="inv-primary" onClick={() => setAddPreset({})}><IconPlus size={15} />Add inventory</button>
+            </div> : visibleGroups.length === 0 ? <div className="inv-empty">
+              No stock matches these filters. <button type="button" className="inv-link" onClick={() => setFilters(defaultInventoryFilters)}>Clear filters</button>
+            </div> : <div className="inv-list">
+              <div className="inv-list-head" aria-hidden="true"><span>Package / item</span><span>On hand</span><span>Cost</span><span>Status</span><span /></div>
+              {sections.map((section) => <section key={section.label ?? "all"} className="inv-section">
+                {section.label !== null && <p className="inv-section-label">{section.label}<span>{section.groups.length}</span></p>}
+                {section.groups.map((group) => <StockGroupCard key={group.item.inventory_id} group={group} expanded={expanded.has(group.item.inventory_id) || autoExpanded.has(group.item.inventory_id)} onToggle={() => toggle(group.item.inventory_id)} actions={actions} />)}
+              </section>)}
+              <p className="inv-count">Showing {visibleGroups.length} of {groups.length} stock item{groups.length === 1 ? "" : "s"} · tap a row to see what is inside</p>
+            </div>}
+          </>}
     </div>
 
-    {!loading && !error && actionError && (
-      <div className="rounded-2xl px-5 py-3.5 flex items-center justify-between gap-3" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C" }}>
-        <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5 }}>{actionError}</span>
-        <button onClick={() => setActionError("")} title="Dismiss" style={{ background: "none", border: "none", color: "#B91C1C", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><IconX size={14} /></button>
-      </div>
-    )}
-
-    {loading && <div className="rounded-2xl p-12 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading inventory…</div>}
-    {!loading && error && <div className="rounded-2xl p-6" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C" }}>Unable to load inventory: {error}</div>}
-    {!loading && !error && <>
-      <div className="rounded-2xl overflow-hidden" style={{ border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.05)" }}>
-        <div className="inventory-table-wrap" style={{ overflowX: "auto" }}>
-          <table className="inventory-table" style={{ width: "100%", borderCollapse: "collapse", background: "#FDF9F5" }}>
-            <thead>
-              <tr style={{ background: "#F3EDE5" }}>
-                <th style={thStyle}>Category</th>
-                <th style={thStyle}>Item Name</th>
-                <th style={thStyle}>Unit</th>
-                <th style={thStyle}>Quantity</th>
-                <th style={thStyle}>Unit Cost</th>
-                <th style={thStyle}>Product / Recipe Usage</th>
-                <th style={{ ...thStyle, textAlign: "center", width: 130 }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {groupedItems.map((row, index, visibleItems) => {
-                const isEditing = editingId === row.inventory_id;
-                const quantity = Number(row.quantity);
-                const usageGroup = getInventoryUsageGroup(row);
-                const unitCost = toOptionalNumber(row.effective_unit_cost);
-                const usageChips = [
-                  ...(row.recipe_products ?? []).map((name) => ({ name, kind: "Recipe", style: { background: "#F3EDE5", color: "#6B4C3B", border: "1px solid #E8DDD5" } })),
-                  ...(row.direct_sale_products ?? []).map((name) => ({ name, kind: "Sold directly", style: { background: "#FFF7ED", color: "#C2410C", border: "1px solid #FED7AA" } })),
-                  ...(row.addition_names ?? []).map((name) => ({ name, kind: "Add-on", style: { background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF" } })),
-                ];
-                return (
-                  <Fragment key={row.inventory_id}>
-                  {(index === 0 || getInventoryUsageGroup(visibleItems[index - 1]) !== usageGroup) && <tr><td colSpan={7} style={{ padding: "12px 16px", background: "#FFF7ED", color: "#9A3412", fontFamily: "JetBrains Mono, monospace", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>{inventoryUsageGroupLabels[usageGroup]}</td></tr>}
-                  <tr
-                    key={row.inventory_id}
-                    style={{ borderBottom: "1px solid #E8DDD5", background: isEditing ? "#FFFBF5" : undefined }}
-                    onMouseEnter={(e) => { if (!isEditing) e.currentTarget.style.background = "#F3EDE5"; }}
-                    onMouseLeave={(e) => { if (!isEditing) e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <td style={{ padding: "12px 16px" }}>
-                      {isEditing && !row.is_permanent ? (
-                        <input
-                          style={editInputStyle}
-                          value={draft?.ingredient_category ?? ""}
-                          onChange={(e) => setDraft((d) => d ? { ...d, ingredient_category: e.target.value } : d)}
-                        />
-                      ) : (
-                        <span className="inline-block rounded-lg px-3 py-1" style={{ fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 500, background: "#F3EDE5", color: "#6B4C3B", border: "1px solid #E8DDD5" }}>{row.ingredient_category}</span>
-                      )}
-                    </td>
-                    <td style={{ padding: "12px 16px" }}>
-                      {isEditing && !row.is_permanent ? (
-                        <input
-                          style={editInputStyle}
-                          value={draft?.item_name ?? ""}
-                          onChange={(e) => setDraft((d) => d ? { ...d, item_name: e.target.value } : d)}
-                        />
-                      ) : (
-                        <span className="flex flex-col" style={{ gap: 3 }}>
-                          <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", fontWeight: 500 }}>{row.item_name}</span>
-                          {!row.derived_from_inventory_id && <button type="button" onClick={() => setPackagingItem(row)} style={{ alignSelf: "flex-start", border: "none", background: "transparent", padding: 0, color: (row.packagings?.length ?? 0) > 0 ? "#6B4C3B" : "#D97706", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{(row.packagings?.length ?? 0) > 0 ? `Packaging (${row.packagings!.length}) · ${row.packagings![0].name}` : "+ Add packaging"}</button>}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: "12px 16px" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12, color: "#9C8278" }}>{row.unit_of_measure}</span>
-                        {row.is_whole_unit && <span title="Whole units only" className="rounded-md px-1.5 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 9, background: "#F3EDE5", color: "#6B4C3B", border: "1px solid #E8DDD5" }}>#</span>}
-                      </span>
-                    </td>
-                    <td style={{ padding: "12px 16px" }}>
-                      {isEditing && !row.is_permanent ? (
-                        <input
-                          type="number"
-                          min={0}
-                          step={isWholeUnit(draft?.unit_of_measure ?? "") ? 1 : "any"}
-                          style={{ ...editInputStyle, width: 90 }}
-                          value={draft?.quantity ?? 0}
-                          onChange={(e) => setDraft((d) => d ? { ...d, quantity: Number(isWholeUnit(d.unit_of_measure) ? sanitizeWholeUnitValue(e.target.value) : e.target.value) } : d)}
-                        />
-                      ) : (
-                        <span className="flex flex-col" style={{ gap: 2 }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                            <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: getQtyColor(quantity, isLowStock(row)) }}>{row.is_whole_unit ? Math.round(quantity) : row.quantity}</span>
-                            {quantity <= 0 && <span className="rounded-md px-2 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, background: "#FEE2E2", color: "#C0392B" }}>OUT</span>}
-                          </span>
-                          {!row.derived_from_inventory_id && describeInPacks(row) && <span style={{ fontSize: 10.5, color: "#9C8278" }}>{describeInPacks(row)}</span>}
-                          {row.derived_from_inventory_id && (
-                            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                              <IconLink size={9} />1 {singularUnit(row.unit_of_measure)} uses {Number(row.derived_ratio)} {row.derived_from_unit_of_measure} of {row.derived_from_item_name}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
-                      {isEditing && !row.is_permanent ? (
-                        <input type="number" min={0} step="any" placeholder="Not set" style={{ ...editInputStyle, width: 100 }} value={draftCost} onChange={(e) => setDraftCost(e.target.value)} />
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className="flex flex-col" style={{ gap: 1 }}>
-                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, fontWeight: 600, color: unitCost === null ? "#B9A398" : "#3D2B1F" }}>{unitCost === null ? "Not set" : formatPeso(unitCost)}</span>
-                            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278" }}>{row.derived_from_inventory_id ? `via ${row.derived_from_item_name ?? "source"}` : `per ${singularUnit(row.unit_of_measure)}`}</span>
-                          </span>
-                          {!row.derived_from_inventory_id && <button onClick={() => startCostEdit(row)} title="Edit unit cost" style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPencil size={11} /></button>}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: "12px 16px", maxWidth: 260 }}>
-                      {usageChips.length === 0 ? (
-                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#B9A398" }}>Not used</span>
-                      ) : (
-                        <span className="flex flex-wrap gap-1">
-                          {usageChips.slice(0, 3).map((chip) => (
-                            <span key={`${chip.kind}-${chip.name}`} title={chip.kind} className="rounded-lg px-2 py-0.5" style={{ ...chip.style, fontFamily: "Inter, sans-serif", fontSize: 11 }}>{chip.name}</span>
-                          ))}
-                          {usageChips.length > 3 && <span title={usageChips.slice(3).map((chip) => `${chip.name} (${chip.kind})`).join(", ")} className="rounded-lg px-2 py-0.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#9C8278", border: "1px dashed #E8DDD5" }}>+{usageChips.length - 3} more</span>}
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: "12px 16px", textAlign: "center" }}>
-                      {isEditing && !row.is_permanent ? (
-                        <div className="flex items-center justify-center gap-2">
-                          <button onClick={saveEdit} title="Save" style={{ width: 30, height: 30, borderRadius: 8, border: "none", background: "#3D2B1F", color: "#fff", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconCheck size={14} /></button>
-                          <button onClick={cancelEdit} title="Cancel" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center gap-2">
-                          {row.derived_from_inventory_id ? (
-                            <button onClick={() => startBindEdit(row)} title="Edit binding" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
-                              <IconLink size={14} />
-                            </button>
-                          ) : row.is_permanent ? (
-                            <button onClick={() => addStock(row)} title="Restock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button>
-                          ) : (
-                            <>
-                            <button onClick={() => addStock(row)} title="Restock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button>
-                            <button onClick={() => startEdit(row)} title="Edit row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
-                              <IconPencil size={14} />
-                            </button>
-                            </>
-                          )}
-                          {!row.is_permanent && <button onClick={() => deleteItem(row.inventory_id)} title="Archive row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
-                            <IconTrash size={14} />
-                          </button>}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        {filtered.length === 0 && <div className="flex items-center justify-center py-16" style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#9C8278" }}>{items.length === 0 ? "No inventory records found in the database." : "No inventory items match your search."}</div>}
-      </div>
-      <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278" }}>Showing {filtered.length} of {items.length} items</p>
-    </>}
-    {stockItem && <RestockDialog item={stockItem} onClose={() => setStockItem(null)} onRestocked={(updated) => { replaceItem(updated); setStockItem(null); }} onManagePackaging={() => { setPackagingItem(stockItem); setStockItem(null); }} />}
+    {addPreset && <InventoryAddDialog items={items} categories={categories} preset={addPreset} onClose={() => setAddPreset(null)} onCreated={refreshAll} />}
+    {editItem && <InventoryItemDialog item={editItem} categories={categories} unitLockReason={unitLockReason(editItem)} onClose={() => setEditItem(null)} onSaved={(updated) => { replaceItem(updated); setEditItem(null); void reload(); }} />}
+    {stockItem && <RestockDialog item={stockItem} onClose={() => setStockItem(null)} onRestocked={(updated) => { replaceItem(updated); setStockItem(null); void reload(); }} onManagePackaging={() => { setPackagingItem(stockItem); setStockItem(null); }} />}
     {packagingItem && <PackagingDialog item={packagingItem} onClose={() => setPackagingItem(null)} onChanged={(updated) => { replaceItem(updated); setPackagingItem(updated); }} />}
     {costItem && (
-      <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !savingCost) setCostItem(null); }}>
+      <Modal onClose={() => setCostItem(null)} closeDisabled={savingCost} label="Unit cost">
         <form className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 440, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }} onSubmit={(event) => { event.preventDefault(); void submitCostEdit(); }}>
-          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
-            <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Unit Cost</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>{costItem.item_name} · {costItem.unit_of_measure}</p></div>
-            <button type="button" onClick={() => setCostItem(null)} disabled={savingCost} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingCost ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
-          </div>
+          <DialogHeader title="Unit cost" sub={`${costItem.item_name} · ${costItem.unit_of_measure}`} onClose={() => setCostItem(null)} disabled={savingCost} />
           <div className="flex flex-col gap-3 px-6 py-6">
             <UnitCostField unit={costItem.unit_of_measure} value={costValue} onChange={setCostValue} />
-            <p style={{ fontSize: 11.5, color: "#9C8278" }}>This is what the café pays, not the selling price. New sales use the new cost; past sales keep the cost recorded when they were sold.</p>
+            <p style={{ fontSize: 11.5, color: "#9C8278" }}>This is what the café pays, not the selling price. New sales use the new cost. Past sales keep the cost recorded when they were sold. Restocking by package with a price updates it for you.</p>
             {actionError && <p style={{ fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
-            <button type="button" onClick={() => setCostItem(null)} disabled={savingCost} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingCost ? "default" : "pointer" }}>Cancel</button>
-            <button type="submit" disabled={savingCost} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: savingCost ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 600, cursor: savingCost ? "default" : "pointer" }}>{savingCost ? "Saving..." : "Save Cost"}</button>
+            <button type="button" onClick={() => setCostItem(null)} disabled={savingCost} className="ui-button ui-button-secondary">Cancel</button>
+            <button type="submit" disabled={savingCost} className="ui-button ui-button-primary">{savingCost ? "Saving…" : "Save cost"}</button>
           </div>
         </form>
-      </div>
-    )}
-    {showAddModal && (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.45)", zIndex: 50 }} onClick={(event) => { if (event.target === event.currentTarget && !adding) setShowAddModal(false); }}>
-        <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Add Inventory Item</p><button onClick={() => setShowAddModal(false)} disabled={adding} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: adding ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
-          <div className="grid gap-4 px-6 py-6">
-            {(["ingredient_category", "item_name"] as const).map((field) => <div key={field} className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{field === "item_name" ? "Item name" : "Category"}</label><input value={newItem[field]} onChange={(event) => setNewItem((current) => ({ ...current, [field]: event.target.value }))} placeholder={field === "item_name" ? "e.g. Matcha powder, Coke Can" : "e.g. Flavoring, Beverages"} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>)}
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={newItem.unit_of_measure} onChange={(event) => setNewItem((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select><span style={{ fontSize: 11, color: "#9C8278" }}>Fixed low-stock threshold: {getFixedLowStockThreshold(newItem.unit_of_measure)} {newItem.unit_of_measure}</span></div>
-            <label className="flex items-center gap-2" style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3D2B1F", cursor: "pointer" }}>
-              <input type="checkbox" checked={newItemBound} onChange={(event) => setNewItemBound(event.target.checked)} />
-              Bind this item&apos;s stock to another inventory item
-            </label>
-            {newItemBound ? (
-              <div className="grid gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-                <span style={{ fontSize: 11.5, color: "#6B4C3B" }}>This item will have no stock of its own — its available quantity is always computed from the source item below.</span>
-                <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Source item</label><select value={newItemDerivedFrom} onChange={(event) => setNewItemDerivedFrom(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}><option value="">Choose source item</option>{items.filter((item) => !item.derived_from_inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}</select></div>
-                <BindingRatioField itemUnit={newItem.unit_of_measure} source={items.find((item) => String(item.inventory_id) === newItemDerivedFrom)} ratio={newItemRatio} onChange={setNewItemRatio} />
-              </div>
-            ) : (
-              <>
-                <div className="flex flex-col gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-                  <span style={packagingLabel}>Bought as <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional packaging, more can be added later)</span></span>
-                  <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
-                    <input value={newItem.pack_name} onChange={(event) => setNewItem((current) => ({ ...current, pack_name: event.target.value }))} placeholder="Packaging, e.g. Nescafe Bean Bag 1 kg" style={packagingInput} />
-                    <input value={newItem.pack_brand} onChange={(event) => setNewItem((current) => ({ ...current, pack_brand: event.target.value }))} placeholder="Brand (optional)" style={packagingInput} />
-                    <input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.pack_content} onChange={(event) => setNewItem((current) => ({ ...current, pack_content: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={`One pack contains (${newItem.unit_of_measure})`} style={packagingInput} />
-                    <input type="number" min={0} step="0.01" value={newItem.pack_price} onChange={(event) => setNewItem((current) => ({ ...current, pack_price: event.target.value }))} placeholder="Price per pack (₱)" style={packagingInput} />
-                  </div>
-                  {newItem.pack_name.trim() !== "" && Number(newItem.pack_content) > 0 && newItem.pack_price !== "" && <span style={{ fontSize: 12, color: "#6B4C3B" }}>Unit cost: {formatPeso(Number(newItem.pack_price) / Number(newItem.pack_content))} per {singularUnit(newItem.unit_of_measure)}, from the pack price</span>}
-                </div>
-                {newItem.pack_name.trim() !== "" && Number(newItem.pack_content) > 0 ? (
-                  <div className="flex flex-col gap-1.5"><label style={packagingLabel}>Starting stock</label>
-                    <div className="flex flex-wrap items-center gap-2" style={{ fontSize: 13, color: "#3D2B1F" }}>
-                      <input type="number" min={0} step={1} value={newItem.initial_packs} onChange={(event) => setNewItem((current) => ({ ...current, initial_packs: sanitizeWholeUnitValue(event.target.value) }))} placeholder="0" style={{ ...packagingInput, width: 90 }} />
-                      <span>packs = {formatAmount(Number(newItem.initial_packs || 0) * Number(newItem.pack_content))} {newItem.unit_of_measure}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
-                )}
-                {newItem.pack_price === "" && <UnitCostField unit={newItem.unit_of_measure} value={newItem.unit_cost} onChange={(value) => setNewItem((current) => ({ ...current, unit_cost: value }))} />}
-              </>
-            )}
-            {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
-          </div>
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowAddModal(false)} disabled={adding} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: adding ? "default" : "pointer" }}>Cancel</button><button onClick={addItem} disabled={adding || !newItem.ingredient_category.trim() || !newItem.item_name.trim() || !newItem.unit_of_measure.trim() || (newItemBound ? (!newItemDerivedFrom || !newItemRatio) : newItem.pack_name.trim() !== "" && Number(newItem.pack_content) > 0 ? newItem.initial_packs === "" : newItem.quantity === "")} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: adding ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: adding ? "default" : "pointer" }}>{adding ? "Adding..." : "Add Inventory"}</button></div>
-        </div>
-      </div>
+      </Modal>
     )}
     {bindItem && (
-      <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !savingBind) cancelBindEdit(); }}>
-        <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 480, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
-            <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Edit Binding</p>
-            <button onClick={cancelBindEdit} disabled={savingBind} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingBind ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
-          </div>
-          <div className="grid gap-4 px-6 py-6">
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Category</label><input value={bindDraft.ingredient_category} onChange={(event) => setBindDraft((current) => ({ ...current, ingredient_category: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Item name</label><input value={bindDraft.item_name} onChange={(event) => setBindDraft((current) => ({ ...current, item_name: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={bindDraft.unit_of_measure} onChange={(event) => setBindDraft((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select></div>
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Source item</label><select value={bindDraft.derived_from_inventory_id} onChange={(event) => setBindDraft((current) => ({ ...current, derived_from_inventory_id: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}><option value="">Unbind — this item will keep its currently computed stock</option>{items.filter((item) => !item.derived_from_inventory_id && item.inventory_id !== bindItem.inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}</select></div>
+      <Modal onClose={() => setBindItem(null)} closeDisabled={savingBind} label="Edit portion">
+        <form className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }} onSubmit={(event) => { event.preventDefault(); void saveBindEdit(); }}>
+          <DialogHeader title="Edit portion" sub={`${bindItem.item_name} · has no stock of its own`} onClose={() => setBindItem(null)} disabled={savingBind} />
+          <div className="flex flex-col gap-4 px-6 py-5">
+            <div className="inv-step-grid">
+              <WizardField label="Portion name"><input data-autofocus value={bindDraft.item_name} onChange={(event) => setBindDraft((current) => ({ ...current, item_name: event.target.value }))} style={packagingInput} /></WizardField>
+              <WizardField label="Category"><input value={bindDraft.ingredient_category} onChange={(event) => setBindDraft((current) => ({ ...current, ingredient_category: event.target.value }))} style={packagingInput} /></WizardField>
+              <WizardField label="Counted in"><UnitSelect value={bindDraft.unit_of_measure} onChange={(value) => setBindDraft((current) => ({ ...current, unit_of_measure: value }))} disabled={Boolean(bindItem.is_permanent || (bindItem.addition_names?.length ?? 0) > 0)} /></WizardField>
+              <WizardField label="Drawn from">
+                <select value={bindDraft.derived_from_inventory_id} onChange={(event) => setBindDraft((current) => ({ ...current, derived_from_inventory_id: event.target.value }))} style={packagingInput}>
+                  <option value="">None: keep its current amount as its own stock</option>
+                  {items.filter((item) => !item.derived_from_inventory_id && item.inventory_id !== bindItem.inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}
+                </select>
+              </WizardField>
+            </div>
             {bindDraft.derived_from_inventory_id !== "" && <BindingRatioField key={bindDraft.derived_from_inventory_id} itemUnit={bindDraft.unit_of_measure} source={items.find((item) => String(item.inventory_id) === bindDraft.derived_from_inventory_id)} ratio={bindDraft.derived_ratio} onChange={(ratio) => setBindDraft((current) => ({ ...current, derived_ratio: ratio }))} />}
-            {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
+            {actionError && <p style={{ fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
-            <button onClick={cancelBindEdit} disabled={savingBind} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: savingBind ? "default" : "pointer" }}>Cancel</button>
-            <button onClick={saveBindEdit} disabled={savingBind || !bindDraft.ingredient_category.trim() || !bindDraft.item_name.trim() || (bindDraft.derived_from_inventory_id !== "" && !bindDraft.derived_ratio)} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: savingBind ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: savingBind ? "default" : "pointer" }}>{savingBind ? "Saving..." : "Save"}</button>
+            <button type="button" onClick={() => setBindItem(null)} disabled={savingBind} className="ui-button ui-button-secondary">Cancel</button>
+            <button type="submit" disabled={savingBind || !bindDraft.item_name.trim() || !bindDraft.ingredient_category.trim() || (bindDraft.derived_from_inventory_id !== "" && !bindDraft.derived_ratio)} className="ui-button ui-button-primary">{savingBind ? "Saving…" : "Save portion"}</button>
           </div>
-        </div>
-      </div>
-    )}
-    {showReportModal && (
-      <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.45)", zIndex: 50 }} onClick={(event) => { if (event.target === event.currentTarget && !exportingReport) setShowReportModal(false); }}>
-        <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 460, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-          <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Export Inventory Report</p><button onClick={() => setShowReportModal(false)} disabled={exportingReport} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: exportingReport ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
-          <div className="grid gap-4 px-6 py-6">
-            <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#6B4C3B" }}>Choose a date range to export every restock, manual edit, order deduction, and void/refund restoration for that period as an Excel file.</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>From</label><input type="date" value={reportStart} max={reportEnd} onChange={(event) => setReportStart(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
-              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>To</label><input type="date" value={reportEnd} min={reportStart} max={getFinanceDateStamp()} onChange={(event) => setReportEnd(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
-            </div>
-            {reportError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{reportError}</p>}
-          </div>
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowReportModal(false)} disabled={exportingReport} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: exportingReport ? "default" : "pointer" }}>Cancel</button><button onClick={exportInventoryReport} disabled={exportingReport} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: exportingReport ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: exportingReport ? "default" : "pointer" }}>{exportingReport ? "Exporting..." : "Export .xlsx"}</button></div>
-        </div>
-      </div>
+        </form>
+      </Modal>
     )}
   </div>;
 }
+
 // ─── Products ─────────────────────────────────────────────────────────────────
 type ProductIngredient = { inventoryId: number; label: string; qty: number; unit: string };
 type ProductTemperature = "hot" | "cold" | "both";
@@ -1521,127 +2586,6 @@ function areIngredientsAvailable(ingredients: ProductIngredient[], inventory: In
     const inv = inventory.find((item) => item.inventory_id === ingredient.inventoryId);
     return inv !== undefined && Number(inv.quantity) >= Number(ingredient.qty);
   });
-}
-
-function getIngredientChipStyle(inventoryId: number, inventory: InventoryItem[]): React.CSSProperties {
-  const item = inventory.find((entry) => entry.inventory_id === inventoryId);
-  const quantity = item ? Number(item.quantity) : 0;
-  const threshold = item ? Number(item.low_stock_threshold) : 0;
-
-  if (quantity <= 0) return { background: "#FEE2E2", color: "#C0392B", border: "1px solid #FECACA" };
-  if (quantity <= threshold) return { background: "#FEF3C7", color: "#D97706", border: "1px solid #FDE68A" };
-  return { background: "#F3EDE5", color: "#6B4C3B", border: "1px solid #E8DDD5" };
-}
-
-function ProductCard({
-  product,
-  inventory,
-  badge,
-  onEdit,
-  onDeleteClick,
-}: {
-  product: Product;
-  inventory: InventoryItem[];
-  badge: { bg: string; color: string };
-  onEdit: () => void;
-  onDeleteClick: () => void;
-}) {
-  const displayedVariants = product.variants.length
-    ? product.variants.map((variant) => ({
-        ...variant,
-        ingredients: Array.from(
-          new Map(variant.ingredients.map((ingredient) => [ingredient.inventoryId, ingredient])).values()
-        ),
-      }))
-    : [
-        {
-          id: 0,
-          size: "",
-          price: product.price,
-          temperature: "both",
-          hasSales: false,
-          ingredients: Array.from(
-            new Map(product.ingredients.map((ingredient) => [ingredient.inventoryId, ingredient])).values()
-          ),
-        },
-      ];
-
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const activeVariant = displayedVariants[selectedIndex] ?? displayedVariants[0];
-  const hasSizeTabs = displayedVariants.length > 1 && displayedVariants.some((variant) => variant.size);
-  const variantAvailable = areIngredientsAvailable(activeVariant.ingredients, inventory);
-  const isStockProduct = product.productType === "stock";
-  const stockComponent = isStockProduct ? activeVariant.ingredients[0] : undefined;
-  const stockItem = stockComponent ? inventory.find((item) => item.inventory_id === stockComponent.inventoryId) : undefined;
-
-  return (
-    <div className="rounded-2xl flex flex-col overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
-      <div style={{ width: "100%", aspectRatio: "4/3", background: "#F3EDE5", overflow: "hidden", position: "relative", flexShrink: 0 }}>
-        {(product.imageData || product.imageUrl.trim()) ? <Image src={product.imageData || product.imageUrl.trim()} alt={product.name} fill unoptimized style={{ objectFit: "cover", display: "block" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /> : <div className="flex items-center justify-center w-full h-full" style={{ color: "#D5C5BC" }}><IconImage size={36} /></div>}
-        <button onClick={onEdit} title="Edit product" style={{ position: "absolute", top: 8, right: 46, width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(255,255,255,0.9)", color: "#6B4C3B", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}><IconPencil size={13} /></button>
-        <button onClick={onDeleteClick} title="Archive product" style={{ position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 8, border: "none", background: "rgba(255,255,255,0.9)", color: "#C0392B", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}><IconTrash size={13} /></button>
-      </div>
-      <div className="flex flex-col gap-2 p-4" style={{ flex: 1 }}>
-        {hasSizeTabs && (
-          <label className="flex flex-col gap-1" style={{ fontFamily: "Inter, sans-serif", fontSize: 10, color: "#9C8278", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            {isStockProduct ? "Option" : "Size and temperature"}
-            <select
-              value={selectedIndex}
-              onChange={(event) => setSelectedIndex(Number(event.target.value))}
-              aria-label={isStockProduct ? "Select option" : "Select size and temperature"}
-              style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 10px", background: "#FDF9F5", color: "#3D2B1F", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, outline: "none", cursor: "pointer", width: "100%" }}
-            >
-              {displayedVariants.map((variant, index) => (
-                <option key={`${product.id}-option-${variant.id ?? index}`} value={index}>
-                  {isStockProduct ? variant.size : `${variant.size} · ${variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}`}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-
-        <div className="flex items-start justify-between gap-2">
-          <p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: "#3D2B1F", lineHeight: 1.3 }}>{product.name}</p>
-          <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 14, color: "#D97706", whiteSpace: "nowrap" }}>₱{activeVariant.price}</span>
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-block rounded-md px-2 py-0.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 500, background: badge.bg, color: badge.color }}>{product.category}</span>
-          {isStockProduct && <span className="inline-block rounded-md px-2 py-0.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 500, background: "#FFF7ED", color: "#C2410C", border: "1px solid #FED7AA" }}>Direct sale</span>}
-          <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, background: variantAvailable ? "#DCFCE7" : "#FEE2E2", color: variantAvailable ? "#15803D" : "#C0392B" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: variantAvailable ? "#22c55e" : "#C0392B", display: "inline-block" }} />{variantAvailable ? "Available" : "Unavailable"}</span>
-        </div>
-
-        <div className="mt-1">
-          {isStockProduct ? (
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Stock</span>
-                <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 13, color: stockItem ? getQtyColor(Number(stockItem.quantity), isLowStock(stockItem)) : "#C0392B" }}>{stockItem ? `${stockItem.is_whole_unit ? Math.round(Number(stockItem.quantity)) : Number(stockItem.quantity)} ${stockItem.unit_of_measure}` : "Not found"}</span>
-              </div>
-              {stockComponent && (
-                <span className="rounded-lg px-2 py-0.5 self-start" style={{ ...getIngredientChipStyle(stockComponent.inventoryId, inventory), fontFamily: "Inter, sans-serif", fontSize: 11 }}>
-                  Inventory item: {stockComponent.label} · {stockComponent.qty} {stockComponent.unit} per sale
-                </span>
-              )}
-            </div>
-          ) : (
-            <>
-              {activeVariant.size && !hasSizeTabs && (
-                <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant.size} · ₱{activeVariant.price}</p>
-              )}
-              <div className="flex flex-wrap gap-1">
-                {activeVariant.ingredients.map((ingredient) => (
-                  <span key={`${product.id}-${activeVariant.id}-${ingredient.inventoryId}`} className="rounded-lg px-2 py-0.5" style={{ ...getIngredientChipStyle(ingredient.inventoryId, inventory), fontFamily: "Inter, sans-serif", fontSize: 11 }}>
-                    {ingredient.label} · {ingredient.qty} {ingredient.unit}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
 }
 
 const standardVariantSizes = ["8 oz", "12 oz", "16 oz", "22 oz"];
@@ -1681,6 +2625,420 @@ function buildFormVariants(product: Product | undefined): DraftVariant[] {
   return Array.from(uniqueVariants.values());
 }
 
+// ─── Menu: products, add-ons and categories on one page ──────────────────────
+// Availability and cost are worked out from current inventory, so the list shows at a glance
+// what can be sold right now, what is short, and how much each item earns.
+
+type VariantInsight = { key: string; label: string; short: string; price: number; cost: number | null; available: boolean; missing: string[] };
+type ProductInsight = { variants: VariantInsight[]; minPrice: number; maxPrice: number; status: "available" | "partial" | "soldout"; costKnown: boolean; costPartial: boolean; minCost: number | null; marginPct: number | null; shortItems: string[]; stockLeft: number | null };
+type MenuTab = "products" | "addons" | "categories";
+
+function menuPrice(value: number): string {
+  return `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
+}
+
+// Cost of one serving from the cost of each inventory item it uses; null when any is unknown.
+function recipeCost(ingredients: { inventoryId: number; qty: number | string }[], inventory: InventoryItem[]): number | null {
+  if (ingredients.length === 0) return null;
+  let total = 0;
+  for (const ingredient of ingredients) {
+    const cost = toOptionalNumber(inventory.find((item) => item.inventory_id === ingredient.inventoryId)?.effective_unit_cost);
+    if (cost === null) return null;
+    total += cost * Number(ingredient.qty || 0);
+  }
+  return total;
+}
+
+function productInsight(product: Product, inventory: InventoryItem[]): ProductInsight {
+  const source: ProductVariant[] = product.variants.length ? product.variants : [{ size: "", price: product.price, temperature: "both", ingredients: product.ingredients }];
+  const variants = source.map((variant, index) => {
+    const missing = variant.ingredients
+      .filter((ingredient) => { const item = inventory.find((entry) => entry.inventory_id === ingredient.inventoryId); return !item || Number(item.quantity) < Number(ingredient.qty); })
+      .map((ingredient) => ingredient.label || inventory.find((entry) => entry.inventory_id === ingredient.inventoryId)?.item_name || "an item");
+    const temperature = variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "";
+    return {
+      key: String(variant.id ?? index),
+      label: [variant.size, temperature].filter(Boolean).join(" · ") || "Regular",
+      short: product.productType === "stock" ? variant.size || "Regular" : `${variant.size.replace(/\s+/g, "") || "Reg"}${temperature ? ` ${temperature[0]}` : ""}`,
+      price: Number(variant.price),
+      cost: recipeCost(variant.ingredients, inventory),
+      available: variant.ingredients.length > 0 && missing.length === 0,
+      missing,
+    };
+  });
+  const prices = variants.map((variant) => variant.price);
+  const availableCount = variants.filter((variant) => variant.available).length;
+  const costed = variants.filter((variant) => variant.cost !== null && variant.price > 0);
+  const stockIngredient = product.productType === "stock" ? source[0]?.ingredients[0] : undefined;
+  const stockItem = stockIngredient ? inventory.find((item) => item.inventory_id === stockIngredient.inventoryId) : undefined;
+  return {
+    variants,
+    minPrice: Math.min(...prices),
+    maxPrice: Math.max(...prices),
+    status: availableCount === variants.length ? "available" : availableCount === 0 ? "soldout" : "partial",
+    costKnown: costed.length === variants.length && variants.length > 0,
+    costPartial: costed.length > 0 && costed.length < variants.length,
+    minCost: costed.length ? Math.min(...costed.map((variant) => variant.cost!)) : null,
+    marginPct: costed.length ? costed.reduce((sum, variant) => sum + (variant.price - variant.cost!) / variant.price, 0) / costed.length * 100 : null,
+    shortItems: Array.from(new Set(variants.flatMap((variant) => variant.missing))),
+    stockLeft: stockItem && stockIngredient && Number(stockIngredient.qty) > 0 ? Math.max(0, Math.floor(Number(stockItem.quantity) / Number(stockIngredient.qty) + 1e-9)) : null,
+  };
+}
+
+function InventoryOptionGroups({ inventory }: { inventory: InventoryItem[] }) {
+  const groups = Array.from(new Set(inventory.map((item) => item.ingredient_category))).sort((a, b) => a.localeCompare(b));
+  return <>{groups.map((group) => <optgroup key={group} label={group}>
+    {inventory.filter((item) => item.ingredient_category === group).sort((a, b) => a.item_name.localeCompare(b.item_name)).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({formatStock(Number(item.quantity), item.unit_of_measure)} left)</option>)}
+  </optgroup>)}</>;
+}
+
+const productStatusLabels: Record<ProductInsight["status"], string> = { available: "Available", partial: "Some sizes out", soldout: "Sold out" };
+
+function MenuProductCard({ product, insight, onEdit, onArchive }: { product: Product; insight: ProductInsight; onEdit: () => void; onArchive: () => void }) {
+  const image = product.imageData || product.imageUrl.trim();
+  const isStock = product.productType === "stock";
+  const lowMargin = insight.marginPct !== null && insight.marginPct < 30;
+  return <article className={`menu-card is-${insight.status}`}>
+    <div className="menu-card-image">
+      {image
+        ? <Image src={image} alt="" fill unoptimized style={{ objectFit: "cover" }} onError={(event) => { event.currentTarget.style.display = "none"; }} />
+        : <div className="menu-card-placeholder"><IconCoffee size={30} /></div>}
+      <span className={`menu-avail is-${insight.status}`}><i />{insight.status === "partial" ? `${insight.variants.filter((variant) => variant.available).length} of ${insight.variants.length} available` : productStatusLabels[insight.status]}</span>
+      {isStock && <span className="menu-type">Direct sale</span>}
+    </div>
+    <div className="menu-card-body">
+      <div className="menu-card-title">
+        <strong>{product.name}</strong>
+        <span>{insight.minPrice === insight.maxPrice ? menuPrice(insight.minPrice) : `${menuPrice(insight.minPrice)}–${menuPrice(insight.maxPrice)}`}</span>
+      </div>
+      <span className="menu-card-category">{product.category || "Uncategorized"}</span>
+      {isStock
+        ? <p className="menu-line">{insight.stockLeft === null ? "Stock item not found" : `${insight.stockLeft} left in stock`}</p>
+        : <div className="menu-sizes">
+          {insight.variants.map((variant) => <span key={variant.key} className={`menu-size${variant.available ? "" : " is-out"}`} title={`${variant.label} · ${menuPrice(variant.price)}${variant.available ? "" : ` · needs ${variant.missing.join(", ")}`}`}>{variant.short}</span>)}
+        </div>}
+      <p className={`menu-line menu-cost${lowMargin ? " is-low" : ""}`}>
+        {insight.marginPct === null
+          ? <span className="menu-muted">No cost yet · set item costs in Inventory</span>
+          : <>Cost {insight.minCost !== null && `from ${peso(insight.minCost)}`} · <b>{Math.round(insight.marginPct)}% margin</b>{insight.costPartial && <span className="menu-muted"> · some sizes without cost</span>}</>}
+      </p>
+      {insight.shortItems.length > 0 && <p className="menu-short">Needs {insight.shortItems.slice(0, 3).join(", ")}{insight.shortItems.length > 3 ? ` +${insight.shortItems.length - 3}` : ""}</p>}
+    </div>
+    <div className="menu-card-actions">
+      <button type="button" className="menu-edit" onClick={onEdit}><IconPencil size={13} />Edit</button>
+      <button type="button" className="menu-archive" onClick={onArchive} title={`Archive ${product.name}`} aria-label={`Archive ${product.name}`}><IconTrash size={14} /></button>
+    </div>
+  </article>;
+}
+
+// ─── Add-ons ──────────────────────────────────────────────────────────────────
+function addonInsight(addon: AdditionItem, inventory: InventoryItem[]) {
+  const item = inventory.find((entry) => entry.inventory_id === addon.inventory_id);
+  const perServing = Number(addon.quantity);
+  const servings = item && perServing > 0 ? Math.max(0, Math.floor(Number(item.quantity) / perServing + 1e-9)) : 0;
+  const unitCost = toOptionalNumber(item?.effective_unit_cost);
+  const cost = unitCost === null ? null : unitCost * perServing;
+  const price = Number(addon.price);
+  return { item, servings, cost, marginPct: cost !== null && price > 0 ? ((price - cost) / price) * 100 : null, status: servings === 0 ? "soldout" as const : item && isLowStock(item) ? "low" as const : "available" as const };
+}
+
+function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionItem | null; inventory: InventoryItem[]; onClose: () => void; onSaved: (saved: AdditionItem) => void }) {
+  const [draft, setDraft] = useState({ name: addon?.addition_name ?? "", inventoryId: addon ? String(addon.inventory_id) : "", quantity: addon ? String(addon.quantity) : "", price: addon ? String(addon.price) : "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const item = inventory.find((entry) => String(entry.inventory_id) === draft.inventoryId);
+  const quantity = Number(draft.quantity);
+  const price = Number(draft.price);
+  const unitCost = toOptionalNumber(item?.effective_unit_cost);
+  const cost = unitCost !== null && quantity > 0 ? unitCost * quantity : null;
+  const problem = !draft.name.trim() ? "Name the add-on." : !item ? "Choose the inventory item it uses." : !(quantity > 0) || (item.is_whole_unit && !Number.isInteger(quantity)) ? `Enter how much ${item.item_name} one add-on uses${item.is_whole_unit ? " (a whole number)" : ""}.` : draft.price === "" || !(price >= 0) ? "Enter the selling price." : "";
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (problem || saving) { setError(problem); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/additions", {
+        method: addon ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addition_id: addon?.addition_id, addition_name: draft.name.trim(), inventory_id: Number(draft.inventoryId), quantity, price }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the add-on.");
+      const row = payload.data;
+      onSaved({ addition_id: Number(row.addition_id), addition_name: row.addition_name, inventory_id: Number(row.inventory_id), item_name: row.item_name, unit_of_measure: row.unit_of_measure, quantity: Number(row.quantity), price: Number(row.price) });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the add-on.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label={addon ? "Edit add-on" : "Add add-on"}>
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 540, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={addon ? "Edit add-on" : "Add an add-on"} sub="Punched on its own at the POS and attached to any drink in the cart." onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5">
+        <div className="inv-step-grid">
+          <WizardField label="Add-on name"><input data-autofocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Extra Shot, Oat Milk" style={packagingInput} /></WizardField>
+          <WizardField label="Selling price (₱)"><input type="number" min={0} step="0.01" value={draft.price} onChange={(event) => setDraft((current) => ({ ...current, price: event.target.value }))} placeholder="e.g. 30" style={packagingInput} /></WizardField>
+          <WizardField label="Uses inventory item">
+            <select value={draft.inventoryId} onChange={(event) => setDraft((current) => ({ ...current, inventoryId: event.target.value }))} style={packagingInput}>
+              <option value="">Choose an item</option>
+              <InventoryOptionGroups inventory={inventory} />
+            </select>
+          </WizardField>
+          <WizardField label={`Amount per add-on${item ? ` (${item.unit_of_measure})` : ""}`}><input type="number" min={0} step={item?.is_whole_unit ? 1 : "any"} value={draft.quantity} onChange={(event) => setDraft((current) => ({ ...current, quantity: item?.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={item?.is_whole_unit ? "e.g. 1" : "e.g. 30"} style={packagingInput} /></WizardField>
+        </div>
+        {item && quantity > 0 && <div className="inv-preview">
+          <p className="inv-preview-label">Preview</p>
+          <div className="menu-preview-facts">
+            <div><span>Stock</span><strong>{Math.floor(Number(item.quantity) / quantity + 1e-9)} servings</strong><em>{formatStock(Number(item.quantity), item.unit_of_measure)} of {item.item_name}</em></div>
+            <div><span>Cost</span><strong>{cost === null ? "Not set" : peso(cost)}</strong><em>{cost === null ? "set the item cost in Inventory" : "per add-on"}</em></div>
+            <div><span>Margin</span><strong>{cost !== null && price > 0 ? `${Math.round(((price - cost) / price) * 100)}%` : "—"}</strong><em>{cost !== null && draft.price !== "" ? `${peso(price - cost)} per add-on` : ""}</em></div>
+          </div>
+        </div>}
+        {addon && <p className="inv-hint">Past sales keep the name and price they were sold with.</p>}
+        {error && <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary" style={{ opacity: saving || problem ? 0.55 : 1 }}>{saving ? "Saving…" : addon ? "Save changes" : "Add add-on"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: AdditionItem[]; loading: boolean; error: string; inventory: InventoryItem[]; onChange: (addons: AdditionItem[]) => void }) {
+  const confirmAction = useConfirm();
+  const [search, setSearch] = useState("");
+  const [availability, setAvailability] = useState<"all" | "available" | "attention">("all");
+  const [sort, setSort] = useState<"name" | "price" | "stock">("name");
+  const [editing, setEditing] = useState<AdditionItem | null | "new">(null);
+  const [actionError, setActionError] = useState("");
+
+  const rows = useMemo(() => addons.map((addon) => ({ addon, insight: addonInsight(addon, inventory) })), [addons, inventory]);
+  const shown = rows
+    .filter(({ addon, insight }) => {
+      const query = search.trim().toLowerCase();
+      if (query && !addon.addition_name.toLowerCase().includes(query) && !addon.item_name.toLowerCase().includes(query)) return false;
+      if (availability === "available" && insight.status === "soldout") return false;
+      if (availability === "attention" && insight.status === "available") return false;
+      return true;
+    })
+    .sort((a, b) => sort === "price" ? Number(a.addon.price) - Number(b.addon.price) : sort === "stock" ? a.insight.servings - b.insight.servings : a.addon.addition_name.localeCompare(b.addon.addition_name));
+  const soldOut = rows.filter((row) => row.insight.status === "soldout").length;
+  const low = rows.filter((row) => row.insight.status === "low").length;
+
+  async function archive(addon: AdditionItem) {
+    if (!(await confirmAction({ title: `Archive ${addon.addition_name}?`, message: "It disappears from the cashier and mobile menus. Past sales keep it, and it can be restored from Archives.", confirmLabel: "Archive add-on" }))) return;
+    try {
+      setActionError("");
+      const response = await fetch("/api/additions", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ addition_id: addon.addition_id }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not archive the add-on.");
+      onChange(addons.filter((entry) => entry.addition_id !== addon.addition_id));
+    } catch (archiveError) {
+      setActionError(archiveError instanceof Error ? archiveError.message : "Could not archive the add-on.");
+    }
+  }
+
+  return <div className="flex flex-col gap-4">
+    <div className="inv-summary">
+      <button type="button" className="inv-stat" aria-pressed={availability === "all"} onClick={() => setAvailability("all")}><span>Add-ons</span><strong>{addons.length}</strong><em>offered at the POS and mobile menu</em></button>
+      <button type="button" className="inv-stat" aria-pressed={availability === "available"} onClick={() => setAvailability(availability === "available" ? "all" : "available")}><span>Available</span><strong style={{ color: "#15803D" }}>{addons.length - soldOut}</strong><em>enough stock for at least one</em></button>
+      <button type="button" className="inv-stat is-low" aria-pressed={availability === "attention"} onClick={() => setAvailability(availability === "attention" ? "all" : "attention")}><span>Need stock</span><strong>{soldOut + low}</strong><em>{soldOut} sold out · {low} low</em></button>
+    </div>
+    <div className="inv-toolbar">
+      <div className="inv-search is-wide">
+        <IconSearch size={14} />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search add-on or inventory item" />
+        {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+      </div>
+      <label className="inv-filter"><span>Sort</span>
+        <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="inv-select">
+          <option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="stock">Least stock first</option>
+        </select>
+      </label>
+      <button type="button" className="inv-primary" onClick={() => setEditing("new")} disabled={inventory.length === 0}><IconPlus size={15} />Add add-on</button>
+    </div>
+    {(actionError || error) && <div className="inv-alert" role="alert"><span>{actionError || error}</span>{actionError && <button type="button" onClick={() => setActionError("")} title="Dismiss"><IconX size={14} /></button>}</div>}
+    {loading ? <div className="inv-empty">Loading add-ons…</div>
+      : addons.length === 0 ? <div className="inv-onboard">
+        <span className="inv-kind-icon is-portion" style={{ width: 52, height: 52 }}><IconSparkle size={22} /></span>
+        <h2>No add-ons yet</h2>
+        <p>Add-ons like an <b>Extra Shot</b> or <b>Oat Milk</b> are punched at the POS and attached to any drink. Each one uses an inventory item, so stock stays accurate.</p>
+        <button type="button" className="inv-primary" onClick={() => setEditing("new")} disabled={inventory.length === 0}><IconPlus size={15} />Add add-on</button>
+      </div>
+        : shown.length === 0 ? <div className="inv-empty">No add-ons match. <button type="button" className="inv-link" onClick={() => { setSearch(""); setAvailability("all"); }}>Clear filters</button></div>
+          : <div className="menu-addon-grid">
+            {shown.map(({ addon, insight }) => <article key={addon.addition_id} className={`menu-addon is-${insight.status}`}>
+              <div className="menu-addon-top">
+                <span className="menu-addon-icon"><IconSparkle size={16} /></span>
+                <div className="menu-addon-name"><strong>{addon.addition_name}</strong><span>{formatStock(Number(addon.quantity), addon.unit_of_measure)} of {addon.item_name}</span></div>
+                <span className="menu-addon-price">+{menuPrice(Number(addon.price))}</span>
+              </div>
+              <div className="menu-addon-facts">
+                <div><span>Stock</span><strong className={insight.status === "soldout" ? "is-out" : insight.status === "low" ? "is-low" : ""}>{insight.status === "soldout" ? "Sold out" : `${insight.servings} left`}</strong></div>
+                <div><span>Cost</span><strong>{insight.cost === null ? "Not set" : peso(insight.cost)}</strong></div>
+                <div><span>Margin</span><strong className={insight.marginPct !== null && insight.marginPct < 30 ? "is-low" : ""}>{insight.marginPct === null ? "—" : `${Math.round(insight.marginPct)}%`}</strong></div>
+              </div>
+              <div className="menu-card-actions">
+                <button type="button" className="menu-edit" onClick={() => setEditing(addon)}><IconPencil size={13} />Edit</button>
+                <button type="button" className="menu-archive" onClick={() => void archive(addon)} title={`Archive ${addon.addition_name}`} aria-label={`Archive ${addon.addition_name}`}><IconTrash size={14} /></button>
+              </div>
+            </article>)}
+          </div>}
+    {editing !== null && <AddonDialog addon={editing === "new" ? null : editing} inventory={inventory} onClose={() => setEditing(null)} onSaved={(saved) => {
+      onChange(editing === "new" ? [...addons, saved].sort((a, b) => a.addition_name.localeCompare(b.addition_name)) : addons.map((entry) => entry.addition_id === saved.addition_id ? saved : entry));
+      setEditing(null);
+    }} />}
+  </div>;
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+function CategoriesPanel({ categories, products, onChange, onRenamed, onShowProducts }: { categories: ProductCategory[]; products: Product[]; onChange: (categories: ProductCategory[]) => void; onRenamed: () => void; onShowProducts: (category: string) => void }) {
+  const confirmAction = useConfirm();
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const product of products) map.set(product.category.toLowerCase(), (map.get(product.category.toLowerCase()) ?? 0) + 1);
+    return map;
+  }, [products]);
+
+  async function send(method: "POST" | "PATCH" | "DELETE", body: Record<string, unknown>, fallback: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/product-categories", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || fallback);
+      return payload.data;
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : fallback);
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function add(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!name.trim()) return;
+    const created = await send("POST", { category_name: name.trim() }, "Could not add the category.");
+    if (created) { onChange([...categories, created].sort((a, b) => a.name.localeCompare(b.name))); setName(""); }
+  }
+
+  async function saveRename() {
+    if (!renaming || !renaming.name.trim()) return;
+    const saved = await send("PATCH", { category_id: renaming.id, category_name: renaming.name.trim() }, "Could not rename the category.");
+    if (saved) {
+      onChange(categories.map((category) => category.id === renaming.id ? { id: renaming.id, name: saved.name } : category).sort((a, b) => a.name.localeCompare(b.name)));
+      setRenaming(null);
+      onRenamed();
+    }
+  }
+
+  async function archive(category: ProductCategory) {
+    if (!(await confirmAction({ title: `Archive ${category.name}?`, message: "It will no longer be offered when adding products.", confirmLabel: "Archive category" }))) return;
+    const archived = await send("DELETE", { category_id: category.id }, "Could not archive the category.");
+    if (archived) onChange(categories.filter((entry) => entry.id !== category.id));
+  }
+
+  return <div className="flex flex-col gap-4">
+    <form onSubmit={add} className="menu-cat-add">
+      <div className="inv-search is-wide" style={{ color: "#D97706" }}>
+        <IconTag size={15} />
+        <input value={name} onChange={(event) => setName(event.target.value)} placeholder="New category, e.g. Non-Coffee, Pastries" aria-label="New category name" />
+      </div>
+      <button type="submit" className="inv-primary" disabled={saving || !name.trim()} style={{ opacity: saving || !name.trim() ? 0.55 : 1 }}><IconPlus size={15} />Add category</button>
+    </form>
+    {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+    {categories.length === 0 ? <div className="inv-empty">No categories yet. Add one above, then use it when adding products.</div>
+      : <ul className="menu-cat-list">
+        {categories.map((category) => {
+          const count = counts.get(category.name.toLowerCase()) ?? 0;
+          const isRenaming = renaming?.id === category.id;
+          return <li key={category.id}>
+            <span className="menu-cat-icon"><IconTag size={15} /></span>
+            {isRenaming
+              ? <input data-autofocus autoFocus value={renaming.name} onChange={(event) => setRenaming({ id: category.id, name: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveRename(); } if (event.key === "Escape") setRenaming(null); }} style={{ ...packagingInput, flex: 1 }} aria-label={`New name for ${category.name}`} />
+              : <div className="menu-cat-name"><strong>{category.name}</strong><span>{count === 0 ? "No products" : `${count} product${count === 1 ? "" : "s"}`}</span></div>}
+            <div className="inv-node-actions">
+              {isRenaming ? <>
+                <button type="button" className="inv-mini" onClick={() => setRenaming(null)} disabled={saving}>Cancel</button>
+                <button type="button" className="inv-mini" style={{ background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void saveRename()} disabled={saving || !renaming.name.trim()}>Save</button>
+              </> : <>
+                {count > 0 && <button type="button" className="inv-mini" onClick={() => onShowProducts(category.name)}>View products</button>}
+                <button type="button" className="inv-mini" onClick={() => setRenaming({ id: category.id, name: category.name })}><IconPencil size={12} />Rename</button>
+                <button type="button" className="inv-mini is-danger" onClick={() => void archive(category)} disabled={count > 0} title={count > 0 ? "Move or archive its products first" : `Archive ${category.name}`} style={count > 0 ? { opacity: 0.45, cursor: "not-allowed" } : undefined}><IconTrash size={12} /></button>
+              </>}
+            </div>
+          </li>;
+        })}
+      </ul>}
+    <p className="inv-hint">Renaming a category moves its products to the new name. A category can be archived once no products use it.</p>
+  </div>;
+}
+
+function MenuManagement({ products, inventory, categories, onCategoriesChange, onAdd, onEdit, onDelete, onRefreshProducts }: {
+  products: Product[];
+  inventory: InventoryItem[];
+  categories: ProductCategory[];
+  onCategoriesChange: (categories: ProductCategory[]) => void;
+  onAdd: (product: Product) => Promise<void>;
+  onEdit: (product: Product) => Promise<void>;
+  onDelete: (id: number, variantSize?: string) => Promise<void>;
+  onRefreshProducts: () => Promise<void>;
+}) {
+  const [tab, setTab] = useState<MenuTab>("products");
+  const [categoryFilter, setCategoryFilter] = useState("All");
+  const [addons, setAddons] = useState<AdditionItem[]>([]);
+  const [addonsLoading, setAddonsLoading] = useState(true);
+  const [addonsError, setAddonsError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/additions", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load add-ons.");
+        if (active) setAddons((payload.data ?? []).map((row: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number }) => ({ addition_id: Number(row.id), addition_name: row.name, inventory_id: Number(row.inventoryId), item_name: row.itemName, unit_of_measure: row.unit, quantity: Number(row.quantity), price: Number(row.price) })));
+      } catch (error) {
+        if (active) setAddonsError(error instanceof Error ? error.message : "Could not load add-ons.");
+      } finally {
+        if (active) setAddonsLoading(false);
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, []);
+
+  const productCount = new Set(products.map((product) => product.id)).size;
+  const tabs: { id: MenuTab; label: string; count: number | null; Icon: React.FC<{ size?: number }> }[] = [
+    { id: "products", label: "Products", count: productCount, Icon: IconCoffee },
+    { id: "addons", label: "Add-ons", count: addonsLoading ? null : addons.length, Icon: IconSparkle },
+    { id: "categories", label: "Categories", count: categories.length, Icon: IconTag },
+  ];
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-head">
+        <div className="inv-tabs" role="tablist" aria-label="Menu sections">
+          {tabs.map(({ id, label, count, Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count">{count}</span>}</button>)}
+        </div>
+      </div>
+      {tab === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} />}
+      {tab === "addons" && <AddonsPanel addons={addons} loading={addonsLoading} error={addonsError} inventory={inventory} onChange={setAddons} />}
+      {tab === "categories" && <CategoriesPanel categories={categories} products={products} onChange={onCategoriesChange} onRenamed={() => void onRefreshProducts()} onShowProducts={(category) => { setCategoryFilter(category); setTab("products"); }} />}
+    </div>
+  </div>;
+}
+
 function ProductManagement({
   products,
   inventory,
@@ -1688,6 +3046,8 @@ function ProductManagement({
   onAdd,
   onEdit,
   onDelete,
+  categoryFilter,
+  onCategoryFilterChange,
 }: {
   products: Product[];
   inventory: InventoryItem[];
@@ -1695,10 +3055,18 @@ function ProductManagement({
   onAdd: (product: Product) => Promise<void>;
   onEdit: (product: Product) => Promise<void>;
   onDelete: (id: number, variantSize?: string) => Promise<void>;
+  categoryFilter: string;
+  onCategoryFilterChange: (category: string) => void;
 }) {
+  const confirmAction = useConfirm();
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [filterCat, setFilterCat] = useState("All");
+  const filterCat = categoryFilter;
+  const setFilterCat = onCategoryFilterChange;
+  const [search, setSearch] = useState("");
+  const [availability, setAvailability] = useState<"all" | "available" | "attention" | "nocost">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | ProductType>("all");
+  const [productSort, setProductSort] = useState<"category" | "name" | "price" | "margin">("category");
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const categoryNames = categories.map((category) => category.name);
@@ -1928,53 +3296,106 @@ function ProductManagement({
   const uniqueProducts = Array.from(
     new Map(products.map((product) => [product.id, product])).values()
   );
-
-  const filtered = filterCat === "All"
-    ? uniqueProducts
-    : uniqueProducts.filter((product) => product.category === filterCat);
-  const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
-  const catBadgeColor: Record<string, { bg: string; color: string }> = {
-    "Espresso Drinks": { bg: "#F3EDE5", color: "#6B4C3B" },
-    "Cold Drinks": { bg: "#EFF6FF", color: "#1D4ED8" },
+  const insights = new Map(uniqueProducts.map((product) => [product.id, productInsight(product, inventory)]));
+  const categoryChips = Array.from(new Set([...categoryNames, ...uniqueProducts.map((product) => product.category)]))
+    .filter(Boolean)
+    .map((name) => ({ name, count: uniqueProducts.filter((product) => product.category === name).length }))
+    .filter((chip) => chip.count > 0 || categoryNames.includes(chip.name));
+  const query = search.trim().toLowerCase();
+  const filtered = uniqueProducts
+    .filter((product) => {
+      const insight = insights.get(product.id)!;
+      if (filterCat !== "All" && product.category !== filterCat) return false;
+      if (typeFilter !== "all" && product.productType !== typeFilter) return false;
+      if (availability === "available" && insight.status === "soldout") return false;
+      if (availability === "attention" && insight.status === "available") return false;
+      if (availability === "nocost" && insight.costKnown) return false;
+      if (query && ![product.name, product.category, product.description, ...product.variants.flatMap((variant) => variant.ingredients.map((ingredient) => ingredient.label))].some((text) => (text ?? "").toLowerCase().includes(query))) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const insightA = insights.get(a.id)!;
+      const insightB = insights.get(b.id)!;
+      if (productSort === "price") return insightA.minPrice - insightB.minPrice || a.name.localeCompare(b.name);
+      if (productSort === "margin") return (insightA.marginPct ?? Infinity) - (insightB.marginPct ?? Infinity) || a.name.localeCompare(b.name);
+      if (productSort === "category") return a.category.localeCompare(b.category) || a.name.localeCompare(b.name);
+      return a.name.localeCompare(b.name);
+    });
+  const productSections = productSort === "category"
+    ? filtered.reduce<{ label: string | null; items: Product[] }[]>((acc, product) => {
+      if (acc.length === 0 || acc[acc.length - 1].label !== product.category) acc.push({ label: product.category, items: [] });
+      acc[acc.length - 1].items.push(product);
+      return acc;
+    }, [])
+    : [{ label: null, items: filtered }];
+  const summary = {
+    total: uniqueProducts.length,
+    available: uniqueProducts.filter((product) => insights.get(product.id)!.status === "available").length,
+    attention: uniqueProducts.filter((product) => insights.get(product.id)!.status !== "available").length,
+    noCost: uniqueProducts.filter((product) => !insights.get(product.id)!.costKnown).length,
   };
+  const filtersActive = filterCat !== "All" || typeFilter !== "all" || availability !== "all" || query !== "";
+  const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
   const inputBase: React.CSSProperties = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", width: "100%" };
 
   return (
-    <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
-      <div className="flex flex-wrap items-center gap-4">
-        <p style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#9C8278" }}>{products.length} product{products.length !== 1 ? "s" : ""} · availability based on current inventory</p>
-        <div className="flex items-center gap-3">
-          <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 12, padding: "9px 14px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", cursor: "pointer" }}>
-            <option>All</option>{categoryNames.map((category) => <option key={category}>{category}</option>)}
-          </select>
-          <button onClick={openModal} disabled={inventory.length === 0} className="flex items-center gap-2 rounded-xl px-5 py-2.5" style={{ background: inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", border: "none", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, cursor: inventory.length === 0 ? "default" : "pointer" }}><IconPlus size={15} />Add Product</button>
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="inv-summary">
+        <button type="button" className="inv-stat" aria-pressed={availability === "all"} onClick={() => setAvailability("all")}><span>Products</span><strong>{summary.total}</strong><em>on the cashier and mobile menus</em></button>
+        <button type="button" className="inv-stat" aria-pressed={availability === "available"} onClick={() => setAvailability(availability === "available" ? "all" : "available")}><span>Can be sold now</span><strong style={{ color: "#15803D" }}>{summary.available}</strong><em>every size has stock</em></button>
+        <button type="button" className="inv-stat is-low" aria-pressed={availability === "attention"} onClick={() => setAvailability(availability === "attention" ? "all" : "attention")}><span>Need stock</span><strong>{summary.attention}</strong><em>sold out or some sizes out</em></button>
+        <button type="button" className="inv-stat is-info" aria-pressed={availability === "nocost"} onClick={() => setAvailability(availability === "nocost" ? "all" : "nocost")}><span>Without a cost</span><strong>{summary.noCost}</strong><em>margin can’t be shown</em></button>
       </div>
 
-      {filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl py-16 gap-3" style={{ border: "1px dashed #E8DDD5", background: "#FDF9F5" }}><IconImage size={32} /><p style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#9C8278" }}>No products found in the database.</p></div>
+      <div className="inv-toolbar">
+        <div className="inv-search is-wide">
+          <IconSearch size={14} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product or ingredient" />
+          {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+        </div>
+        <label className="inv-filter"><span>Type</span>
+          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)} className={`inv-select${typeFilter !== "all" ? " is-active" : ""}`}>
+            <option value="all">All types</option><option value="recipe">Made to order</option><option value="stock">Direct sale</option>
+          </select>
+        </label>
+        <label className="inv-filter"><span>Sort</span>
+          <select value={productSort} onChange={(event) => setProductSort(event.target.value as typeof productSort)} className="inv-select">
+            <option value="category">By category</option><option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="margin">Lowest margin first</option>
+          </select>
+        </label>
+        <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
+      </div>
+
+      <div className="menu-chips" role="group" aria-label="Category">
+        <button type="button" aria-pressed={filterCat === "All"} onClick={() => setFilterCat("All")}>All<b>{uniqueProducts.length}</b></button>
+        {categoryChips.map((chip) => <button key={chip.name} type="button" aria-pressed={filterCat === chip.name} onClick={() => setFilterCat(filterCat === chip.name ? "All" : chip.name)}>{chip.name}<b>{chip.count}</b></button>)}
+      </div>
+
+      {actionError && <div className="inv-alert" role="alert"><span>{actionError}</span><button type="button" onClick={() => setActionError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+      {uniqueProducts.length === 0 ? (
+        <div className="inv-onboard">
+          <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconCoffee size={24} /></span>
+          <h2>{inventory.length === 0 ? "Add inventory first" : "Add the first product"}</h2>
+          <p>{inventory.length === 0 ? "Products are made from inventory items, like coffee beans, milk and cups. Add those in Inventory, then come back to build the menu." : <>A <b>made-to-order</b> product uses a recipe for each size, like a Spanish Latte. A <b>direct-sale</b> product sells a stocked item as it is, like a can of Coke.</>}</p>
+          {inventory.length > 0 && <button type="button" className="inv-primary" onClick={openModal}><IconPlus size={15} />Add product</button>}
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="inv-empty">No products match. {filtersActive && <button type="button" className="inv-link" onClick={() => { setSearch(""); setFilterCat("All"); setTypeFilter("all"); setAvailability("all"); }}>Clear filters</button>}</div>
       ) : (
-        <div className="grid gap-5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}>
-          {filtered.map((product) => {
-            const badge = catBadgeColor[product.category] ?? { bg: "#F3EDE5", color: "#6B4C3B" };
-            return (
-              <ProductCard
-                key={product.id}
-                product={product}
-                inventory={inventory}
-                badge={badge}
-                onEdit={() => openEditModal(product)}
-                onDeleteClick={() => setDeleteTarget(product)}
-              />
-            );
-          })}
+        <div className="flex flex-col gap-5">
+          {productSections.map((section) => <section key={section.label ?? "all"} className="inv-section">
+            {section.label !== null && <p className="inv-section-label">{section.label || "Uncategorized"}<span>{section.items.length}</span></p>}
+            <div className="menu-grid">
+              {section.items.map((product) => <MenuProductCard key={product.id} product={product} insight={insights.get(product.id)!} onEdit={() => openEditModal(product)} onArchive={() => setDeleteTarget(product)} />)}
+            </div>
+          </section>)}
+          <p className="inv-count">Showing {filtered.length} of {uniqueProducts.length} products · availability follows current inventory</p>
         </div>
       )}
 
-      {actionError && <div className="rounded-xl px-4 py-3" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 13 }}>{actionError}</div>}
-
       {deleteTarget && (
-        <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,.45)", zIndex: 50 }} onClick={(event) => { if (event.target === event.currentTarget) setDeleteTarget(null); }}>
+        <Modal onClose={() => setDeleteTarget(null)} label="Archive product" zIndex={50}>
           <div className="rounded-2xl p-6" style={{ width: "100%", maxWidth: 390, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 16px 48px rgba(61,43,31,.2)" }}>
             <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800 }}>Archive {deleteTarget.name}</h3>
             <p style={{ marginTop: 6, color: "#9C8278", fontSize: 13 }}>Choose what you want to remove.</p>
@@ -1986,40 +3407,40 @@ function ProductManagement({
               ) : (
                 <>
                   {standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => ({ size, temperature }))).filter(({ size, temperature }) => deleteTarget.variants.length > 1 && deleteTarget.variants.some((variant) => variant.size.toLowerCase() === size.toLowerCase() && (variant.temperature === temperature || variant.temperature === "both") && !variant.hasSales)).map(({ size, temperature }) => <button key={`${size}-${temperature}`} onClick={async () => { try { setActionError(""); await onDelete(deleteTarget.id, `${size}|${temperature}`); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive variant."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", textAlign: "left", cursor: "pointer" }}>Archive {size} · {temperature === "hot" ? "Hot" : "Cold"} only</button>)}
-                  <button onClick={async () => { if (!window.confirm(`Archive the entire ${deleteTarget.name} product?`)) return; try { setActionError(""); await onDelete(deleteTarget.id); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive product."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", textAlign: "left", cursor: "pointer" }}>Archive whole product</button>
+                  <button onClick={async () => { if (!(await confirmAction({ title: `Archive ${deleteTarget.name}?`, message: "The product and all its sizes leave the cashier and mobile menus. It can be restored from Archives.", confirmLabel: "Archive product" }))) return; try { setActionError(""); await onDelete(deleteTarget.id); setDeleteTarget(null); } catch (error) { setActionError(error instanceof Error ? error.message : "Failed to archive product."); } }} style={{ padding: "11px 13px", borderRadius: 10, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", textAlign: "left", cursor: "pointer" }}>Archive whole product</button>
                 </>
               )}
             </div>
             <button onClick={() => setDeleteTarget(null)} style={{ width: "100%", marginTop: 14, padding: "10px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer" }}>Cancel</button>
           </div>
-        </div>
+        </Modal>
       )}
 
       {pendingVariantIndex !== null && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.35)", zIndex: 70 }}>
+        <Modal onClose={() => setPendingVariantIndex(null)} label="Activate size" zIndex={70}>
           <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 420px)", background: "#FDF9F5", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
             <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Activate size</p>
             <h3 style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 19 }}>Activate {formVariants[pendingVariantIndex].size} · {formVariants[pendingVariantIndex].temperature === "hot" ? "Hot" : "Cold"}?</h3>
             <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This size will be activated with its own price and ingredient recipe. You can use the arrows between Hot and Cold to copy a recipe when needed.</p>
             <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={() => setPendingVariantIndex(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => activateVariant(pendingVariantIndex)} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", fontWeight: 700 }}>Activate size</button></div>
           </div>
-        </div>
+        </Modal>
       )}
       {ingredientDialogOpen && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.35)", zIndex: 70 }}>
+        <Modal onClose={() => setIngredientDialogOpen(false)} label="Add ingredient" zIndex={70}>
           <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 420px)", background: "#FDF9F5", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
             <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Add ingredient</p>
             <h3 style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 19 }}>Add to {activeVariant?.size ?? "selected size"}</h3>
             <div className="flex flex-col gap-3" style={{ marginTop: 18 }}>
-              <label style={{ color: "#6B4C3B", fontSize: 12 }}>Inventory item<select value={ingredientInventoryId || ""} onChange={(event) => setIngredientInventoryId(Number(event.target.value))} style={{ ...inputBase, width: "100%", marginTop: 6 }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} · {item.unit_of_measure}</option>)}</select></label>
+              <label style={{ color: "#6B4C3B", fontSize: 12 }}>Inventory item<select value={ingredientInventoryId || ""} onChange={(event) => setIngredientInventoryId(Number(event.target.value))} style={{ ...inputBase, width: "100%", marginTop: 6 }}><option value="">Select inventory item</option><InventoryOptionGroups inventory={inventory} /></select></label>
               <label style={{ color: "#6B4C3B", fontSize: 12 }}>Quantity<input type="number" min={0} step={inventory.find((item) => item.inventory_id === ingredientInventoryId)?.is_whole_unit ? 1 : "any"} value={ingredientQuantity} onChange={(event) => setIngredientQuantity(event.target.value)} placeholder="Enter quantity" style={{ ...inputBase, width: "100%", marginTop: 6 }} /></label>
             </div>
             <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={() => setIngredientDialogOpen(false)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={confirmIngredientRow} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: "pointer", fontWeight: 700 }}>Add ingredient</button></div>
           </div>
-        </div>
+        </Modal>
       )}
       {showModal && (
-        <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.45)", zIndex: 50 }} onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}>
+        <Modal onClose={closeModal} closeDisabled={saving} label="Product" zIndex={50}>
           <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, height: "92vh", maxHeight: 760, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
             <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5", flexShrink: 0 }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
             <div className="flex flex-col gap-5 px-6 py-6" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
@@ -2039,8 +3460,8 @@ function ProductManagement({
               </div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5", position: "relative" }}><Image src={formImageData || formImage.trim()} alt="preview" fill unoptimized style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
               {formType === "recipe" ? (
-              <div className="flex flex-col gap-3"><div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(event) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => copyActiveVariantRecipe()} title="Copy selected recipe" aria-label="Copy selected recipe" disabled={!activeVariant} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant ? "pointer" : "default" }}><IconCopy size={12} /></button><button type="button" onClick={() => pasteToActiveVariantRecipe()} title="Paste copied recipe" aria-label="Paste copied recipe" disabled={!activeVariant || !variantClipboard} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant && variantClipboard ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant && variantClipboard ? "pointer" : "default" }}><IconPaste size={12} /></button><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
-                <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
+              <div className="flex flex-col gap-3"><div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(event) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div>{activeVariant && (() => { const cost = recipeCost(activeVariant.ingredients.filter((row) => row.inventoryId > 0), inventory); const price = Number(activeVariant.price); if (activeVariant.ingredients.length === 0) return <span className="menu-editor-cost">Add ingredients to see the cost</span>; if (cost === null) return <span className="menu-editor-cost is-muted">Cost unknown: an ingredient has no cost in Inventory</span>; return <span className={`menu-editor-cost${activeVariant.price !== "" && price > 0 && (price - cost) / price < 0.3 ? " is-low" : ""}`}>Cost {peso(cost)}{activeVariant.price !== "" && price > 0 ? ` · margin ${peso(price - cost)} (${Math.round(((price - cost) / price) * 100)}%)` : ""}</span>; })()}</div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => copyActiveVariantRecipe()} title="Copy selected recipe" aria-label="Copy selected recipe" disabled={!activeVariant} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant ? "pointer" : "default" }}><IconCopy size={12} /></button><button type="button" onClick={() => pasteToActiveVariantRecipe()} title="Paste copied recipe" aria-label="Paste copied recipe" disabled={!activeVariant || !variantClipboard} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant && variantClipboard ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant && variantClipboard ? "pointer" : "default" }}><IconPaste size={12} /></button><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
+                <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option><InventoryOptionGroups inventory={inventory} /></select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
               ) : (
               <div className="flex flex-col gap-4 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
@@ -2048,7 +3469,7 @@ function ProductManagement({
                   <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Inventory item sold</label>
                   <select value={stockInventoryId || ""} onChange={(event) => selectStockItem(Number(event.target.value))} disabled={saving} style={{ ...inputBase, cursor: "pointer" }}>
                     <option value="">Select the stocked item</option>
-                    {inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} · {item.ingredient_category}</option>)}
+                    <InventoryOptionGroups inventory={inventory} />
                   </select>
                   {stockInventoryItem && <span style={{ fontSize: 11.5, color: "#6B4C3B" }}>In stock: {stockInventoryItem.is_whole_unit ? Math.round(Number(stockInventoryItem.quantity)) : Number(stockInventoryItem.quantity)} {stockInventoryItem.unit_of_measure}</span>}
                 </div>
@@ -2077,7 +3498,7 @@ function ProductManagement({
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5", flexShrink: 0, background: "#FDF9F5" }}><button onClick={closeModal} disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: saving ? "default" : "pointer" }}>Cancel</button><button onClick={submitProduct} disabled={saving || !formName.trim() || !hasValidVariant || inventory.length === 0} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !formName.trim() || !hasValidVariant || inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: saving ? "default" : "pointer" }}>{saving ? "Saving…" : editingProduct ? "Save Changes" : "Add Product"}</button></div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
@@ -2319,7 +3740,7 @@ function ShiftReports({ period }: { period: string }) {
       const summary = detail.summary;
       const difference = cashDifferenceLabel(summary.cashDifference);
       const row = (label: string, value: string, strong = false, color?: string) => <div className="flex justify-between" style={{ padding: "5px 0", fontSize: strong ? 14 : 13, fontWeight: strong ? 800 : 500, color: color ?? "#3D2B1F" }}><span style={{ color: strong ? color ?? "#3D2B1F" : "#6B4C3B" }}>{label}</span><span>{value}</span></div>;
-      return <div role="dialog" aria-modal="true" aria-labelledby="shift-detail-title" onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, zIndex: 60, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.45)" }}>
+      return <Modal onClose={() => setDetail(null)} labelledBy="shift-detail-title">
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 820px)", maxHeight: "90vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
           <div className="flex items-start justify-between gap-3" style={{ padding: "18px 22px", background: "#F3EDE5", borderBottom: "1px solid #E8DDD5" }}>
             <div>
@@ -2383,12 +3804,13 @@ function ShiftReports({ period }: { period: string }) {
             </div>}
           </div>
         </section>
-      </div>;
+      </Modal>;
     })()}
   </section>;
 }
 
 function Finance() {
+  const confirmAction = useConfirm();
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -2469,7 +3891,7 @@ function Finance() {
   }, [loadOrders]);
 
   async function deleteOrder(orderId: number) {
-    if (!window.confirm("Archive this completed sales record? This is intended for temporary test data cleanup.")) return;
+    if (!(await confirmAction({ title: "Archive this sales record?", message: "It is removed from Finance totals and moved to Archives, where it can be restored. Use this only to clean up test data.", confirmLabel: "Archive record" }))) return;
     setDeletingId(orderId);
     setError("");
     try {
@@ -2684,11 +4106,11 @@ function Finance() {
     <div className="grid gap-5 mb-7" style={{ gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, .85fr)" }}><section className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.05)" }}><div className="flex items-center justify-between mb-4"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 17 }}>Top Sellers</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>What customers are ordering most</p></div><span style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>TOP 5</span></div>{topProducts.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No product sales in this period.</p> : topProducts.map((product, index) => <div key={product.product_name} className="flex items-center gap-3 py-3" style={{ borderBottom: index === topProducts.length - 1 ? "none" : "1px solid #F0E8E2" }}><span style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: index === 0 ? "#D97706" : "#F3EDE5", color: index === 0 ? "#fff" : "#6B4C3B", fontWeight: 800, fontSize: 12 }}>{index + 1}</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.product_name}</strong><div style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{product.quantity} sold</div></div><span style={{ fontWeight: 700, fontSize: 13 }}>₱{Number(product.revenue).toFixed(2)}</span></div>)}</section><section className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #3D2B1F, #674735)", color: "#FDF9F5", boxShadow: "0 8px 24px rgba(61,43,31,.16)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", right: -35, bottom: -45, width: 150, height: 150, borderRadius: "50%", border: "22px solid rgba(253,249,245,.08)" }} /><div style={{ position: "relative" }}><span style={{ color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: ".1em" }}>    Owner&apos;s note</span><h3 style={{ margin: "12px 0 10px", fontWeight: 800, fontSize: 20 }}>Keep an eye on your best cups.</h3><p style={{ color: "rgba(255,255,255,.7)", fontSize: 13, lineHeight: 1.65 }}>Use top sellers to guide prep and purchasing. Inventory deductions happen automatically after every completed order.</p><div style={{ marginTop: 24, display: "inline-flex", padding: "6px 10px", borderRadius: 7, background: "rgba(255,255,255,.1)", color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>{periodLabel}</div></div></section></div>
     <ShiftReports period={period} />
     <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Sales by Business Day</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Grouped by the date each shift opened, so after-midnight sales count toward their night · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue", "Inspect"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><button type="button" onClick={() => inspectSalesDate(day.sale_date)} aria-label={`Inspect sales for ${formatSalesDate(day.sale_date)}`} title="Inspect sales for this date" style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button></td></tr>)}</tbody></table></div></div>}</section>
-    {exportOpen && <div role="dialog" aria-modal="true" onClick={() => !exporting && setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 560px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance report</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Export Excel report</h3></div><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} aria-label="Close export dialog" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Include sections</strong>{(["summary", "dailySales", "orderHistory", "productSales"] as const).map((section) => <label key={section} className="flex items-center gap-2" style={{ marginTop: 9, color: "#6B4C3B", fontSize: 13 }}><input type="checkbox" checked={exportSections[section]} onChange={(event) => setExportSections((current) => ({ ...current, [section]: event.target.checked }))} />{section === "summary" ? "Sales Summary" : section === "dailySales" ? "Daily Sales" : section === "orderHistory" ? "Order History" : "Product Sales"}</label>)}</div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Date range</strong><div className="flex flex-col gap-2"><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "period"} onChange={() => setExportMode("period")} />Use current period ({periodLabel})</label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "date"} onChange={() => setExportMode("date")} />Specific date<input type="date" value={exportDate} onChange={(event) => setExportDate(event.target.value)} disabled={exportMode !== "date"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "range"} onChange={() => setExportMode("range")} />Date range<input type="date" value={exportStart} onChange={(event) => setExportStart(event.target.value)} disabled={exportMode !== "range"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /><span>to</span><input type="date" value={exportEnd} onChange={(event) => setExportEnd(event.target.value)} disabled={exportMode !== "range"} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label></div></div>    {exportError && <p role="alert" style={{ marginTop: 18, marginBottom: 0, padding: "10px 12px", border: "1px solid #FECACA", borderRadius: 10, background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>{exportError}</p>}<div className="flex justify-end gap-3" style={{ marginTop: 26 }}><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 16px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => void exportFinanceReport()} disabled={exporting} style={{ border: "none", borderRadius: 10, padding: "9px 16px", background: exporting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: exporting ? "default" : "pointer", fontWeight: 700 }}>{exporting ? "Generating..." : "Download Excel"}</button></div></section></div>}
-    {selectedDailyDate && <div role="dialog" aria-modal="true" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Daily sales record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{formatSalesDate(selectedDailyDate)}</h3></div><button type="button" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} aria-label="Close daily sales details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>{dailyDetailLoading ? <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>Loading purchases...</p> : <>{dailyDetailOrders.map((order) => <div key={order.order_id} style={{ marginTop: 22, borderTop: "1px solid #E8DDD5", paddingTop: 16 }}><div className="flex items-start justify-between gap-3"><div><strong style={{ fontSize: 17 }}>Order #{order.order_id}</strong><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 12 }}>Punched by: {order.punched_by} · {formatFinanceDateTime(order.created_at)}</div></div><strong>₱{Number(order.total_amount).toFixed(2)}</strong></div>{order.items.map((item, index) => <div key={`${order.order_id}-${item.product_id}-${index}`} className="flex items-start justify-between gap-3" style={{ marginTop: 14, paddingBottom: 12, borderBottom: "1px solid #F0E8E2" }}><div>    <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div><strong>₱{(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}</strong></div>)}</div>)}{!dailyDetailOrders.length && <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>No purchases found for this date.</p>}<div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total for the day</strong><strong style={{ fontSize: 20 }}>₱{dailyDetailOrders.reduce((total, order) => total + Number(order.total_amount), 0).toFixed(2)}</strong></div></>}</section></div>}
+    {exportOpen && <Modal onClose={() => setExportOpen(false)} closeDisabled={exporting} label="Export finance report" zIndex={50}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 560px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance report</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Export Excel report</h3></div><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} aria-label="Close export dialog" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Include sections</strong>{(["summary", "dailySales", "orderHistory", "productSales"] as const).map((section) => <label key={section} className="flex items-center gap-2" style={{ marginTop: 9, color: "#6B4C3B", fontSize: 13 }}><input type="checkbox" checked={exportSections[section]} onChange={(event) => setExportSections((current) => ({ ...current, [section]: event.target.checked }))} />{section === "summary" ? "Sales Summary" : section === "dailySales" ? "Daily Sales" : section === "orderHistory" ? "Order History" : "Product Sales"}</label>)}</div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Date range</strong><div className="flex flex-col gap-2"><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "period"} onChange={() => setExportMode("period")} />Use current period ({periodLabel})</label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "date"} onChange={() => setExportMode("date")} />Specific date<input type="date" value={exportDate} onChange={(event) => setExportDate(event.target.value)} disabled={exportMode !== "date"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "range"} onChange={() => setExportMode("range")} />Date range<input type="date" value={exportStart} onChange={(event) => setExportStart(event.target.value)} disabled={exportMode !== "range"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /><span>to</span><input type="date" value={exportEnd} onChange={(event) => setExportEnd(event.target.value)} disabled={exportMode !== "range"} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label></div></div>    {exportError && <p role="alert" style={{ marginTop: 18, marginBottom: 0, padding: "10px 12px", border: "1px solid #FECACA", borderRadius: 10, background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>{exportError}</p>}<div className="flex justify-end gap-3" style={{ marginTop: 26 }}><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 16px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => void exportFinanceReport()} disabled={exporting} style={{ border: "none", borderRadius: 10, padding: "9px 16px", background: exporting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: exporting ? "default" : "pointer", fontWeight: 700 }}>{exporting ? "Generating..." : "Download Excel"}</button></div></section></Modal>}
+    {selectedDailyDate && <Modal onClose={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} label="Sales for the day" zIndex={45}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Daily sales record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{formatSalesDate(selectedDailyDate)}</h3></div><button type="button" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} aria-label="Close daily sales details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>{dailyDetailLoading ? <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>Loading purchases...</p> : <>{dailyDetailOrders.map((order) => <div key={order.order_id} style={{ marginTop: 22, borderTop: "1px solid #E8DDD5", paddingTop: 16 }}><div className="flex items-start justify-between gap-3"><div><strong style={{ fontSize: 17 }}>Order #{order.order_id}</strong><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 12 }}>Punched by: {order.punched_by} · {formatFinanceDateTime(order.created_at)}</div></div><strong>₱{Number(order.total_amount).toFixed(2)}</strong></div>{order.items.map((item, index) => <div key={`${order.order_id}-${item.product_id}-${index}`} className="flex items-start justify-between gap-3" style={{ marginTop: 14, paddingBottom: 12, borderBottom: "1px solid #F0E8E2" }}><div>    <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div><strong>₱{(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}</strong></div>)}</div>)}{!dailyDetailOrders.length && <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>No purchases found for this date.</p>}<div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total for the day</strong><strong style={{ fontSize: 20 }}>₱{dailyDetailOrders.reduce((total, order) => total + Number(order.total_amount), 0).toFixed(2)}</strong></div></>}</section></Modal>}
     <section id="order-history"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Archiving..." : "Archive all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) =>     <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>    Order #{order.order_id}    <span style={{ color: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#B91C1C" : "#2E7D32", background: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#FEF2F2" : "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span><span style={{ color: "#6B4C3B", background: "#F3EDE5", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{getPaymentMethodLabel(order)}</span></div><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 11 }}>Punched by: {order.punched_by}</div><div style={{ marginTop: 4, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong>    <button type="button" onClick={() => setSelectedOrder(order)} aria-label={`Inspect order #${order.order_id}`} title="Inspect order" style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button><button type="button" onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}    {loading && orders.length > 0 && <div style={{ position: "sticky", bottom: 20, zIndex: 5, display: "flex", justifyContent: "center", pointerEvents: "none" }}><div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", color: "#6B4C3B", background: "rgba(253,249,245,.96)", border: "1px solid #E8DDD5", borderRadius: 999, boxShadow: "0 5px 18px rgba(61,43,31,.12)", fontSize: 12 }}><span style={{ width: 13, height: 13, border: "2px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Updating finance records...</div></div>}
-    {clearConfirmOpen && <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section style={{ width: "min(100%, 440px)", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontSize: 18 }}>Archive all finance records?</h3><p style={{ margin: "10px 0 16px", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This moves every sales record and its order items to Archives. They can be restored or permanently deleted from there later. Type <strong>CLEAR_FINANCE_RECORDS</strong> to continue.</p><input autoFocus value={clearConfirmation} onChange={(event) => setClearConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void clearAllFinanceRecords(); }} placeholder="CLEAR_FINANCE_RECORDS" style={{ width: "100%", padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 8, color: "#3D2B1F", background: "#fff" }} /><div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><button onClick={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} disabled={clearingRecords} style={{ padding: "9px 13px", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: clearingRecords ? "default" : "pointer" }}>Cancel</button><button onClick={() => void clearAllFinanceRecords()} disabled={clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS"} style={{ padding: "9px 13px", border: "1px solid #FECACA", borderRadius: 8, background: "#B91C1C", color: "#fff", cursor: clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS" ? "default" : "pointer" }}>{clearingRecords ? "Archiving..." : "Archive records"}</button></div></section></div>}
-   {selectedOrder && <div role="dialog" aria-modal="true" onClick={() => setSelectedOrder(null)} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Order #{selectedOrder.order_id}</h3></div><button onClick={() => setSelectedOrder(null)} aria-label="Close order details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>   <div className="grid gap-3 mt-5" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Punched by</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.punched_by}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Order source</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.order_source === "online" ? "Online" : "Cashier"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Payment method</span><strong style={{ display: "block", marginTop: 4 }}>{getPaymentMethodLabel(selectedOrder)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Queue number</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.queue_number ?? "—"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Created</span><strong style={{ display: "block", marginTop: 4 }}>{new Date(selectedOrder.created_at).toLocaleString()}</strong></div>{selectedOrder.payment_method !== "online" && <><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Received</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.received_amount ?? 0).toFixed(2)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Change</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.change_amount ?? 0).toFixed(2)}</strong></div></>}</div><div style={{ marginTop: 22, borderTop: "1px solid #E8DDD5" }}>{selectedOrder.items.map((item, index) => <div key={`${item.product_id}-${index}`} style={{ padding: "14px 0", borderBottom: "1px solid #F0E8E2" }}><div className="flex items-start justify-between gap-3">   <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><strong>₱{(Number(item.unit_price) * item.quantity).toFixed(2)}</strong></div><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(selectedOrder.total_amount).toFixed(2)}</strong></div></section></div>}  </main>;
+    {clearConfirmOpen && <Modal onClose={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} closeDisabled={clearingRecords} label="Archive all finance records" zIndex={50}><section style={{ width: "min(100%, 440px)", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontSize: 18 }}>Archive all finance records?</h3><p style={{ margin: "10px 0 16px", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This moves every sales record and its order items to Archives. They can be restored or permanently deleted from there later. Type <strong>CLEAR_FINANCE_RECORDS</strong> to continue.</p><input autoFocus value={clearConfirmation} onChange={(event) => setClearConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void clearAllFinanceRecords(); }} placeholder="CLEAR_FINANCE_RECORDS" style={{ width: "100%", padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 8, color: "#3D2B1F", background: "#fff" }} /><div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><button onClick={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} disabled={clearingRecords} style={{ padding: "9px 13px", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: clearingRecords ? "default" : "pointer" }}>Cancel</button><button onClick={() => void clearAllFinanceRecords()} disabled={clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS"} style={{ padding: "9px 13px", border: "1px solid #FECACA", borderRadius: 8, background: "#B91C1C", color: "#fff", cursor: clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS" ? "default" : "pointer" }}>{clearingRecords ? "Archiving..." : "Archive records"}</button></div></section></Modal>}
+   {selectedOrder && <Modal onClose={() => setSelectedOrder(null)} label="Order details" zIndex={45}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Order #{selectedOrder.order_id}</h3></div><button onClick={() => setSelectedOrder(null)} aria-label="Close order details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>   <div className="grid gap-3 mt-5" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Punched by</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.punched_by}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Order source</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.order_source === "online" ? "Online" : "Cashier"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Payment method</span><strong style={{ display: "block", marginTop: 4 }}>{getPaymentMethodLabel(selectedOrder)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Queue number</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.queue_number ?? "—"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Created</span><strong style={{ display: "block", marginTop: 4 }}>{new Date(selectedOrder.created_at).toLocaleString()}</strong></div>{selectedOrder.payment_method !== "online" && <><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Received</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.received_amount ?? 0).toFixed(2)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Change</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.change_amount ?? 0).toFixed(2)}</strong></div></>}</div><div style={{ marginTop: 22, borderTop: "1px solid #E8DDD5" }}>{selectedOrder.items.map((item, index) => <div key={`${item.product_id}-${index}`} style={{ padding: "14px 0", borderBottom: "1px solid #F0E8E2" }}><div className="flex items-start justify-between gap-3">   <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><strong>₱{(Number(item.unit_price) * item.quantity).toFixed(2)}</strong></div><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(selectedOrder.total_amount).toFixed(2)}</strong></div></section></Modal>}  </main>;
 }
 type EmployeeTimeLog = { id: number; timeIn: string; timeOut: string | null; shiftId?: number | null };
 type EmployeeTransaction = { id: number; amount: number; status: string; createdAt: string; reversalType: string | null; reversedAt: string | null };
@@ -2748,6 +4170,7 @@ function AccountDevicesPanel({ account, onSignedOut }: { account: CashierAccount
 }
 
 function Accounts() {
+  const confirmAction = useConfirm();
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
   const [permissionAccount, setPermissionAccount] = useState<CashierAccount | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2807,7 +4230,7 @@ function Accounts() {
   }
 
   async function clearEmployeeLogs(account: CashierAccount) {
-    if (!window.confirm(`Archive all attendance history for ${account.fullName}? Archived logs move to Archives, where they can be restored or permanently deleted later.`)) return;
+    if (!(await confirmAction({ title: `Archive ${account.fullName}'s attendance history?`, message: "All their time logs move to Archives, where they can be restored or permanently deleted later.", confirmLabel: "Archive history" }))) return;
     try {
       const response = await fetch("/api/cashier-accounts", {
         method: "DELETE",
@@ -2921,7 +4344,7 @@ function Accounts() {
       </div>}
     </section>
 
-    {permissionAccount && <div role="dialog" aria-modal="true" aria-labelledby="cashier-employee-title" onClick={() => setPermissionAccount(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="flex justify-end" style={{ marginTop: 14 }}><button type="button" onClick={() => void exportEmployeeReport(permissionAccount)} disabled={exportingAccountId === permissionAccount.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 12px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === permissionAccount.id ? "default" : "pointer", fontSize: 12, fontWeight: 700 }}>{exportingAccountId === permissionAccount.id ? "Exporting..." : "Export report (.xlsx)"}</button></div><AccountDevicesPanel account={permissionAccount} onSignedOut={() => { const cleared = { ...permissionAccount, sessions: [], timeLogs: permissionAccount.timeLogs.map((log) => log.timeOut ? log : { ...log, timeOut: new Date().toISOString() }) }; setPermissionAccount(cleared); setAccounts((current) => current.map((account) => account.id === cleared.id ? cleared : account)); }} /><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Archive log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>{log.shiftId ? <strong style={{ marginRight: 8, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11 }}>Shift #{log.shiftId}</strong> : null}In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></div>}
+    {permissionAccount && <Modal onClose={() => setPermissionAccount(null)} labelledBy="cashier-employee-title" zIndex={50}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="flex justify-end" style={{ marginTop: 14 }}><button type="button" onClick={() => void exportEmployeeReport(permissionAccount)} disabled={exportingAccountId === permissionAccount.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 12px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === permissionAccount.id ? "default" : "pointer", fontSize: 12, fontWeight: 700 }}>{exportingAccountId === permissionAccount.id ? "Exporting..." : "Export report (.xlsx)"}</button></div><AccountDevicesPanel account={permissionAccount} onSignedOut={() => { const cleared = { ...permissionAccount, sessions: [], timeLogs: permissionAccount.timeLogs.map((log) => log.timeOut ? log : { ...log, timeOut: new Date().toISOString() }) }; setPermissionAccount(cleared); setAccounts((current) => current.map((account) => account.id === cleared.id ? cleared : account)); }} /><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Archive log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>{log.shiftId ? <strong style={{ marginRight: 8, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11 }}>Shift #{log.shiftId}</strong> : null}In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></Modal>}
   </main>;
 }
 
@@ -2962,6 +4385,7 @@ function ArchivesEmptyState({ label }: { label: string }) {
 }
 
 function Archives() {
+  const confirmAction = useConfirm();
   const [data, setData] = useState<ArchivesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -3010,8 +4434,7 @@ function Archives() {
   }
 
   async function purge(type: RestoreType, id: number, label: string) {
-    const confirmed = window.confirm(`Permanently delete this ${label}? This cannot be undone.`);
-    if (!confirmed) return;
+    if (!(await confirmAction({ title: `Permanently delete this ${label}?`, message: <>This <strong>cannot be undone</strong>. It will be gone from Archives for good.</>, confirmLabel: "Delete permanently" }))) return;
     const key = `${type}:${id}`;
     setPurgingKey(key);
     setNotice("");
@@ -3033,8 +4456,7 @@ function Archives() {
   }
 
   async function clearAll(type: RestoreType, label: string) {
-    const confirmed = window.confirm(`Permanently delete ALL archived ${label}s? This cannot be undone.`);
-    if (!confirmed) return;
+    if (!(await confirmAction({ title: `Permanently delete every archived ${label}?`, message: <>This <strong>cannot be undone</strong>. Anything still used elsewhere is skipped and stays in Archives.</>, confirmLabel: "Delete all permanently" }))) return;
     setClearingType(type);
     setNotice("");
     setError("");
@@ -3113,96 +4535,16 @@ function Archives() {
   </main>;
 }
 
-function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut: () => void }) {
-  const [createdAt, setCreatedAt] = useState<string | null>(null);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const response = await fetch("/api/auth/account", { cache: "no-store" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Unable to retrieve account details.");
-        if (active) setCreatedAt(payload.data?.createdAt ?? null);
-      } catch (accountError) {
-        console.error("Account Management: failed to load account details", accountError);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setMessage("");
-    setError("");
-    if (newPassword !== confirmPassword) {
-      setError("New passwords do not match.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const response = await fetch("/api/auth/account", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Unable to change password.");
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setMessage("Password changed successfully.");
-    } catch (passwordError) {
-      setError(passwordError instanceof Error ? passwordError.message : "Unable to change password.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return <main className="p-8" style={{ maxWidth: 1280 }}>
-    <div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>View your administrator profile and manage your account password.</p></div><button type="button" onClick={onSignOut} style={{ border: "1px solid #FECACA", borderRadius: 9, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontWeight: 700, fontSize: 12 }}>Sign out</button></div>
-    <div className="grid gap-5 mt-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}>
-      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>My account</p>
-        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>{user.fullName}</h2>
-        <div style={{ display: "grid", gap: 12, color: "#6B4C3B", fontSize: 13 }}>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Email</span>{user.email}</div>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Role</span><span style={{ textTransform: "capitalize" }}>{user.role}</span></div>
-          <div><span style={{ display: "block", color: "#9C8278", fontSize: 11 }}>Account created</span><span style={{ color: "#9C8278" }}>{createdAt ? new Date(createdAt).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short" }) : "Not available in the database"}</span></div>
-        </div>
-      </section>
-      <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-        <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Security</p>
-        <h2 style={{ margin: "7px 0 18px", color: "#3D2B1F", fontSize: 22 }}>Change password</h2>
-        {message && <p style={{ color: "#166534", fontSize: 13 }}>{message}</p>}
-        {error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
-        <form onSubmit={changePassword} className="flex flex-col gap-3">
-          <label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Current password</span><input type="password" required value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoComplete="current-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label>
-          <label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>New password</span><input type="password" required minLength={8} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label>
-          <label className="flex flex-col gap-1"><span style={{ color: "#9C8278", fontSize: 11 }}>Confirm new password</span><input type="password" required minLength={8} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "10px 11px", background: "#FFFDF9", color: "#3D2B1F" }} /></label>
-          <button type="submit" disabled={saving} style={{ marginTop: 6, border: "none", borderRadius: 9, padding: "11px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: saving ? "default" : "pointer", fontWeight: 700 }}>{saving ? "Saving..." : "Change password"}</button>
-        </form>
-      </section>
-    </div>
-  </main>;
-}
 
 function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => void; onConfirm: () => void; signingOut: boolean }) {
-  return <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.4)", zIndex: 100 }} role="dialog" aria-modal="true" aria-labelledby="admin-sign-out-title">
+  return <Modal onClose={onCancel} closeDisabled={signingOut} labelledBy="admin-sign-out-title" zIndex={100}>
     <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 380px)", background: "#FDF9F5", boxShadow: "0 20px 60px rgba(61,43,31,0.25)" }}>
       <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Session</p>
       <h2 id="admin-sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Sign out?</h2>
       <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>You will need to sign in again to access the admin portal.</p>
       <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={onCancel} disabled={signingOut} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: signingOut ? "default" : "pointer" }}>Cancel</button><button type="button" onClick={onConfirm} disabled={signingOut} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: signingOut ? "#C9B8AF" : "#B91C1C", color: "#FFF", cursor: signingOut ? "default" : "pointer", fontWeight: 700 }}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
     </div>
-  </div>;
+  </Modal>;
 }
 
 function LoginEyeIcon({ hidden }: { hidden: boolean }) {
@@ -3459,6 +4801,7 @@ export default function App() {
     setLoginNotice(notice);
   }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
   const [showSignOut, setShowSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -3555,7 +4898,7 @@ export default function App() {
       void refreshInventory();
       void refreshProducts();
     }
-    if (nextPage === "products" || nextPage === "additions") {
+    if (nextPage === "products") {
       void refreshCategories();
     }
   }
@@ -3607,8 +4950,6 @@ export default function App() {
           ? [refreshInventory()]
           : page === "products"
             ? [refreshInventory(), refreshProducts(), refreshCategories()]
-            : page === "additions"
-              ? [refreshCategories()]
               : [];
       void Promise.all(refreshes)
         .finally(() => { requestInFlight = false; });
@@ -3726,28 +5067,33 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", products: "Menu", finance: "Finance", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
   if (!authUser) return <AdminLogin onLoggedIn={(session) => { setLoginNotice(""); setAuthUser(session); }} notice={loginNotice} />;
 
-  return <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-    <Sidebar current={page} collapsed={sidebarCollapsed} onChange={handlePageChange} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <TopBar page={page} user={authUser} onAccount={() => setPage("account")} onRequestLogout={() => setShowSignOut(true)} />
-      <div className="app-page-heading px-8 pt-7 pb-2" style={{ background: "#F8F9FA", flexShrink: 0 }}><h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", letterSpacing: "-0.02em", margin: 0 }}>{pageTitles[page]}</h1></div>
+  function goTo(nextPage: Page) {
+    setMoreOpen(false);
+    handlePageChange(nextPage);
+  }
+
+  return <ConfirmProvider><div className="admin-shell">
+    <Sidebar current={page} collapsed={sidebarCollapsed} user={authUser} onChange={goTo} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} onAccount={() => goTo("account")} />
+    <div className="admin-main">
+      <TopBar title={pageTitles[page]} page={page} user={authUser} onAccount={() => goTo("account")} onRequestLogout={() => setShowSignOut(true)} />
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
-        {page === "dashboard" && <Dashboard inventory={inventory} />}
+        {page === "dashboard" && <Dashboard user={authUser} inventory={inventory} products={products} onNavigate={goTo} onRefreshStock={() => Promise.all([refreshInventory(), refreshProducts()])} />}
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
-        {page === "additions" && <AdditionsManagement inventory={inventory} categories={categories} onCategoriesChange={setCategories} />}
-        {page === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
+        {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
         {page === "finance" && <Finance />}
         {page === "accounts" && <Accounts />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}
       </div>
     </div>
+    <MobileTabBar current={page} moreOpen={moreOpen} onChange={goTo} onMore={() => setMoreOpen((open) => !open)} />
+    {moreOpen && <MoreSheet current={page} user={authUser} onChange={goTo} onAccount={() => goTo("account")} onRequestLogout={() => { setMoreOpen(false); setShowSignOut(true); }} onClose={() => setMoreOpen(false)} />}
     {showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}
-  </div>;
+  </div></ConfirmProvider>;
 }

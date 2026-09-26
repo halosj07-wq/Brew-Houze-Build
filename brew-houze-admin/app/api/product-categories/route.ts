@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { getSession } from "@/lib/sessions";
 
 export async function GET() {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
       SELECT category_id, category_name
@@ -19,6 +21,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const body = await request.json();
     const name = String(body?.category_name ?? "").trim();
@@ -40,7 +43,42 @@ export async function POST(request: Request) {
   }
 }
 
+// Renames a category and moves its products to the new name in the same transaction.
+export async function PATCH(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const client = await pool.connect();
+  try {
+    const body = await request.json();
+    const categoryId = Number(body?.category_id);
+    const name = String(body?.category_name ?? "").trim();
+    if (!Number.isInteger(categoryId) || categoryId <= 0 || !name) {
+      return NextResponse.json({ error: "A category and its new name are required." }, { status: 400 });
+    }
+    await client.query("BEGIN");
+    const current = await client.query("SELECT category_name FROM product_categories WHERE category_id = $1 AND is_active = TRUE FOR UPDATE", [categoryId]);
+    if (current.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Category not found." }, { status: 404 });
+    }
+    const previousName = current.rows[0].category_name as string;
+    await client.query("UPDATE product_categories SET category_name = $2 WHERE category_id = $1", [categoryId, name]);
+    const moved = await client.query("UPDATE products SET product_category = $2 WHERE LOWER(product_category) = LOWER($1)", [previousName, name]);
+    await client.query("COMMIT");
+    return NextResponse.json({ data: { id: categoryId, name, productsMoved: moved.rowCount ?? 0 } });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if ((error as { code?: string }).code === "23505") {
+      return NextResponse.json({ error: "A category with this name already exists." }, { status: 409 });
+    }
+    console.error("PATCH /api/product-categories failed:", error);
+    return NextResponse.json({ error: "Could not rename the category." }, { status: 500 });
+  } finally {
+    client.release();
+  }
+}
+
 export async function DELETE(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const body = await request.json();
     const categoryId = Number(body?.category_id);

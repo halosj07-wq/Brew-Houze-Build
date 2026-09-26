@@ -56,6 +56,7 @@ function parseUnitCost(value: unknown): { valid: boolean; value?: number | null 
 }
 
 export async function GET() {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
       ${inventorySelect}
@@ -138,6 +139,14 @@ export async function POST(request: Request) {
         }
         quantity = initialPacks * packaging!.contentQuantity;
       }
+      // Stock on hand that is not a full pack (an opened bag), in the item's own unit.
+      if (body?.initial_loose !== undefined && body?.initial_loose !== null && body?.initial_loose !== "") {
+        const loose = Number(body.initial_loose);
+        if (!Number.isFinite(loose) || loose < 0 || (unitOfMeasure.whole && !Number.isInteger(loose))) {
+          return NextResponse.json({ error: `The loose amount must be ${unitOfMeasure.whole ? "a whole number" : "a number"} (0 or more).` }, { status: 400 });
+        }
+        quantity = (initialPacks ?? 0) * packaging!.contentQuantity + loose;
+      }
       if (packaging!.packPrice !== null && initialUnitCost === null) {
         initialUnitCost = Math.round((packaging!.packPrice / packaging!.contentQuantity) * 10000) / 10000;
       }
@@ -211,6 +220,72 @@ export async function PATCH(request: Request) {
         `, [inventoryId, previous.item_name, previous.ingredient_category, previous.unit_of_measure, previous.quantity, await getAdminId(), previousCost, unitCost.value]);
       }
       return NextResponse.json({ data: await loadInventoryItem(inventoryId) });
+    }
+
+    // --- Branch 0b: details and stock count. Works for items used by products too: renaming or
+    // recounting never breaks a recipe. The unit can only change while nothing depends on it
+    // (recipes, packagings and portions are all measured in this unit). ---
+    if (body?.details_edit === true) {
+      const inventoryId = Number(body?.inventory_id);
+      const ingredientCategory = String(body?.ingredient_category ?? "").trim();
+      const itemName = String(body?.item_name ?? "").trim();
+      const resolvedUnit = resolveUnit(body?.unit_of_measure);
+      const newQuantity = body?.quantity === undefined || body?.quantity === null || body?.quantity === "" ? null : Number(body.quantity);
+      if (!Number.isInteger(inventoryId) || inventoryId <= 0 || !ingredientCategory || !itemName || !resolvedUnit) {
+        return NextResponse.json({ error: "Category, item name, and a valid unit are required." }, { status: 400 });
+      }
+      if (newQuantity !== null && (!Number.isFinite(newQuantity) || newQuantity < 0 || (resolvedUnit.whole && !Number.isInteger(newQuantity)))) {
+        return NextResponse.json({ error: `The stock count must be ${resolvedUnit.whole ? "a whole number" : "a number"} (0 or more).` }, { status: 400 });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const currentResult = await client.query(`
+          SELECT i.quantity, i.unit_of_measure, i.derived_from_inventory_id,
+            (EXISTS (SELECT 1 FROM product_ingredients WHERE inventory_id = i.inventory_id)
+              OR EXISTS (SELECT 1 FROM variant_ingredients WHERE inventory_id = i.inventory_id)
+              OR EXISTS (SELECT 1 FROM additions WHERE inventory_id = i.inventory_id AND is_active = TRUE)) AS is_used,
+            EXISTS (SELECT 1 FROM inventory_packaging WHERE inventory_id = i.inventory_id AND is_archived = FALSE) AS has_packaging,
+            EXISTS (SELECT 1 FROM inventory c WHERE c.derived_from_inventory_id = i.inventory_id AND c.is_archived = FALSE) AS has_portions
+          FROM inventory i
+          WHERE i.inventory_id = $1 AND i.is_archived = FALSE
+          FOR UPDATE OF i
+        `, [inventoryId]);
+        if (currentResult.rowCount === 0) {
+          await client.query("ROLLBACK");
+          return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
+        }
+        const current = currentResult.rows[0];
+        if (current.derived_from_inventory_id) {
+          await client.query("ROLLBACK");
+          return NextResponse.json({ error: "This item is a portion of another item. Edit it with \"Edit portion\" instead." }, { status: 409 });
+        }
+        if (resolvedUnit.label !== current.unit_of_measure && (current.is_used || current.has_packaging || current.has_portions)) {
+          await client.query("ROLLBACK");
+          return NextResponse.json({ error: "The unit cannot change while products, add-ons, packages or portions are measured in it." }, { status: 409 });
+        }
+        const quantityBefore = Number(current.quantity);
+        const quantityAfter = newQuantity ?? quantityBefore;
+        await client.query(`
+          UPDATE inventory
+          SET ingredient_category = $1, item_name = $2, unit_of_measure = $3, is_whole_unit = $4, low_stock_threshold = $5, quantity = $6, updated_at = CURRENT_TIMESTAMP
+          WHERE inventory_id = $7
+        `, [ingredientCategory, itemName, resolvedUnit.label, resolvedUnit.whole, resolvedUnit.threshold, quantityAfter, inventoryId]);
+        if (quantityAfter !== quantityBefore) {
+          await client.query(`
+            INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
+            VALUES ($1, $2, $3, $4, 'manual_edit', $5, $6, $7, $8, 'admin')
+          `, [inventoryId, itemName, ingredientCategory, resolvedUnit.label, quantityBefore, quantityAfter, quantityAfter - quantityBefore, await getAdminId()]);
+        }
+        await client.query("COMMIT");
+        return NextResponse.json({ data: await loadInventoryItem(inventoryId) });
+      } catch (detailsError) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw detailsError;
+      } finally {
+        client.release();
+      }
     }
 
     // --- Branch 1a: restock by package: adds packs x contents and averages the unit cost ---

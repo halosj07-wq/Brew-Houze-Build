@@ -239,6 +239,7 @@ async function insertVariantComponents(client: PoolClient, variantId: number, va
 }
 
 export async function GET() {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
       ${productSelect}
@@ -254,6 +255,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
 
   try {
@@ -310,6 +312,7 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
 
   try {
@@ -414,6 +417,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
   try {
     const body = await request.json() as RequestBody;
