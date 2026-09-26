@@ -121,7 +121,7 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onAccount, onReq
           <div><p style={{ fontWeight: 700, fontSize: 13, color: "#3D2B1F", lineHeight: 1.3, margin: 0 }}>{user.fullName}</p><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "capitalize", margin: "2px 0 0" }}>{user.role}</p></div>
           <span aria-hidden="true" style={{ color: "#9C8278", fontSize: 16 }}>›</span>
         </button>
-        <button onClick={onRequestLogout} title="Sign out" style={{ border: "none", borderLeft: "1px solid #D8C8BE", background: "transparent", color: "#9C8278", cursor: "pointer", fontSize: 12, padding: "8px 0 8px 11px" }}>Sign out</button>
+        <button onClick={onRequestLogout} title="Sign out so another cashier can sign in" style={{ border: "none", borderLeft: "1px solid #D8C8BE", background: "transparent", color: "#9C8278", cursor: "pointer", fontSize: 12, padding: "8px 0 8px 11px" }}>Switch cashier</button>
       </div>
     </div>
   </header>;
@@ -990,8 +990,8 @@ function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => vo
   return <div className="fixed inset-0 flex items-center justify-center" style={{ background: "rgba(61,43,31,0.4)", zIndex: 100 }} role="dialog" aria-modal="true" aria-labelledby="sign-out-title">
     <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 380px)", background: "#FDF9F5", boxShadow: "0 20px 60px rgba(61,43,31,0.25)" }}>
       <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Session</p>
-      <h2 id="sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Sign out?</h2>
-      <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>You will need to sign in again to access the cashier portal.</p>
+      <h2 id="sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Switch cashier?</h2>
+      <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This signs you out so the next cashier can sign in. Your attendance ends unless you are still signed in on another device.</p>
       <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={onCancel} disabled={signingOut} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: signingOut ? "default" : "pointer" }}>Cancel</button><button type="button" onClick={onConfirm} disabled={signingOut} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: signingOut ? "#C9B8AF" : "#B91C1C", color: "#FFF", cursor: signingOut ? "default" : "pointer", fontWeight: 700 }}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
     </div>
   </div>;
@@ -1299,7 +1299,7 @@ function ShiftChip({ shift, onOpenShift, onCloseShift }: { shift: CurrentShift |
   </div>;
 }
 
-function OpenShiftPanel({ onOpened }: { onOpened: (shift: CurrentShift) => void }) {
+function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: string; onOpened: (shift: CurrentShift) => void; onSwitchCashier: () => void }) {
   const [startingCash, setStartingCash] = useState("");
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
@@ -1340,6 +1340,7 @@ function OpenShiftPanel({ onOpened }: { onOpened: (shift: CurrentShift) => void 
       </label>
       {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
       <button type="submit" disabled={opening} style={{ width: "100%", height: 50, marginTop: 18, border: "none", borderRadius: 12, background: opening ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16, cursor: opening ? "default" : "pointer", boxShadow: opening ? "none" : "0 8px 18px rgba(217,119,6,0.28)" }}>{opening ? "Opening…" : "Open shift"}</button>
+      <p style={{ margin: "14px 0 0", textAlign: "center", color: "#9C8278", fontSize: 12.5 }}>Opening as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch cashier</button></p>
     </form>
   </main>;
 }
@@ -1514,6 +1515,20 @@ export default function App() {
     return () => window.clearTimeout(timeout);
   }, []);
 
+  // Returns this device to the login screen, e.g. after signing out, closing the shift, or when
+  // the session was ended elsewhere (shift closed on another tablet, password reset, admin).
+  const endLocalSession = useCallback((notice: string) => {
+    setPage("pos");
+    setLastOrder(null);
+    try { window.localStorage.removeItem(LAST_ORDER_STORAGE_KEY); } catch { /* ignore */ }
+    setShift(undefined);
+    setClosingShift(false);
+    setShowSignOut(false);
+    setSigningOut(false);
+    setLoginNotice(notice);
+    setUser(null);
+  }, []);
+
   const refreshQueueCounts = useCallback(async () => {
     try {
       const response = await fetch("/api/queue?signatureOnly=1", { cache: "no-store" });
@@ -1528,13 +1543,17 @@ export default function App() {
   const refreshShift = useCallback(async () => {
     try {
       const response = await fetch("/api/shift", { cache: "no-store" });
+      if (response.status === 401) {
+        endLocalSession("You were signed out. The shift was closed, your password was reset, or an admin signed you out. Sign in to continue.");
+        return;
+      }
       if (!response.ok) return;
       const payload = await response.json() as { data?: CurrentShift | null };
       setShift(payload.data ?? null);
     } catch (error) {
       console.error("Failed to load the current shift", error);
     }
-  }, []);
+  }, [endLocalSession]);
 
   // Live shift status and waiting/ready counts, refreshed while the tab is visible. Polling also
   // picks up a shift opened or closed from another terminal.
@@ -1567,10 +1586,7 @@ export default function App() {
   }
 
   function handleShiftClosed() {
-    setClosingShift(false);
-    setShift(null);
-    setPage("pos");
-    void refreshQueueCounts();
+    endLocalSession("Shift closed and everyone was signed out. The next cashier can sign in to open a new shift.");
   }
 
   useEffect(() => {
@@ -1593,22 +1609,17 @@ export default function App() {
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    setPage("pos");
-    setLastOrder(null);
-    try { window.localStorage.removeItem(LAST_ORDER_STORAGE_KEY); } catch { /* ignore */ }
-    setShowSignOut(false);
-    setSigningOut(false);
-    setUser(null);
+    endLocalSession("");
   }
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="min-h-screen" style={{ background: "#F8F9FA" }} />;
-  if (!user) return <Login onLoggedIn={setUser} notice={loginNotice} />;
+  if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); setUser(session); }} notice={loginNotice} />;
   const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
   const visiblePage = page === "reversals" && !canManageReversals ? "pos" : page;
   async function confirmSignOut() {
     setSigningOut(true);
     await logout();
   }
-  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? <OpenShiftPanel onOpened={handleShiftOpened} /> : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
+  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
 }

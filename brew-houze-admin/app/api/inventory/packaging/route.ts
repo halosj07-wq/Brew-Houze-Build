@@ -1,16 +1,11 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 import { loadInventoryItem, parsePackaging } from "@/lib/inventory";
 
 // Packagings describe how a stock item is bought (Nescafe Bean Bag 1 kg -> Coffee Bean, grams).
 // They never hold stock themselves. Every response returns the updated inventory item so the
 // Inventory screen can replace its row in one step.
-
-async function getSession() {
-  return verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
-}
 
 function isUniqueViolation(error: unknown) {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");

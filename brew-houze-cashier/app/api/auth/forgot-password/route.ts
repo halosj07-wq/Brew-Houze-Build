@@ -1,5 +1,5 @@
 import { after, NextResponse } from "next/server";
-import { sendPasswordResetEmail } from "@/lib/password-reset";
+import { resolveAppUrl, sendPasswordResetEmail } from "@/lib/password-reset";
 
 const PORTAL_NAME = "Cashier Portal";
 
@@ -17,9 +17,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
   }
 
-  // Links point back to the app the request came from (admin or cashier).
-  const appUrl = process.env.APP_URL || new URL(request.url).origin;
+  const appUrl = resolveAppUrl(request.url);
   after(async () => {
+    if (!appUrl) {
+      console.error("Password reset email not sent: set APP_URL to this app's public address (e.g. https://brew-houze-build-admin.vercel.app).");
+      return;
+    }
     try {
       await sendPasswordResetEmail(email, appUrl, PORTAL_NAME);
     } catch (error) {

@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
+import { endAllSessions } from "@/lib/sessions";
 
 // "Forgot password?" for staff accounts. A single-use link is emailed to the account address.
 // Only a SHA-256 hash of the link token is stored, the link expires after 30 minutes, and using
@@ -13,6 +14,19 @@ export const MIN_PASSWORD_LENGTH = 8;
 // bcrypt only uses the first 72 bytes of a password, so longer ones are refused rather than
 // silently truncated.
 export const MAX_PASSWORD_LENGTH = 72;
+
+// Where reset links point. Never taken from the incoming request in production: the Host header
+// can be forged ("password reset poisoning"), and Vercel also serves each deployment on its own
+// URL. Order: APP_URL, then the Vercel production domain, then (local development only) the
+// address the request came in on. Returns null when no trustworthy address is configured.
+export function resolveAppUrl(requestUrl: string): string | null {
+  const configured = process.env.APP_URL?.trim();
+  if (configured) return configured.replace(/\/$/, "");
+  const vercelProduction = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  if (vercelProduction) return `https://${vercelProduction.replace(/^https?:\/\//, "").replace(/\/$/, "")}`;
+  if (process.env.NODE_ENV !== "production") return new URL(requestUrl).origin;
+  return null;
+}
 
 function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -136,6 +150,8 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
     await client.query("UPDATE admin_users SET password_hash = crypt($2, gen_salt('bf')) WHERE admin_id = $1", [adminId, newPassword]);
     // This link and any other pending links for the account stop working.
     await client.query("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE admin_id = $1 AND used_at IS NULL", [adminId]);
+    // Whoever knew the old password is signed out of every device.
+    await endAllSessions(Number(adminId), "password_reset", client);
     await client.query("COMMIT");
     return { ok: true };
   } catch (error) {

@@ -1,10 +1,9 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 async function requireAdmin() {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") return null;
   return session;
 }

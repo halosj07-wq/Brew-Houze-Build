@@ -1,7 +1,6 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 // Shift reports for Finance. Shifts are opened/closed from the cashier app; totals come from
 // the shift_summaries view (see shift-migration.sql). A shift's business date is the date it
@@ -53,7 +52,7 @@ const summarySelect = `
 `;
 
 export async function GET(request: Request) {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   try {

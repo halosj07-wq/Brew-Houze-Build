@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
+import { isAllowedRole, startSession } from "@/lib/sessions";
 
 export async function POST(request: Request) {
   try {
@@ -26,6 +27,12 @@ export async function POST(request: Request) {
     }
 
     const admin = result.rows[0];
+    // The admin portal manages finance, accounts and inventory, so only admin accounts may use it.
+    if (!isAllowedRole(admin.role)) {
+      return NextResponse.json({ error: "This account does not have admin access. Use the cashier portal instead." }, { status: 403 });
+    }
+
+    const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
     const response = NextResponse.json({
       data: { adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role },
     });
@@ -35,6 +42,7 @@ export async function POST(request: Request) {
       email: admin.email,
       fullName: admin.full_name,
       role: admin.role,
+      sid: sessionId,
     }), {
       httpOnly: true,
       sameSite: "lax",

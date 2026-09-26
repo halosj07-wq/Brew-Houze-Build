@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 type CheckoutItem = { product_variant_id: number; quantity: number; addition_ids?: unknown };
 
@@ -38,7 +37,7 @@ async function resolveBoundDeductions(client: PoolClient, deductions: Map<number
 }
 
 export async function POST(request: Request) {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   const client = await pool.connect();

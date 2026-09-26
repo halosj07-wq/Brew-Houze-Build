@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 // A shift is the café's business day: opened and closed manually by any cashier, and it may
 // run past midnight. Totals come from the shift_summaries view (see shift-migration.sql).
@@ -61,7 +60,7 @@ function parseAmount(value: unknown): number | null {
 }
 
 export async function GET() {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     return NextResponse.json({ data: await loadSummary(pool, "ss.closed_at IS NULL", []) }, { headers: { "Cache-Control": "no-store" } });
@@ -72,7 +71,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown };
@@ -127,8 +126,10 @@ export async function POST(request: Request) {
         SET closed_at = CURRENT_TIMESTAMP, closed_by = $2, counted_cash = $3, expected_cash = $4, closing_notes = NULLIF($5, '')
         WHERE shift_id = $1
       `, [shiftId, session.adminId, countedCash, Number(expected.rows[0].expected_cash), notes]);
-      // Everyone still signed in is clocked out at closing time.
+      // Everyone still signed in is clocked out at closing time, and signed out of the cashier
+      // app, so the next shift must be opened by whoever signs in next (not a leftover session).
       await client.query("UPDATE employee_time_logs SET time_out = CURRENT_TIMESTAMP WHERE time_out IS NULL");
+      await client.query("UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, end_reason = 'shift_closed' WHERE app = 'cashier' AND ended_at IS NULL");
       // Queue numbers restart with the next shift, so clear leftovers from the queue screens.
       await client.query("UPDATE sales_orders SET queue_status = 'flushed' WHERE queue_status IN ('waiting', 'served')");
       await client.query("COMMIT");

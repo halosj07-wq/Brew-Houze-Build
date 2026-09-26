@@ -8,6 +8,8 @@ type SessionPayload = {
   email: string;
   fullName: string;
   role: string;
+  // Random id of the server-side session row (see lib/sessions.ts).
+  sid?: string;
   exp: number;
 };
 

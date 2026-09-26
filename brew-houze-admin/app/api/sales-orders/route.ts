@@ -1,7 +1,6 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 export async function GET(request: Request) {
   try {
@@ -245,7 +244,7 @@ export async function DELETE(request: Request) {
   try {
     const body = await request.json();
     const orderId = Number(body?.order_id);
-    const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+    const session = await getSession();
 
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return NextResponse.json({ error: "A valid order_id is required." }, { status: 400 });
@@ -277,7 +276,7 @@ export async function PATCH(request: Request) {
   const client = await pool.connect();
   try {
     const body = await request.json();
-    const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+    const session = await getSession();
     if (body?.action !== "clear_all" || body?.confirmation !== "CLEAR_FINANCE_RECORDS") {
       return NextResponse.json({ error: "Explicit finance records confirmation is required." }, { status: 400 });
     }

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { cookies } from "next/headers";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { endAllSessions, getSession } from "@/lib/sessions";
 
 export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
       SELECT admin_id, full_name, email, role, is_active, can_void_orders, can_refund_orders
@@ -75,6 +76,22 @@ export async function GET() {
       reversalsByAccount.set(Number(reversal.reversed_by_admin_id), accountReversals);
     }
 
+    // Devices each person is signed in on right now (both apps).
+    const sessionsResult = await pool.query(`
+      SELECT session_id, admin_id, app, device_label,
+        TO_CHAR(created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS signed_in_at,
+        TO_CHAR(last_seen_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS last_seen_at
+      FROM user_sessions
+      WHERE admin_id = ANY($1::int[]) AND ended_at IS NULL AND expires_at > CURRENT_TIMESTAMP
+      ORDER BY last_seen_at DESC
+    `, [result.rows.map((account) => Number(account.admin_id))]);
+    const sessionsByAccount = new Map<number, { id: number; app: string; device: string; signedInAt: string; lastSeenAt: string }[]>();
+    for (const row of sessionsResult.rows) {
+      const list = sessionsByAccount.get(Number(row.admin_id)) ?? [];
+      list.push({ id: Number(row.session_id), app: row.app, device: row.device_label ?? "Unknown device", signedInAt: row.signed_in_at, lastSeenAt: row.last_seen_at });
+      sessionsByAccount.set(Number(row.admin_id), list);
+    }
+
     return NextResponse.json({
       data: result.rows.map((account) => ({
         id: Number(account.admin_id),
@@ -87,6 +104,7 @@ export async function GET() {
         timeLogs: logsByAccount.get(Number(account.admin_id)) ?? [],
         transactions: transactionsByAccount.get(Number(account.admin_id)) ?? [],
         reversals: reversalsByAccount.get(Number(account.admin_id)) ?? [],
+        sessions: sessionsByAccount.get(Number(account.admin_id)) ?? [],
       })),
     });
   } catch (error) {
@@ -96,15 +114,21 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") {
     return NextResponse.json({ error: "Only an admin can change cashier permissions." }, { status: 403 });
   }
 
   try {
-    const body = await request.json() as { id?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
+    const body = await request.json() as { id?: unknown; action?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid cashier account is required." }, { status: 400 });
+    // Ends every signed-in device of the account (e.g. a lost phone or an employee leaving).
+    // Their attendance ends too, since they are no longer signed in anywhere.
+    if (body.action === "sign_out_everywhere") {
+      const ended = await endAllSessions(id, "signed_out_by_admin");
+      return NextResponse.json({ data: { signedOutDevices: ended } });
+    }
     const result = await pool.query(`
       UPDATE admin_users
       SET can_void_orders = $2, can_refund_orders = $3
@@ -121,7 +145,7 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") {
     return NextResponse.json({ error: "Only an admin can clear employee logs." }, { status: 403 });
   }

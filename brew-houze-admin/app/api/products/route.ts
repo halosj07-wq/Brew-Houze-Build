@@ -1,11 +1,10 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 async function getAdminId(): Promise<number | null> {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   return session?.adminId ?? null;
 }
 

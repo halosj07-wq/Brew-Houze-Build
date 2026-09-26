@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
 import pool from "@/lib/db";
+import { startSession } from "@/lib/sessions";
 
 export async function POST(request: Request) {
   try {
@@ -32,8 +33,9 @@ export async function POST(request: Request) {
       VALUES ($1)
       ON CONFLICT DO NOTHING
     `, [admin.admin_id]);
+    const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
     const response = NextResponse.json({ data: session });
-    response.cookies.set(SESSION_COOKIE, createSessionToken(session), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: SESSION_MAX_AGE, path: "/" });
+    response.cookies.set(SESSION_COOKIE, createSessionToken({ ...session, sid: sessionId }), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: SESSION_MAX_AGE, path: "/" });
     return response;
   } catch (error) {
     console.error("POST /api/auth/login failed:", error);

@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 const SESSION_COOKIE = "brew_houze_cashier_session";
 const SESSION_MAX_AGE = 60 * 60 * 8;
 
-type SessionPayload = { adminId: number; email: string; fullName: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; exp: number };
+type SessionPayload = { adminId: number; email: string; fullName: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; sid?: string; exp: number };
 
 function getSecret(): string {
   const secret = process.env.AUTH_SECRET;

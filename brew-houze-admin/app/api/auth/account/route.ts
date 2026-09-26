@@ -1,10 +1,9 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 async function getAdminSession() {
-  return verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  return await getSession();
 }
 
 export async function GET() {

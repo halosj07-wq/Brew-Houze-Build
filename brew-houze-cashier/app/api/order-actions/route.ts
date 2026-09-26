@@ -1,8 +1,7 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+import { getSession } from "@/lib/sessions";
 
 // Same redirection checkout uses: a bound item's quantity is moved onto its source item,
 // scaled by its ratio, since bound items never carry stock of their own.
@@ -26,7 +25,7 @@ async function resolveBoundDeductions(client: PoolClient, deductions: Map<number
 }
 
 export async function POST(request: Request) {
-  const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
+  const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   let body: { order_id?: unknown; action?: unknown };
