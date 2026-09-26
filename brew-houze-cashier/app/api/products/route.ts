@@ -17,29 +17,7 @@ export async function GET() {
         p.product_description,
         p.product_category,
         p.image_url,
-        COALESCE((
-          SELECT json_agg(json_build_object(
-            'addition_id', a.addition_id,
-            'addition_name', a.addition_name,
-            'quantity', a.quantity,
-            'price', a.price,
-            'unit_of_measure', i_addition.unit_of_measure,
-            'inventory_id', a.inventory_id,
-            'available_quantity', CASE
-              WHEN i_addition.derived_from_inventory_id IS NOT NULL THEN
-                CASE
-                  WHEN i_addition.is_whole_unit THEN FLOOR(COALESCE(i_addition_parent.quantity, 0) / i_addition.derived_ratio)
-                  ELSE COALESCE(i_addition_parent.quantity, 0) / i_addition.derived_ratio
-                END
-              ELSE i_addition.quantity
-            END
-          ) ORDER BY a.addition_name)
-          FROM product_additions pa
-          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
-          JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
-          LEFT JOIN inventory i_addition_parent ON i_addition_parent.inventory_id = i_addition.derived_from_inventory_id
-          WHERE pa.product_id = p.product_id
-        ), '[]'::json) AS additions,
+        p.product_type,
         COALESCE(
           json_agg(
             json_build_object(
@@ -81,19 +59,6 @@ export async function GET() {
                 LEFT JOIN inventory inv_detail_parent ON inv_detail_parent.inventory_id = inv_detail.derived_from_inventory_id
                 WHERE vi_detail.product_variant_id = pv.product_variant_id
               ), '[]'::json),
-              'additions', COALESCE((
-                SELECT json_agg(json_build_object(
-                  'addition_id', a.addition_id,
-                  'addition_name', a.addition_name,
-                  'quantity', a.quantity,
-                  'price', a.price,
-                  'unit_of_measure', i_addition.unit_of_measure
-                ) ORDER BY a.addition_name)
-                FROM product_additions pa
-                JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
-                JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
-                WHERE pa.product_id = p.product_id
-              ), '[]'::json),
               'available', COALESCE((
                 SELECT FLOOR(MIN(
                   (CASE
@@ -122,7 +87,32 @@ export async function GET() {
       ORDER BY p.product_category, p.product_name
     `);
 
-    return NextResponse.json({ data: result.rows });
+    // Add-ons are punched from their own section of the POS list and attached to the selected
+    // recipe item in the cart, so they are returned once rather than per product.
+    const additionsResult = await pool.query(`
+      SELECT
+        a.addition_id,
+        a.addition_name,
+        a.quantity,
+        a.price,
+        i.unit_of_measure,
+        a.inventory_id,
+        CASE
+          WHEN i.derived_from_inventory_id IS NOT NULL THEN
+            CASE
+              WHEN i.is_whole_unit THEN FLOOR(COALESCE(parent.quantity, 0) / i.derived_ratio)
+              ELSE COALESCE(parent.quantity, 0) / i.derived_ratio
+            END
+          ELSE i.quantity
+        END AS available_quantity
+      FROM additions a
+      JOIN inventory i ON i.inventory_id = a.inventory_id AND i.is_archived = FALSE
+      LEFT JOIN inventory parent ON parent.inventory_id = i.derived_from_inventory_id
+      WHERE a.is_active = TRUE
+      ORDER BY a.addition_name
+    `);
+
+    return NextResponse.json({ data: result.rows, additions: additionsResult.rows });
   } catch (error) {
     console.error("GET /api/products failed:", error);
     return NextResponse.json({ error: "Unable to load products." }, { status: 500 });

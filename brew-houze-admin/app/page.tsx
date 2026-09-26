@@ -22,7 +22,53 @@ type InventoryItem = {
   derived_from_item_name?: string | null;
   derived_from_unit_of_measure?: string | null;
   derived_from_available_quantity?: number | null;
+  unit_cost?: number | string | null;
+  effective_unit_cost?: number | string | null;
+  recipe_products?: string[];
+  direct_sale_products?: string[];
+  addition_names?: string[];
+  packagings?: InventoryPackaging[];
 };
+
+// How a stock item is bought, e.g. "Nescafe Bean Bag 1 kg" containing 1000 grams of Coffee Bean.
+type InventoryPackaging = { packagingId: number; name: string; brand: string | null; contentQuantity: number | string; lastPackPrice: number | string | null; lastRestockedAt: string | null };
+
+type InventoryUsageGroup = "unused" | "recipe" | "direct" | "both";
+
+const inventoryUsageGroupOrder: InventoryUsageGroup[] = ["unused", "recipe", "direct", "both"];
+const inventoryUsageGroupLabels: Record<InventoryUsageGroup, string> = {
+  unused: "Not used · not linked to any product or add-on yet",
+  recipe: "Used in recipes · consumed by recipe products or add-ons",
+  direct: "Sold directly · linked to a direct-sale product",
+  both: "Used in recipes and sold directly",
+};
+
+// Groups by how active products consume the item: as a recipe component (including add-ons),
+// as the stock behind a direct-sale product, or both.
+function getInventoryUsageGroup(item: InventoryItem): InventoryUsageGroup {
+  const inRecipes = (item.recipe_products?.length ?? 0) + (item.addition_names?.length ?? 0) > 0;
+  const soldDirectly = (item.direct_sale_products?.length ?? 0) > 0;
+  if (inRecipes && soldDirectly) return "both";
+  if (soldDirectly) return "direct";
+  if (inRecipes) return "recipe";
+  return "unused";
+}
+
+function toOptionalNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatPeso(value: number): string {
+  return `₱${value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+}
+
+const singularUnits: Record<string, string> = { grams: "gram", Pieces: "piece", Bottles: "bottle", Boxes: "box", Packs: "pack", Sachets: "sachet" };
+
+function singularUnit(unit: string): string {
+  return singularUnits[unit] ?? unit;
+}
 
 type InventoryLogEntry = {
   log_id: number;
@@ -34,8 +80,14 @@ type InventoryLogEntry = {
   quantity_before: number;
   quantity_after: number;
   quantity_delta: number;
+  unit_cost_before?: number | null;
+  unit_cost_after?: number | null;
   order_id: number | null;
   source_app: string;
+  shift_id?: number | null;
+  packaging_name?: string | null;
+  packs_added?: number | null;
+  pack_price?: number | null;
   admin_name: string | null;
   created_at: string;
 };
@@ -308,9 +360,9 @@ function DrinkCategoryManagement({ categories, onChange }: { categories: Product
   }
 
   return <section className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
-    <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconTag size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Drink Categories</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Organize products into categories shown in Product Management.</p></div></div>
+    <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconTag size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Product Categories</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Organize products into categories shown in Product Management.</p></div></div>
     <form onSubmit={addCategory} className="flex flex-wrap gap-3" style={{ alignItems: "end" }}>
-      <label className="flex flex-col gap-1.5" style={{ flex: "1 1 240px" }}><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category Name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Non-Coffee Drinks" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none", width: "100%" }} /></label>
+      <label className="flex flex-col gap-1.5" style={{ flex: "1 1 240px" }}><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category Name</span><input required value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Non-Coffee Drinks, Snacks" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none", width: "100%" }} /></label>
       <button type="submit" disabled={saving} style={{ border: "none", borderRadius: 10, padding: "11px 16px", background: saving ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Adding..." : "Add Category"}</button>
     </form>
     {error && <p style={{ color: "#B91C1C", fontSize: 13, marginTop: 14 }}>{error}</p>}
@@ -416,7 +468,7 @@ function AdditionsManagement({ inventory, categories, onCategoriesChange }: { in
 
   return <div className="flex flex-col gap-6 p-8" style={{ maxWidth: 1280 }}>
     <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
-      <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconSparkle size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Add an Addition Item</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Choose the inventory item consumed by this addition.</p></div></div>
+      <div className="flex items-center gap-3 mb-5"><div className="flex items-center justify-center rounded-xl" style={{ width: 38, height: 38, background: "#F3EDE5", color: "#D97706" }}><IconSparkle size={18} /></div><div><h2 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 19, color: "#3D2B1F", margin: 0 }}>Add an Addition Item</h2><p style={{ color: "#9C8278", fontSize: 13, marginTop: 3 }}>Choose the inventory item consumed by this addition. Additions can be attached to any recipe item in the cashier cart or mobile menu.</p></div></div>
       <form onSubmit={submit} className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", alignItems: "end" }}>
         <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Addition Name</span><input required value={additionName} onChange={(event) => setAdditionName(event.target.value)} placeholder="Extra Shot" style={additionInputBase} /></label>
         <label className="flex flex-col gap-1.5"><span style={{ fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Inventory Item</span><select required value={inventoryId} onChange={(event) => setInventoryId(event.target.value)} style={additionInputBase}><option value="">Choose inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select></label>
@@ -436,10 +488,286 @@ function AdditionsManagement({ inventory, categories, onCategoriesChange }: { in
   </div>;
 }
 
+// Unit cost input, stored per unit of measure. Buying prices are usually known per purchase
+// (₱850 for 1,000 grams), so the helper row converts a purchase total into a per-unit cost.
+function UnitCostField({ unit, value, onChange }: { unit: string; value: string; onChange: (value: string) => void }) {
+  const [purchaseTotal, setPurchaseTotal] = useState("");
+  const [purchaseQuantity, setPurchaseQuantity] = useState("");
+  const smallInput: React.CSSProperties = { width: 78, border: "1px solid #E8DDD5", borderRadius: 8, padding: "5px 8px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#3D2B1F", background: "#FDF9F5", outline: "none" };
+
+  function applyPurchase(total: string, quantity: string) {
+    setPurchaseTotal(total);
+    setPurchaseQuantity(quantity);
+    const parsedTotal = Number(total);
+    const parsedQuantity = Number(quantity);
+    if (total !== "" && quantity !== "" && Number.isFinite(parsedTotal) && parsedTotal >= 0 && Number.isFinite(parsedQuantity) && parsedQuantity > 0) {
+      onChange(String(Math.round((parsedTotal / parsedQuantity) * 10000) / 10000));
+    }
+  }
+
+  return <div className="flex flex-col gap-1.5">
+    <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit cost · ₱ per {singularUnit(unit)} <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
+    <input type="number" min={0} step="any" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Not set" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} />
+    <div className="flex flex-wrap items-center gap-1.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: "#9C8278" }}>
+      or paid ₱<input type="number" min={0} step="any" value={purchaseTotal} onChange={(event) => applyPurchase(event.target.value, purchaseQuantity)} placeholder="850" style={smallInput} />
+      for <input type="number" min={0} step="any" value={purchaseQuantity} onChange={(event) => applyPurchase(purchaseTotal, event.target.value)} placeholder="1000" style={smallInput} /> {unit}
+    </div>
+  </div>;
+}
+
 // Strips anything from the decimal point onward so a whole-unit field can never hold a fraction.
 function sanitizeWholeUnitValue(value: string): string {
   const dotIndex = value.indexOf(".");
   return dotIndex === -1 ? value : value.slice(0, dotIndex);
+}
+
+// ─── Packaging ────────────────────────────────────────────────────────────────
+// A packaging is how a stock item is bought (Nescafe Bean Bag 1 kg -> Coffee Bean, grams). It
+// never holds stock: restocking by package adds packs x contents to the item and averages its
+// unit cost. An item can have several packagings, e.g. one per brand.
+
+function formatAmount(value: number): string {
+  return Number(value.toFixed(2)).toLocaleString("en-PH", { maximumFractionDigits: 2 });
+}
+
+// Same weighted-average rule the server applies when restocking by package.
+function previewWeightedAverage(currentQuantity: number, currentUnitCost: number | null, addedQuantity: number, addedTotalCost: number): number {
+  const onHand = Math.max(0, currentQuantity);
+  return currentUnitCost === null || onHand === 0
+    ? addedTotalCost / addedQuantity
+    : (onHand * currentUnitCost + addedTotalCost) / (onHand + addedQuantity);
+}
+
+// "≈ 3 × Nescafe Bean Bag 1 kg + 450 grams", using the most recently restocked packaging.
+function describeInPacks(item: InventoryItem): string | null {
+  const pack = item.packagings?.[0];
+  const quantity = Number(item.quantity);
+  const content = pack ? Number(pack.contentQuantity) : 0;
+  if (!pack || !(content > 0) || !(quantity > 0)) return null;
+  const packs = Math.floor(quantity / content + 1e-9);
+  const loose = quantity - packs * content;
+  if (packs === 0) return `< 1 ${pack.name}`;
+  return `≈ ${packs} × ${pack.name}${loose > 0.005 ? ` + ${formatAmount(loose)} ${item.unit_of_measure}` : ""}`;
+}
+
+const packagingLabel: React.CSSProperties = { fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" };
+const packagingInput: React.CSSProperties = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", width: "100%", minWidth: 0 };
+
+function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; onClose: () => void; onChanged: (updated: InventoryItem) => void }) {
+  const packagings = item.packagings ?? [];
+  const emptyDraft = { name: "", brand: "", content: "", price: "" };
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState(emptyDraft);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  function startEdit(pack: InventoryPackaging) {
+    setError("");
+    setEditingId(pack.packagingId);
+    setDraft({ name: pack.name, brand: pack.brand ?? "", content: String(Number(pack.contentQuantity)), price: pack.lastPackPrice === null ? "" : String(Number(pack.lastPackPrice)) });
+  }
+
+  function resetDraft() {
+    setEditingId(null);
+    setDraft(emptyDraft);
+  }
+
+  async function send(method: "POST" | "PATCH" | "DELETE", body: Record<string, unknown>, fallback: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/inventory/packaging", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || fallback);
+      onChanged(payload.data as InventoryItem);
+      resetDraft();
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : fallback);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const fields = { packaging_name: draft.name, brand: draft.brand, content_quantity: Number(draft.content), pack_price: draft.price === "" ? null : Number(draft.price) };
+    if (editingId === null) void send("POST", { inventory_id: item.inventory_id, ...fields }, "Failed to add the packaging.");
+    else void send("PATCH", { packaging_id: editingId, ...fields }, "Failed to update the packaging.");
+  }
+
+  function archive(pack: InventoryPackaging) {
+    if (!window.confirm(`Archive "${pack.name}"? Past restock records keep its name.`)) return;
+    void send("DELETE", { packaging_id: pack.packagingId }, "Failed to archive the packaging.");
+  }
+
+  const draftContent = Number(draft.content);
+  const draftPrice = Number(draft.price);
+  const draftPerUnit = draft.price !== "" && draftContent > 0 && Number.isFinite(draftPrice) ? draftPrice / draftContent : null;
+
+  return <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, maxHeight: "90vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
+        <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Packaging</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>How {item.item_name} is bought · stock stays in {item.unit_of_measure}</p></div>
+        <button type="button" onClick={onClose} disabled={saving} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
+      </div>
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        {packagings.length === 0
+          ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>No packaging yet. Add how this item is bought, e.g. a 1 kg bag, a 1 L carton, or a case of 24.</p>
+          : <div className="flex flex-col" style={{ border: "1px solid #E8DDD5", borderRadius: 12, overflow: "hidden" }}>
+            {packagings.map((pack, index) => {
+              const content = Number(pack.contentQuantity);
+              const price = pack.lastPackPrice === null ? null : Number(pack.lastPackPrice);
+              return <div key={pack.packagingId} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", background: editingId === pack.packagingId ? "#FFF7ED" : "#FFFFFF" }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F" }}>{pack.name}{pack.brand && <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 600 }}>{pack.brand}</span>}{index === 0 && pack.lastRestockedAt && <span style={{ marginLeft: 6, color: "#15803D", fontSize: 11, fontWeight: 600 }}>last bought</span>}</p>
+                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9C8278" }}>1 pack = {formatAmount(content)} {item.unit_of_measure}{price !== null ? ` · ₱${price.toFixed(2)} per pack (${formatPeso(price / content)} per ${singularUnit(item.unit_of_measure)})` : " · no price yet"}</p>
+                </div>
+                <div className="flex gap-2" style={{ flexShrink: 0 }}>
+                  <button type="button" onClick={() => startEdit(pack)} disabled={saving} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 10px", background: "#F3EDE5", color: "#6B4C3B", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Edit</button>
+                  <button type="button" onClick={() => archive(pack)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "6px 10px", background: "#FEF2F2", color: "#B91C1C", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Archive</button>
+                </div>
+              </div>;
+            })}
+          </div>}
+
+        <form onSubmit={save} className="flex flex-col gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F" }}>{editingId === null ? "Add a packaging" : "Edit packaging"}</p>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Packaging name</span><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Nescafe Bean Bag 1 kg" style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Brand <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><input value={draft.brand} onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>One pack contains ({item.unit_of_measure})</span><input type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={draft.content} onChange={(event) => setDraft((current) => ({ ...current, content: item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={item.is_whole_unit ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Price per pack (₱) <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><input type="number" min={0} step="0.01" value={draft.price} onChange={(event) => setDraft((current) => ({ ...current, price: event.target.value }))} placeholder="e.g. 850" style={packagingInput} /></label>
+          </div>
+          {draftPerUnit !== null && <span style={{ fontSize: 12, color: "#6B4C3B" }}>= {formatPeso(draftPerUnit)} per {singularUnit(item.unit_of_measure)}</span>}
+          {error && <p style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+          <div className="flex justify-end gap-2">
+            {editingId !== null && <button type="button" onClick={resetDraft} disabled={saving} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer" }}>Cancel edit</button>}
+            <button type="submit" disabled={saving || !draft.name.trim() || !(draftContent > 0)} style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: saving || !draft.name.trim() || !(draftContent > 0) ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : editingId === null ? "Add packaging" : "Save changes"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>;
+}
+
+function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item: InventoryItem; onClose: () => void; onRestocked: (updated: InventoryItem) => void; onManagePackaging: () => void }) {
+  const packagings = item.packagings ?? [];
+  const [mode, setMode] = useState<"package" | "quantity">(packagings.length > 0 ? "package" : "quantity");
+  const [packagingId, setPackagingId] = useState(packagings[0]?.packagingId ?? 0);
+  const [packs, setPacks] = useState("1");
+  const [packPrice, setPackPrice] = useState(packagings[0]?.lastPackPrice === null || packagings[0]?.lastPackPrice === undefined ? "" : String(Number(packagings[0].lastPackPrice)));
+  const [quantity, setQuantity] = useState(item.is_whole_unit ? "1" : "100");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const pack = packagings.find((entry) => entry.packagingId === packagingId);
+
+  function choosePackaging(id: number) {
+    setPackagingId(id);
+    const chosen = packagings.find((entry) => entry.packagingId === id);
+    setPackPrice(chosen?.lastPackPrice === null || chosen?.lastPackPrice === undefined ? "" : String(Number(chosen.lastPackPrice)));
+  }
+
+  const packCount = Number(packs);
+  const price = packPrice === "" ? null : Number(packPrice);
+  const addedQuantity = mode === "package" ? (pack && Number.isInteger(packCount) && packCount > 0 ? packCount * Number(pack.contentQuantity) : 0) : Number(quantity);
+  const costBefore = toOptionalNumber(item.unit_cost);
+  const costAfter = mode === "package" && addedQuantity > 0 && price !== null && Number.isFinite(price) && price >= 0
+    ? previewWeightedAverage(Number(item.quantity), costBefore, addedQuantity, packCount * price)
+    : costBefore;
+  const valid = mode === "package"
+    ? Boolean(pack) && Number.isInteger(packCount) && packCount > 0 && (price === null || (Number.isFinite(price) && price >= 0))
+    : Number.isFinite(addedQuantity) && addedQuantity > 0 && (!item.is_whole_unit || Number.isInteger(addedQuantity));
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!valid || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const body = mode === "package"
+        ? { restock_packaging: true, packaging_id: packagingId, packs: packCount, pack_price: price }
+        : { inventory_id: item.inventory_id, quantity_delta: addedQuantity };
+      const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to add stock.");
+      onRestocked(payload.data as InventoryItem);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Failed to add stock.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const tab = (value: "package" | "quantity", label: string) => <button type="button" onClick={() => setMode(value)} aria-pressed={mode === value} style={{ flex: 1, border: mode === value ? "1px solid #3D2B1F" : "1px solid #E8DDD5", background: mode === value ? "#3D2B1F" : "#FDF9F5", color: mode === value ? "#FDF9F5" : "#6B4C3B", borderRadius: 9, padding: "8px 10px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>{label}</button>;
+
+  return <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !saving) onClose(); }}>
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 460, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
+        <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Restock</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>{item.item_name} · {formatAmount(Number(item.quantity))} {item.unit_of_measure} on hand</p></div>
+        <button type="button" onClick={onClose} disabled={saving} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
+      </div>
+      <div className="flex flex-col gap-4 px-6 py-5">
+        <div className="flex gap-2">{tab("package", "By package")}{tab("quantity", `By ${item.unit_of_measure}`)}</div>
+        {mode === "package" ? (packagings.length === 0 ? (
+          <div style={{ padding: "12px 14px", borderRadius: 10, background: "#F3EDE5", color: "#6B4C3B", fontSize: 12.5, lineHeight: 1.5 }}>
+            No packaging set up for this item yet.{" "}
+            <button type="button" onClick={onManagePackaging} style={{ border: "none", background: "transparent", color: "#D97706", fontWeight: 700, cursor: "pointer", padding: 0 }}>Add a packaging</button>
+          </div>
+        ) : <>
+          <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Packaging bought</span>
+            <select value={packagingId} onChange={(event) => choosePackaging(Number(event.target.value))} style={packagingInput}>
+              {packagings.map((entry) => <option key={entry.packagingId} value={entry.packagingId}>{entry.name}{entry.brand ? ` (${entry.brand})` : ""} · {formatAmount(Number(entry.contentQuantity))} {item.unit_of_measure}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Number of packs</span><input autoFocus type="number" min={1} step={1} value={packs} onChange={(event) => setPacks(sanitizeWholeUnitValue(event.target.value))} style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Price per pack (₱)</span><input type="number" min={0} step="0.01" value={packPrice} onChange={(event) => setPackPrice(event.target.value)} placeholder="Not recorded" style={packagingInput} /></label>
+          </div>
+        </>) : (
+          <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Quantity to add ({item.unit_of_measure})</span><input autoFocus type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={quantity} onChange={(event) => setQuantity(item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value)} style={packagingInput} /></label>
+        )}
+        {valid && addedQuantity > 0 && <div style={{ padding: "10px 12px", borderRadius: 10, background: "#FFFFFF", border: "1px solid #E8DDD5", fontSize: 12.5, color: "#3D2B1F", lineHeight: 1.6 }}>
+          <div><strong>+{formatAmount(addedQuantity)} {item.unit_of_measure}</strong> → {formatAmount(Number(item.quantity) + addedQuantity)} {item.unit_of_measure} on hand</div>
+          {mode === "package"
+            ? price === null
+              ? <div style={{ color: "#9C8278" }}>No price entered: the unit cost stays {costBefore === null ? "unset" : formatPeso(costBefore)}.</div>
+              : <div>Average cost per {singularUnit(item.unit_of_measure)}: {costBefore === null ? "not set" : formatPeso(costBefore)} → <strong>{costAfter === null ? "—" : formatPeso(costAfter)}</strong></div>
+            : <div style={{ color: "#9C8278" }}>Adding by {item.unit_of_measure} keeps the unit cost as is. Restock by package to update it.</div>}
+        </div>}
+        {error && <p style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        <button type="button" onClick={onClose} disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer" }}>Cancel</button>
+        <button type="submit" disabled={saving || !valid} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !valid ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 600, cursor: saving || !valid ? "default" : "pointer" }}>{saving ? "Adding..." : "Add stock"}</button>
+      </div>
+    </form>
+  </div>;
+}
+
+// "1 shot (30 mL) of this item uses 9 grams of Coffee Bean": the ratio (source units per one
+// unit of this item) is worked out from two real-world amounts instead of typed directly.
+function BindingRatioField({ itemUnit, source, ratio, onChange }: { itemUnit: string; source: InventoryItem | undefined; ratio: string; onChange: (ratio: string) => void }) {
+  const [itemAmount, setItemAmount] = useState("1");
+  const [sourceAmount, setSourceAmount] = useState(ratio);
+  function update(nextItemAmount: string, nextSourceAmount: string) {
+    setItemAmount(nextItemAmount);
+    setSourceAmount(nextSourceAmount);
+    const perItem = Number(nextItemAmount);
+    const perSource = Number(nextSourceAmount);
+    onChange(perItem > 0 && perSource > 0 ? String(Math.round((perSource / perItem) * 1000000) / 1000000) : "");
+  }
+  const small: React.CSSProperties = { ...packagingInput, width: 90, padding: "8px 10px" };
+  const sourceUnit = source?.unit_of_measure ?? "units";
+  return <div className="flex flex-col gap-1.5">
+    <span style={packagingLabel}>How much of the source it uses</span>
+    <div className="flex flex-wrap items-center gap-2" style={{ fontSize: 13, color: "#3D2B1F" }}>
+      <input type="number" min={0} step="any" value={itemAmount} onChange={(event) => update(event.target.value, sourceAmount)} style={small} aria-label={`Amount of this item in ${itemUnit}`} />
+      <span>{itemUnit} of this item uses</span>
+      <input type="number" min={0} step="any" value={sourceAmount} onChange={(event) => update(itemAmount, event.target.value)} style={small} aria-label={`Amount of source in ${sourceUnit}`} />
+      <span>{sourceUnit}{source ? ` of ${source.item_name}` : ""}</span>
+    </div>
+    <span style={{ fontSize: 11.5, color: "#9C8278" }}>e.g. 30 mL of Espresso Shot uses 9 grams of Coffee Bean{ratio ? ` · saved as ${ratio} ${sourceUnit} per ${singularUnit(itemUnit)}` : ""}</span>
+  </div>;
 }
 
 function Inventory({
@@ -460,14 +788,18 @@ function Inventory({
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<InventoryItem | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newItem, setNewItem] = useState({ ingredient_category: "", item_name: "", unit_of_measure: "grams", quantity: "" });
+  const emptyNewItem = { ingredient_category: "", item_name: "", unit_of_measure: "grams", quantity: "", unit_cost: "", pack_name: "", pack_brand: "", pack_content: "", pack_price: "", initial_packs: "" };
+  const [newItem, setNewItem] = useState(emptyNewItem);
+  const [draftCost, setDraftCost] = useState("");
+  const [costItem, setCostItem] = useState<InventoryItem | null>(null);
+  const [costValue, setCostValue] = useState("");
+  const [savingCost, setSavingCost] = useState(false);
   const [newItemBound, setNewItemBound] = useState(false);
   const [newItemDerivedFrom, setNewItemDerivedFrom] = useState("");
   const [newItemRatio, setNewItemRatio] = useState("");
   const [adding, setAdding] = useState(false);
   const [stockItem, setStockItem] = useState<InventoryItem | null>(null);
-  const [stockQuantity, setStockQuantity] = useState("");
-  const [addingStock, setAddingStock] = useState(false);
+  const [packagingItem, setPackagingItem] = useState<InventoryItem | null>(null);
   const [bindItem, setBindItem] = useState<InventoryItem | null>(null);
   const [bindDraft, setBindDraft] = useState({ ingredient_category: "", item_name: "", unit_of_measure: "grams", derived_from_inventory_id: "", derived_ratio: "" });
   const [savingBind, setSavingBind] = useState(false);
@@ -516,13 +848,52 @@ function Inventory({
       || row.ingredient_category.toLowerCase().includes(query);
     return matchesCategory && matchesSearch;
   }), [items, category, search]);
-  const temporaryItems = useMemo(() => filtered.filter((item) => !item.is_permanent), [filtered]);
-  const permanentItems = useMemo(() => filtered.filter((item) => item.is_permanent), [filtered]);
+  const groupedItems = useMemo(
+    () => inventoryUsageGroupOrder.flatMap((group) => filtered.filter((item) => getInventoryUsageGroup(item) === group)),
+    [filtered]
+  );
 
   function startEdit(row: InventoryItem) {
     if (row.derived_from_inventory_id) return;
     setEditingId(row.inventory_id);
     setDraft({ ...row });
+    const cost = toOptionalNumber(row.unit_cost);
+    setDraftCost(cost === null ? "" : String(cost));
+  }
+
+  function startCostEdit(row: InventoryItem) {
+    setActionError("");
+    setCostItem(row);
+    const cost = toOptionalNumber(row.unit_cost);
+    setCostValue(cost === null ? "" : String(cost));
+  }
+
+  async function submitCostEdit() {
+    if (!costItem) return;
+    if (costValue !== "" && (!Number.isFinite(Number(costValue)) || Number(costValue) < 0)) {
+      setActionError("Enter a valid non-negative unit cost, or leave it blank.");
+      return;
+    }
+    try {
+      setSavingCost(true);
+      setActionError("");
+      const response = await fetch("/api/inventory", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cost_edit: true, inventory_id: costItem.inventory_id, unit_cost: costValue === "" ? null : Number(costValue) }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to update cost.");
+      // Bound items derive their cost from this item, so reload them as well.
+      setItems((prev) => prev.map((item) => item.inventory_id === costItem.inventory_id ? payload.data : item.derived_from_inventory_id === costItem.inventory_id
+        ? { ...item, effective_unit_cost: payload.data.unit_cost === null ? null : Number(payload.data.unit_cost) * Number(item.derived_ratio) }
+        : item));
+      setCostItem(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to update cost.");
+    } finally {
+      setSavingCost(false);
+    }
   }
 
   function cancelEdit() {
@@ -550,7 +921,7 @@ function Inventory({
     if (!bindItem) return;
     const normalizedUnit = normalizeInventoryUnit(bindDraft.unit_of_measure);
     if (!bindDraft.ingredient_category.trim() || !bindDraft.item_name.trim() || !normalizedUnit) {
-      setActionError("Ingredient category, item name, and a valid unit are required.");
+      setActionError("Category, item name, and a valid unit are required.");
       return;
     }
     const wantsBound = bindDraft.derived_from_inventory_id !== "";
@@ -606,10 +977,31 @@ function Inventory({
         derived_ratio: ratio,
       };
     } else {
-      const quantity = Number(newItem.quantity);
+      const hasPackaging = newItem.pack_name.trim() !== "";
+      const packContent = Number(newItem.pack_content);
+      const startsInPacks = hasPackaging && newItem.initial_packs !== "";
+      if (hasPackaging && !(packContent > 0)) {
+        setActionError(`Enter how many ${normalizedUnit} one pack contains.`);
+        return;
+      }
+      const quantity = startsInPacks ? Number(newItem.initial_packs) * packContent : Number(newItem.quantity);
       if (!Number.isFinite(quantity) || quantity < 0) return;
+      if (newItem.unit_cost !== "" && (!Number.isFinite(Number(newItem.unit_cost)) || Number(newItem.unit_cost) < 0)) {
+        setActionError("Unit cost must be a valid non-negative amount, or left blank.");
+        return;
+      }
       const finalQuantity = isWholeUnit(normalizedUnit) ? Math.round(quantity) : quantity;
-      body = { ...newItem, unit_of_measure: normalizedUnit, quantity: finalQuantity };
+      body = {
+        ingredient_category: newItem.ingredient_category,
+        item_name: newItem.item_name,
+        unit_of_measure: normalizedUnit,
+        quantity: finalQuantity,
+        unit_cost: newItem.unit_cost === "" ? null : Number(newItem.unit_cost),
+        ...(hasPackaging ? {
+          packaging: { packaging_name: newItem.pack_name, brand: newItem.pack_brand, content_quantity: packContent, pack_price: newItem.pack_price === "" ? null : Number(newItem.pack_price) },
+          initial_packs: startsInPacks ? Number(newItem.initial_packs) : null,
+        } : {}),
+      };
     }
 
     try {
@@ -625,7 +1017,7 @@ function Inventory({
       const createdItem = payload.data as InventoryItem;
       setItems((prev) => [...prev, createdItem].sort((a, b) => a.ingredient_category.localeCompare(b.ingredient_category) || a.item_name.localeCompare(b.item_name)));
       await onAdd(createdItem);
-      setNewItem({ ingredient_category: "", item_name: "", unit_of_measure: "grams", quantity: "" });
+      setNewItem(emptyNewItem);
       setNewItemBound(false);
       setNewItemDerivedFrom("");
       setNewItemRatio("");
@@ -642,7 +1034,11 @@ function Inventory({
     if (draft.is_permanent) return;
     const normalizedUnit = normalizeInventoryUnit(draft.unit_of_measure);
     if (!normalizedUnit) {
-      setActionError("Unit of measure must be mL, grams, or Pieces.");
+      setActionError("Select a valid unit of measure.");
+      return;
+    }
+    if (draftCost !== "" && (!Number.isFinite(Number(draftCost)) || Number(draftCost) < 0)) {
+      setActionError("Unit cost must be a valid non-negative amount, or left blank.");
       return;
     }
 
@@ -659,6 +1055,7 @@ function Inventory({
           item_name: draft.item_name,
           unit_of_measure: normalizedUnit,
           quantity: finalQuantity,
+          unit_cost: draftCost === "" ? null : Number(draftCost),
         }),
       });
 
@@ -680,37 +1077,13 @@ function Inventory({
     }
   }
 
-  async function addStock(item: InventoryItem) {
+  function addStock(item: InventoryItem) {
     setActionError("");
     setStockItem(item);
-    setStockQuantity(item.is_whole_unit ? "1" : "100");
   }
 
-  async function submitStockAddition() {
-    if (!stockItem) return;
-    const amount = Number(stockQuantity);
-    if (!Number.isFinite(amount) || amount <= 0 || (stockItem.is_whole_unit && !Number.isInteger(amount))) {
-      setActionError(`Enter a valid positive ${stockItem.is_whole_unit ? "whole " : ""}quantity.`);
-      return;
-    }
-    try {
-      setAddingStock(true);
-      setActionError("");
-      const response = await fetch("/api/inventory", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ inventory_id: stockItem.inventory_id, quantity_delta: amount }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to add stock.");
-      setItems((prev) => prev.map((current) => current.inventory_id === stockItem.inventory_id ? payload.data : current));
-      setStockItem(null);
-      setStockQuantity("");
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to add stock.");
-    } finally {
-      setAddingStock(false);
-    }
+  function replaceItem(updated: InventoryItem) {
+    setItems((prev) => prev.map((item) => item.inventory_id === updated.inventory_id ? updated : item));
   }
 
   async function deleteItem(id: number) {
@@ -764,6 +1137,10 @@ function Inventory({
         void_restore: "Void Restoration",
         refund_restore: "Refund Restoration",
         deleted: "Item Deleted",
+        archived: "Archived",
+        restored: "Restored from Archive",
+        purged: "Permanently Deleted",
+        cost_updated: "Cost Updated",
       };
       const sourceAppLabels: Record<string, string> = { admin: "Admin", cashier: "Cashier", mobile: "Mobile Menu" };
       const workbook = XLSX.utils.book_new();
@@ -789,9 +1166,15 @@ function Inventory({
         "Quantity Before": Number(log.quantity_before),
         "Quantity After": Number(log.quantity_after),
         "Quantity Change": Number(log.quantity_delta),
+        Packaging: log.packaging_name ?? "",
+        Packs: log.packs_added ?? "",
+        "Price per Pack": toOptionalNumber(log.pack_price) ?? "",
+        "Unit Cost Before": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_before) ?? "Not set" : "",
+        "Unit Cost After": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_after) ?? "Not set" : "",
         "Order ID": log.order_id ?? "",
         "Performed By": log.admin_name ?? "",
         Source: sourceAppLabels[log.source_app] ?? log.source_app,
+        Shift: log.shift_id ? `#${log.shift_id}` : "",
       }));
       const logSheet = XLSX.utils.json_to_sheet(logRows);
       logSheet["!cols"] = Object.keys(logRows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
@@ -835,7 +1218,7 @@ function Inventory({
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 rounded-xl px-4 py-2.5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
           <IconSearch size={14} />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search ingredients…" style={{ border: "none", background: "transparent", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", outline: "none", width: 200 }} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search inventory…" style={{ border: "none", background: "transparent", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", outline: "none", width: 200 }} />
         </div>
         <select value={category} onChange={(e) => setCategory(e.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 12, padding: "10px 14px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>
           {categories.map((c) => <option key={c}>{c}</option>)}
@@ -862,20 +1245,29 @@ function Inventory({
           <table className="inventory-table" style={{ width: "100%", borderCollapse: "collapse", background: "#FDF9F5" }}>
             <thead>
               <tr style={{ background: "#F3EDE5" }}>
-                <th style={thStyle}>Ingredient Category</th>
+                <th style={thStyle}>Category</th>
                 <th style={thStyle}>Item Name</th>
-                <th style={thStyle}>Unit of Measure</th>
+                <th style={thStyle}>Unit</th>
                 <th style={thStyle}>Quantity</th>
+                <th style={thStyle}>Unit Cost</th>
+                <th style={thStyle}>Product / Recipe Usage</th>
                 <th style={{ ...thStyle, textAlign: "center", width: 130 }}>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {[...temporaryItems, ...permanentItems].map((row, index, visibleItems) => {
+              {groupedItems.map((row, index, visibleItems) => {
                 const isEditing = editingId === row.inventory_id;
                 const quantity = Number(row.quantity);
+                const usageGroup = getInventoryUsageGroup(row);
+                const unitCost = toOptionalNumber(row.effective_unit_cost);
+                const usageChips = [
+                  ...(row.recipe_products ?? []).map((name) => ({ name, kind: "Recipe", style: { background: "#F3EDE5", color: "#6B4C3B", border: "1px solid #E8DDD5" } })),
+                  ...(row.direct_sale_products ?? []).map((name) => ({ name, kind: "Sold directly", style: { background: "#FFF7ED", color: "#C2410C", border: "1px solid #FED7AA" } })),
+                  ...(row.addition_names ?? []).map((name) => ({ name, kind: "Add-on", style: { background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF" } })),
+                ];
                 return (
                   <Fragment key={row.inventory_id}>
-                  {(index === 0 || visibleItems[index - 1].is_permanent !== row.is_permanent) && <tr><td colSpan={5} style={{ padding: "12px 16px", background: "#FFF7ED", color: "#9A3412", fontFamily: "JetBrains Mono, monospace", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>{row.is_permanent ? "Permanent inventory · used in a product recipe" : "Temporary inventory · not yet used in a product"}</td></tr>}
+                  {(index === 0 || getInventoryUsageGroup(visibleItems[index - 1]) !== usageGroup) && <tr><td colSpan={7} style={{ padding: "12px 16px", background: "#FFF7ED", color: "#9A3412", fontFamily: "JetBrains Mono, monospace", fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>{inventoryUsageGroupLabels[usageGroup]}</td></tr>}
                   <tr
                     key={row.inventory_id}
                     style={{ borderBottom: "1px solid #E8DDD5", background: isEditing ? "#FFFBF5" : undefined }}
@@ -901,7 +1293,10 @@ function Inventory({
                           onChange={(e) => setDraft((d) => d ? { ...d, item_name: e.target.value } : d)}
                         />
                       ) : (
-                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", fontWeight: 500 }}>{row.item_name}</span>
+                        <span className="flex flex-col" style={{ gap: 3 }}>
+                          <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", fontWeight: 500 }}>{row.item_name}</span>
+                          {!row.derived_from_inventory_id && <button type="button" onClick={() => setPackagingItem(row)} style={{ alignSelf: "flex-start", border: "none", background: "transparent", padding: 0, color: (row.packagings?.length ?? 0) > 0 ? "#6B4C3B" : "#D97706", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{(row.packagings?.length ?? 0) > 0 ? `Packaging (${row.packagings!.length}) · ${row.packagings![0].name}` : "+ Add packaging"}</button>}
+                        </span>
                       )}
                     </td>
                     <td style={{ padding: "12px 16px" }}>
@@ -926,11 +1321,37 @@ function Inventory({
                             <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, color: getQtyColor(quantity, isLowStock(row)) }}>{row.is_whole_unit ? Math.round(quantity) : row.quantity}</span>
                             {quantity <= 0 && <span className="rounded-md px-2 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, background: "#FEE2E2", color: "#C0392B" }}>OUT</span>}
                           </span>
+                          {!row.derived_from_inventory_id && describeInPacks(row) && <span style={{ fontSize: 10.5, color: "#9C8278" }}>{describeInPacks(row)}</span>}
                           {row.derived_from_inventory_id && (
                             <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", display: "inline-flex", alignItems: "center", gap: 3 }}>
-                              <IconLink size={9} />= {row.derived_ratio} {row.derived_from_unit_of_measure} of {row.derived_from_item_name} each
+                              <IconLink size={9} />1 {singularUnit(row.unit_of_measure)} uses {Number(row.derived_ratio)} {row.derived_from_unit_of_measure} of {row.derived_from_item_name}
                             </span>
                           )}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
+                      {isEditing && !row.is_permanent ? (
+                        <input type="number" min={0} step="any" placeholder="Not set" style={{ ...editInputStyle, width: 100 }} value={draftCost} onChange={(e) => setDraftCost(e.target.value)} />
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="flex flex-col" style={{ gap: 1 }}>
+                            <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, fontWeight: 600, color: unitCost === null ? "#B9A398" : "#3D2B1F" }}>{unitCost === null ? "Not set" : formatPeso(unitCost)}</span>
+                            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278" }}>{row.derived_from_inventory_id ? `via ${row.derived_from_item_name ?? "source"}` : `per ${singularUnit(row.unit_of_measure)}`}</span>
+                          </span>
+                          {!row.derived_from_inventory_id && <button onClick={() => startCostEdit(row)} title="Edit unit cost" style={{ width: 24, height: 24, borderRadius: 6, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPencil size={11} /></button>}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "12px 16px", maxWidth: 260 }}>
+                      {usageChips.length === 0 ? (
+                        <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: "#B9A398" }}>Not used</span>
+                      ) : (
+                        <span className="flex flex-wrap gap-1">
+                          {usageChips.slice(0, 3).map((chip) => (
+                            <span key={`${chip.kind}-${chip.name}`} title={chip.kind} className="rounded-lg px-2 py-0.5" style={{ ...chip.style, fontFamily: "Inter, sans-serif", fontSize: 11 }}>{chip.name}</span>
+                          ))}
+                          {usageChips.length > 3 && <span title={usageChips.slice(3).map((chip) => `${chip.name} (${chip.kind})`).join(", ")} className="rounded-lg px-2 py-0.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: "#9C8278", border: "1px dashed #E8DDD5" }}>+{usageChips.length - 3} more</span>}
                         </span>
                       )}
                     </td>
@@ -947,11 +1368,14 @@ function Inventory({
                               <IconLink size={14} />
                             </button>
                           ) : row.is_permanent ? (
-                            <button onClick={() => void addStock(row)} title="Add stock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button>
+                            <button onClick={() => addStock(row)} title="Restock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button>
                           ) : (
+                            <>
+                            <button onClick={() => addStock(row)} title="Restock" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #BBF7D0", background: "#F0FDF4", color: "#15803D", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center" }}><IconPlus size={14} /></button>
                             <button onClick={() => startEdit(row)} title="Edit row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #E8DDD5", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
                               <IconPencil size={14} />
                             </button>
+                            </>
                           )}
                           {!row.is_permanent && <button onClick={() => deleteItem(row.inventory_id)} title="Archive row" style={{ width: 32, height: 32, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
                             <IconTrash size={14} />
@@ -966,25 +1390,27 @@ function Inventory({
             </tbody>
           </table>
         </div>
-        {filtered.length === 0 && <div className="flex items-center justify-center py-16" style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#9C8278" }}>{items.length === 0 ? "No inventory records found in the database." : "No ingredients match your search."}</div>}
+        {filtered.length === 0 && <div className="flex items-center justify-center py-16" style={{ fontFamily: "Inter, sans-serif", fontSize: 14, color: "#9C8278" }}>{items.length === 0 ? "No inventory records found in the database." : "No inventory items match your search."}</div>}
       </div>
       <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278" }}>Showing {filtered.length} of {items.length} items</p>
     </>}
-    {stockItem && (
-      <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !addingStock) setStockItem(null); }}>
-        <form className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 420, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }} onSubmit={(event) => { event.preventDefault(); void submitStockAddition(); }}>
+    {stockItem && <RestockDialog item={stockItem} onClose={() => setStockItem(null)} onRestocked={(updated) => { replaceItem(updated); setStockItem(null); }} onManagePackaging={() => { setPackagingItem(stockItem); setStockItem(null); }} />}
+    {packagingItem && <PackagingDialog item={packagingItem} onClose={() => setPackagingItem(null)} onChanged={(updated) => { replaceItem(updated); setPackagingItem(updated); }} />}
+    {costItem && (
+      <div className="fixed inset-0 flex items-center justify-center p-6" style={{ background: "rgba(61,43,31,0.45)", zIndex: 60 }} onClick={(event) => { if (event.target === event.currentTarget && !savingCost) setCostItem(null); }}>
+        <form className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 440, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }} onSubmit={(event) => { event.preventDefault(); void submitCostEdit(); }}>
           <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
-            <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Add Stock</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>{stockItem.item_name} · {stockItem.unit_of_measure}</p></div>
-            <button type="button" onClick={() => setStockItem(null)} disabled={addingStock} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: addingStock ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
+            <div><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Unit Cost</p><p style={{ marginTop: 3, fontSize: 12, color: "#9C8278" }}>{costItem.item_name} · {costItem.unit_of_measure}</p></div>
+            <button type="button" onClick={() => setCostItem(null)} disabled={savingCost} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingCost ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
           </div>
-          <div className="flex flex-col gap-2 px-6 py-6">
-            <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity to add</label>
-            <input autoFocus type="number" min={0} step={stockItem.is_whole_unit ? 1 : "any"} value={stockQuantity} onChange={(event) => setStockQuantity(stockItem.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", fontFamily: "Inter, sans-serif", fontSize: 14, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} />
+          <div className="flex flex-col gap-3 px-6 py-6">
+            <UnitCostField unit={costItem.unit_of_measure} value={costValue} onChange={setCostValue} />
+            <p style={{ fontSize: 11.5, color: "#9C8278" }}>This is what the café pays, not the selling price. New sales use the new cost; past sales keep the cost recorded when they were sold.</p>
             {actionError && <p style={{ fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
-            <button type="button" onClick={() => setStockItem(null)} disabled={addingStock} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: addingStock ? "default" : "pointer" }}>Cancel</button>
-            <button type="submit" disabled={addingStock || !stockQuantity} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: addingStock ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 600, cursor: addingStock ? "default" : "pointer" }}>{addingStock ? "Adding..." : "Add Stock"}</button>
+            <button type="button" onClick={() => setCostItem(null)} disabled={savingCost} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingCost ? "default" : "pointer" }}>Cancel</button>
+            <button type="submit" disabled={savingCost} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: savingCost ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 600, cursor: savingCost ? "default" : "pointer" }}>{savingCost ? "Saving..." : "Save Cost"}</button>
           </div>
         </form>
       </div>
@@ -994,7 +1420,7 @@ function Inventory({
         <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
           <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>Add Inventory Item</p><button onClick={() => setShowAddModal(false)} disabled={adding} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: adding ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
           <div className="grid gap-4 px-6 py-6">
-            {(["ingredient_category", "item_name"] as const).map((field) => <div key={field} className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{field.replaceAll("_", " ")}</label><input value={newItem[field]} onChange={(event) => setNewItem((current) => ({ ...current, [field]: event.target.value }))} placeholder={field === "item_name" ? "e.g. Matcha powder" : "e.g. Flavoring"} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>)}
+            {(["ingredient_category", "item_name"] as const).map((field) => <div key={field} className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{field === "item_name" ? "Item name" : "Category"}</label><input value={newItem[field]} onChange={(event) => setNewItem((current) => ({ ...current, [field]: event.target.value }))} placeholder={field === "item_name" ? "e.g. Matcha powder, Coke Can" : "e.g. Flavoring, Beverages"} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>)}
             <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={newItem.unit_of_measure} onChange={(event) => setNewItem((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select><span style={{ fontSize: 11, color: "#9C8278" }}>Fixed low-stock threshold: {getFixedLowStockThreshold(newItem.unit_of_measure)} {newItem.unit_of_measure}</span></div>
             <label className="flex items-center gap-2" style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: "#3D2B1F", cursor: "pointer" }}>
               <input type="checkbox" checked={newItemBound} onChange={(event) => setNewItemBound(event.target.checked)} />
@@ -1004,14 +1430,36 @@ function Inventory({
               <div className="grid gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
                 <span style={{ fontSize: 11.5, color: "#6B4C3B" }}>This item will have no stock of its own — its available quantity is always computed from the source item below.</span>
                 <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Source item</label><select value={newItemDerivedFrom} onChange={(event) => setNewItemDerivedFrom(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}><option value="">Choose source item</option>{items.filter((item) => !item.derived_from_inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}</select></div>
-                <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Amount of source used per {newItem.unit_of_measure || "unit"}</label><input type="number" min={0} step="any" value={newItemRatio} onChange={(event) => setNewItemRatio(event.target.value)} placeholder="e.g. 18" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+                <BindingRatioField itemUnit={newItem.unit_of_measure} source={items.find((item) => String(item.inventory_id) === newItemDerivedFrom)} ratio={newItemRatio} onChange={setNewItemRatio} />
               </div>
             ) : (
-              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+              <>
+                <div className="flex flex-col gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+                  <span style={packagingLabel}>Bought as <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional packaging, more can be added later)</span></span>
+                  <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+                    <input value={newItem.pack_name} onChange={(event) => setNewItem((current) => ({ ...current, pack_name: event.target.value }))} placeholder="Packaging, e.g. Nescafe Bean Bag 1 kg" style={packagingInput} />
+                    <input value={newItem.pack_brand} onChange={(event) => setNewItem((current) => ({ ...current, pack_brand: event.target.value }))} placeholder="Brand (optional)" style={packagingInput} />
+                    <input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.pack_content} onChange={(event) => setNewItem((current) => ({ ...current, pack_content: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={`One pack contains (${newItem.unit_of_measure})`} style={packagingInput} />
+                    <input type="number" min={0} step="0.01" value={newItem.pack_price} onChange={(event) => setNewItem((current) => ({ ...current, pack_price: event.target.value }))} placeholder="Price per pack (₱)" style={packagingInput} />
+                  </div>
+                  {newItem.pack_name.trim() !== "" && Number(newItem.pack_content) > 0 && newItem.pack_price !== "" && <span style={{ fontSize: 12, color: "#6B4C3B" }}>Unit cost: {formatPeso(Number(newItem.pack_price) / Number(newItem.pack_content))} per {singularUnit(newItem.unit_of_measure)}, from the pack price</span>}
+                </div>
+                {newItem.pack_name.trim() !== "" && Number(newItem.pack_content) > 0 ? (
+                  <div className="flex flex-col gap-1.5"><label style={packagingLabel}>Starting stock</label>
+                    <div className="flex flex-wrap items-center gap-2" style={{ fontSize: 13, color: "#3D2B1F" }}>
+                      <input type="number" min={0} step={1} value={newItem.initial_packs} onChange={(event) => setNewItem((current) => ({ ...current, initial_packs: sanitizeWholeUnitValue(event.target.value) }))} placeholder="0" style={{ ...packagingInput, width: 90 }} />
+                      <span>packs = {formatAmount(Number(newItem.initial_packs || 0) * Number(newItem.pack_content))} {newItem.unit_of_measure}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Quantity</label><input type="number" min={0} step={isWholeUnit(newItem.unit_of_measure) ? 1 : "any"} value={newItem.quantity} onChange={(event) => setNewItem((current) => ({ ...current, quantity: isWholeUnit(current.unit_of_measure) ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder="0" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+                )}
+                {newItem.pack_price === "" && <UnitCostField unit={newItem.unit_of_measure} value={newItem.unit_cost} onChange={(value) => setNewItem((current) => ({ ...current, unit_cost: value }))} />}
+              </>
             )}
             {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowAddModal(false)} disabled={adding} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: adding ? "default" : "pointer" }}>Cancel</button><button onClick={addItem} disabled={adding || !newItem.ingredient_category.trim() || !newItem.item_name.trim() || !newItem.unit_of_measure.trim() || (newItemBound ? (!newItemDerivedFrom || !newItemRatio) : newItem.quantity === "")} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: adding ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: adding ? "default" : "pointer" }}>{adding ? "Adding..." : "Add Inventory"}</button></div>
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}><button onClick={() => setShowAddModal(false)} disabled={adding} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: adding ? "default" : "pointer" }}>Cancel</button><button onClick={addItem} disabled={adding || !newItem.ingredient_category.trim() || !newItem.item_name.trim() || !newItem.unit_of_measure.trim() || (newItemBound ? (!newItemDerivedFrom || !newItemRatio) : newItem.pack_name.trim() !== "" && Number(newItem.pack_content) > 0 ? newItem.initial_packs === "" : newItem.quantity === "")} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: adding ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: adding ? "default" : "pointer" }}>{adding ? "Adding..." : "Add Inventory"}</button></div>
         </div>
       </div>
     )}
@@ -1023,11 +1471,11 @@ function Inventory({
             <button onClick={cancelBindEdit} disabled={savingBind} title="Close" style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: savingBind ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
           </div>
           <div className="grid gap-4 px-6 py-6">
-            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Ingredient category</label><input value={bindDraft.ingredient_category} onChange={(event) => setBindDraft((current) => ({ ...current, ingredient_category: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
+            <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Category</label><input value={bindDraft.ingredient_category} onChange={(event) => setBindDraft((current) => ({ ...current, ingredient_category: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
             <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Item name</label><input value={bindDraft.item_name} onChange={(event) => setBindDraft((current) => ({ ...current, item_name: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>
             <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Unit of measure</label><select value={bindDraft.unit_of_measure} onChange={(event) => setBindDraft((current) => ({ ...current, unit_of_measure: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}>{inventoryUnits.map((unit) => <option key={unit}>{unit}</option>)}</select></div>
             <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Source item</label><select value={bindDraft.derived_from_inventory_id} onChange={(event) => setBindDraft((current) => ({ ...current, derived_from_inventory_id: event.target.value }))} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }}><option value="">Unbind — this item will keep its currently computed stock</option>{items.filter((item) => !item.derived_from_inventory_id && item.inventory_id !== bindItem.inventory_id).map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}</select></div>
-            {bindDraft.derived_from_inventory_id !== "" && <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Amount of source used per {bindDraft.unit_of_measure || "unit"}</label><input type="number" min={0} step="any" value={bindDraft.derived_ratio} onChange={(event) => setBindDraft((current) => ({ ...current, derived_ratio: event.target.value }))} placeholder="e.g. 18" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none" }} /></div>}
+            {bindDraft.derived_from_inventory_id !== "" && <BindingRatioField key={bindDraft.derived_from_inventory_id} itemUnit={bindDraft.unit_of_measure} source={items.find((item) => String(item.inventory_id) === bindDraft.derived_from_inventory_id)} ratio={bindDraft.derived_ratio} onChange={(ratio) => setBindDraft((current) => ({ ...current, derived_ratio: ratio }))} />}
             {actionError && <p style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#B91C1C" }}>{actionError}</p>}
           </div>
           <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
@@ -1059,8 +1507,10 @@ function Inventory({
 type ProductIngredient = { inventoryId: number; label: string; qty: number; unit: string };
 type ProductTemperature = "hot" | "cold" | "both";
 type ProductVariant = { id?: number; size: string; price: number; temperature: ProductTemperature; hasSales?: boolean; ingredients: ProductIngredient[] };
-type ProductAddition = { id: number; name: string; quantity: number; price: number; unit: string };
-type Product = { id: number; name: string; description: string; category: string; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[]; additions: ProductAddition[] };
+// "recipe": made from several inventory components (Americano).
+// "stock": a direct-sale item that deducts one inventory item per sale (Coke Can).
+type ProductType = "recipe" | "stock";
+type Product = { id: number; name: string; description: string; category: string; productType: ProductType; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[] };
 
 
 type DraftIngredient = { inventoryId: number; qty: string };
@@ -1120,6 +1570,9 @@ function ProductCard({
   const activeVariant = displayedVariants[selectedIndex] ?? displayedVariants[0];
   const hasSizeTabs = displayedVariants.length > 1 && displayedVariants.some((variant) => variant.size);
   const variantAvailable = areIngredientsAvailable(activeVariant.ingredients, inventory);
+  const isStockProduct = product.productType === "stock";
+  const stockComponent = isStockProduct ? activeVariant.ingredients[0] : undefined;
+  const stockItem = stockComponent ? inventory.find((item) => item.inventory_id === stockComponent.inventoryId) : undefined;
 
   return (
     <div className="rounded-2xl flex flex-col overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 2px 12px rgba(61,43,31,0.06)" }}>
@@ -1131,16 +1584,16 @@ function ProductCard({
       <div className="flex flex-col gap-2 p-4" style={{ flex: 1 }}>
         {hasSizeTabs && (
           <label className="flex flex-col gap-1" style={{ fontFamily: "Inter, sans-serif", fontSize: 10, color: "#9C8278", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            Size and temperature
+            {isStockProduct ? "Option" : "Size and temperature"}
             <select
               value={selectedIndex}
               onChange={(event) => setSelectedIndex(Number(event.target.value))}
-              aria-label="Select size and temperature"
+              aria-label={isStockProduct ? "Select option" : "Select size and temperature"}
               style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 10px", background: "#FDF9F5", color: "#3D2B1F", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 600, outline: "none", cursor: "pointer", width: "100%" }}
             >
               {displayedVariants.map((variant, index) => (
                 <option key={`${product.id}-option-${variant.id ?? index}`} value={index}>
-                  {variant.size} · {variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}
+                  {isStockProduct ? variant.size : `${variant.size} · ${variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}`}
                 </option>
               ))}
             </select>
@@ -1154,29 +1607,36 @@ function ProductCard({
 
         <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-block rounded-md px-2 py-0.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 500, background: badge.bg, color: badge.color }}>{product.category}</span>
+          {isStockProduct && <span className="inline-block rounded-md px-2 py-0.5" style={{ fontFamily: "Inter, sans-serif", fontSize: 11, fontWeight: 500, background: "#FFF7ED", color: "#C2410C", border: "1px solid #FED7AA" }}>Direct sale</span>}
           <span className="inline-flex items-center gap-1 rounded-md px-2 py-0.5" style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, background: variantAvailable ? "#DCFCE7" : "#FEE2E2", color: variantAvailable ? "#15803D" : "#C0392B" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: variantAvailable ? "#22c55e" : "#C0392B", display: "inline-block" }} />{variantAvailable ? "Available" : "Unavailable"}</span>
         </div>
 
         <div className="mt-1">
-          {activeVariant.size && !hasSizeTabs && (
-            <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant.size} · ₱{activeVariant.price}</p>
-          )}
-          <div className="flex flex-wrap gap-1">
-            {activeVariant.ingredients.map((ingredient) => (
-              <span key={`${product.id}-${activeVariant.id}-${ingredient.inventoryId}`} className="rounded-lg px-2 py-0.5" style={{ ...getIngredientChipStyle(ingredient.inventoryId, inventory), fontFamily: "Inter, sans-serif", fontSize: 11 }}>
-                {ingredient.label} · {ingredient.qty} {ingredient.unit}
-              </span>
-            ))}
-          </div>
-          {(product.additions?.length ?? 0) > 0 && (
-            <div className="flex flex-col gap-1 mt-2">
-              <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Additions</p>
+          {isStockProduct ? (
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Stock</span>
+                <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 13, color: stockItem ? getQtyColor(Number(stockItem.quantity), isLowStock(stockItem)) : "#C0392B" }}>{stockItem ? `${stockItem.is_whole_unit ? Math.round(Number(stockItem.quantity)) : Number(stockItem.quantity)} ${stockItem.unit_of_measure}` : "Not found"}</span>
+              </div>
+              {stockComponent && (
+                <span className="rounded-lg px-2 py-0.5 self-start" style={{ ...getIngredientChipStyle(stockComponent.inventoryId, inventory), fontFamily: "Inter, sans-serif", fontSize: 11 }}>
+                  Inventory item: {stockComponent.label} · {stockComponent.qty} {stockComponent.unit} per sale
+                </span>
+              )}
+            </div>
+          ) : (
+            <>
+              {activeVariant.size && !hasSizeTabs && (
+                <p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant.size} · ₱{activeVariant.price}</p>
+              )}
               <div className="flex flex-wrap gap-1">
-                {product.additions.map((addition) => (
-                  <span key={`${product.id}-addition-${addition.id}`} className="rounded-lg px-2 py-0.5" style={{ background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF", fontFamily: "Inter, sans-serif", fontSize: 11 }}>{addition.name} · {addition.quantity} {addition.unit}</span>
+                {activeVariant.ingredients.map((ingredient) => (
+                  <span key={`${product.id}-${activeVariant.id}-${ingredient.inventoryId}`} className="rounded-lg px-2 py-0.5" style={{ ...getIngredientChipStyle(ingredient.inventoryId, inventory), fontFamily: "Inter, sans-serif", fontSize: 11 }}>
+                    {ingredient.label} · {ingredient.qty} {ingredient.unit}
+                  </span>
                 ))}
               </div>
-            </div>
+            </>
           )}
         </div>
       </div>
@@ -1224,7 +1684,6 @@ function buildFormVariants(product: Product | undefined): DraftVariant[] {
 function ProductManagement({
   products,
   inventory,
-  additions,
   categories,
   onAdd,
   onEdit,
@@ -1232,7 +1691,6 @@ function ProductManagement({
 }: {
   products: Product[];
   inventory: InventoryItem[];
-  additions: ProductAddition[];
   categories: ProductCategory[];
   onAdd: (product: Product) => Promise<void>;
   onEdit: (product: Product) => Promise<void>;
@@ -1251,7 +1709,10 @@ function ProductManagement({
   const [formVariants, setFormVariants] = useState<DraftVariant[]>([
     ...standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => ({ size, price: "", temperature, ingredients: [], active: false }))),
   ]);
-  const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
+  const [formType, setFormType] = useState<ProductType>("recipe");
+  const [stockInventoryId, setStockInventoryId] = useState(0);
+  const [stockQuantity, setStockQuantity] = useState("1");
+  const [stockPrice, setStockPrice] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -1266,10 +1727,7 @@ function ProductManagement({
   const formIngredients = activeVariant?.ingredients ?? [];
   const formCategoryNames = formCat && !categoryNames.includes(formCat) ? [formCat, ...categoryNames] : categoryNames;
   const setFormIngredients = (updater: (previous: DraftIngredient[]) => DraftIngredient[]) => setFormVariants((previous) => previous.map((variant, index) => index === selectedVariantIndex ? { ...variant, ingredients: updater(variant.ingredients) } : variant));
-  // Fall back to the product being edited so bound additions still render if the global list is empty or mid-refresh.
-  const knownAdditions = [...additions, ...(editingProduct?.additions ?? []).filter((bound) => !additions.some((item) => item.id === bound.id))];
-  const selectedAdditions = selectedAdditionIds.map((id) => knownAdditions.find((addition) => addition.id === id)).filter((addition): addition is ProductAddition => Boolean(addition));
-  const availableAdditions = additions.filter((addition) => !selectedAdditionIds.includes(addition.id));
+  const stockInventoryItem = inventory.find((item) => item.inventory_id === stockInventoryId);
 
   function resetForm(product?: Product) {
     setEditingProduct(product ?? null);
@@ -1283,8 +1741,19 @@ function ProductManagement({
     setFormVariants(variants);
     setCopiedVariantIndices([]);
     setPendingVariantIndex(null);
-    setSelectedAdditionIds(product?.additions?.map((addition) => addition.id) ?? []);
+    const stockVariant = product?.productType === "stock" ? product.variants[0] : undefined;
+    setFormType(product?.productType ?? "recipe");
+    setStockInventoryId(stockVariant?.ingredients[0]?.inventoryId ?? 0);
+    setStockQuantity(stockVariant?.ingredients[0] ? String(stockVariant.ingredients[0].qty) : "1");
+    setStockPrice(stockVariant ? String(stockVariant.price) : "");
     setActionError("");
+  }
+
+  // Picking the stocked item for a new direct-sale product fills in its name as a starting point.
+  function selectStockItem(inventoryId: number) {
+    setStockInventoryId(inventoryId);
+    const item = inventory.find((entry) => entry.inventory_id === inventoryId);
+    if (item && !formName.trim()) setFormName(item.item_name);
   }
 
   function openModal() { resetForm(); setShowModal(true); }
@@ -1365,16 +1834,6 @@ function ProductManagement({
     setCopiedVariantIndices((current) => current.includes(selectedVariantIndex) ? current : [...current, selectedVariantIndex]);
   }
 
-  function addProductAddition(value: string) {
-    const additionId = Number(value);
-    if (!Number.isInteger(additionId) || additionId <= 0) return;
-    setSelectedAdditionIds((current) => current.includes(additionId) ? current : [...current, additionId]);
-  }
-
-  function removeProductAddition(additionId: number) {
-    setSelectedAdditionIds((current) => current.filter((id) => id !== additionId));
-  }
-
   function importProductImage(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1413,9 +1872,18 @@ function ProductManagement({
     setDraggedIngredientIndex(null);
   }
 
+  function buildStockVariants(): ProductVariant[] {
+    const price = Number(stockPrice);
+    const qty = stockInventoryItem?.is_whole_unit ? Math.round(Number(stockQuantity)) : Number(stockQuantity);
+    if (!stockInventoryItem || stockPrice === "" || !Number.isFinite(price) || price < 0 || !Number.isFinite(qty) || qty <= 0) return [];
+    // Keep an existing direct-sale variant's label so the same variant (and its sales history) is reused.
+    const size = editingProduct?.productType === "stock" ? editingProduct.variants[0]?.size || "Regular" : "Regular";
+    return [{ size, price, temperature: "both", ingredients: [{ inventoryId: stockInventoryItem.inventory_id, label: stockInventoryItem.item_name, qty, unit: stockInventoryItem.unit_of_measure }] }];
+  }
+
   async function submitProduct() {
     if (!formName.trim() || inventory.length === 0) return;
-    const variants = formVariants.filter((variant) => variant.active).map((variant) => ({
+    const variants = formType === "stock" ? buildStockVariants() : formVariants.filter((variant) => variant.active).map((variant) => ({
       size: variant.size,
       price: Number(variant.price),
       temperature: variant.temperature,
@@ -1435,12 +1903,12 @@ function ProductManagement({
         name: formName.trim(),
         description: formDescription.trim(),
         category: formCat || categoryNames[0] || "",
+        productType: formType,
         price: variants[0].price,
         imageUrl: formImage.trim(),
         imageData: formImageData,
         ingredients: variants[0].ingredients,
         variants,
-        additions: selectedAdditions,
       };
       if (editingProduct) {
         await onEdit({ ...product, id: editingProduct.id });
@@ -1464,7 +1932,7 @@ function ProductManagement({
   const filtered = filterCat === "All"
     ? uniqueProducts
     : uniqueProducts.filter((product) => product.category === filterCat);
-  const hasValidVariant = formVariants.some((variant) => variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
+  const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
   const catBadgeColor: Record<string, { bg: string; color: string }> = {
     "Espresso Drinks": { bg: "#F3EDE5", color: "#6B4C3B" },
     "Cold Drinks": { bg: "#EFF6FF", color: "#1D4ED8" },
@@ -1558,19 +2026,54 @@ function ProductManagement({
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Short Description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><textarea value={formDescription} maxLength={240} onChange={(e) => setFormDescription(e.target.value)} placeholder="e.g. Smooth espresso with steamed milk and caramel." rows={3} style={{ ...inputBase, resize: "vertical" }} /><span style={{ color: "#9C8278", fontSize: 11 }}>{formDescription.length}/240</span></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><select value={formCat || categoryNames[0] || ""} onChange={(e) => setFormCat(e.target.value)} style={{ ...inputBase, cursor: "pointer" }} disabled={categoryNames.length === 0}>{categoryNames.length === 0 ? <option value="">Add a category first</option> : formCategoryNames.map((category) => <option key={category}>{category}</option>)}</select></div>
-              <div className="flex flex-col gap-3" aria-label="Product additions" style={{ flexShrink: 0 }}>
-                <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Additions <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label>
-                {additions.length === 0
-                  ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12 }}>No additions available. Create one in Additions Management first.</p>
-                  : <select value="" onChange={(event) => addProductAddition(event.target.value)} disabled={availableAdditions.length === 0 || saving} style={{ ...inputBase, cursor: availableAdditions.length === 0 ? "default" : "pointer" }}><option value="">{availableAdditions.length === 0 ? "All additions are already bound" : "Select an addition to bind"}</option>{availableAdditions.map((addition) => <option key={addition.id} value={addition.id}>{addition.name} · ₱{Number(addition.price).toFixed(2)} · {addition.quantity} {addition.unit}</option>)}</select>}
-                {selectedAdditions.length === 0
-                  ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12 }}>No additions bound to this product.</p>
-                  : <div className="flex flex-col gap-2">{selectedAdditions.map((addition) => <div key={addition.id} className="flex items-center justify-between gap-3 py-1" style={{ borderBottom: "1px solid #E8DDD5" }}><span><span style={{ display: "block", color: "#3D2B1F", fontSize: 13, fontWeight: 600 }}>{addition.name} · ₱{Number(addition.price).toFixed(2)}</span><span style={{ color: "#9C8278", fontSize: 11 }}>{addition.quantity} {addition.unit} consumed from inventory</span></span><button type="button" onClick={() => removeProductAddition(addition.id)} disabled={saving} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "5px 9px", background: "#FEF2F2", color: "#B91C1C", fontSize: 11, fontWeight: 700, cursor: saving ? "default" : "pointer" }}>Remove</button></div>)}</div>}
+              <div className="flex flex-col gap-2" role="radiogroup" aria-label="Product type">
+                <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([["recipe", "Recipe product", "Made from several inventory items, e.g. Americano"], ["stock", "Direct-sale product", "Sells a stocked item as-is, e.g. Coke Can"]] as const).map(([value, title, hint]) => (
+                    <button key={value} type="button" role="radio" aria-checked={formType === value} onClick={() => setFormType(value)} disabled={saving} style={{ border: formType === value ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: formType === value ? "#3D2B1F" : "#FDF9F5", color: formType === value ? "#FDF9F5" : "#3D2B1F", textAlign: "left", cursor: saving ? "default" : "pointer", fontFamily: "Inter, sans-serif" }}>
+                      <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{title}</span>
+                      <span style={{ display: "block", marginTop: 3, fontSize: 11, opacity: 0.75 }}>{hint}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5", position: "relative" }}><Image src={formImageData || formImage.trim()} alt="preview" fill unoptimized style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
+              {formType === "recipe" ? (
               <div className="flex flex-col gap-3"><div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><input type="number" min={0} value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(event) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: event.target.value } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div></div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => copyActiveVariantRecipe()} title="Copy selected recipe" aria-label="Copy selected recipe" disabled={!activeVariant} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant ? "pointer" : "default" }}><IconCopy size={12} /></button><button type="button" onClick={() => pasteToActiveVariantRecipe()} title="Paste copied recipe" aria-label="Paste copied recipe" disabled={!activeVariant || !variantClipboard} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant && variantClipboard ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant && variantClipboard ? "pointer" : "default" }}><IconPaste size={12} /></button><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
                 <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option>{inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name}</option>)}</select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
+              ) : (
+              <div className="flex flex-col gap-4 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+                <div className="flex flex-col gap-1.5">
+                  <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Inventory item sold</label>
+                  <select value={stockInventoryId || ""} onChange={(event) => selectStockItem(Number(event.target.value))} disabled={saving} style={{ ...inputBase, cursor: "pointer" }}>
+                    <option value="">Select the stocked item</option>
+                    {inventory.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} · {item.ingredient_category}</option>)}
+                  </select>
+                  {stockInventoryItem && <span style={{ fontSize: 11.5, color: "#6B4C3B" }}>In stock: {stockInventoryItem.is_whole_unit ? Math.round(Number(stockInventoryItem.quantity)) : Number(stockInventoryItem.quantity)} {stockInventoryItem.unit_of_measure}</span>}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Deducted per sale</label>
+                    <div className="flex items-center gap-2">
+                      <input type="number" min={0} step={stockInventoryItem?.is_whole_unit ? 1 : "any"} value={stockQuantity} onChange={(event) => setStockQuantity(stockInventoryItem?.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value)} disabled={saving} style={{ ...inputBase, width: 90 }} />
+                      <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278" }}>{stockInventoryItem?.unit_of_measure ?? ""}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Selling price (₱)</label>
+                    <input type="number" min={0} step="any" value={stockPrice} onChange={(event) => setStockPrice(event.target.value)} disabled={saving} placeholder="0.00" style={inputBase} />
+                  </div>
+                </div>
+                {(() => {
+                  const unitCost = toOptionalNumber(stockInventoryItem?.effective_unit_cost);
+                  const costPerSale = unitCost === null ? null : unitCost * Number(stockQuantity || 0);
+                  if (!stockInventoryItem) return null;
+                  if (costPerSale === null) return <p style={{ margin: 0, fontSize: 11.5, color: "#9C8278" }}>No unit cost set for {stockInventoryItem.item_name} yet. Add one in Inventory Management to track margin.</p>;
+                  return <p style={{ margin: 0, fontSize: 11.5, color: "#6B4C3B" }}>Cost per sale {formatPeso(costPerSale)}{stockPrice !== "" && ` · Margin ${formatPeso(Number(stockPrice) - costPerSale)}`}</p>;
+                })()}
+              </div>
+              )}
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5", flexShrink: 0, background: "#FDF9F5" }}><button onClick={closeModal} disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#9C8278", cursor: saving ? "default" : "pointer" }}>Cancel</button><button onClick={submitProduct} disabled={saving || !formName.trim() || !hasValidVariant || inventory.length === 0} style={{ padding: "9px 20px", borderRadius: 10, border: "none", background: saving || !formName.trim() || !hasValidVariant || inventory.length === 0 ? "#C9B8AF" : "#3D2B1F", fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: "#FDF9F5", cursor: saving ? "default" : "pointer" }}>{saving ? "Saving…" : editingProduct ? "Save Changes" : "Add Product"}</button></div>
           </div>
@@ -1594,7 +2097,7 @@ type SalesOrder = {
   punched_by: string;
   items: { product_id: number; product_name: string; product_category: string | null; size_label: string; temperature?: "hot" | "cold" | "both" | null; quantity: number; unit_price: number; additions?: { addition_id: number; addition_name: string; quantity: number; unit_price?: number }[] }[];
 };
-type SalesSummary = { order_count: number; revenue: number; items_sold: number };
+type SalesSummary = { order_count: number; revenue: number; items_sold: number; cost_of_goods?: number; costed_revenue?: number; gross_profit?: number; uncosted_items?: number };
 type TopProduct = { product_name: string; quantity: number; revenue: number };
 type DailySale = { sale_date: string; order_count: number; revenue: number; items_sold: number };
 type ExportSections = { summary: boolean; dailySales: boolean; orderHistory: boolean; productSales: boolean };
@@ -1617,6 +2120,272 @@ function getPaymentMethodLabel(order: Pick<SalesOrder, "payment_method" | "order
 
 function getFinanceDateStamp(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+}
+
+// ─── Shift reports ────────────────────────────────────────────────────────────
+// A shift is the café's business day, opened and closed from the cashier app. It can run past
+// midnight, so these reports are the accurate per-night view of sales and the cash drawer.
+type ShiftReport = {
+  shiftId: number;
+  businessDate: string;
+  openedAt: string;
+  closedAt: string | null;
+  openedByName: string | null;
+  closedByName: string | null;
+  isHistorical: boolean;
+  closingNotes: string | null;
+  hoursOpen: number;
+  startingCash: number;
+  countedCash: number | null;
+  expectedCash: number;
+  cashDifference: number | null;
+  orderCount: number;
+  mobileOrderCount: number;
+  itemsSold: number;
+  grossSales: number;
+  cashSales: number;
+  onlineSales: number;
+  voidCount: number;
+  refundCount: number;
+  reversedAmount: number;
+  cashReversed: number;
+  netSales: number;
+  costOfGoods: number;
+  uncostedItems: number;
+};
+type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; paymentMethod: string; orderSource: string; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
+type ShiftAttendance = { id: number; name: string; role: string; timeIn: string; timeOut: string | null };
+type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[] };
+
+const LONG_OPEN_SHIFT_HOURS = 16;
+
+function peso(value: number): string {
+  return `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function shiftTime(value: string | null): string {
+  if (!value) return "—";
+  return new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function shiftBusinessDate(value: string): string {
+  return new Date(`${value}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric", year: "numeric" });
+}
+
+function cashDifferenceLabel(difference: number | null): { text: string; color: string } {
+  if (difference === null) return { text: "—", color: "#9C8278" };
+  if (Math.abs(difference) < 0.005) return { text: "Balanced", color: "#15803D" };
+  return difference > 0 ? { text: `+${peso(difference)} over`, color: "#B45309" } : { text: `−${peso(-difference)} short`, color: "#B91C1C" };
+}
+
+function ShiftReports({ period }: { period: string }) {
+  const [shifts, setShifts] = useState<ShiftReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [detail, setDetail] = useState<ShiftDetail | null>(null);
+  const [detailLoadingId, setDetailLoadingId] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch(`/api/shifts?period=${period}`, { cache: "no-store" });
+        const payload = await response.json() as { data?: ShiftReport[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "Unable to load shift reports.");
+        if (active) { setShifts(payload.data ?? []); setError(""); }
+      } catch (loadError) {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load shift reports.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [period]);
+
+  async function openDetail(shiftId: number) {
+    setDetailLoadingId(shiftId);
+    try {
+      const response = await fetch(`/api/shifts?shift_id=${shiftId}`, { cache: "no-store" });
+      const payload = await response.json() as { data?: ShiftDetail; error?: string };
+      if (!response.ok || !payload.data) throw new Error(payload.error || "Unable to load the shift.");
+      setDetail(payload.data);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load the shift.");
+    } finally {
+      setDetailLoadingId(null);
+    }
+  }
+
+  function exportShift(shift: ShiftDetail) {
+    const { summary } = shift;
+    const workbook = XLSX.utils.book_new();
+    const summaryRows = [
+      ["Shift", `#${summary.shiftId}${summary.isHistorical ? " (historical, grouped by calendar day)" : ""}`],
+      ["Business date", shiftBusinessDate(summary.businessDate)],
+      ["Opened", `${shiftTime(summary.openedAt)}${summary.openedByName ? ` by ${summary.openedByName}` : ""}`],
+      ["Closed", summary.closedAt ? `${shiftTime(summary.closedAt)}${summary.closedByName ? ` by ${summary.closedByName}` : ""}` : "Still open"],
+      [],
+      ["Orders", summary.orderCount],
+      ["Items sold", summary.itemsSold],
+      ["Gross sales", summary.grossSales],
+      ["Voids", summary.voidCount],
+      ["Refunds", summary.refundCount],
+      ["Voided/refunded amount", summary.reversedAmount],
+      ["Net sales", summary.netSales],
+      ["Cost of goods", summary.uncostedItems > 0 ? `${summary.costOfGoods} (${summary.uncostedItems} items without cost)` : summary.costOfGoods],
+      ["Gross profit", summary.uncostedItems > 0 ? "Incomplete" : summary.netSales - summary.costOfGoods],
+      [],
+      ["Starting cash", summary.startingCash],
+      ["Cash sales", summary.cashSales],
+      ["Cash given back", summary.cashReversed],
+      ["Expected cash", summary.expectedCash],
+      ["Counted cash", summary.countedCash ?? "Not counted"],
+      ["Difference", summary.cashDifference ?? "—"],
+      ["Paid online", summary.onlineSales],
+      ["Closing notes", summary.closingNotes ?? ""],
+    ];
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryRows), "Summary");
+    if (shift.orders.length > 0) {
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(shift.orders.map((order) => ({
+        "Queue #": order.queueNumber ?? "",
+        "Order Ref": order.orderId,
+        Time: shiftTime(order.createdAt),
+        Items: order.items,
+        Total: order.total,
+        Payment: order.paymentMethod === "online" ? "Online" : "Cash",
+        Source: order.orderSource === "online" ? "Mobile" : "Counter",
+        "Punched By": order.punchedBy,
+        Status: order.status,
+        "In This Shift": order.soldInShift && order.reversedInShift ? "Sold and reversed" : order.soldInShift ? "Sold" : "Reversed (sold in an earlier shift)",
+      }))), "Orders");
+    }
+    if (shift.attendance.length > 0) {
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(shift.attendance.map((log) => ({
+        Employee: log.name,
+        Role: log.role,
+        "Time In": shiftTime(log.timeIn),
+        "Time Out": log.timeOut ? shiftTime(log.timeOut) : "Still signed in",
+      }))), "Attendance");
+    }
+    XLSX.writeFile(workbook, `brew-houze-shift-${summary.shiftId}-${summary.businessDate}.xlsx`);
+  }
+
+  const th: React.CSSProperties = { padding: "10px 12px", textAlign: "left", color: "#9C8278", fontSize: 10, fontFamily: "JetBrains Mono, monospace", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", borderBottom: "1px solid #E8DDD5" };
+  const td: React.CSSProperties = { padding: "11px 12px", fontSize: 12.5, color: "#3D2B1F", borderBottom: "1px solid #F0E8E2", whiteSpace: "nowrap" };
+
+  return <section className="mb-7">
+    <div className="flex items-end justify-between mb-3 gap-3 flex-wrap">
+      <div>
+        <h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Shifts</h3>
+        <p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Each shift is one business day, opened and closed from the cashier app, even past midnight. Voids and refunds count in the shift they happened in.</p>
+      </div>
+    </div>
+    {error && <p style={{ color: "#B91C1C", fontSize: 13, margin: "0 0 10px" }}>{error}</p>}
+    <div className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden" }}>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#F3EDE5" }}>
+            <th style={th}>Shift</th><th style={th}>Business date</th><th style={th}>Opened → Closed</th><th style={{ ...th, textAlign: "right" }}>Orders</th><th style={{ ...th, textAlign: "right" }}>Net sales</th><th style={{ ...th, textAlign: "right" }}>Voids / Refunds</th><th style={{ ...th, textAlign: "right" }}>Expected cash</th><th style={{ ...th, textAlign: "right" }}>Counted</th><th style={th}>Drawer</th><th style={th} />
+          </tr></thead>
+          <tbody>
+            {loading && shifts.length === 0 && <tr><td colSpan={10} style={{ ...td, color: "#9C8278", textAlign: "center", padding: 24 }}>Loading shifts…</td></tr>}
+            {!loading && shifts.length === 0 && <tr><td colSpan={10} style={{ ...td, color: "#9C8278", textAlign: "center", padding: 24 }}>No shifts in this period.</td></tr>}
+            {shifts.map((shift) => {
+              const open = shift.closedAt === null;
+              const longOpen = open && shift.hoursOpen >= LONG_OPEN_SHIFT_HOURS;
+              const difference = cashDifferenceLabel(shift.cashDifference);
+              return <tr key={shift.shiftId} style={{ background: open ? (longOpen ? "#FFFBEB" : "#F0FDF4") : undefined }}>
+                <td style={td}><strong>#{shift.shiftId}</strong>{shift.isHistorical && <span title="Created from calendar-day records before shifts were introduced" style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#F3EDE5", color: "#9C8278", fontSize: 10 }}>historical</span>}</td>
+                <td style={td}>{shiftBusinessDate(shift.businessDate)}</td>
+                <td style={td}>
+                  {shiftTime(shift.openedAt)} → {open ? <strong style={{ color: longOpen ? "#B45309" : "#15803D" }}>{longOpen ? `Open ${Math.floor(shift.hoursOpen)}h — not closed yet` : "Open now"}</strong> : shiftTime(shift.closedAt)}
+                  {(shift.openedByName || shift.closedByName) && <div style={{ color: "#9C8278", fontSize: 11, marginTop: 2 }}>{shift.openedByName ?? "—"}{shift.closedByName ? ` → ${shift.closedByName}` : ""}</div>}
+                </td>
+                <td style={{ ...td, textAlign: "right" }}>{shift.orderCount}</td>
+                <td style={{ ...td, textAlign: "right", fontWeight: 800 }}>{peso(shift.netSales)}</td>
+                <td style={{ ...td, textAlign: "right", color: shift.reversedAmount > 0 ? "#B91C1C" : "#9C8278" }}>{shift.voidCount + shift.refundCount > 0 ? `${shift.voidCount + shift.refundCount} · −${peso(shift.reversedAmount)}` : "—"}</td>
+                <td style={{ ...td, textAlign: "right" }}>{shift.isHistorical ? "—" : peso(shift.expectedCash)}</td>
+                <td style={{ ...td, textAlign: "right" }}>{shift.countedCash === null ? "—" : peso(shift.countedCash)}</td>
+                <td style={{ ...td, color: difference.color, fontWeight: 700 }}>{shift.isHistorical ? "—" : open ? "Not counted yet" : difference.text}</td>
+                <td style={{ ...td, textAlign: "right" }}><button type="button" onClick={() => void openDetail(shift.shiftId)} disabled={detailLoadingId !== null} style={{ border: "1px solid #E8DDD5", background: "#FFFFFF", color: "#6B4C3B", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{detailLoadingId === shift.shiftId ? "Loading…" : "View"}</button></td>
+              </tr>;
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {detail && (() => {
+      const summary = detail.summary;
+      const difference = cashDifferenceLabel(summary.cashDifference);
+      const row = (label: string, value: string, strong = false, color?: string) => <div className="flex justify-between" style={{ padding: "5px 0", fontSize: strong ? 14 : 13, fontWeight: strong ? 800 : 500, color: color ?? "#3D2B1F" }}><span style={{ color: strong ? color ?? "#3D2B1F" : "#6B4C3B" }}>{label}</span><span>{value}</span></div>;
+      return <div role="dialog" aria-modal="true" aria-labelledby="shift-detail-title" onClick={() => setDetail(null)} style={{ position: "fixed", inset: 0, zIndex: 60, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.45)" }}>
+        <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 820px)", maxHeight: "90vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
+          <div className="flex items-start justify-between gap-3" style={{ padding: "18px 22px", background: "#F3EDE5", borderBottom: "1px solid #E8DDD5" }}>
+            <div>
+              <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Shift report{summary.isHistorical ? " · historical" : ""}</p>
+              <h2 id="shift-detail-title" style={{ margin: "5px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, color: "#3D2B1F" }}>Shift #{summary.shiftId} · {shiftBusinessDate(summary.businessDate)}</h2>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12 }}>{shiftTime(summary.openedAt)}{summary.openedByName ? ` (${summary.openedByName})` : ""} → {summary.closedAt ? `${shiftTime(summary.closedAt)}${summary.closedByName ? ` (${summary.closedByName})` : ""}` : "still open"}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => exportShift(detail)} className="flex items-center gap-2" style={{ border: "1px solid #E8DDD5", background: "#FFFFFF", color: "#3D2B1F", borderRadius: 9, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}><IconDownload size={13} />Export .xlsx</button>
+              <button type="button" onClick={() => setDetail(null)} aria-label="Close shift report" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 26, lineHeight: 1, cursor: "pointer" }}>×</button>
+            </div>
+          </div>
+          <div className="grid gap-5" style={{ padding: "16px 22px", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))" }}>
+            <div>
+              <p style={{ margin: "0 0 4px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Sales</p>
+              {row(`Orders (${summary.itemsSold} items${summary.mobileOrderCount ? `, ${summary.mobileOrderCount} mobile` : ""})`, String(summary.orderCount))}
+              {row("Gross sales", peso(summary.grossSales))}
+              {row(`Voids (${summary.voidCount}) & refunds (${summary.refundCount})`, `−${peso(summary.reversedAmount)}`, false, summary.reversedAmount > 0 ? "#B91C1C" : undefined)}
+              <div style={{ borderTop: "1px solid #E8DDD5" }}>{row("Net sales", peso(summary.netSales), true)}</div>
+              {row("Cost of goods", summary.uncostedItems > 0 ? `${peso(summary.costOfGoods)}*` : peso(summary.costOfGoods))}
+              {row("Gross profit", summary.uncostedItems > 0 ? "Incomplete*" : peso(summary.netSales - summary.costOfGoods), true, "#2E7D32")}
+              {summary.uncostedItems > 0 && <p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 11 }}>* {summary.uncostedItems} item{summary.uncostedItems === 1 ? "" : "s"} sold without a complete inventory cost.</p>}
+            </div>
+            <div>
+              <p style={{ margin: "0 0 4px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Cash drawer</p>
+              {summary.isHistorical ? <p style={{ color: "#9C8278", fontSize: 12.5 }}>Not tracked: this day was recorded before shifts and cash counts were introduced.</p> : <>
+                {row("Starting cash", peso(summary.startingCash))}
+                {row("+ Cash sales", peso(summary.cashSales))}
+                {row("− Cash given back", peso(summary.cashReversed))}
+                <div style={{ borderTop: "1px solid #E8DDD5" }}>{row("Expected in drawer", peso(summary.expectedCash), true)}</div>
+                {row("Counted", summary.countedCash === null ? "Not counted yet" : peso(summary.countedCash))}
+                {row("Difference", summary.closedAt ? difference.text : "—", true, difference.color)}
+                {row("Paid online", peso(summary.onlineSales))}
+                {summary.closingNotes && <p style={{ margin: "8px 0 0", padding: "8px 10px", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", fontSize: 12 }}>“{summary.closingNotes}”</p>}
+              </>}
+            </div>
+          </div>
+          <div style={{ padding: "0 22px 16px" }}>
+            <p style={{ margin: "0 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Orders ({detail.orders.length})</p>
+            {detail.orders.length === 0 ? <p style={{ color: "#9C8278", fontSize: 12.5 }}>No orders in this shift.</p> : <div style={{ border: "1px solid #E8DDD5", borderRadius: 12, overflow: "hidden", maxHeight: 280, overflowY: "auto" }}>
+              {detail.orders.map((order, index) => {
+                const reversed = order.status !== "completed";
+                return <div key={order.orderId} className="flex items-center gap-3" style={{ padding: "8px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", fontSize: 12.5, background: order.reversedInShift && !order.soldInShift ? "#FEF2F2" : undefined }}>
+                  <strong style={{ minWidth: 42, color: reversed ? "#9C8278" : "#D97706" }}>#{order.queueNumber ?? "—"}</strong>
+                  <span style={{ minWidth: 70, color: "#9C8278" }}>{new Date(order.createdAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</span>
+                  <span style={{ flex: 1, minWidth: 0, color: reversed ? "#9C8278" : "#3D2B1F", textDecoration: reversed ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.items}</span>
+                  <span style={{ color: "#9C8278", fontSize: 11 }}>{order.paymentMethod === "online" ? "Online" : "Cash"} · {order.punchedBy}</span>
+                  {reversed && <span style={{ padding: "1px 7px", borderRadius: 999, background: "#FEE2E2", color: "#B91C1C", fontSize: 10.5, fontWeight: 800, textTransform: "capitalize" }}>{order.status}{order.reversedInShift && !order.soldInShift ? " (earlier sale)" : ""}</span>}
+                  <strong style={{ minWidth: 72, textAlign: "right", color: reversed ? "#9C8278" : "#3D2B1F" }}>{peso(order.total)}</strong>
+                </div>;
+              })}
+            </div>}
+          </div>
+          <div style={{ padding: "0 22px 22px" }}>
+            <p style={{ margin: "0 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Attendance ({detail.attendance.length})</p>
+            {detail.attendance.length === 0 ? <p style={{ color: "#9C8278", fontSize: 12.5 }}>No employee logins recorded in this shift.</p> : <div className="flex flex-wrap gap-2">
+              {detail.attendance.map((log) => <div key={log.id} style={{ padding: "8px 11px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FFFFFF", fontSize: 12 }}>
+                <strong style={{ color: "#3D2B1F" }}>{log.name}</strong> <span style={{ color: "#9C8278", textTransform: "capitalize" }}>· {log.role}</span>
+                <div style={{ color: "#6B4C3B", marginTop: 2 }}>{shiftTime(log.timeIn)} → {log.timeOut ? shiftTime(log.timeOut) : <strong style={{ color: "#15803D" }}>signed in</strong>}</div>
+              </div>)}
+            </div>}
+          </div>
+        </section>
+      </div>;
+    })()}
+  </section>;
 }
 
 function Finance() {
@@ -1906,15 +2675,22 @@ function Finance() {
     {loading && orders.length === 0 && <div className="rounded-2xl p-10 mb-7 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}><div style={{ width: 28, height: 28, margin: "0 auto 12px", border: "3px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /><strong style={{ display: "block", color: "#3D2B1F", fontSize: 15 }}>Loading finance records...</strong><span style={{ display: "block", marginTop: 5, fontSize: 12 }}>Preparing your sales overview.</span></div>}
     {(!loading || orders.length > 0) && <><div className="grid gap-4 mb-7" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", opacity: loading ? 0.62 : 1, transition: "opacity .2s ease" }}>
       {[[`Revenue · ${periodLabel}`, `₱${Number(summary.revenue).toFixed(2)}`, "#3D2B1F", "primary"], ["Orders", String(summary.order_count), "#D97706", ""], ["Items sold", String(summary.items_sold), "#6B4C3B", ""], ["Average ticket", `₱${averageTicket.toFixed(2)}`, "#2E7D32", ""]].map(([label, value, color, emphasis]) => <div key={label} className="rounded-2xl p-5" style={{ background: emphasis ? "linear-gradient(135deg, #3D2B1F 0%, #5B4030 100%)" : "#FDF9F5", border: emphasis ? "none" : "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.06)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", width: 80, height: 80, borderRadius: "50%", right: -25, top: -25, background: emphasis ? "rgba(217,119,6,.18)" : "rgba(217,119,6,.07)" }} /><p style={{ position: "relative", color: emphasis ? "rgba(255,255,255,.62)" : "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p><p style={{ position: "relative", marginTop: 10, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 27, fontWeight: 800, color: emphasis ? "#FDF9F5" : color }}>{value}</p></div>)}
-    </div><div className="grid gap-5 mb-7" style={{ gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, .85fr)" }}><section className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.05)" }}><div className="flex items-center justify-between mb-4"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 17 }}>Top Sellers</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>What customers are ordering most</p></div><span style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>TOP 5</span></div>{topProducts.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No product sales in this period.</p> : topProducts.map((product, index) => <div key={product.product_name} className="flex items-center gap-3 py-3" style={{ borderBottom: index === topProducts.length - 1 ? "none" : "1px solid #F0E8E2" }}><span style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: index === 0 ? "#D97706" : "#F3EDE5", color: index === 0 ? "#fff" : "#6B4C3B", fontWeight: 800, fontSize: 12 }}>{index + 1}</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.product_name}</strong><div style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{product.quantity} sold</div></div><span style={{ fontWeight: 700, fontSize: 13 }}>₱{Number(product.revenue).toFixed(2)}</span></div>)}</section><section className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #3D2B1F, #674735)", color: "#FDF9F5", boxShadow: "0 8px 24px rgba(61,43,31,.16)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", right: -35, bottom: -45, width: 150, height: 150, borderRadius: "50%", border: "22px solid rgba(253,249,245,.08)" }} /><div style={{ position: "relative" }}><span style={{ color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: ".1em" }}>    Owner&apos;s note</span><h3 style={{ margin: "12px 0 10px", fontWeight: 800, fontSize: 20 }}>Keep an eye on your best cups.</h3><p style={{ color: "rgba(255,255,255,.7)", fontSize: 13, lineHeight: 1.65 }}>Use top sellers to guide prep and purchasing. Inventory deductions happen automatically after every completed order.</p><div style={{ marginTop: 24, display: "inline-flex", padding: "6px 10px", borderRadius: 7, background: "rgba(255,255,255,.1)", color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>{periodLabel}</div></div></section></div>
-    <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Daily Sales</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Overall sales grouped by date · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue", "Inspect"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><button type="button" onClick={() => inspectSalesDate(day.sale_date)} aria-label={`Inspect sales for ${formatSalesDate(day.sale_date)}`} title="Inspect sales for this date" style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button></td></tr>)}</tbody></table></div></div>}</section>
+    </div>
+    <div className="rounded-2xl px-5 py-4 mb-7 flex flex-wrap items-center gap-x-8 gap-y-2" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", opacity: loading ? 0.62 : 1 }}>
+      <div><p style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cost of goods</p><p style={{ marginTop: 4, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#6B4C3B" }}>₱{Number(summary.cost_of_goods ?? 0).toFixed(2)}</p></div>
+      <div><p style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gross profit</p><p style={{ marginTop: 4, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#2E7D32" }}>₱{Number(summary.gross_profit ?? 0).toFixed(2)}{Number(summary.costed_revenue ?? 0) > 0 && <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: "#9C8278" }}>{((Number(summary.gross_profit ?? 0) / Number(summary.costed_revenue)) * 100).toFixed(1)}% margin</span>}</p></div>
+      <p style={{ flex: "1 1 260px", margin: 0, color: "#9C8278", fontSize: 11.5 }}>{Number(summary.uncosted_items ?? 0) > 0 ? `Based on items with a recorded cost. ${summary.uncosted_items} item${summary.uncosted_items === 1 ? "" : "s"} sold without a complete inventory cost ${summary.uncosted_items === 1 ? "is" : "are"} excluded.` : "Cost is taken from inventory unit costs at the time of each sale."}</p>
+    </div>
+    <div className="grid gap-5 mb-7" style={{ gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, .85fr)" }}><section className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.05)" }}><div className="flex items-center justify-between mb-4"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 17 }}>Top Sellers</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>What customers are ordering most</p></div><span style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>TOP 5</span></div>{topProducts.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No product sales in this period.</p> : topProducts.map((product, index) => <div key={product.product_name} className="flex items-center gap-3 py-3" style={{ borderBottom: index === topProducts.length - 1 ? "none" : "1px solid #F0E8E2" }}><span style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: index === 0 ? "#D97706" : "#F3EDE5", color: index === 0 ? "#fff" : "#6B4C3B", fontWeight: 800, fontSize: 12 }}>{index + 1}</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.product_name}</strong><div style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{product.quantity} sold</div></div><span style={{ fontWeight: 700, fontSize: 13 }}>₱{Number(product.revenue).toFixed(2)}</span></div>)}</section><section className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #3D2B1F, #674735)", color: "#FDF9F5", boxShadow: "0 8px 24px rgba(61,43,31,.16)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", right: -35, bottom: -45, width: 150, height: 150, borderRadius: "50%", border: "22px solid rgba(253,249,245,.08)" }} /><div style={{ position: "relative" }}><span style={{ color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: ".1em" }}>    Owner&apos;s note</span><h3 style={{ margin: "12px 0 10px", fontWeight: 800, fontSize: 20 }}>Keep an eye on your best cups.</h3><p style={{ color: "rgba(255,255,255,.7)", fontSize: 13, lineHeight: 1.65 }}>Use top sellers to guide prep and purchasing. Inventory deductions happen automatically after every completed order.</p><div style={{ marginTop: 24, display: "inline-flex", padding: "6px 10px", borderRadius: 7, background: "rgba(255,255,255,.1)", color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>{periodLabel}</div></div></section></div>
+    <ShiftReports period={period} />
+    <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Sales by Business Day</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Grouped by the date each shift opened, so after-midnight sales count toward their night · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue", "Inspect"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><button type="button" onClick={() => inspectSalesDate(day.sale_date)} aria-label={`Inspect sales for ${formatSalesDate(day.sale_date)}`} title="Inspect sales for this date" style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button></td></tr>)}</tbody></table></div></div>}</section>
     {exportOpen && <div role="dialog" aria-modal="true" onClick={() => !exporting && setExportOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 560px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance report</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Export Excel report</h3></div><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} aria-label="Close export dialog" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Include sections</strong>{(["summary", "dailySales", "orderHistory", "productSales"] as const).map((section) => <label key={section} className="flex items-center gap-2" style={{ marginTop: 9, color: "#6B4C3B", fontSize: 13 }}><input type="checkbox" checked={exportSections[section]} onChange={(event) => setExportSections((current) => ({ ...current, [section]: event.target.checked }))} />{section === "summary" ? "Sales Summary" : section === "dailySales" ? "Daily Sales" : section === "orderHistory" ? "Order History" : "Product Sales"}</label>)}</div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Date range</strong><div className="flex flex-col gap-2"><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "period"} onChange={() => setExportMode("period")} />Use current period ({periodLabel})</label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "date"} onChange={() => setExportMode("date")} />Specific date<input type="date" value={exportDate} onChange={(event) => setExportDate(event.target.value)} disabled={exportMode !== "date"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "range"} onChange={() => setExportMode("range")} />Date range<input type="date" value={exportStart} onChange={(event) => setExportStart(event.target.value)} disabled={exportMode !== "range"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /><span>to</span><input type="date" value={exportEnd} onChange={(event) => setExportEnd(event.target.value)} disabled={exportMode !== "range"} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label></div></div>    {exportError && <p role="alert" style={{ marginTop: 18, marginBottom: 0, padding: "10px 12px", border: "1px solid #FECACA", borderRadius: 10, background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>{exportError}</p>}<div className="flex justify-end gap-3" style={{ marginTop: 26 }}><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 16px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => void exportFinanceReport()} disabled={exporting} style={{ border: "none", borderRadius: 10, padding: "9px 16px", background: exporting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: exporting ? "default" : "pointer", fontWeight: 700 }}>{exporting ? "Generating..." : "Download Excel"}</button></div></section></div>}
     {selectedDailyDate && <div role="dialog" aria-modal="true" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Daily sales record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{formatSalesDate(selectedDailyDate)}</h3></div><button type="button" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} aria-label="Close daily sales details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>{dailyDetailLoading ? <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>Loading purchases...</p> : <>{dailyDetailOrders.map((order) => <div key={order.order_id} style={{ marginTop: 22, borderTop: "1px solid #E8DDD5", paddingTop: 16 }}><div className="flex items-start justify-between gap-3"><div><strong style={{ fontSize: 17 }}>Order #{order.order_id}</strong><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 12 }}>Punched by: {order.punched_by} · {formatFinanceDateTime(order.created_at)}</div></div><strong>₱{Number(order.total_amount).toFixed(2)}</strong></div>{order.items.map((item, index) => <div key={`${order.order_id}-${item.product_id}-${index}`} className="flex items-start justify-between gap-3" style={{ marginTop: 14, paddingBottom: 12, borderBottom: "1px solid #F0E8E2" }}><div>    <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div><strong>₱{(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}</strong></div>)}</div>)}{!dailyDetailOrders.length && <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>No purchases found for this date.</p>}<div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total for the day</strong><strong style={{ fontSize: 20 }}>₱{dailyDetailOrders.reduce((total, order) => total + Number(order.total_amount), 0).toFixed(2)}</strong></div></>}</section></div>}
     <section id="order-history"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Archiving..." : "Archive all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) =>     <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>    Order #{order.order_id}    <span style={{ color: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#B91C1C" : "#2E7D32", background: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#FEF2F2" : "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span><span style={{ color: "#6B4C3B", background: "#F3EDE5", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{getPaymentMethodLabel(order)}</span></div><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 11 }}>Punched by: {order.punched_by}</div><div style={{ marginTop: 4, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong>    <button type="button" onClick={() => setSelectedOrder(order)} aria-label={`Inspect order #${order.order_id}`} title="Inspect order" style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button><button type="button" onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}    {loading && orders.length > 0 && <div style={{ position: "sticky", bottom: 20, zIndex: 5, display: "flex", justifyContent: "center", pointerEvents: "none" }}><div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", color: "#6B4C3B", background: "rgba(253,249,245,.96)", border: "1px solid #E8DDD5", borderRadius: 999, boxShadow: "0 5px 18px rgba(61,43,31,.12)", fontSize: 12 }}><span style={{ width: 13, height: 13, border: "2px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Updating finance records...</div></div>}
     {clearConfirmOpen && <div role="dialog" aria-modal="true" style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section style={{ width: "min(100%, 440px)", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontSize: 18 }}>Archive all finance records?</h3><p style={{ margin: "10px 0 16px", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This moves every sales record and its order items to Archives. They can be restored or permanently deleted from there later. Type <strong>CLEAR_FINANCE_RECORDS</strong> to continue.</p><input autoFocus value={clearConfirmation} onChange={(event) => setClearConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void clearAllFinanceRecords(); }} placeholder="CLEAR_FINANCE_RECORDS" style={{ width: "100%", padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 8, color: "#3D2B1F", background: "#fff" }} /><div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><button onClick={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} disabled={clearingRecords} style={{ padding: "9px 13px", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: clearingRecords ? "default" : "pointer" }}>Cancel</button><button onClick={() => void clearAllFinanceRecords()} disabled={clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS"} style={{ padding: "9px 13px", border: "1px solid #FECACA", borderRadius: 8, background: "#B91C1C", color: "#fff", cursor: clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS" ? "default" : "pointer" }}>{clearingRecords ? "Archiving..." : "Archive records"}</button></div></section></div>}
    {selectedOrder && <div role="dialog" aria-modal="true" onClick={() => setSelectedOrder(null)} style={{ position: "fixed", inset: 0, zIndex: 45, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Order #{selectedOrder.order_id}</h3></div><button onClick={() => setSelectedOrder(null)} aria-label="Close order details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>   <div className="grid gap-3 mt-5" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Punched by</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.punched_by}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Order source</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.order_source === "online" ? "Online" : "Cashier"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Payment method</span><strong style={{ display: "block", marginTop: 4 }}>{getPaymentMethodLabel(selectedOrder)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Queue number</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.queue_number ?? "—"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Created</span><strong style={{ display: "block", marginTop: 4 }}>{new Date(selectedOrder.created_at).toLocaleString()}</strong></div>{selectedOrder.payment_method !== "online" && <><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Received</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.received_amount ?? 0).toFixed(2)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Change</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.change_amount ?? 0).toFixed(2)}</strong></div></>}</div><div style={{ marginTop: 22, borderTop: "1px solid #E8DDD5" }}>{selectedOrder.items.map((item, index) => <div key={`${item.product_id}-${index}`} style={{ padding: "14px 0", borderBottom: "1px solid #F0E8E2" }}><div className="flex items-start justify-between gap-3">   <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><strong>₱{(Number(item.unit_price) * item.quantity).toFixed(2)}</strong></div><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(selectedOrder.total_amount).toFixed(2)}</strong></div></section></div>}  </main>;
 }
-type EmployeeTimeLog = { id: number; timeIn: string; timeOut: string | null };
+type EmployeeTimeLog = { id: number; timeIn: string; timeOut: string | null; shiftId?: number | null };
 type EmployeeTransaction = { id: number; amount: number; status: string; createdAt: string; reversalType: string | null; reversedAt: string | null };
 type EmployeeReversal = { id: number; amount: number; status: string; reversedAt: string | null };
 type ArchivingLogEntry = { kind: string; name: string; archivedAt: string };
@@ -2039,6 +2815,7 @@ function Accounts() {
         Status: reversal.status,
       })));
       appendSheet("Attendance History", account.timeLogs.map((log) => ({
+        Shift: log.shiftId ? `#${log.shiftId}` : "",
         "Time In": formatFinanceDateTime(log.timeIn),
         "Time Out": log.timeOut ? formatFinanceDateTime(log.timeOut) : "Currently signed in",
       })));
@@ -2089,12 +2866,12 @@ function Accounts() {
       {myActivityLoading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading your activity...</div> : !myActivity ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier activity found for your account yet.</div> : <div className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
         <div style={{ marginTop: 4 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{myActivity.transactions.length} recent</span></div>{myActivity.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}</div>
         <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{myActivity.reversals.length} recent</span></div>{myActivity.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div>
-        <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong></div>{myActivity.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div>
+        <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong></div>{myActivity.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>{log.shiftId ? <strong style={{ marginRight: 8, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11 }}>Shift #{log.shiftId}</strong> : null}In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div>
         <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Archiving activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{myActivity.archives.length} recent</span></div>{myActivity.archives.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>You haven&apos;t archived anything yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.archives.map((entry, index) => <div key={`${entry.kind}-${entry.name}-${index}`} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}><span style={{ color: "#9C8278", background: "#F3EDE5", borderRadius: 20, padding: "2px 8px", fontSize: 9, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", marginRight: 8 }}>{entry.kind}</span>{entry.name}</span><span style={{ color: "#9C8278" }}>{formatFinanceDateTime(entry.archivedAt)}</span></div>)}</div>}</div>
       </div>}
     </section>
 
-    {permissionAccount && <div role="dialog" aria-modal="true" aria-labelledby="cashier-employee-title" onClick={() => setPermissionAccount(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="flex justify-end" style={{ marginTop: 14 }}><button type="button" onClick={() => void exportEmployeeReport(permissionAccount)} disabled={exportingAccountId === permissionAccount.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 12px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === permissionAccount.id ? "default" : "pointer", fontSize: 12, fontWeight: 700 }}>{exportingAccountId === permissionAccount.id ? "Exporting..." : "Export report (.xlsx)"}</button></div><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Archive log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></div>}
+    {permissionAccount && <div role="dialog" aria-modal="true" aria-labelledby="cashier-employee-title" onClick={() => setPermissionAccount(null)} style={{ position: "fixed", inset: 0, zIndex: 50, display: "grid", placeItems: "center", padding: 20, background: "rgba(61,43,31,.35)" }}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="flex justify-end" style={{ marginTop: 14 }}><button type="button" onClick={() => void exportEmployeeReport(permissionAccount)} disabled={exportingAccountId === permissionAccount.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 12px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === permissionAccount.id ? "default" : "pointer", fontSize: 12, fontWeight: 700 }}>{exportingAccountId === permissionAccount.id ? "Exporting..." : "Export report (.xlsx)"}</button></div><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Archive log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>{log.shiftId ? <strong style={{ marginRight: 8, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11 }}>Shift #{log.shiftId}</strong> : null}In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></div>}
   </main>;
 }
 
@@ -2378,23 +3155,91 @@ function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => vo
   </div>;
 }
 
-function AdminLogin({ onLoggedIn }: { onLoggedIn: (session: AdminSession) => void }) {
+function LoginEyeIcon({ hidden }: { hidden: boolean }) {
+  return hidden
+    ? <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" /><path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" /><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" /><line x1="1" y1="1" x2="23" y2="23" /></svg>
+    : <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" /></svg>;
+}
+
+function LoginFieldIcon({ kind }: { kind: "mail" | "lock" }) {
+  return kind === "mail"
+    ? <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-10 6L2 7" /></svg>
+    : <svg width={17} height={17} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></svg>;
+}
+
+const authFieldLabel: React.CSSProperties = { fontFamily: "JetBrains Mono, monospace", fontSize: 10.5, color: "#9C8278", letterSpacing: "0.08em", textTransform: "uppercase" };
+const authEyebrow: React.CSSProperties = { margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase" };
+const authTitle: React.CSSProperties = { margin: "6px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 28, color: "#3D2B1F" };
+const authLead: React.CSSProperties = { margin: "6px 0 0", color: "#9C8278", fontSize: 13.5, lineHeight: 1.55 };
+const authLinkButton: React.CSSProperties = { border: "none", background: "transparent", padding: 0, color: "#D97706", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
+
+function AuthAlert({ tone, children }: { tone: "error" | "success"; children: React.ReactNode }) {
+  const colors = tone === "error" ? { background: "#FEF2F2", border: "#FECACA", color: "#B91C1C", mark: "!" } : { background: "#F0FDF4", border: "#BBF7D0", color: "#15803D", mark: "✓" };
+  return <div role={tone === "error" ? "alert" : "status"} className="flex items-start gap-2" style={{ marginTop: 16, padding: "10px 12px", borderRadius: 10, background: colors.background, border: `1px solid ${colors.border}`, color: colors.color, fontSize: 13, lineHeight: 1.5 }}>
+    <span aria-hidden="true" style={{ fontWeight: 800 }}>{colors.mark}</span><span>{children}</span>
+  </div>;
+}
+
+// Password input with a show/hide button and a Caps Lock warning.
+function AuthPasswordField({ label, value, onChange, autoComplete, placeholder, autoFocus = false }: { label: string; value: string; onChange: (value: string) => void; autoComplete: string; placeholder: string; autoFocus?: boolean }) {
+  const [visible, setVisible] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
+  const trackCapsLock = (event: React.KeyboardEvent<HTMLInputElement>) => setCapsLockOn(event.getModifierState("CapsLock"));
+  return <label className="flex flex-col gap-1.5" style={{ marginTop: 16 }}>
+    <span style={authFieldLabel}>{label}</span>
+    <span className="login-field">
+      <span className="login-field-icon"><LoginFieldIcon kind="lock" /></span>
+      <input type={visible ? "text" : "password"} required value={value} onChange={(event) => onChange(event.target.value)} onKeyUp={trackCapsLock} onKeyDown={trackCapsLock} onBlur={() => setCapsLockOn(false)} autoComplete={autoComplete} autoFocus={autoFocus} placeholder={placeholder} />
+      <button type="button" className="login-reveal" onClick={() => setVisible((current) => !current)} aria-pressed={visible} aria-label={visible ? "Hide password" : "Show password"} title={visible ? "Hide password" : "Show password"}>
+        <LoginEyeIcon hidden={visible} />
+      </button>
+    </span>
+    {capsLockOn && <span role="status" style={{ color: "#B45309", fontSize: 12, fontWeight: 600 }}>Caps Lock is on</span>}
+  </label>;
+}
+
+// Brand panel + form panel shared by sign-in, forgot password and reset password.
+function PortalAuthLayout({ children }: { children: React.ReactNode }) {
+  return <main className="login-shell">
+    <section className="login-brand">
+      <div className="login-brand-glow" />
+      <div className="login-brand-inner">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center rounded-2xl" style={{ width: 48, height: 48, background: "#D97706", color: "#FDF9F5", boxShadow: "0 10px 24px rgba(217,119,6,0.35)" }}><IconCoffee size={24} /></div>
+          <div>
+            <p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 20, color: "#FDF9F5", lineHeight: 1.1 }}>Brew Houze</p>
+            <p style={{ margin: "3px 0 0", fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#F59E0B", letterSpacing: "0.12em" }}>ADMIN PORTAL</p>
+          </div>
+        </div>
+        <div className="login-brand-copy">
+          <h2 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 38, lineHeight: 1.1, color: "#FDF9F5" }}>Run the whole café from one place.</h2>
+          <p style={{ margin: "14px 0 0", maxWidth: 380, color: "rgba(253,249,245,0.68)", fontSize: 14.5, lineHeight: 1.6 }}>Inventory, menu, shifts, finance and staff for Brew Houze, all in one dashboard.</p>
+          <ul style={{ listStyle: "none", margin: "26px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 11 }}>
+            {["Inventory, packaging and recipes", "Shift reports and cash drawer counts", "Staff accounts and attendance"].map((highlight) => <li key={highlight} className="flex items-center gap-3" style={{ color: "rgba(253,249,245,0.85)", fontSize: 13.5 }}>
+              <span style={{ width: 22, height: 22, borderRadius: 7, background: "rgba(217,119,6,0.2)", color: "#F59E0B", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800 }}>✓</span>{highlight}
+            </li>)}
+          </ul>
+        </div>
+        <p className="login-brand-foot" style={{ margin: 0, color: "rgba(253,249,245,0.4)", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: "0.08em" }}>BREW HOUZE CAFE · ADMIN PORTAL</p>
+      </div>
+    </section>
+    <section className="login-panel">{children}</section>
+  </main>;
+}
+
+function AdminLogin({ onLoggedIn, notice = "" }: { onLoggedIn: (session: AdminSession) => void; notice?: string }) {
+  const [mode, setMode] = useState<"login" | "forgot" | "sent">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function signIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setError("");
-
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to sign in.");
       onLoggedIn(payload.data);
@@ -2405,24 +3250,170 @@ function AdminLogin({ onLoggedIn }: { onLoggedIn: (session: AdminSession) => voi
     }
   }
 
-  return <main className="flex items-center justify-center min-h-screen p-6" style={{ background: "#F8F9FA" }}>
-    <div className="w-full rounded-2xl p-8" style={{ maxWidth: 420, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 16px 48px rgba(61,43,31,0.1)" }}>
-      <div className="flex flex-col items-center text-center mb-8"><div className="flex items-center justify-center rounded-xl mb-4" style={{ width: 52, height: 52, background: "#D97706", color: "#FDF9F5" }}><IconCoffee size={26} /></div><h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 25, color: "#3D2B1F" }}>Brew Houze</h1><p style={{ marginTop: 4, fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", letterSpacing: "0.08em" }}>ADMIN PORTAL</p></div>
-      <form onSubmit={submit} className="flex flex-col gap-4"><label className="flex flex-col gap-1.5"><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Email</span><input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" placeholder="admin@brewhouze.com" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none" }} /></label><label className="flex flex-col gap-1.5"><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Password</span><input type="password" required value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="Enter your password" style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 12px", background: "#FDF9F5", color: "#3D2B1F", outline: "none" }} /></label>{error && <p style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}<button type="submit" disabled={submitting} style={{ marginTop: 8, border: "none", borderRadius: 10, padding: "12px", background: submitting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontFamily: "Inter, sans-serif", fontWeight: 700, cursor: submitting ? "default" : "pointer" }}>{submitting ? "Signing in..." : "Sign in"}</button></form>
-    </div>
-  </main>;
+  async function requestReset(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/forgot-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Unable to send the reset link.");
+      setMode("sent");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to send the reset link.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function switchMode(next: "login" | "forgot") {
+    setError("");
+    setPassword("");
+    setMode(next);
+  }
+
+  const emailField = <label className="flex flex-col gap-1.5" style={{ marginTop: 26 }}>
+    <span style={authFieldLabel}>Email</span>
+    <span className="login-field">
+      <span className="login-field-icon"><LoginFieldIcon kind="mail" /></span>
+      <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoFocus placeholder="admin@brewhouze.com" />
+    </span>
+  </label>;
+
+  return <PortalAuthLayout>
+    {mode === "login" && <form onSubmit={signIn} className="login-card">
+      <p style={authEyebrow}>Welcome back</p>
+      <h1 style={authTitle}>Sign in to the admin portal</h1>
+      <p style={authLead}>Use the email and password of your Brew Houze account.</p>
+      {notice && <AuthAlert tone="success">{notice}</AuthAlert>}
+      {emailField}
+      <AuthPasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="Enter your password" />
+      <div className="flex justify-end" style={{ marginTop: 10 }}>
+        <button type="button" onClick={() => switchMode("forgot")} style={authLinkButton}>Forgot password?</button>
+      </div>
+      {error && <AuthAlert tone="error">{error}</AuthAlert>}
+      <button type="submit" disabled={submitting} className="login-submit">{submitting ? "Signing in…" : "Sign in"}</button>
+    </form>}
+
+    {mode === "forgot" && <form onSubmit={requestReset} className="login-card">
+      <p style={authEyebrow}>Forgot password</p>
+      <h1 style={authTitle}>Reset your password</h1>
+      <p style={authLead}>Enter the email of your account. We will send a link to choose a new password.</p>
+      {emailField}
+      {error && <AuthAlert tone="error">{error}</AuthAlert>}
+      <button type="submit" disabled={submitting} className="login-submit">{submitting ? "Sending…" : "Send reset link"}</button>
+      <button type="button" onClick={() => switchMode("login")} style={{ ...authLinkButton, marginTop: 16, alignSelf: "center" }}>Back to sign in</button>
+    </form>}
+
+    {mode === "sent" && <div className="login-card">
+      <p style={authEyebrow}>Check your email</p>
+      <h1 style={authTitle}>Reset link sent</h1>
+      <p style={{ ...authLead, marginTop: 10, color: "#6B4C3B", fontSize: 14 }}>If an account uses <strong>{email}</strong>, a reset link is on its way. It works once and expires in 30 minutes.</p>
+      <p style={authLead}>Not there after a few minutes? Check the spam folder, or ask an admin to reset your password.</p>
+      <button type="button" onClick={() => switchMode("login")} className="login-submit">Back to sign in</button>
+    </div>}
+  </PortalAuthLayout>;
+}
+
+// Opened from the emailed link (?reset_token=...). Checks the link first, then lets the person
+// choose a new password.
+function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice: string) => void }) {
+  const [status, setStatus] = useState<"checking" | "invalid" | "ready">("checking");
+  const [maskedEmail, setMaskedEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch(`/api/auth/reset-password?token=${encodeURIComponent(token)}`, { cache: "no-store" });
+        const payload = await response.json() as { data?: { valid: boolean; email?: string } };
+        if (!active) return;
+        if (response.ok && payload.data?.valid) {
+          setMaskedEmail(payload.data.email ?? "");
+          setStatus("ready");
+        } else {
+          setStatus("invalid");
+        }
+      } catch {
+        if (active) setStatus("invalid");
+      }
+    })();
+    return () => { active = false; };
+  }, [token]);
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    if (password !== confirmPassword) { setError("The two passwords do not match."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/reset-password", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, password }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not reset the password.");
+      onDone("Password updated. Sign in with your new password.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not reset the password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const longEnough = password.length >= 8;
+  const matches = confirmPassword !== "" && password === confirmPassword;
+
+  return <PortalAuthLayout>
+    {status === "checking" && <div className="login-card"><p style={authLead}>Checking your reset link…</p></div>}
+    {status === "invalid" && <div className="login-card">
+      <p style={authEyebrow}>Reset link</p>
+      <h1 style={authTitle}>This link has expired</h1>
+      <p style={{ ...authLead, marginTop: 10 }}>Reset links work once and expire after 30 minutes. Request a new one from the sign-in screen.</p>
+      <button type="button" onClick={() => onDone("")} className="login-submit">Back to sign in</button>
+    </div>}
+    {status === "ready" && <form onSubmit={save} className="login-card">
+      <p style={authEyebrow}>Reset password</p>
+      <h1 style={authTitle}>Choose a new password</h1>
+      <p style={authLead}>For the account {maskedEmail}.</p>
+      <div style={{ marginTop: 10 }} />
+      <AuthPasswordField label="New password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="At least 8 characters" autoFocus />
+      <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
+      <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+        <li style={{ color: longEnough ? "#15803D" : "#9C8278" }}>{longEnough ? "✓" : "•"} At least 8 characters</li>
+        <li style={{ color: matches ? "#15803D" : "#9C8278" }}>{matches ? "✓" : "•"} Both passwords match</li>
+      </ul>
+      {error && <AuthAlert tone="error">{error}</AuthAlert>}
+      <button type="submit" disabled={saving} className="login-submit">{saving ? "Saving…" : "Save new password"}</button>
+      <button type="button" onClick={() => onDone("")} style={{ ...authLinkButton, marginTop: 16, alignSelf: "center" }}>Cancel</button>
+    </form>}
+  </PortalAuthLayout>;
 }
 
 export default function App() {
   const [authUser, setAuthUser] = useState<AdminSession | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  // Set when the page was opened from a password reset email (?reset_token=...).
+  const [resetToken, setResetToken] = useState<string | null>(null);
+  const [loginNotice, setLoginNotice] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setResetToken(new URLSearchParams(window.location.search).get("reset_token")), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  // Removes the token from the address bar so it is not left in the browser history.
+  function finishPasswordReset(notice: string) {
+    window.history.replaceState(null, "", window.location.pathname);
+    setResetToken(null);
+    setLoginNotice(notice);
+  }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [page, setPage] = useState<Page>("dashboard");
   const [showSignOut, setShowSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [additions, setAdditions] = useState<ProductAddition[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
 
   useEffect(() => {
@@ -2477,18 +3468,6 @@ export default function App() {
     }
   }
 
-  async function refreshAdditions() {
-    try {
-      const response = await fetch("/api/additions", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to load additions.");
-      setAdditions(payload.data ?? []);
-    } catch (error) {
-      console.error(error);
-      setAdditions([]);
-    }
-  }
-
   async function refreshCategories() {
     try {
       const response = await fetch("/api/product-categories", { cache: "no-store" });
@@ -2508,7 +3487,6 @@ export default function App() {
       void refreshProducts();
     }
     if (nextPage === "products" || nextPage === "additions") {
-      void refreshAdditions();
       void refreshCategories();
     }
   }
@@ -2526,11 +3504,6 @@ export default function App() {
       }
     })();
     return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void refreshAdditions(); }, 0);
-    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -2564,9 +3537,9 @@ export default function App() {
         : page === "inventory"
           ? [refreshInventory()]
           : page === "products"
-            ? [refreshInventory(), refreshProducts(), refreshAdditions(), refreshCategories()]
+            ? [refreshInventory(), refreshProducts(), refreshCategories()]
             : page === "additions"
-              ? [refreshAdditions(), refreshCategories()]
+              ? [refreshCategories()]
               : [];
       void Promise.all(refreshes)
         .finally(() => { requestInFlight = false; });
@@ -2626,7 +3599,7 @@ export default function App() {
         price: product.price,
         image_url: product.imageUrl,
         image_data: product.imageData,
-        addition_ids: product.additions.map((addition) => addition.id),
+        product_type: product.productType,
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
@@ -2655,7 +3628,7 @@ export default function App() {
         price: product.price,
         image_url: product.imageUrl,
         image_data: product.imageData,
-        addition_ids: product.additions.map((addition) => addition.id),
+        product_type: product.productType,
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
@@ -2686,8 +3659,9 @@ export default function App() {
 
   const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", additions: "Additions Management", products: "Product Management", finance: "Finance", accounts: "Accounts & Employees", account: "Account Management", archives: "Archives" };
 
+  if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
-  if (!authUser) return <AdminLogin onLoggedIn={setAuthUser} />;
+  if (!authUser) return <AdminLogin onLoggedIn={setAuthUser} notice={loginNotice} />;
 
   return <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
     <Sidebar current={page} collapsed={sidebarCollapsed} onChange={handlePageChange} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} />
@@ -2698,7 +3672,7 @@ export default function App() {
         {page === "dashboard" && <Dashboard inventory={inventory} />}
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
         {page === "additions" && <AdditionsManagement inventory={inventory} categories={categories} onCategoriesChange={setCategories} />}
-        {page === "products" && <ProductManagement products={products} inventory={inventory} additions={additions} categories={categories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
+        {page === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} />}
         {page === "finance" && <Finance />}
         {page === "accounts" && <Accounts />}
         {page === "archives" && <Archives />}

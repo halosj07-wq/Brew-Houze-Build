@@ -21,7 +21,7 @@ export async function GET() {
     }
 
     const logsResult = await pool.query(`
-      SELECT time_log_id, time_in, time_out
+      SELECT time_log_id, time_in, time_out, shift_id
       FROM employee_time_logs
       WHERE admin_id = $1 AND is_archived = FALSE
       ORDER BY time_in DESC
@@ -95,7 +95,7 @@ export async function GET() {
       data: {
         fullName: accountResult.rows[0].full_name,
         email: accountResult.rows[0].email,
-        timeLogs: logsResult.rows.map((log) => ({ id: Number(log.time_log_id), timeIn: log.time_in, timeOut: log.time_out })),
+        timeLogs: logsResult.rows.map((log) => ({ id: Number(log.time_log_id), timeIn: log.time_in, timeOut: log.time_out, shiftId: log.shift_id === null ? null : Number(log.shift_id) })),
         transactions: transactionResult.rows.map((transaction) => ({
           id: Number(transaction.order_id),
           amount: Number(transaction.total_amount),

@@ -11,7 +11,9 @@ export async function GET(request: Request) {
     const signatureResult = await pool.query(`
       SELECT COUNT(*)::int AS total,
         COALESCE(MAX(order_id), 0)::int AS latest_order_id,
-        COALESCE(MAX(served_at), TIMESTAMP 'epoch') AS latest_served_at
+        COALESCE(MAX(served_at), TIMESTAMP 'epoch') AS latest_served_at,
+        COUNT(*) FILTER (WHERE queue_status = 'waiting')::int AS waiting_count,
+        COUNT(*) FILTER (WHERE queue_status = 'served')::int AS ready_count
       FROM sales_orders
       WHERE queue_status IN ('waiting', 'served')
     `);
@@ -69,8 +71,9 @@ export async function GET(request: Request) {
       ORDER BY so.queue_status DESC, so.queue_number ASC
     `);
     const recentResult = await pool.query(`
-      SELECT so.order_id, so.queue_number, so.status, so.total_amount,
+      SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.payment_method, so.reversal_type,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
+        TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
         COALESCE((
           SELECT json_agg(json_build_object(
             'product_name', detail_product.product_name,
@@ -108,7 +111,7 @@ export async function GET(request: Request) {
       JOIN sales_order_items soi ON soi.order_id = so.order_id
       JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
-      WHERE so.status IN ('completed', 'voided', 'refunded')
+      WHERE so.status IN ('completed', 'voided', 'refunded') AND so.is_archived = FALSE
       GROUP BY so.order_id
       ORDER BY so.created_at DESC, so.order_id DESC
       LIMIT 30

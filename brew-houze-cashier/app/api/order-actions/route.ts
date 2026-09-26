@@ -1,7 +1,29 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { SESSION_COOKIE, verifySessionToken } from "@/lib/auth";
+
+// Same redirection checkout uses: a bound item's quantity is moved onto its source item,
+// scaled by its ratio, since bound items never carry stock of their own.
+async function resolveBoundDeductions(client: PoolClient, deductions: Map<number, number>) {
+  for (let depth = 0; depth < 10; depth++) {
+    const ids = Array.from(deductions.keys());
+    if (ids.length === 0) break;
+    const bindings = await client.query(
+      "SELECT inventory_id, derived_from_inventory_id, derived_ratio FROM inventory WHERE inventory_id = ANY($1::int[]) AND derived_from_inventory_id IS NOT NULL",
+      [ids]
+    );
+    if (bindings.rowCount === 0) break;
+    for (const row of bindings.rows) {
+      const inventoryId = Number(row.inventory_id);
+      const parentId = Number(row.derived_from_inventory_id);
+      const boundQuantity = deductions.get(inventoryId) ?? 0;
+      deductions.delete(inventoryId);
+      deductions.set(parentId, (deductions.get(parentId) ?? 0) + boundQuantity * Number(row.derived_ratio));
+    }
+  }
+}
 
 export async function POST(request: Request) {
   const session = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
@@ -41,6 +63,14 @@ export async function POST(request: Request) {
     }
 
     await client.query("BEGIN");
+    // A void/refund is recorded in the shift it happens in (cash leaves that shift's drawer),
+    // so one must be open. The share lock keeps it open until this reversal is saved.
+    const shiftResult = await client.query("SELECT shift_id FROM shifts WHERE closed_at IS NULL FOR SHARE");
+    if (shiftResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Open a shift before voiding or refunding an order." }, { status: 409 });
+    }
+    const shiftId = Number(shiftResult.rows[0].shift_id);
     const orderResult = await client.query(`
       SELECT order_id, status, queue_status
       FROM sales_orders
@@ -57,25 +87,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Order is already ${order.status}.` }, { status: 409 });
     }
 
-    const inventoryRows = await client.query(`
-      SELECT vi.inventory_id, soi.quantity * vi.required_quantity AS quantity
-      FROM sales_order_items soi
-      JOIN variant_ingredients vi ON vi.product_variant_id = soi.product_variant_id
-      WHERE soi.order_id = $1
-      UNION ALL
-      SELECT a.inventory_id, soia.quantity * a.quantity AS quantity
-      FROM sales_order_items soi
-      JOIN sales_order_item_additions soia ON soia.order_item_id = soi.order_item_id
-      JOIN additions a ON a.addition_id = soia.addition_id
-      WHERE soi.order_id = $1
+    // Restore exactly what checkout deducted, as recorded in the inventory log. Those rows are
+    // already resolved to source items for bound inventory, and stay correct even if the
+    // product's recipe was edited after the sale.
+    const loggedRows = await client.query(`
+      SELECT inventory_id, -SUM(quantity_delta) AS quantity
+      FROM inventory_log
+      WHERE order_id = $1 AND change_type = 'order_deduction' AND inventory_id IS NOT NULL
+      GROUP BY inventory_id
     `, [orderId]);
+    const hasDeductionLog = (await client.query(
+      "SELECT 1 FROM inventory_log WHERE order_id = $1 AND change_type = 'order_deduction' LIMIT 1",
+      [orderId]
+    )).rowCount !== 0;
     const restorations = new Map<number, number>();
-    for (const row of inventoryRows.rows) {
-      const inventoryId = Number(row.inventory_id);
-      restorations.set(inventoryId, (restorations.get(inventoryId) ?? 0) + Number(row.quantity));
+    if (hasDeductionLog) {
+      for (const row of loggedRows.rows) {
+        restorations.set(Number(row.inventory_id), Number(row.quantity));
+      }
+    } else {
+      // Orders placed before the inventory log existed: fall back to the current recipe,
+      // redirecting bound items onto their source item the same way checkout does.
+      const inventoryRows = await client.query(`
+        SELECT vi.inventory_id, soi.quantity * vi.required_quantity AS quantity
+        FROM sales_order_items soi
+        JOIN variant_ingredients vi ON vi.product_variant_id = soi.product_variant_id
+        WHERE soi.order_id = $1
+        UNION ALL
+        SELECT a.inventory_id, soia.quantity * a.quantity AS quantity
+        FROM sales_order_items soi
+        JOIN sales_order_item_additions soia ON soia.order_item_id = soi.order_item_id
+        JOIN additions a ON a.addition_id = soia.addition_id
+        WHERE soi.order_id = $1
+      `, [orderId]);
+      for (const row of inventoryRows.rows) {
+        const inventoryId = Number(row.inventory_id);
+        restorations.set(inventoryId, (restorations.get(inventoryId) ?? 0) + Number(row.quantity));
+      }
+      await resolveBoundDeductions(client, restorations);
     }
     const restorationDetails = new Map<number, { itemName: string; category: string; unit: string; quantityBefore: number; quantityAfter: number }>();
-    for (const [inventoryId, quantity] of restorations) {
+    for (const [inventoryId, quantity] of Array.from(restorations).sort(([a], [b]) => a - b)) {
+      if (!(quantity > 0)) continue;
       const restored = await client.query(`
         UPDATE inventory
         SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
@@ -100,10 +153,11 @@ export async function POST(request: Request) {
           queue_status = 'flushed',
           reversed_by_admin_id = $3,
           reversed_at = CURRENT_TIMESTAMP,
-          reversal_type = $2
+          reversal_type = $2,
+          reversed_shift_id = $4
       WHERE order_id = $1
       RETURNING order_id, status, total_amount
-    `, [orderId, action, session.adminId]);
+    `, [orderId, action, session.adminId, shiftId]);
 
     for (const [inventoryId, detail] of restorationDetails) {
       await client.query(`

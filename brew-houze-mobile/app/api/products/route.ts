@@ -11,6 +11,9 @@ export async function GET() {
         p.product_category,
         p.price,
         p.image_url,
+        p.product_type,
+        -- Any active addition can be attached to a recipe item. Direct-sale (stock) products
+        -- such as canned drinks take no additions.
         COALESCE((
           SELECT json_agg(json_build_object(
             'id', a.addition_id,
@@ -28,11 +31,10 @@ export async function GET() {
               ELSE i_addition.quantity
             END
           ) ORDER BY a.addition_name)
-          FROM product_additions pa
-          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
-          JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id
+          FROM additions a
+          JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id AND i_addition.is_archived = FALSE
           LEFT JOIN inventory i_addition_parent ON i_addition_parent.inventory_id = i_addition.derived_from_inventory_id
-          WHERE pa.product_id = p.product_id
+          WHERE a.is_active = TRUE AND p.product_type = 'recipe'
         ), '[]'::json) AS additions,
         COALESCE(
           json_agg(
@@ -108,12 +110,16 @@ export async function GET() {
       description: row.product_description || "Prepared fresh by Brew Houze.",
       category: row.product_category || "Menu",
       price: Number(row.price),
+      productType: row.product_type === "stock" ? "stock" : "recipe",
       image: row.image_url || "",
       additions: row.additions ?? [],
       variants: row.variants,
     }));
 
-    return NextResponse.json({ data }, {
+    // Customers can only order while a shift is open; otherwise the menu shows the café as closed.
+    const shiftResult = await pool.query("SELECT EXISTS (SELECT 1 FROM shifts WHERE closed_at IS NULL) AS store_open");
+
+    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open) }, {
       headers: {
         "Cache-Control": "public, max-age=5, stale-while-revalidate=30",
       },

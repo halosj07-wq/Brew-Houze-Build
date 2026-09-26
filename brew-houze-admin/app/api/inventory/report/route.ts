@@ -31,8 +31,14 @@ export async function GET(request: Request) {
         il.quantity_before,
         il.quantity_after,
         il.quantity_delta,
+        il.unit_cost_before,
+        il.unit_cost_after,
         il.order_id,
         il.source_app,
+        il.shift_id,
+        il.packaging_name,
+        il.packs_added,
+        il.pack_price,
         au.full_name AS admin_name,
         TO_CHAR(il.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
       FROM inventory_log il

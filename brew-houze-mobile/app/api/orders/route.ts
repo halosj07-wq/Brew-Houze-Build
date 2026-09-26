@@ -5,6 +5,10 @@ import pool from "@/lib/db";
 
 type OrderItemInput = { product_variant_id?: unknown; quantity?: unknown; addition_ids?: unknown };
 
+// Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
+// what it draws from its source, which is the stock actually deducted at checkout.
+const effectiveUnitCostSql = "CASE WHEN i.derived_from_inventory_id IS NOT NULL THEN src.unit_cost * i.derived_ratio ELSE i.unit_cost END";
+
 function parseAdditionIds(value: unknown): number[] {
   return Array.isArray(value) ? value.map((id: unknown) => Number(id)).filter((id: number) => Number.isInteger(id) && id > 0) : [];
 }
@@ -16,7 +20,7 @@ async function resolveBoundDeductions(client: PoolClient, deductions: Map<number
     const ids = Array.from(deductions.keys());
     if (ids.length === 0) break;
     const bindings = await client.query(
-      "SELECT inventory_id, derived_from_inventory_id, derived_ratio FROM inventory WHERE inventory_id = ANY($1::int[]) AND derived_from_inventory_id IS NOT NULL FOR UPDATE",
+      "SELECT inventory_id, derived_from_inventory_id, derived_ratio FROM inventory WHERE inventory_id = ANY($1::int[]) AND derived_from_inventory_id IS NOT NULL",
       [ids]
     );
     if (bindings.rowCount === 0) break;
@@ -54,26 +58,43 @@ export async function POST(request: Request) {
       groupedItems.set(key, current ? { ...current, quantity: current.quantity + item.quantity } : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds });
     }
     await client.query("BEGIN");
+    // Sales belong to the open shift. The share lock keeps the shift from being closed while
+    // this order is still being saved.
+    const shiftResult = await client.query("SELECT shift_id FROM shifts WHERE closed_at IS NULL FOR SHARE");
+    if (shiftResult.rowCount === 0) throw new Error("Brew Houze isn't taking orders right now. Please order again once the café is open.");
+    const shiftId = Number(shiftResult.rows[0].shift_id);
 
     const variantIds = Array.from(quantities.keys());
     const variants = await client.query(`
-      SELECT pv.product_variant_id, pv.product_id, pv.price, p.product_name
+      SELECT pv.product_variant_id, pv.product_id, pv.price, p.product_name, p.product_type
       FROM product_variants pv
       JOIN products p ON p.product_id = pv.product_id
       WHERE pv.product_variant_id = ANY($1::int[])
+        AND pv.is_archived = FALSE AND p.is_archived = FALSE
+      ORDER BY pv.product_variant_id
       FOR UPDATE OF pv
     `, [variantIds]);
     if (variants.rowCount !== variantIds.length) throw new Error("One or more selected products are no longer available.");
+
+    // Cost snapshot per variant: NULL when any component has no cost entered yet.
+    const variantCostResult = await client.query(`
+      SELECT vi.product_variant_id,
+        CASE WHEN bool_and((${effectiveUnitCostSql}) IS NOT NULL) THEN SUM(vi.required_quantity * (${effectiveUnitCostSql})) END AS unit_cost
+      FROM variant_ingredients vi
+      JOIN inventory i ON i.inventory_id = vi.inventory_id
+      LEFT JOIN inventory src ON src.inventory_id = i.derived_from_inventory_id
+      WHERE vi.product_variant_id = ANY($1::int[])
+      GROUP BY vi.product_variant_id
+    `, [variantIds]);
+    const variantCosts = new Map<number, number | null>(variantCostResult.rows.map((row) => [Number(row.product_variant_id), row.unit_cost === null ? null : Number(row.unit_cost)]));
 
     const deductions = new Map<number, number>();
     let additionTotal = 0;
     for (const variant of variants.rows) {
       const ingredients = await client.query(`
-        SELECT vi.inventory_id, vi.required_quantity, i.item_name, i.quantity
+        SELECT vi.inventory_id, vi.required_quantity
         FROM variant_ingredients vi
-        JOIN inventory i ON i.inventory_id = vi.inventory_id
         WHERE vi.product_variant_id = $1
-        FOR UPDATE OF i
       `, [variant.product_variant_id]);
       if (ingredients.rowCount === 0) throw new Error(`${variant.product_name} has no configured ingredients.`);
       const quantity = quantities.get(Number(variant.product_variant_id)) ?? 0;
@@ -83,13 +104,13 @@ export async function POST(request: Request) {
       }
       for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
         if (group.additionIds.length === 0) continue;
+        if (variant.product_type === "stock") throw new Error(`${variant.product_name} does not take additions.`);
         const additions = await client.query(`
           SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity, a.price
-          FROM product_additions pa
-          JOIN additions a ON a.addition_id = pa.addition_id AND a.is_active = TRUE
-          WHERE pa.product_id = $1 AND a.addition_id = ANY($2::int[])
-          FOR UPDATE OF a
-        `, [variant.product_id, group.additionIds]);
+          FROM additions a
+          WHERE a.is_active = TRUE AND a.addition_id = ANY($1::int[])
+          FOR SHARE OF a
+        `, [group.additionIds]);
         if (additions.rowCount !== group.additionIds.length) throw new Error(`${variant.product_name} has an invalid addition selection.`);
         for (const addition of additions.rows) {
           additionTotal += Number(addition.price) * group.quantity;
@@ -102,7 +123,9 @@ export async function POST(request: Request) {
     await resolveBoundDeductions(client, deductions);
 
     const deductionDetails = new Map<number, { itemName: string; category: string; unit: string; quantityBefore: number; quantityAfter: number }>();
-    for (const [inventoryId, deduction] of deductions) {
+    // Each guarded UPDATE locks its row; applying them in id order means two concurrent
+    // orders sharing inventory always lock in the same sequence and cannot deadlock.
+    for (const [inventoryId, deduction] of Array.from(deductions).sort(([a], [b]) => a - b)) {
       const updated = await client.query(`
         UPDATE inventory
         SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
@@ -123,21 +146,22 @@ export async function POST(request: Request) {
       });
     }
 
-    await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-' || ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date)::text))");
+    // Queue numbers restart per shift; serialize assignment so two orders never share a number.
+    await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-shift-' || $1::text))", [shiftId]);
     const queueResult = await client.query(`
       SELECT COALESCE(MAX(queue_number), 0) + 1 AS queue_number
       FROM sales_orders
-      WHERE DATE(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date
-    `);
+      WHERE shift_id = $1
+    `, [shiftId]);
     const queueNumber = Number(queueResult.rows[0].queue_number);
     const customerToken = randomUUID();
     const total = variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0) + additionTotal;
     const order = await client.query(`
-      INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, payment_method, received_amount, change_amount)
-      VALUES (NULL, $1, 'completed', $2, 'waiting', 'online', $3, 'online', $1, 0)
+      INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, payment_method, received_amount, change_amount, shift_id)
+      VALUES (NULL, $1, 'completed', $2, 'waiting', 'online', $3, 'online', $1, 0, $4)
       RETURNING order_id, queue_number,
         TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
-    `, [total, queueNumber, customerToken]);
+    `, [total, queueNumber, customerToken, shiftId]);
 
     for (const [inventoryId, detail] of deductionDetails) {
       await client.query(`
@@ -149,15 +173,17 @@ export async function POST(request: Request) {
     for (const variant of variants.rows) {
       for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
       await client.query(`
-        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING order_item_id
-      `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, group.quantity, variant.price]).then(async (itemResult) => {
+      `, [order.rows[0].order_id, variant.product_id, variant.product_variant_id, group.quantity, variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null]).then(async (itemResult) => {
         for (const additionId of group.additionIds) {
           await client.query(`
-            INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity, unit_price)
-            SELECT $1, a.addition_id, $3, a.price
+            INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity, unit_price, unit_cost)
+            SELECT $1, a.addition_id, $3, a.price, a.quantity * (${effectiveUnitCostSql})
             FROM additions a
+            JOIN inventory i ON i.inventory_id = a.inventory_id
+            LEFT JOIN inventory src ON src.inventory_id = i.derived_from_inventory_id
             WHERE a.addition_id = $2
           `, [itemResult.rows[0].order_item_id, additionId, group.quantity]);
         }

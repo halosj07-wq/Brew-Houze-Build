@@ -12,15 +12,15 @@ export async function GET() {
       ORDER BY is_active DESC, full_name ASC
     `);
     const logsResult = await pool.query(`
-      SELECT time_log_id, admin_id, time_in, time_out
+      SELECT time_log_id, admin_id, time_in, time_out, shift_id
       FROM employee_time_logs
       WHERE admin_id = ANY($1::int[]) AND is_archived = FALSE
       ORDER BY time_in DESC
     `, [result.rows.map((account) => Number(account.admin_id))]);
-    const logsByAccount = new Map<number, { id: number; timeIn: string; timeOut: string | null }[]>();
+    const logsByAccount = new Map<number, { id: number; timeIn: string; timeOut: string | null; shiftId: number | null }[]>();
     for (const log of logsResult.rows) {
       const accountLogs = logsByAccount.get(Number(log.admin_id)) ?? [];
-      if (accountLogs.length < 20) accountLogs.push({ id: Number(log.time_log_id), timeIn: log.time_in, timeOut: log.time_out });
+      if (accountLogs.length < 20) accountLogs.push({ id: Number(log.time_log_id), timeIn: log.time_in, timeOut: log.time_out, shiftId: log.shift_id === null ? null : Number(log.shift_id) });
       logsByAccount.set(Number(log.admin_id), accountLogs);
     }
     const transactionResult = await pool.query(`

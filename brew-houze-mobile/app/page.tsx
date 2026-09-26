@@ -9,6 +9,7 @@ type Product = {
   category: string;
   description: string;
   price: number;
+  productType?: "recipe" | "stock";
   image: string;
   additions?: Addition[];
   badge?: string;
@@ -16,7 +17,7 @@ type Product = {
 };
 type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number };
 type Addition = { id: number; name: string; quantity: number; price: number; unit: string; inventoryId: number; availableQuantity: number };
-type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" | "both"; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
+type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" | "both" | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
 type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[] };
 type OrderStatus = "waiting" | "served" | "flushed";
 type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
@@ -56,6 +57,8 @@ function IconCart() {
 export default function MenuPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  // False when no shift is open at the café: the menu can be browsed but orders can't be sent.
+  const [storeOpen, setStoreOpen] = useState(true);
   const [error, setError] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -145,9 +148,12 @@ export default function MenuPage() {
     let active = true;
     fetch("/api/products", { cache: "default" })
       .then(async (response) => {
-        const payload = await response.json() as { data?: Product[]; error?: string };
+        const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; error?: string };
         if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
-        if (active) setProducts(payload.data ?? []);
+        if (active) {
+          setProducts(payload.data ?? []);
+          setStoreOpen(payload.storeOpen !== false);
+        }
       })
       .catch((loadError) => {
         console.error("Mobile menu: failed to load products", loadError);
@@ -339,6 +345,7 @@ export default function MenuPage() {
           <div className="table-pill"><span className="status-dot" />Table QR</div>
         </div>
       </header>
+      {!storeOpen && <div role="status" style={{ margin: "12px 16px 0", padding: "12px 14px", borderRadius: 14, background: "#3D2B1F", color: "#FDF9F5", fontSize: 13, lineHeight: 1.45 }}><strong style={{ display: "block", fontSize: 14 }}>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
 
       <section className="welcome">
         <p className="eyebrow">WELCOME TO BREW HOUZE</p>
@@ -388,7 +395,7 @@ export default function MenuPage() {
         <button className="modal-close" onClick={() => setSelectedProduct(null)} aria-label="Close">×</button>
         <div className="modal-image" style={{ position: "relative" }}>{selectedProduct.image ? <Image src={selectedProduct.image} alt="" fill unoptimized sizes="100vw" style={{ objectFit: "cover" }} /> : <IconCoffee />}</div>
         <p className="eyebrow">{selectedProduct.category}</p><h2>{selectedProduct.name}</h2><p className="modal-description">{selectedProduct.description}</p>
-        {selectedProductVariants.length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Select size</strong><span>Required</span></div><div className="variant-grid">{selectedProductVariants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"} · {variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Cold" : "Hot & Cold"}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
+        {selectedProductVariants.length > 0 && !(selectedProduct.productType === "stock" && selectedProductVariants.length === 1) && <div className="variant-section"><div className="variant-heading"><strong>{selectedProduct.productType === "stock" ? "Select option" : "Select size"}</strong><span>Required</span></div><div className="variant-grid">{selectedProductVariants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}{variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Cold" : ""}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
         <div className="quantity-row"><strong>Quantity</strong><div className="quantity-control"><button onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))}>−</button><span>{selectedQuantity}</span><button onClick={() => setSelectedQuantity((value) => value + 1)}>+</button></div></div>
         {(selectedProduct.additions ?? []).length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Additions</strong><span>Optional</span></div>{selectedProduct.additions?.map((addition) => {
           const selectedVariant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
@@ -402,7 +409,7 @@ export default function MenuPage() {
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
       <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
         {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.variantName} · ₱{item.price.toFixed(2)}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
-        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">Payment is not included yet. Your order will be sent to the café for preparation.</p><button className="add-order-button" disabled={placingOrder} onClick={() => void submitOrder()}>{placingOrder ? "Sending order..." : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
+        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">Payment is not included yet. Your order will be sent to the café for preparation.</p><button className="add-order-button" disabled={placingOrder || !storeOpen} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? "Sending order..." : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}
     {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}

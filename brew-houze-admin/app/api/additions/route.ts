@@ -81,24 +81,8 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "A valid addition_id is required." }, { status: 400 });
     }
 
-    const usageResult = await pool.query(`
-      SELECT DISTINCT p.product_name
-      FROM products p
-      JOIN product_additions pa ON pa.product_id = p.product_id
-      WHERE pa.addition_id = $1
-      ORDER BY p.product_name ASC
-    `, [additionId]);
-
-    if ((usageResult.rowCount ?? 0) > 0) {
-      const productNames = usageResult.rows.map((row) => row.product_name as string);
-      const preview = productNames.length > 5
-        ? `${productNames.slice(0, 5).join(", ")}, and ${productNames.length - 5} more`
-        : productNames.join(", ");
-      return NextResponse.json({
-        error: `This addition is used in ${productNames.length} product${productNames.length === 1 ? "" : "s"} (${preview}). Remove it from those products before archiving it.`,
-      }, { status: 409 });
-    }
-
+    // Additions are no longer tied to specific products (any addition can be attached to any
+    // recipe item in the cart), so archiving only hides it from the cashier and mobile menus.
     const historicalUsageResult = await pool.query(`
       SELECT 1
       FROM sales_order_item_additions
