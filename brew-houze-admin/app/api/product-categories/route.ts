@@ -26,6 +26,11 @@ export async function POST(request: Request) {
     const body = await request.json();
     const name = String(body?.category_name ?? "").trim();
     if (!name) return NextResponse.json({ error: "Category name is required." }, { status: 400 });
+    // Archived categories keep their name, so point to Archives instead of a bare "already exists".
+    const archivedDuplicate = await pool.query("SELECT 1 FROM product_categories WHERE category_name = $1 AND is_active = FALSE", [name]);
+    if ((archivedDuplicate.rowCount ?? 0) > 0) {
+      return NextResponse.json({ error: "An archived category already has this name. Restore it from Archives, or use a different name." }, { status: 409 });
+    }
 
     const result = await pool.query(`
       INSERT INTO product_categories (category_name)

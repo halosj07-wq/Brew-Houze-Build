@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 
 export async function GET(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const searchParams = new URL(request.url).searchParams;
     if (searchParams.get("signatureOnly") === "1") {
@@ -240,6 +241,7 @@ export async function GET(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
   try {
     const body = await request.json();
@@ -273,6 +275,7 @@ export async function DELETE(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
   try {
     const body = await request.json();

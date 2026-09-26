@@ -58,7 +58,8 @@ export async function getSession() {
       s.last_seen_at < CURRENT_TIMESTAMP - make_interval(mins => $3) AS stale,
       u.admin_id, u.full_name, u.email, u.role,
       COALESCE(u.can_void_orders, FALSE) AS can_void_orders,
-      COALESCE(u.can_refund_orders, FALSE) AS can_refund_orders
+      COALESCE(u.can_refund_orders, FALSE) AS can_refund_orders,
+      COALESCE(u.can_open_shift, FALSE) AS can_open_shift
     FROM user_sessions s
     JOIN admin_users u ON u.admin_id = s.admin_id AND u.is_active = TRUE AND LOWER(u.role) = ANY($4::text[])
     WHERE s.token_hash = $1 AND s.app = $2 AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
@@ -74,6 +75,8 @@ export async function getSession() {
     role: String(row.role),
     canVoidOrders: isAdmin || Boolean(row.can_void_orders),
     canRefundOrders: isAdmin || Boolean(row.can_refund_orders),
+    // Opening the store is an admin decision unless an admin grants it to this cashier.
+    canOpenShift: isAdmin || Boolean(row.can_open_shift),
     sid: token.sid,
     exp: token.exp,
   };

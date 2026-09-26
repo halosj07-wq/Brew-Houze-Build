@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
 type Page = "pos" | "queue" | "reversals" | "accounts";
-type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean };
+type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean };
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
 type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; reversal_type?: string | null; reversed_at?: string | null };
@@ -239,7 +239,7 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onAccount, onReq
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
       <span className="topbar-title" style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F", whiteSpace: "nowrap" }}>{title}</span>
-      <ShiftChip shift={shift} onOpenShift={onOpenShift} onCloseShift={onCloseShift} />
+      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} />
     </div>
     <div className="flex items-center gap-2.5">
       <ConnectionIndicator />
@@ -401,6 +401,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
             {permission("Take orders & checkout", true)}
             {permission("Void orders", Boolean(user.canVoidOrders))}
             {permission("Refund orders", Boolean(user.canRefundOrders))}
+            {permission("Open the store", Boolean(user.canOpenShift))}
           </div>
           {!isAdmin && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Permissions are set by an admin in the admin portal.</p>}
         </AccountSection>
@@ -1596,14 +1597,14 @@ function formatClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
 }
 
-function ShiftChip({ shift, onOpenShift, onCloseShift }: { shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void }) {
+function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; onOpenShift: () => void; onCloseShift: () => void }) {
   if (shift === undefined) return null;
   const chipButton: React.CSSProperties = { border: "none", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" };
   if (shift === null) {
     return <div className="flex items-center gap-2 rounded-xl" style={{ padding: "5px 6px 5px 12px", background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 12.5, fontWeight: 700 }}>
       <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#DC2626" }} />
-      <span className="shift-chip-text">No open shift</span>
-      <button type="button" onClick={onOpenShift} style={{ ...chipButton, background: "#D97706", color: "#FFFFFF" }}>Open shift</button>
+      <span className="shift-chip-text">{canOpenShift ? "No open shift" : "Store closed"}</span>
+      {canOpenShift && <button type="button" onClick={onOpenShift} style={{ ...chipButton, background: "#D97706", color: "#FFFFFF" }}>Open shift</button>}
     </div>;
   }
   const longShift = shift.hoursOpen >= LONG_SHIFT_HOURS;
@@ -1612,6 +1613,32 @@ function ShiftChip({ shift, onOpenShift, onCloseShift }: { shift: CurrentShift |
     <span className="shift-chip-text">Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
     <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>
   </div>;
+}
+
+function WaitingForShiftPanel({ userName, onCheckAgain, onSwitchCashier }: { userName: string; onCheckAgain: () => Promise<void>; onSwitchCashier: () => void }) {
+  const [checking, setChecking] = useState(false);
+  // The POS opens by itself once the shift is open (the app checks every 15 seconds), and this
+  // also notices when an admin grants this cashier permission to open the store.
+  useEffect(() => {
+    const intervalId = window.setInterval(() => { if (document.visibilityState === "visible") void onCheckAgain(); }, 15_000);
+    return () => window.clearInterval(intervalId);
+  }, [onCheckAgain]);
+
+  async function checkNow() {
+    setChecking(true);
+    try { await onCheckAgain(); } finally { setChecking(false); }
+  }
+
+  return <main style={{ height: "100%", minHeight: 420, display: "grid", gridTemplateColumns: "minmax(0, 1fr)", placeItems: "center", padding: 24 }}>
+    <section className="rounded-2xl" style={{ width: "100%", maxWidth: 440, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 16px 40px rgba(61,43,31,0.12)", padding: 28, textAlign: "center" }}>
+      <div style={{ width: 56, height: 56, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 18, background: "#FEF3C7", color: "#B45309", fontSize: 26 }} aria-hidden="true">☕</div>
+      <p style={{ margin: "16px 0 0", color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Store closed</p>
+      <h2 style={{ margin: "6px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, color: "#3D2B1F" }}>Waiting for the store to open</h2>
+      <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.6 }}>An admin opens the shift from the admin app. The register opens here by itself as soon as they do. Your attendance is already recorded.</p>
+      <button type="button" onClick={() => void checkNow()} disabled={checking} style={{ width: "100%", height: 48, marginTop: 20, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: checking ? "default" : "pointer" }}>{checking ? "Checking…" : "Check again"}</button>
+      <p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12.5 }}>Signed in as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch cashier</button></p>
+    </section>
+  </main>;
 }
 
 function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: string; onOpened: (shift: CurrentShift) => void; onSwitchCashier: () => void }) {
@@ -1894,6 +1921,20 @@ export default function App() {
     void refreshShift();
   }
 
+  // Used while waiting for the store to open: refreshes the shift and this cashier's permissions.
+  const checkForShift = useCallback(async () => {
+    await refreshShift();
+    try {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      if (response.ok) {
+        const payload = await response.json();
+        setUser((current) => current && payload.data ? { ...current, ...payload.data } : current);
+      }
+    } catch {
+      // Offline for a moment: try again on the next check.
+    }
+  }, [refreshShift]);
+
   function handleShiftOpened(opened: CurrentShift) {
     setShift(opened);
     setPage("pos");
@@ -1936,5 +1977,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
+  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
 }

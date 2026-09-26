@@ -3,8 +3,8 @@ import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 
-// A shift is the café's business day: opened and closed manually by any cashier, and it may
-// run past midnight. Totals come from the shift_summaries view (see shift-migration.sql).
+// A shift is the café's business day, and it may run past midnight. Admins open it (or a cashier
+// an admin allowed to), and any cashier can close it at the end of the night. Totals come from the shift_summaries view (see shift-migration.sql).
 
 type SummaryRow = Record<string, unknown>;
 
@@ -84,6 +84,9 @@ export async function POST(request: Request) {
   const client = await pool.connect();
   try {
     if (body.action === "open") {
+      if (!session.canOpenShift) {
+        return NextResponse.json({ error: "Only an admin, or a cashier an admin has allowed, can open the store." }, { status: 403 });
+      }
       const startingCash = parseAmount(body.starting_cash);
       if (startingCash === null) return NextResponse.json({ error: "Enter the starting cash in the drawer (0 or more)." }, { status: 400 });
 

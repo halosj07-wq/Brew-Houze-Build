@@ -52,6 +52,11 @@ export async function POST(request: Request) {
     if (inventoryResult.rows[0].is_whole_unit && !Number.isInteger(quantity)) {
       return NextResponse.json({ error: "Pieces quantity must be a whole number." }, { status: 400 });
     }
+    // Archived add-ons keep their name, so point to Archives instead of a bare "already exists".
+    const archivedDuplicate = await pool.query("SELECT 1 FROM additions WHERE addition_name = $1 AND is_active = FALSE", [additionName]);
+    if ((archivedDuplicate.rowCount ?? 0) > 0) {
+      return NextResponse.json({ error: "An archived add-on already has this name. Restore it from Archives, or use a different name." }, { status: 409 });
+    }
 
     const result = await pool.query(`
       INSERT INTO additions (addition_name, inventory_id, quantity, price)

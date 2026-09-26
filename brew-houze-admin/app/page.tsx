@@ -121,9 +121,6 @@ function IconUsers({ size = 20 }: { size?: number }) {
 function IconSearch({ size = 16 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
 }
-function IconEye({ size = 14 }: { size?: number }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>;
-}
 function IconCoffee({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
 }
@@ -842,7 +839,103 @@ function darkCashDifference(difference: number | null): { text: string; color: s
   return { text: label.text, color: difference > 0 ? "#FCD34D" : "#FCA5A5" };
 }
 
-function DashboardShiftCard({ shift, previousShift, now, onOpenReports }: { shift: DashboardShift | null; previousShift: DashboardShift | null; now: number; onOpenReports: () => void }) {
+// Opening and closing the store from the admin app (Dashboard shift card).
+function AdminOpenShiftDialog({ onClose, onOpened }: { onClose: () => void; onOpened: () => void }) {
+  const [startingCash, setStartingCash] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const amount = Number(startingCash);
+    if (startingCash.trim() === "" || !Number.isFinite(amount) || amount < 0) { setError("Enter the starting cash in the drawer (0 if it is empty)."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/shifts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "open", starting_cash: amount }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not open the store.");
+      onOpened();
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "Could not open the store.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Open the store">
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 440px)" }}>
+      <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: "#DCFCE7", color: "#15803D" }}>☕</div>
+      <h2>Open the store</h2>
+      <div className="ui-confirm-message">Starts today’s shift. Sales, queue numbers, attendance and stock changes are recorded under it until it is closed, even past midnight. The cashier app and mobile menu open right away.</div>
+      <label className="acc-money">
+        <span>Starting cash in the drawer</span>
+        <span className="acc-money-field"><b>₱</b><input data-autofocus type="number" min={0} step="0.01" inputMode="decimal" value={startingCash} onChange={(event) => setStartingCash(event.target.value)} placeholder="0.00" /></span>
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="ui-button ui-button-primary" disabled={saving} style={{ background: "#15803D" }}>{saving ? "Opening…" : "Open the store"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardShift; onClose: () => void; onClosed: () => void }) {
+  const [counted, setCounted] = useState("");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const countedAmount = counted.trim() === "" ? null : Number(counted);
+  const difference = countedAmount === null || !Number.isFinite(countedAmount) ? null : countedAmount - shift.expectedCash;
+  const differenceLabel = cashDifferenceLabel(difference);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (countedAmount === null || !Number.isFinite(countedAmount) || countedAmount < 0) { setError("Count the cash in the drawer and enter the amount."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/shifts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shift.shiftId, counted_cash: countedAmount, notes }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not close the shift.");
+      onClosed();
+    } catch (closeError) {
+      setError(closeError instanceof Error ? closeError.message : "Could not close the shift.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Close the shift">
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 480px)" }}>
+      <div className="ui-confirm-icon" data-tone="danger" aria-hidden="true">⏻</div>
+      <h2>Close shift #{shift.shiftId}</h2>
+      <div className="ui-confirm-message">Everyone still on duty is clocked out, the cashier app signs out, the queue clears, and the mobile menu shows the café as closed.</div>
+      <div className="acc-close-facts">
+        <div><span>Net sales</span><strong>{peso(shift.netSales)}</strong></div>
+        <div><span>Orders</span><strong>{shift.orderCount}</strong></div>
+        <div><span>Expected in drawer</span><strong>{peso(shift.expectedCash)}</strong></div>
+      </div>
+      <label className="acc-money">
+        <span>Cash counted in the drawer</span>
+        <span className="acc-money-field"><b>₱</b><input data-autofocus type="number" min={0} step="0.01" inputMode="decimal" value={counted} onChange={(event) => setCounted(event.target.value)} placeholder="0.00" /></span>
+        {difference !== null && <em style={{ color: differenceLabel.color }}>{differenceLabel.text}</em>}
+      </label>
+      <label className="acc-money">
+        <span>Notes <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+        <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} rows={2} placeholder="e.g. short because of a wrong change" style={{ ...packagingInput, resize: "vertical" }} />
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="ui-button ui-button-danger" disabled={saving}>{saving ? "Closing…" : "Close shift"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenStore, onCloseShift }: { shift: DashboardShift | null; previousShift: DashboardShift | null; now: number; onOpenReports: () => void; onOpenStore: () => void; onCloseShift: () => void }) {
   if (shift) {
     const paid = shift.cashSales + shift.onlineSales;
     const cashShare = paid > 0 ? (shift.cashSales / paid) * 100 : 0;
@@ -851,7 +944,10 @@ function DashboardShiftCard({ shift, previousShift, now, onOpenReports }: { shif
     return <section className="dash-shift">
       <div className="dash-shift-top">
         <span className="dash-shift-pill is-open"><span className="dash-live-dot" />Shift open</span>
-        <button type="button" className="dash-shift-link" onClick={onOpenReports}>Shift reports <IconChevron size={13} /></button>
+        <span className="flex items-center gap-2">
+          <button type="button" className="dash-shift-link" onClick={onOpenReports}>Reports <IconChevron size={13} /></button>
+          <button type="button" className="dash-shift-link is-close" onClick={onCloseShift}>Close shift</button>
+        </span>
       </div>
       <p className="dash-shift-label">Net sales this shift</p>
       <p className="dash-shift-value">{peso(shift.netSales)}</p>
@@ -893,7 +989,10 @@ function DashboardShiftCard({ shift, previousShift, now, onOpenReports }: { shif
       <p className="dash-shift-label">No shifts yet</p>
       <p className="dash-shift-value" style={{ fontSize: 30 }}>Ready to open</p>
     </>}
-    <p className="dash-shift-note">A cashier opens the next shift from the cashier app. Mobile ordering stays closed until then.</p>
+    <div className="dash-shift-open">
+      <button type="button" className="dash-open-store" onClick={onOpenStore}>Open the store</button>
+      <p className="dash-shift-note">Starts the shift and opens the cashier app and mobile menu. Cashiers you allow in Accounts & Employees can also open it from the counter.</p>
+    </div>
   </section>;
 }
 
@@ -902,6 +1001,7 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
   const [loadError, setLoadError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [shiftAction, setShiftAction] = useState<"open" | "close" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -1025,7 +1125,7 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
         <div className="dash-kpis">{[0, 1, 2, 3].map((index) => <div key={index} className="dash-skeleton" style={{ minHeight: 130 }} />)}</div>
       </div>) : <>
         <div className="dash-hero">
-          <DashboardShiftCard shift={data.shift} previousShift={data.previousShift} now={now} onOpenReports={() => onNavigate("finance")} />
+          <DashboardShiftCard shift={data.shift} previousShift={data.previousShift} now={now} onOpenReports={() => onNavigate("finance")} onOpenStore={() => setShiftAction("open")} onCloseShift={() => setShiftAction("close")} />
           <div className="dash-kpis">
             <DashKpi
               label="Sales · last 7 days"
@@ -1063,6 +1163,9 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
             />
           </div>
         </div>
+
+        {shiftAction === "open" && <AdminOpenShiftDialog onClose={() => setShiftAction(null)} onOpened={() => { setShiftAction(null); void load(); }} />}
+        {shiftAction === "close" && data.shift && <AdminCloseShiftDialog shift={data.shift} onClose={() => setShiftAction(null)} onClosed={() => { setShiftAction(null); void load(); }} />}
 
         <div className="dash-row">
           <DashCard
@@ -3504,39 +3607,8 @@ function ProductManagement({
   );
 }
 
-type SalesOrder = {
-  order_id: number;
-  total_amount: number;
-  received_amount?: number | null;
-  change_amount?: number | null;
-  payment_method?: string | null;
-  status: string;
-  created_at: string;
-  queue_number: number | null;
-  queue_status: string | null;
-  order_source: string | null;
-  punched_by: string;
-  items: { product_id: number; product_name: string; product_category: string | null; size_label: string; temperature?: "hot" | "cold" | "both" | null; quantity: number; unit_price: number; additions?: { addition_id: number; addition_name: string; quantity: number; unit_price?: number }[] }[];
-};
-type SalesSummary = { order_count: number; revenue: number; items_sold: number; cost_of_goods?: number; costed_revenue?: number; gross_profit?: number; uncosted_items?: number };
-type TopProduct = { product_name: string; quantity: number; revenue: number };
-type DailySale = { sale_date: string; order_count: number; revenue: number; items_sold: number };
-type ExportSections = { summary: boolean; dailySales: boolean; orderHistory: boolean; productSales: boolean };
-
-function formatSalesDate(value: string): string {
-  const rawValue = String(value ?? "").trim();
-  const date = new Date(`${rawValue.slice(0, 10)}T00:00:00+08:00`);
-  if (Number.isNaN(date.getTime())) return rawValue || "Unknown date";
-  return date.toLocaleDateString(undefined, { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric", year: "numeric" });
-}
-
 function formatFinanceDateTime(value: string): string {
   return new Date(value).toLocaleString(undefined, { timeZone: "Asia/Manila" });
-}
-
-function getPaymentMethodLabel(order: Pick<SalesOrder, "payment_method" | "order_source">): string {
-  if (order.payment_method !== "online") return "Cash Payment";
-  return order.order_source === "online" ? "Mobile Menu Payment" : "Cashier Online Payment";
 }
 
 function getFinanceDateStamp(): string {
@@ -3599,7 +3671,7 @@ function cashDifferenceLabel(difference: number | null): { text: string; color: 
   return difference > 0 ? { text: `+${peso(difference)} over`, color: "#B45309" } : { text: `−${peso(-difference)} short`, color: "#B91C1C" };
 }
 
-function ShiftReports({ period }: { period: string }) {
+function ShiftReports({ start, end }: { start: string; end: string }) {
   const [shifts, setShifts] = useState<ShiftReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -3609,8 +3681,9 @@ function ShiftReports({ period }: { period: string }) {
   useEffect(() => {
     let active = true;
     (async () => {
+      setLoading(true);
       try {
-        const response = await fetch(`/api/shifts?period=${period}`, { cache: "no-store" });
+        const response = await fetch(`/api/shifts?start=${start}&end=${end}`, { cache: "no-store" });
         const payload = await response.json() as { data?: ShiftReport[]; error?: string };
         if (!response.ok) throw new Error(payload.error || "Unable to load shift reports.");
         if (active) { setShifts(payload.data ?? []); setError(""); }
@@ -3621,7 +3694,7 @@ function ShiftReports({ period }: { period: string }) {
       }
     })();
     return () => { active = false; };
-  }, [period]);
+  }, [start, end]);
 
   async function openDetail(shiftId: number) {
     setDetailLoadingId(shiftId);
@@ -3691,50 +3764,54 @@ function ShiftReports({ period }: { period: string }) {
     XLSX.writeFile(workbook, `brew-houze-shift-${summary.shiftId}-${summary.businessDate}.xlsx`);
   }
 
-  const th: React.CSSProperties = { padding: "10px 12px", textAlign: "left", color: "#9C8278", fontSize: 10, fontFamily: "JetBrains Mono, monospace", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap", borderBottom: "1px solid #E8DDD5" };
-  const td: React.CSSProperties = { padding: "11px 12px", fontSize: 12.5, color: "#3D2B1F", borderBottom: "1px solid #F0E8E2", whiteSpace: "nowrap" };
+  const [drawerFilter, setDrawerFilter] = useState<"all" | "open" | "balanced" | "short" | "over" | "uncounted">("all");
+  const [staffFilter, setStaffFilter] = useState("all");
+  const drawerState = (shift: ShiftReport) => shift.closedAt === null ? "open" as const : shift.isHistorical || shift.cashDifference === null ? "uncounted" as const : Math.abs(shift.cashDifference) < 0.005 ? "balanced" as const : shift.cashDifference > 0 ? "over" as const : "short" as const;
+  const staffNames = Array.from(new Set(shifts.flatMap((shift) => [shift.openedByName, shift.closedByName]).filter((name): name is string => Boolean(name)))).sort((a, b) => a.localeCompare(b));
+  const shownShifts = shifts.filter((shift) => (drawerFilter === "all" || drawerState(shift) === drawerFilter) && (staffFilter === "all" || shift.openedByName === staffFilter || shift.closedByName === staffFilter));
+  const counted = shownShifts.filter((shift) => drawerState(shift) !== "open" && drawerState(shift) !== "uncounted");
+  const netDifference = counted.reduce((sum, shift) => sum + (shift.cashDifference ?? 0), 0);
+  const shortCount = counted.filter((shift) => drawerState(shift) === "short").length;
+  const overCount = counted.filter((shift) => drawerState(shift) === "over").length;
+  const totalNet = shownShifts.reduce((sum, shift) => sum + shift.netSales, 0);
+  const differenceLabel = cashDifferenceLabel(counted.length ? netDifference : null);
 
-  return <section className="mb-7">
-    <div className="flex items-end justify-between mb-3 gap-3 flex-wrap">
-      <div>
-        <h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Shifts</h3>
-        <p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Each shift is one business day, opened and closed from the cashier app, even past midnight. Voids and refunds count in the shift they happened in.</p>
-      </div>
+  return <section className="flex flex-col gap-4">
+    <div className="inv-summary">
+      <div className="inv-stat is-static"><span>Shifts</span><strong>{shownShifts.length}</strong><em>{shownShifts.filter((shift) => shift.closedAt === null).length} open now</em></div>
+      <div className="inv-stat is-static"><span>Net sales</span><strong>{peso(totalNet)}</strong><em>{shownShifts.length ? `${peso(totalNet / shownShifts.length)} per shift` : "—"}</em></div>
+      <button type="button" className="inv-stat is-low" aria-pressed={drawerFilter === "short"} onClick={() => setDrawerFilter(drawerFilter === "short" ? "all" : "short")}><span>Cash over / short</span><strong style={{ color: differenceLabel.color }}>{counted.length ? differenceLabel.text : "—"}</strong><em>{shortCount} short · {overCount} over · {counted.length} counted</em></button>
+      <div className="inv-stat is-static"><span>Voids & refunds</span><strong>{shownShifts.reduce((sum, shift) => sum + shift.voidCount + shift.refundCount, 0)}</strong><em>−{peso(shownShifts.reduce((sum, shift) => sum + shift.reversedAmount, 0))}</em></div>
     </div>
-    {error && <p style={{ color: "#B91C1C", fontSize: 13, margin: "0 0 10px" }}>{error}</p>}
-    <div className="rounded-2xl" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden" }}>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr style={{ background: "#F3EDE5" }}>
-            <th style={th}>Shift</th><th style={th}>Business date</th><th style={th}>Opened → Closed</th><th style={{ ...th, textAlign: "right" }}>Orders</th><th style={{ ...th, textAlign: "right" }}>Net sales</th><th style={{ ...th, textAlign: "right" }}>Voids / Refunds</th><th style={{ ...th, textAlign: "right" }}>Expected cash</th><th style={{ ...th, textAlign: "right" }}>Counted</th><th style={th}>Drawer</th><th style={th} />
-          </tr></thead>
-          <tbody>
-            {loading && shifts.length === 0 && <tr><td colSpan={10} style={{ ...td, color: "#9C8278", textAlign: "center", padding: 24 }}>Loading shifts…</td></tr>}
-            {!loading && shifts.length === 0 && <tr><td colSpan={10} style={{ ...td, color: "#9C8278", textAlign: "center", padding: 24 }}>No shifts in this period.</td></tr>}
-            {shifts.map((shift) => {
-              const open = shift.closedAt === null;
-              const longOpen = open && shift.hoursOpen >= LONG_OPEN_SHIFT_HOURS;
-              const difference = cashDifferenceLabel(shift.cashDifference);
-              return <tr key={shift.shiftId} style={{ background: open ? (longOpen ? "#FFFBEB" : "#F0FDF4") : undefined }}>
-                <td style={td}><strong>#{shift.shiftId}</strong>{shift.isHistorical && <span title="Created from calendar-day records before shifts were introduced" style={{ marginLeft: 6, padding: "1px 6px", borderRadius: 6, background: "#F3EDE5", color: "#9C8278", fontSize: 10 }}>historical</span>}</td>
-                <td style={td}>{shiftBusinessDate(shift.businessDate)}</td>
-                <td style={td}>
-                  {shiftTime(shift.openedAt)} → {open ? <strong style={{ color: longOpen ? "#B45309" : "#15803D" }}>{longOpen ? `Open ${Math.floor(shift.hoursOpen)}h — not closed yet` : "Open now"}</strong> : shiftTime(shift.closedAt)}
-                  {(shift.openedByName || shift.closedByName) && <div style={{ color: "#9C8278", fontSize: 11, marginTop: 2 }}>{shift.openedByName ?? "—"}{shift.closedByName ? ` → ${shift.closedByName}` : ""}</div>}
-                </td>
-                <td style={{ ...td, textAlign: "right" }}>{shift.orderCount}</td>
-                <td style={{ ...td, textAlign: "right", fontWeight: 800 }}>{peso(shift.netSales)}</td>
-                <td style={{ ...td, textAlign: "right", color: shift.reversedAmount > 0 ? "#B91C1C" : "#9C8278" }}>{shift.voidCount + shift.refundCount > 0 ? `${shift.voidCount + shift.refundCount} · −${peso(shift.reversedAmount)}` : "—"}</td>
-                <td style={{ ...td, textAlign: "right" }}>{shift.isHistorical ? "—" : peso(shift.expectedCash)}</td>
-                <td style={{ ...td, textAlign: "right" }}>{shift.countedCash === null ? "—" : peso(shift.countedCash)}</td>
-                <td style={{ ...td, color: difference.color, fontWeight: 700 }}>{shift.isHistorical ? "—" : open ? "Not counted yet" : difference.text}</td>
-                <td style={{ ...td, textAlign: "right" }}><button type="button" onClick={() => void openDetail(shift.shiftId)} disabled={detailLoadingId !== null} style={{ border: "1px solid #E8DDD5", background: "#FFFFFF", color: "#6B4C3B", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{detailLoadingId === shift.shiftId ? "Loading…" : "View"}</button></td>
-              </tr>;
-            })}
-          </tbody>
-        </table>
+    <div className="inv-toolbar">
+      <div className="inv-range" role="group" aria-label="Cash drawer">
+        {([["all", "All"], ["open", "Open"], ["balanced", "Balanced"], ["short", "Short"], ["over", "Over"], ["uncounted", "Not counted"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={drawerFilter === id} onClick={() => setDrawerFilter(id)}>{label}</button>)}
       </div>
+      <label className="inv-filter"><span>Opened or closed by</span>
+        <select value={staffFilter} onChange={(event) => setStaffFilter(event.target.value)} className={`inv-select${staffFilter !== "all" ? " is-active" : ""}`}>
+          <option value="all">Anyone</option>{staffNames.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      </label>
     </div>
+    <p className="inv-hint">Each shift is one business day, opened and closed from the cashier app, even past midnight. Voids and refunds count in the shift they happened in. Tap a shift for its full report and Excel export.</p>
+    {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+    {loading && shifts.length === 0 ? <div className="inv-empty">Loading shifts…</div>
+      : shownShifts.length === 0 ? <div className="inv-empty">{shifts.length === 0 ? "No shifts in this period." : "No shifts match these filters."}</div>
+        : <div className="fin-shift-list">
+          {shownShifts.map((shift) => {
+            const state = drawerState(shift);
+            const longOpen = state === "open" && shift.hoursOpen >= LONG_OPEN_SHIFT_HOURS;
+            const difference = cashDifferenceLabel(shift.cashDifference);
+            const reversals = shift.voidCount + shift.refundCount;
+            return <button key={shift.shiftId} type="button" className={`fin-shift is-${state}${longOpen ? " is-long" : ""}`} onClick={() => void openDetail(shift.shiftId)} disabled={detailLoadingId !== null}>
+              <span className="fin-shift-date"><strong>{shiftBusinessDate(shift.businessDate)}</strong><span>Shift #{shift.shiftId}{shift.isHistorical ? " · historical" : ""}</span></span>
+              <span className="fin-shift-time"><strong>{clockTime(shift.openedAt)} → {shift.closedAt ? clockTime(shift.closedAt) : "now"}</strong><span>{shift.openedByName ?? "—"}{shift.closedByName ? ` → ${shift.closedByName}` : ""} · {shift.hoursOpen < 1 ? `${Math.round(shift.hoursOpen * 60)}m` : `${shift.hoursOpen.toFixed(1)}h`}</span></span>
+              <span className="fin-cell"><strong>{peso(shift.netSales)}</strong><span>{shift.orderCount} order{shift.orderCount === 1 ? "" : "s"}{reversals ? ` · ${reversals} void/refund` : ""}</span></span>
+              <span className="fin-cell"><strong>{shift.isHistorical ? "—" : peso(shift.expectedCash)}</strong><span>{shift.countedCash === null ? "expected in drawer" : `counted ${peso(shift.countedCash)}`}</span></span>
+              <span className={`fin-drawer is-${state}`}>{detailLoadingId === shift.shiftId ? "Opening…" : state === "open" ? (longOpen ? `Open ${Math.floor(shift.hoursOpen)}h` : "Open now") : state === "uncounted" ? "Not counted" : difference.text}</span>
+            </button>;
+          })}
+        </div>}
 
     {detail && (() => {
       const summary = detail.summary;
@@ -3809,334 +3886,832 @@ function ShiftReports({ period }: { period: string }) {
   </section>;
 }
 
-function Finance() {
-  const confirmAction = useConfirm();
-  const [orders, setOrders] = useState<SalesOrder[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [clearingRecords, setClearingRecords] = useState(false);
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
-  const [clearConfirmation, setClearConfirmation] = useState("");
-  const [period, setPeriod] = useState<"7" | "30" | "90" | "all">("30");
-  const [dailySalesDate, setDailySalesDate] = useState("");
-  const [orderHistoryDate, setOrderHistoryDate] = useState("");
-  const [summary, setSummary] = useState<SalesSummary>({ order_count: 0, revenue: 0, items_sold: 0 });
-  const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
-  const [dailySales, setDailySales] = useState<DailySale[]>([]);
-  const [selectedDailyDate, setSelectedDailyDate] = useState("");
-  const [dailyDetailOrders, setDailyDetailOrders] = useState<SalesOrder[]>([]);
-  const [dailyDetailLoading, setDailyDetailLoading] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
-  const [exportMode, setExportMode] = useState<"period" | "date" | "range">("period");
-  const [exportDate, setExportDate] = useState("");
-  const [exportStart, setExportStart] = useState("");
-  const [exportEnd, setExportEnd] = useState("");
-  const [exportSections, setExportSections] = useState<ExportSections>({ summary: true, dailySales: true, orderHistory: true, productSales: true });
-  const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState("");
-  const salesSignatureRef = useRef("");
+// ─── Finance ─────────────────────────────────────────────────────────────────
+// One date bar drives three views: Overview (how the café did, against the period before),
+// Shifts (did each cash drawer balance) and Orders (find any transaction). Everything uses
+// business dates, so a night that runs past midnight stays one day.
 
-  const loadOrders = useCallback(async (showLoading = true) => {
-    if (showLoading) setLoading(true);
-    if (showLoading) setError("");
-    try {
-      if (!showLoading) {
-        const signatureResponse = await fetch("/api/sales-orders?signatureOnly=1", { cache: "no-store" });
-        const signaturePayload = await signatureResponse.json();
-        if (!signatureResponse.ok) throw new Error(signaturePayload?.error || "Failed to check sales changes.");
-        const nextSignature = JSON.stringify(signaturePayload.signature ?? {});
-        if (salesSignatureRef.current === nextSignature && !dailySalesDate && !orderHistoryDate) return;
-        salesSignatureRef.current = nextSignature;
-      }
-      const query = new URLSearchParams({ period });
-      if (dailySalesDate) query.set("daily_date", dailySalesDate);
-      if (orderHistoryDate) query.set("history_date", orderHistoryDate);
-      const response = await fetch(`/api/sales-orders?${query.toString()}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to load sales records.");
-      if (showLoading) {
-        const signatureResponse = await fetch("/api/sales-orders?signatureOnly=1", { cache: "no-store" });
-        const signaturePayload = await signatureResponse.json();
-        if (signatureResponse.ok) salesSignatureRef.current = JSON.stringify(signaturePayload.signature ?? {});
-      }
-      const nextOrders = payload.data ?? [];
-      const nextSummary = payload.summary ?? { order_count: 0, revenue: 0, items_sold: 0 };
-      const nextTopProducts = payload.topProducts ?? [];
-      const nextDailySales = payload.dailySales ?? [];
-      setOrders((current) => JSON.stringify(current) === JSON.stringify(nextOrders) ? current : nextOrders);
-      setSummary((current) => JSON.stringify(current) === JSON.stringify(nextSummary) ? current : nextSummary);
-      setTopProducts((current) => JSON.stringify(current) === JSON.stringify(nextTopProducts) ? current : nextTopProducts);
-      setDailySales((current) => JSON.stringify(current) === JSON.stringify(nextDailySales) ? current : nextDailySales);
-    } catch (loadError) {
-      if (showLoading) setError(loadError instanceof Error ? loadError.message : "Failed to load sales records.");
-    } finally {
-      if (showLoading) setLoading(false);
+type FinanceTotals = {
+  orders: number; netSales: number; grossSales: number; voids: number; refunds: number; reversedAmount: number;
+  cashSales: number; counterOnlineSales: number; mobileSales: number; mobileOrders: number; itemsSold: number;
+  costOfGoods: number; costedRevenue: number; grossProfit: number; uncostedItems: number;
+};
+type FinanceOverviewData = {
+  range: { start: string; end: string; days: number };
+  previousRange: { start: string; end: string };
+  current: FinanceTotals;
+  previous: FinanceTotals;
+  daily: { day: string; orders: number; netSales: number; reversedAmount: number }[];
+  categories: { name: string; quantity: number; revenue: number }[];
+  products: { productId: number; name: string; category: string; quantity: number; revenue: number; cost: number | null }[];
+  addons: { name: string; quantity: number; revenue: number }[];
+  hours: { hour: number; orders: number; revenue: number }[];
+  staff: { name: string; role: string; orders: number; revenue: number; reversedOrders: number; reversedAmount: number }[];
+};
+type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] };
+type FinanceOrder = {
+  orderId: number; queueNumber: number | null; status: string; reversed: boolean; total: number; paymentMethod: string; orderSource: string;
+  received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
+  businessDate: string; createdAt: string; reversedAt: string | null; punchedBy: string; reversedBy: string | null; cost: number | null; items: FinanceOrderItem[];
+};
+type FinanceTab = "overview" | "shifts" | "orders";
+type OrdersPreset = { status?: OrderStatusFilter; cashier?: string; category?: string; channel?: OrderChannelFilter };
+type OrderStatusFilter = "all" | "completed" | "voided" | "refunded" | "reversed";
+type OrderChannelFilter = "all" | "cash" | "online" | "mobile";
+
+function financePresets(today: string) {
+  const weekday = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7;
+  return [
+    { id: "today", label: "Today", start: today, end: today },
+    { id: "yesterday", label: "Yesterday", start: addDays(today, -1), end: addDays(today, -1) },
+    { id: "week", label: "This week", start: addDays(today, -weekday), end: today },
+    { id: "7", label: "Last 7 days", start: addDays(today, -6), end: today },
+    { id: "month", label: "This month", start: `${today.slice(0, 8)}01`, end: today },
+    { id: "30", label: "Last 30 days", start: addDays(today, -29), end: today },
+    { id: "90", label: "Last 90 days", start: addDays(today, -89), end: today },
+  ];
+}
+
+function formatRange(start: string, end: string): string {
+  const date = (day: string, options: Intl.DateTimeFormatOptions) => new Date(`${day}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", ...options });
+  if (start === end) return date(start, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const sameYear = start.slice(0, 4) === end.slice(0, 4);
+  return `${date(start, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })} – ${date(end, { month: "short", day: "numeric", year: "numeric" })}`;
+}
+
+function orderChannel(order: Pick<FinanceOrder, "orderSource" | "paymentMethod">): "mobile" | "online" | "cash" {
+  if (order.orderSource === "online") return "mobile";
+  return order.paymentMethod === "cash" ? "cash" : "online";
+}
+const channelLabels = { cash: "Cash", online: "Online at counter", mobile: "Mobile menu" } as const;
+
+function orderStatusOf(order: Pick<FinanceOrder, "status">): "completed" | "voided" | "refunded" {
+  const status = order.status.toLowerCase();
+  if (status.startsWith("void")) return "voided";
+  if (status.startsWith("refund")) return "refunded";
+  return "completed";
+}
+
+function describeItems(items: FinanceOrderItem[]): string {
+  return items.map((item) => `${item.productName}${item.size && item.size !== "Regular" ? ` ${item.size}` : ""}${item.temperature === "hot" ? " Hot" : item.temperature === "cold" ? " Cold" : ""}${item.quantity > 1 ? ` ×${item.quantity}` : ""}${item.additions.length ? ` + ${item.additions.map((addition) => addition.name).join(", ")}` : ""}`).join(", ") || "Order";
+}
+
+function FinanceDelta({ current, previous, invert = false }: { current: number; previous: number; invert?: boolean }) {
+  if (previous === 0) return <span className="fin-delta">{current > 0 ? "No sales in the period before" : "Same as the period before"}</span>;
+  const change = ((current - previous) / Math.abs(previous)) * 100;
+  if (Math.abs(change) < 0.5) return <span className="fin-delta">About the same as before</span>;
+  const good = invert ? change < 0 : change > 0;
+  return <span className="fin-delta"><b className={good ? "dash-up" : "dash-down"}>{change > 0 ? "▲" : "▼"} {Math.abs(change).toFixed(0)}%</b> vs the period before</span>;
+}
+
+function FinanceKpi({ label, value, note, onClick, accent }: { label: string; value: React.ReactNode; note: React.ReactNode; onClick?: () => void; accent?: string }) {
+  const content = <>
+    <span className="fin-kpi-label">{label}</span>
+    <strong className="fin-kpi-value" style={accent ? { color: accent } : undefined}>{value}</strong>
+    <span className="fin-kpi-note">{note}</span>
+  </>;
+  return onClick ? <button type="button" className="fin-kpi is-link" onClick={onClick}>{content}</button> : <div className="fin-kpi">{content}</div>;
+}
+
+function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewData; today: string; onOpenOrders: (preset: OrdersPreset) => void }) {
+  const [productSort, setProductSort] = useState<"revenue" | "quantity">("revenue");
+  const [showAllProducts, setShowAllProducts] = useState(false);
+  const { current, previous } = data;
+  const average = current.orders ? current.netSales / current.orders : 0;
+  const previousAverage = previous.orders ? previous.netSales / previous.orders : 0;
+  const margin = current.costedRevenue > 0 ? (current.grossProfit / current.costedRevenue) * 100 : null;
+  const reversedCount = current.voids + current.refunds;
+  const paid = current.cashSales + current.counterOnlineSales + current.mobileSales;
+  const share = (value: number, total: number) => total > 0 ? (value / total) * 100 : 0;
+
+  // Daily bars up to a month, weekly bars beyond that.
+  const trendBars: DashBar[] = data.daily.length <= 31
+    ? data.daily.map((day) => {
+      const date = new Date(`${day.day}T00:00:00+08:00`);
+      return {
+        key: day.day,
+        label: day.day === today ? "Today" : data.daily.length <= 8 ? date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short" }) : String(Number(day.day.slice(8))),
+        sub: data.daily.length <= 8 ? date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" }) : undefined,
+        value: day.netSales,
+        highlight: day.day === today,
+        title: `${formatRange(day.day, day.day)}: ${peso(day.netSales)} from ${day.orders} order${day.orders === 1 ? "" : "s"}${day.reversedAmount > 0 ? ` · ${peso(day.reversedAmount)} voided or refunded` : ""}`,
+      };
+    })
+    : Array.from({ length: Math.ceil(data.daily.length / 7) }, (_, index) => data.daily.slice(index * 7, index * 7 + 7)).map((week) => {
+      const total = week.reduce((sum, day) => sum + day.netSales, 0);
+      const orders = week.reduce((sum, day) => sum + day.orders, 0);
+      return {
+        key: week[0].day,
+        label: new Date(`${week[0].day}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" }),
+        value: total,
+        highlight: week.some((day) => day.day === today),
+        title: `${formatRange(week[0].day, week[week.length - 1].day)}: ${peso(total)} from ${orders} orders`,
+      };
+    });
+  const bestDay = data.daily.reduce<(typeof data.daily)[number] | null>((top, day) => day.netSales > (top?.netSales ?? 0) ? day : top, null);
+
+  const hoursWithSales = data.hours.filter((entry) => entry.orders > 0);
+  const hourBars: DashBar[] = hoursWithSales.length === 0 ? [] : (() => {
+    const byHour = new Map(data.hours.map((entry) => [entry.hour, entry]));
+    const busy = new Set(hoursWithSales.map((entry) => entry.hour));
+    let first = hoursWithSales[0].hour;
+    let longestGap = -1;
+    for (let hour = 0; hour < 24; hour += 1) {
+      if (!busy.has(hour) || busy.has((hour + 1) % 24)) continue;
+      let gap = 0;
+      while (gap < 24 && !busy.has((hour + 1 + gap) % 24)) gap += 1;
+      if (gap > longestGap) { longestGap = gap; first = (hour + 1 + gap) % 24; }
     }
-  }, [period, dailySalesDate, orderHistoryDate]);
+    const span = 24 - Math.max(0, longestGap);
+    return Array.from({ length: span }, (_, index) => {
+      const hour = (first + index) % 24;
+      const entry = byHour.get(hour);
+      return { key: String(hour), label: hourLabel(hour), value: entry?.revenue ?? 0, title: `${hourLabel(hour)}–${hourLabel((hour + 1) % 24)}: ${peso(entry?.revenue ?? 0)} from ${entry?.orders ?? 0} orders` };
+    });
+  })();
+  const peakHour = hoursWithSales.reduce<(typeof hoursWithSales)[number] | null>((top, entry) => entry.revenue > (top?.revenue ?? 0) ? entry : top, null);
+
+  const weekdayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weekdayStats = weekdayNames.map((name, index) => {
+    const days = data.daily.filter((day) => (new Date(`${day.day}T00:00:00Z`).getUTCDay() + 6) % 7 === index);
+    const total = days.reduce((sum, day) => sum + day.netSales, 0);
+    return { name, days: days.length, average: days.length ? total / days.length : 0 };
+  });
+  const weekdayBars: DashBar[] = weekdayStats.map((entry) => ({ key: entry.name, label: entry.name, value: entry.average, title: `${entry.name}: ${peso(entry.average)} on average over ${entry.days} day${entry.days === 1 ? "" : "s"}` }));
+  const bestWeekday = weekdayStats.reduce<(typeof weekdayStats)[number] | null>((top, entry) => entry.average > (top?.average ?? 0) ? entry : top, null);
+
+  const products = [...data.products].sort((a, b) => productSort === "revenue" ? b.revenue - a.revenue : b.quantity - a.quantity);
+  const productTop = Math.max(1, ...products.map((product) => productSort === "revenue" ? product.revenue : product.quantity));
+  const categoryTotal = data.categories.reduce((sum, category) => sum + category.revenue, 0);
+
+  return <div className="flex flex-col gap-4">
+    <div className="fin-kpis">
+      <FinanceKpi label="Net sales" value={peso(current.netSales)} note={<><FinanceDelta current={current.netSales} previous={previous.netSales} /><span className="fin-kpi-hint">Paid orders, after voids and refunds</span></>} />
+      <FinanceKpi label="Orders" value={current.orders} note={<><FinanceDelta current={current.orders} previous={previous.orders} /><span className="fin-kpi-hint">{current.itemsSold} items sold{current.mobileOrders ? ` · ${current.mobileOrders} from mobile` : ""}</span></>} />
+      <FinanceKpi label="Average order" value={peso(average)} note={<><FinanceDelta current={average} previous={previousAverage} /><span className="fin-kpi-hint">Net sales ÷ orders</span></>} />
+      <FinanceKpi label="Gross profit" value={margin === null ? "—" : peso(current.grossProfit)} accent={current.grossProfit < 0 ? "#B91C1C" : "#15803D"} note={margin === null
+        ? <span className="fin-kpi-hint">{current.orders ? "Set item costs in Inventory to see profit" : "No sales yet"}</span>
+        : <><span className="fin-delta"><b>{margin.toFixed(0)}% margin</b> · cost {peso(current.costOfGoods)}</span>{current.uncostedItems > 0 && <span className="fin-kpi-hint is-warn">{current.uncostedItems} item{current.uncostedItems === 1 ? "" : "s"} without a cost not counted</span>}</>} />
+      <FinanceKpi label="Voids & refunds" value={reversedCount} accent={reversedCount ? "#B91C1C" : undefined} onClick={reversedCount ? () => onOpenOrders({ status: "reversed" }) : undefined} note={<><span className="fin-delta">{reversedCount ? <>−{peso(current.reversedAmount)} · {current.voids} void{current.voids === 1 ? "" : "s"}, {current.refunds} refund{current.refunds === 1 ? "" : "s"}</> : "None in this period"}</span>{reversedCount > 0 && <span className="fin-kpi-hint">Tap to see them</span>}</>} />
+    </div>
+
+    <div className="fin-row">
+      <DashCard title={data.daily.length <= 31 ? "Sales by day" : "Sales by week"} sub={<>{peso(current.netSales)} over {data.range.days} business day{data.range.days === 1 ? "" : "s"}{bestDay && bestDay.netSales > 0 && data.daily.length > 1 ? <> · best day {formatRange(bestDay.day, bestDay.day)} ({peso(bestDay.netSales)})</> : null}</>}>
+        <DashBars bars={trendBars} emptyLabel="No sales in this period." />
+      </DashCard>
+      <DashCard title="How customers paid" sub="Share of net sales by payment">
+        {paid === 0 ? <p className="dash-empty">No paid orders in this period.</p> : <>
+          <div className="fin-mix" aria-hidden="true">
+            <span className="is-cash" style={{ width: `${share(current.cashSales, paid)}%` }} />
+            <span className="is-online" style={{ width: `${share(current.counterOnlineSales, paid)}%` }} />
+            <span className="is-mobile" style={{ width: `${share(current.mobileSales, paid)}%` }} />
+          </div>
+          <ul className="fin-mix-list">
+            {([["cash", current.cashSales, "Paid in cash at the counter"], ["online", current.counterOnlineSales, "Paid online at the counter"], ["mobile", current.mobileSales, `${current.mobileOrders} order${current.mobileOrders === 1 ? "" : "s"} from the mobile menu`]] as const).map(([key, value, hint]) => <li key={key}>
+              <button type="button" onClick={() => onOpenOrders({ status: "completed", channel: key })}>
+                <i className={`is-${key}`} />
+                <span><strong>{channelLabels[key]}</strong><em>{hint}</em></span>
+                <span className="fin-mix-value"><strong>{peso(value)}</strong><em>{share(value, paid).toFixed(0)}%</em></span>
+              </button>
+            </li>)}
+          </ul>
+        </>}
+      </DashCard>
+    </div>
+
+    <div className="fin-row is-flipped">
+      <DashCard title="Sales by category" sub="Includes add-ons on those drinks">
+        {data.categories.length === 0 ? <p className="dash-empty">No sales in this period.</p> : <ul className="fin-bars">
+          {data.categories.map((category) => <li key={category.name}>
+            <button type="button" onClick={() => onOpenOrders({ status: "completed", category: category.name })} title="Show these orders">
+              <span className="fin-bars-line"><strong>{category.name}</strong><span>{peso(category.revenue)}</span></span>
+              <span className="dash-meter"><span style={{ width: `${share(category.revenue, categoryTotal)}%` }} /></span>
+              <span className="fin-bars-sub"><span>{category.quantity} sold</span><span>{share(category.revenue, categoryTotal).toFixed(0)}%</span></span>
+            </button>
+          </li>)}
+        </ul>}
+      </DashCard>
+      <DashCard title="Products" sub="What sold, and what it earned" action={data.products.length > 0 ? <div className="fin-toggle" role="group" aria-label="Rank products by">
+        <button type="button" aria-pressed={productSort === "revenue"} onClick={() => setProductSort("revenue")}>Sales</button>
+        <button type="button" aria-pressed={productSort === "quantity"} onClick={() => setProductSort("quantity")}>Quantity</button>
+      </div> : undefined}>
+        {products.length === 0 ? <p className="dash-empty">No sales in this period.</p> : <>
+          <div className="fin-table-wrap">
+            <table className="fin-table">
+              <thead><tr><th>#</th><th>Product</th><th className="is-num">Sold</th><th className="is-num">Sales</th><th className="is-num">Margin</th></tr></thead>
+              <tbody>
+                {(showAllProducts ? products : products.slice(0, 8)).map((product, index) => <tr key={product.productId}>
+                  <td><span className={`dash-rank-num${index === 0 ? " is-first" : ""}`}>{index + 1}</span></td>
+                  <td>
+                    <strong>{product.name}</strong>
+                    <span className="fin-table-sub">{product.category}</span>
+                    <span className="dash-meter is-small" style={{ marginLeft: 0, width: "100%", maxWidth: 180 }}><span style={{ width: `${((productSort === "revenue" ? product.revenue : product.quantity) / productTop) * 100}%` }} /></span>
+                  </td>
+                  <td className="is-num">{product.quantity}</td>
+                  <td className="is-num"><strong>{peso(product.revenue)}</strong></td>
+                  <td className="is-num">{product.cost === null || product.revenue <= 0 ? <span className="menu-muted">—</span> : <span className={(product.revenue - product.cost) / product.revenue < 0.3 ? "dash-warn" : "dash-up"}>{Math.round(((product.revenue - product.cost) / product.revenue) * 100)}%</span>}</td>
+                </tr>)}
+              </tbody>
+            </table>
+          </div>
+          {products.length > 8 && <button type="button" className="inv-link" style={{ alignSelf: "center", marginTop: 10 }} onClick={() => setShowAllProducts((value) => !value)}>{showAllProducts ? "Show top 8" : `Show all ${products.length}`}</button>}
+        </>}
+      </DashCard>
+    </div>
+
+    <div className="fin-row-3">
+      <DashCard title="Busiest hours" sub={peakHour ? <>Peak {hourLabel(peakHour.hour)}–{hourLabel((peakHour.hour + 1) % 24)} · {peso(peakHour.revenue)}</> : "When orders come in"}>
+        {hourBars.length ? <DashBars bars={hourBars} emptyLabel="No orders." /> : <p className="dash-empty">No orders in this period.</p>}
+      </DashCard>
+      <DashCard title="Average by weekday" sub={data.range.days >= 7 && bestWeekday && bestWeekday.average > 0 ? <>{bestWeekday.name} sells the most ({peso(bestWeekday.average)} a day)</> : "Net sales per business day"}>
+        {data.range.days >= 7 ? <DashBars bars={weekdayBars} emptyLabel="No sales in this period." /> : <p className="dash-empty">Pick 7 days or more to compare weekdays.</p>}
+      </DashCard>
+      <DashCard title="Add-ons" sub="Extras attached to drinks">
+        {data.addons.length === 0 ? <p className="dash-empty">No add-ons sold in this period.</p> : <ul className="fin-simple-list">
+          {data.addons.map((addon) => <li key={addon.name}><span><strong>{addon.name}</strong><em>{formatAmount(addon.quantity)} sold</em></span><strong>{peso(addon.revenue)}</strong></li>)}
+        </ul>}
+      </DashCard>
+    </div>
+
+    <DashCard title="Sales by staff" sub="Orders each person punched in, and voids or refunds on those orders. Tap a row to see the orders.">
+      {data.staff.length === 0 ? <p className="dash-empty">No orders in this period.</p> : <div className="fin-table-wrap">
+        <table className="fin-table is-clickable">
+          <thead><tr><th>Punched by</th><th className="is-num">Orders</th><th className="is-num">Net sales</th><th className="is-num">Average</th><th className="is-num">Voids &amp; refunds</th></tr></thead>
+          <tbody>
+            {data.staff.map((person) => <tr key={person.name} onClick={() => onOpenOrders({ cashier: person.name })} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter") onOpenOrders({ cashier: person.name }); }}>
+              <td><span className="fin-person">{person.role === "online" ? <span className="menu-addon-icon" style={{ width: 28, height: 28 }}><IconCoffee size={14} /></span> : <UserAvatar name={person.name} size={28} />}<span><strong>{person.name}</strong><span className="fin-table-sub">{person.role === "online" ? "Customers ordering ahead" : person.role ? person.role[0].toUpperCase() + person.role.slice(1) : ""}</span></span></span></td>
+              <td className="is-num">{person.orders}</td>
+              <td className="is-num"><strong>{peso(person.revenue)}</strong></td>
+              <td className="is-num">{person.orders ? peso(person.revenue / person.orders) : "—"}</td>
+              <td className="is-num">{person.reversedOrders ? <span className="dash-down">{person.reversedOrders} · −{peso(person.reversedAmount)}</span> : <span className="menu-muted">None</span>}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>}
+    </DashCard>
+  </div>;
+}
+
+// ─── Orders: every transaction in the range, with detailed filters ────────────
+const ORDERS_PAGE_SIZE = 50;
+
+function FinanceOrderDialog({ order, onClose, onArchived }: { order: FinanceOrder; onClose: () => void; onArchived: (orderId: number) => void }) {
+  const confirmAction = useConfirm();
+  const [archiving, setArchiving] = useState(false);
+  const [error, setError] = useState("");
+  const status = orderStatusOf(order);
+  const channel = orderChannel(order);
+  const profit = order.cost === null || order.reversed ? null : order.total - order.cost;
+
+  async function archive() {
+    if (!(await confirmAction({ title: `Archive order #${order.orderId}?`, message: "It is removed from Finance totals and moved to Archives, where it can be restored. Use this only to clean up test sales.", confirmLabel: "Archive order" }))) return;
+    setArchiving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/sales-orders", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_id: order.orderId }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not archive the order.");
+      onArchived(order.orderId);
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Could not archive the order.");
+    } finally {
+      setArchiving(false);
+    }
+  }
+
+  const fact = (label: string, value: React.ReactNode) => <div><span>{label}</span><strong>{value}</strong></div>;
+  return <Modal onClose={onClose} closeDisabled={archiving} label={`Order ${order.orderId}`}>
+    <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 620, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={`Order #${order.orderId}${order.queueNumber !== null ? ` · queue #${order.queueNumber}` : ""}`} sub={`${shiftTime(order.createdAt)} · ${order.punchedBy}`} onClose={onClose} disabled={archiving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`fin-status is-${status}`}>{status === "completed" ? "Completed" : status === "voided" ? "Voided" : "Refunded"}</span>
+          <span className={`fin-chip is-${channel}`}>{channelLabels[channel]}</span>
+        </div>
+        {order.reversed && <p className="inv-focus" style={{ margin: 0 }}>{status === "voided" ? "Voided" : "Refunded"}{order.reversedAt ? ` ${shiftTime(order.reversedAt)}` : ""}{order.reversedBy ? ` by ${order.reversedBy}` : ""}{order.reversedShiftId && order.reversedShiftId !== order.shiftId ? ` during shift #${order.reversedShiftId}` : ""}. It is not counted in net sales.</p>}
+        <div className="fin-facts">
+          {fact("Business date", formatRange(order.businessDate, order.businessDate))}
+          {fact("Shift", order.shiftId ? `#${order.shiftId}` : "—")}
+          {fact("Punched by", order.punchedBy)}
+          {fact("Payment", order.paymentMethod === "cash" ? "Cash" : "Online")}
+          {order.paymentMethod === "cash" && order.received !== null && fact("Received", peso(order.received))}
+          {order.paymentMethod === "cash" && order.change !== null && fact("Change", peso(order.change))}
+        </div>
+        <ul className="fin-items">
+          {order.items.map((item, index) => {
+            const addonTotal = item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0);
+            return <li key={index}>
+              <div>
+                <strong>{item.productName}{item.size && item.size !== "Regular" ? ` · ${item.size}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong>
+                <span>{item.quantity} × {peso(item.unitPrice)} · {item.category}</span>
+                {item.additions.map((addition) => <span key={addition.name} className="fin-item-addon">+ {addition.name}{addition.quantity !== 1 ? ` ×${formatAmount(addition.quantity)}` : ""} · {peso(addition.quantity * addition.unitPrice)}</span>)}
+              </div>
+              <strong>{peso(item.quantity * item.unitPrice + addonTotal)}</strong>
+            </li>;
+          })}
+        </ul>
+        <div className="fin-order-totals">
+          <div><span>Total</span><strong>{peso(order.total)}</strong></div>
+          <div><span>Cost of goods</span><span>{order.cost === null ? "Not recorded" : peso(order.cost)}</span></div>
+          <div><span>Gross profit</span><span className={profit !== null && profit < 0 ? "dash-down" : "dash-up"}>{profit === null ? (order.reversed ? "Not counted" : "—") : peso(profit)}</span></div>
+        </div>
+        {error && <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+      </div>
+      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        <button type="button" className="inv-mini is-danger" style={{ height: 42 }} onClick={() => void archive()} disabled={archiving}><IconTrash size={13} />{archiving ? "Archiving…" : "Archive test sale"}</button>
+        <button type="button" className="ui-button ui-button-primary" onClick={onClose} disabled={archiving}>Done</button>
+      </div>
+    </section>
+  </Modal>;
+}
+
+function exportFinanceOrders(orders: FinanceOrder[], label: string, fileStamp: string) {
+  const workbook = XLSX.utils.book_new();
+  const append = (name: string, rows: Record<string, unknown>[]) => {
+    if (!rows.length) return;
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 12), 40) }));
+    XLSX.utils.book_append_sheet(workbook, sheet, name);
+  };
+  append("Orders", orders.map((order) => ({
+    "Order #": order.orderId,
+    "Queue #": order.queueNumber ?? "",
+    "Business Date": order.businessDate,
+    Time: formatFinanceDateTime(order.createdAt),
+    Shift: order.shiftId ? `#${order.shiftId}` : "",
+    "Punched By": order.punchedBy,
+    Channel: channelLabels[orderChannel(order)],
+    Status: orderStatusOf(order),
+    Items: describeItems(order.items),
+    Total: order.total,
+    "Cost of Goods": order.cost ?? "",
+    "Gross Profit": order.cost === null || order.reversed ? "" : order.total - order.cost,
+    "Reversed At": order.reversedAt ? formatFinanceDateTime(order.reversedAt) : "",
+    "Reversed By": order.reversedBy ?? "",
+  })));
+  append("Order Items", orders.flatMap((order) => order.items.map((item) => ({
+    "Order #": order.orderId,
+    "Business Date": order.businessDate,
+    Status: orderStatusOf(order),
+    Product: item.productName,
+    Category: item.category,
+    Size: item.size ?? "",
+    Temperature: item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Cold" : "",
+    Quantity: item.quantity,
+    "Unit Price": item.unitPrice,
+    "Add-ons": item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", "),
+    "Add-ons Total": item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0),
+    "Line Total": item.quantity * item.unitPrice + item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0),
+  }))));
+  const info = XLSX.utils.aoa_to_sheet([["Brew Houze orders"], ["Filters", label], ["Generated", formatFinanceDateTime(new Date().toISOString())], ["Orders", orders.length]]);
+  XLSX.utils.book_append_sheet(workbook, info, "About");
+  XLSX.writeFile(workbook, `brew-houze-orders-${fileStamp}.xlsx`);
+}
+
+function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; end: string; preset: OrdersPreset; onArchivedAll: () => void }) {
+  const [orders, setOrders] = useState<FinanceOrder[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState<OrderStatusFilter>(preset.status ?? "all");
+  const [channel, setChannel] = useState<OrderChannelFilter>(preset.channel ?? "all");
+  const [cashier, setCashier] = useState(preset.cashier ?? "all");
+  const [category, setCategory] = useState(preset.category ?? "all");
+  const [shift, setShift] = useState("all");
+  const [minTotal, setMinTotal] = useState("");
+  const [maxTotal, setMaxTotal] = useState("");
+  const [sort, setSort] = useState<"newest" | "oldest" | "highest" | "lowest">("newest");
+  const [moreFilters, setMoreFilters] = useState(Boolean(preset.cashier || preset.category));
+  const [visible, setVisible] = useState(ORDERS_PAGE_SIZE);
+  const [selected, setSelected] = useState<FinanceOrder | null>(null);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearText, setClearText] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [clearError, setClearError] = useState("");
 
   useEffect(() => {
-    let requestInFlight = false;
-    const timeoutId = window.setTimeout(() => { void loadOrders(); }, 0);
-    const intervalId = window.setInterval(() => {
-      if (requestInFlight || document.visibilityState !== "visible") return;
-      requestInFlight = true;
-      void loadOrders(false).finally(() => { requestInFlight = false; });
-    }, 10_000);
-    return () => {
-      window.clearTimeout(timeoutId);
-      window.clearInterval(intervalId);
-    };
-  }, [loadOrders]);
-
-  async function deleteOrder(orderId: number) {
-    if (!(await confirmAction({ title: "Archive this sales record?", message: "It is removed from Finance totals and moved to Archives, where it can be restored. Use this only to clean up test data.", confirmLabel: "Archive record" }))) return;
-    setDeletingId(orderId);
-    setError("");
-    try {
-      const response = await fetch("/api/sales-orders", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: orderId }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to archive sales record.");
-      setOrders((current) => current.filter((order) => order.order_id !== orderId));
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to archive sales record.");
-    } finally {
-      setDeletingId(null);
-    }
-
-  }
-
-  async function exportFinanceReport() {
-      if (!Object.values(exportSections).some(Boolean)) {
-        setExportError("Select at least one report section.");
-        return;
-      }
-      if (exportMode === "date" && !exportDate || exportMode === "range" && (!exportStart || !exportEnd)) {
-        setExportError("Choose the date or date range for the report.");
-        return;
-      }
-      setExporting(true);
-      setExportError("");
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setLoadError("");
       try {
-        const query = new URLSearchParams({ period: exportMode === "period" ? period : "all", exclude_reversed: "1" });
-        if (exportMode === "date") {
-          query.set("history_date", exportDate);
-          query.set("daily_date", exportDate);
-        }
-        if (exportMode === "range") {
-          query.set("history_start", exportStart);
-          query.set("history_end", exportEnd);
-          query.set("daily_start", exportStart);
-          query.set("daily_end", exportEnd);
-        }
-        const response = await fetch(`/api/sales-orders?${query.toString()}`, { cache: "no-store" });
+        const response = await fetch(`/api/finance?start=${start}&end=${end}&view=orders`, { cache: "no-store" });
         const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Failed to retrieve report data.");
-        const reportOrders: SalesOrder[] = payload.data ?? [];
-        const reportDailySales: DailySale[] = payload.dailySales ?? [];
-        const historyQuery = new URLSearchParams(query);
-        historyQuery.delete("exclude_reversed");
-        const historyResponse = await fetch(`/api/sales-orders?${historyQuery.toString()}`, { cache: "no-store" });
-        const historyPayload = await historyResponse.json();
-        if (!historyResponse.ok) throw new Error(historyPayload?.error || "Failed to retrieve order history.");
-        const reportHistoryOrders: SalesOrder[] = historyPayload.data ?? [];
-        if (reportOrders.length === 0 && reportHistoryOrders.length === 0 && reportDailySales.length === 0) {
-          throw new Error(`No sales data found for ${exportMode === "period" ? periodLabel.toLowerCase() : exportMode === "date" ? exportDate : `${exportStart} to ${exportEnd}`}. Choose a different report period.`);
-        }
-        const workbook = XLSX.utils.book_new();
-        const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
-            if (rows.length) {
-              const sheet = XLSX.utils.json_to_sheet(rows);
-              sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
-              XLSX.utils.book_append_sheet(workbook, sheet, name);
-            }
-          };
-          const reportPeriod = exportMode === "period" ? periodLabel : exportMode === "date" ? exportDate : `${exportStart} to ${exportEnd}`;
-          const totalItems = reportOrders.reduce((value, order) => value + order.items.reduce((sum, item) => sum + Number(item.quantity), 0), 0);
-          const totalRevenue = reportOrders.reduce((value, order) => value + Number(order.total_amount), 0);
-          const getAdditionTotal = (item: SalesOrder["items"][number]) => (item.additions ?? []).reduce((sum, addition) => sum + Number(addition.quantity) * Number(addition.unit_price ?? 0), 0);
-          const orderItemRows = reportOrders.flatMap((order) => order.items.map((item, index) => ({
-            "Order ID": order.order_id,
-            "Order Date": formatFinanceDateTime(order.created_at),
-            "Punched By": order.punched_by,
-            "Order Source": order.order_source === "online" ? "Online" : "Cashier",
-            "Payment Method": getPaymentMethodLabel(order),
-            "Queue Number": order.queue_number ?? "",
-            "Queue Status": order.queue_status ?? "",
-            "Order Status": order.status,
-            "Item #": index + 1,
-            "Product ID": item.product_id,
-            Product: item.product_name,
-            Category: item.product_category || "Uncategorized",
-            Variant: item.size_label || "",
-            Temperature: item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Cold" : "",
-            Quantity: Number(item.quantity),
-            "Unit Price": Number(item.unit_price),
-            "Product Line Total": Number(item.quantity) * Number(item.unit_price),
-            Additions: item.additions?.map((addition) => `${addition.addition_name} x${addition.quantity}`).join(", ") || "",
-            "Additions Total": getAdditionTotal(item),
-            "Line Total Including Additions": Number(item.quantity) * Number(item.unit_price) + getAdditionTotal(item),
-            "Order Total": Number(order.total_amount),
-          })));
-          const additionRows = reportOrders.flatMap((order) => order.items.flatMap((item) => (item.additions ?? []).map((addition) => ({
-            "Order ID": order.order_id,
-            "Order Date": formatFinanceDateTime(order.created_at),
-            "Punched By": order.punched_by,
-            "Order Source": order.order_source === "online" ? "Online" : "Cashier",
-            Category: item.product_category || "Uncategorized",
-            Product: item.product_name,
-            Variant: item.size_label || "",
-            Addition: addition.addition_name,
-            Quantity: Number(addition.quantity),
-            "Unit Price": Number(addition.unit_price ?? 0),
-            "Line Total": Number(addition.quantity) * Number(addition.unit_price ?? 0),
-          }))));
-          if (exportSections.summary) {
-            appendSheet("Sales Summary", [{
-              "Report Period": reportPeriod,
-              Generated: formatFinanceDateTime(new Date().toISOString()),
-              Orders: reportOrders.length,
-              "Items Sold": totalItems,
-              Revenue: totalRevenue,
-              "Cashier Orders": reportOrders.filter((order) => order.order_source !== "online").length,
-              "Online Orders": reportOrders.filter((order) => order.order_source === "online").length,
-              "Average Ticket": reportOrders.length ? totalRevenue / reportOrders.length : 0,
-            }]);
-          }
-          if (exportSections.dailySales) appendSheet("Daily Sales", reportDailySales.map((day) => ({ Date: day.sale_date, Orders: day.order_count, "Items Sold": day.items_sold, Revenue: Number(day.revenue) })));
-          if (exportSections.orderHistory) {
-            appendSheet("Order History", reportHistoryOrders.map((order) => ({
-              "Order ID": order.order_id,
-              "Order Date": formatFinanceDateTime(order.created_at),
-              "Punched By": order.punched_by,
-              "Order Source": order.order_source === "online" ? "Online" : "Cashier",
-              "Payment Method": getPaymentMethodLabel(order),
-              "Queue Number": order.queue_number ?? "",
-              "Queue Status": order.queue_status ?? "",
-              Status: order.status,
-              "Item Count": order.items.reduce((sum, item) => sum + Number(item.quantity), 0),
-              "Order Total": Number(order.total_amount),
-            })));
-            appendSheet("Order Items", orderItemRows);
-          }
-          if (exportSections.productSales) {
-            const productMap = new Map<string, { productId: number; category: string; quantity: number; revenue: number }>();
-            reportOrders.forEach((order) => order.items.forEach((item) => {
-              const key = `${item.product_name} · ${item.size_label || "No size"} · ${item.product_category || "Uncategorized"}`;
-              const current = productMap.get(key) ?? { productId: item.product_id, category: item.product_category || "Uncategorized", quantity: 0, revenue: 0 };
-              current.quantity += Number(item.quantity);
-              current.revenue += Number(item.quantity) * Number(item.unit_price) + getAdditionTotal(item);
-              productMap.set(key, current);
-            }));
-            appendSheet("Product Sales", Array.from(productMap, ([product, values]) => ({ "Product ID": values.productId, Product: product, Category: values.category, Quantity: values.quantity, Revenue: values.revenue })));
-          }
-          if (exportSections.orderHistory || exportSections.productSales) appendSheet("Additions", additionRows);
-        XLSX.writeFile(workbook, `brew-houze-sales-${getFinanceDateStamp()}.xlsx`);
-        setExportOpen(false);
-      } catch (exportError) {
-        setExportError(exportError instanceof Error ? exportError.message : "Failed to generate Excel report.");
+        if (!response.ok) throw new Error(payload?.error || "Could not load orders.");
+        if (active) { setOrders(payload.data ?? []); setTruncated(Boolean(payload.truncated)); }
+      } catch (error) {
+        if (active) setLoadError(error instanceof Error ? error.message : "Could not load orders.");
       } finally {
-        setExporting(false);
+        if (active) setLoading(false);
       }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [start, end]);
+
+  const cashiers = useMemo(() => Array.from(new Set(orders.map((order) => order.punchedBy))).sort((a, b) => a.localeCompare(b)), [orders]);
+  const categories = useMemo(() => Array.from(new Set(orders.flatMap((order) => order.items.map((item) => item.category)))).sort((a, b) => a.localeCompare(b)), [orders]);
+  const shifts = useMemo(() => Array.from(new Set(orders.map((order) => order.shiftId).filter((id): id is number => id !== null))).sort((a, b) => b - a), [orders]);
+
+  const query = search.trim().toLowerCase().replace(/^#/, "");
+  const min = minTotal === "" ? null : Number(minTotal);
+  const max = maxTotal === "" ? null : Number(maxTotal);
+  const shown = orders.filter((order) => {
+    const orderStatus = orderStatusOf(order);
+    if (status === "reversed" ? orderStatus === "completed" : status !== "all" && orderStatus !== status) return false;
+    if (channel !== "all" && orderChannel(order) !== channel) return false;
+    if (cashier !== "all" && order.punchedBy !== cashier) return false;
+    if (category !== "all" && !order.items.some((item) => item.category === category)) return false;
+    if (shift !== "all" && String(order.shiftId) !== shift) return false;
+    if (min !== null && order.total < min) return false;
+    if (max !== null && order.total > max) return false;
+    if (query && !(String(order.orderId) === query || String(order.queueNumber ?? "") === query || order.punchedBy.toLowerCase().includes(query) || order.items.some((item) => item.productName.toLowerCase().includes(query) || item.additions.some((addition) => addition.name.toLowerCase().includes(query))))) return false;
+    return true;
+  }).sort((a, b) => sort === "highest" ? b.total - a.total : sort === "lowest" ? a.total - b.total : sort === "oldest" ? a.createdAt.localeCompare(b.createdAt) : b.createdAt.localeCompare(a.createdAt));
+  const paidShown = shown.filter((order) => !order.reversed);
+  const reversedShown = shown.filter((order) => order.reversed);
+  const moreCount = [cashier !== "all", category !== "all", shift !== "all", min !== null, max !== null].filter(Boolean).length;
+  const anyFilter = status !== "all" || channel !== "all" || moreCount > 0 || query !== "";
+
+  function resetFilters() {
+    setSearch(""); setStatus("all"); setChannel("all"); setCashier("all"); setCategory("all"); setShift("all"); setMinTotal(""); setMaxTotal(""); setVisible(ORDERS_PAGE_SIZE);
   }
 
-  async function clearAllFinanceRecords() {
-    if (clearConfirmation !== "CLEAR_FINANCE_RECORDS") return;
-    setClearingRecords(true);
-    setError("");
+  function filterLabel(): string {
+    const parts = [formatRange(start, end)];
+    if (status !== "all") parts.push(status === "reversed" ? "voided or refunded" : status);
+    if (channel !== "all") parts.push(channelLabels[channel]);
+    if (cashier !== "all") parts.push(`punched by ${cashier}`);
+    if (category !== "all") parts.push(category);
+    if (shift !== "all") parts.push(`shift #${shift}`);
+    if (min !== null || max !== null) parts.push(`total ${min ?? 0}–${max ?? "any"}`);
+    if (query) parts.push(`search "${search.trim()}"`);
+    return parts.join(" · ");
+  }
+
+  async function archiveAll() {
+    if (clearText !== "CLEAR_FINANCE_RECORDS") return;
+    setClearing(true);
+    setClearError("");
     try {
-      const response = await fetch("/api/sales-orders", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "clear_all", confirmation: clearConfirmation }),
-      });
+      const response = await fetch("/api/sales-orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear_all", confirmation: clearText }) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to clear finance records.");
-      await loadOrders();
-    } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : "Failed to clear finance records.");
+      if (!response.ok) throw new Error(payload?.error || "Could not archive the records.");
+      setClearOpen(false);
+      setOrders([]);
+      onArchivedAll();
+    } catch (error) {
+      setClearError(error instanceof Error ? error.message : "Could not archive the records.");
     } finally {
-      setClearingRecords(false);
-      setClearConfirmOpen(false);
-      setClearConfirmation("");
+      setClearing(false);
     }
   }
 
-  const averageTicket = Number(summary.order_count) ? Number(summary.revenue) / Number(summary.order_count) : 0;
-  const periodLabel = period === "all" ? "All time" : `Last ${period} days`;
-  async function inspectSalesDate(date: string) {
-    const selectedDate = date.slice(0, 10);
-    setSelectedDailyDate(selectedDate);
-    setDailyDetailLoading(true);
-    setError("");
-    try {
-      const query = new URLSearchParams({ period: "all", history_date: selectedDate, exclude_reversed: "1" });
-      const response = await fetch(`/api/sales-orders?${query.toString()}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to load daily sales details.");
-      setDailyDetailOrders(payload.data ?? []);
-    } catch (detailError) {
-      setDailyDetailOrders([]);
-      setError(detailError instanceof Error ? detailError.message : "Failed to load daily sales details.");
-    } finally {
-      setDailyDetailLoading(false);
-    }
+  const days: { day: string; orders: FinanceOrder[] }[] = [];
+  for (const order of shown.slice(0, visible)) {
+    if (sort === "newest" || sort === "oldest") {
+      if (days.length === 0 || days[days.length - 1].day !== order.businessDate) days.push({ day: order.businessDate, orders: [] });
+    } else if (days.length === 0) days.push({ day: "", orders: [] });
+    days[days.length - 1].orders.push(order);
   }
 
-  return <main className="finance-shell p-8" style={{ color: "#3D2B1F", overflowY: "auto", maxWidth: 1380 }}>
-    <div className="flex items-start justify-between gap-4 mb-6">
-      <div><div style={{ display: "inline-flex", alignItems: "center", gap: 7, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase" }}><span style={{ width: 7, height: 7, borderRadius: "50%", background: "#D97706" }} /> Business pulse</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, letterSpacing: "-0.03em" }}>Sales Overview</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13 }}>A simple view of how your coffee shop is performing.</p></div>
-      <div className="flex items-center gap-2"><select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: "#FDF9F5", color: "#6B4C3B", boxShadow: "0 3px 10px rgba(61,43,31,.04)" }}><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option><option value="all">All time</option></select>      <button onClick={() => void loadOrders()} disabled={loading} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: loading ? "default" : "pointer", boxShadow: "0 4px 12px rgba(61,43,31,.12)" }}>{loading ? "Loading..." : "Refresh"}</button><button type="button" onClick={() => { setExportError(""); setExportOpen(true); }} style={{ border: "1px solid #D97706", borderRadius: 10, padding: "10px 14px", background: "#FFF7ED", color: "#B45309", cursor: "pointer", fontWeight: 700 }}>Export Excel</button></div>
+  return <div className="flex flex-col gap-4">
+    <div className="inv-summary">
+      <div className="inv-stat is-static"><span>Orders shown</span><strong>{shown.length}</strong><em>of {orders.length} in this period</em></div>
+      <div className="inv-stat is-static"><span>Paid total</span><strong style={{ color: "#15803D" }}>{peso(paidShown.reduce((sum, order) => sum + order.total, 0))}</strong><em>{paidShown.length} completed</em></div>
+      <button type="button" className="inv-stat is-low" aria-pressed={status === "reversed"} onClick={() => setStatus(status === "reversed" ? "all" : "reversed")}><span>Voided or refunded</span><strong>{reversedShown.length}</strong><em>−{peso(reversedShown.reduce((sum, order) => sum + order.total, 0))}</em></button>
+      <div className="inv-stat is-static"><span>Average order</span><strong>{paidShown.length ? peso(paidShown.reduce((sum, order) => sum + order.total, 0) / paidShown.length) : "—"}</strong><em>completed orders shown</em></div>
     </div>
-    {error && <p className="mb-4" style={{ color: "#B91C1C", fontSize: 13 }}>{error}</p>}
-    {loading && orders.length === 0 && <div className="rounded-2xl p-10 mb-7 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}><div style={{ width: 28, height: 28, margin: "0 auto 12px", border: "3px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /><strong style={{ display: "block", color: "#3D2B1F", fontSize: 15 }}>Loading finance records...</strong><span style={{ display: "block", marginTop: 5, fontSize: 12 }}>Preparing your sales overview.</span></div>}
-    {(!loading || orders.length > 0) && <><div className="grid gap-4 mb-7" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", opacity: loading ? 0.62 : 1, transition: "opacity .2s ease" }}>
-      {[[`Revenue · ${periodLabel}`, `₱${Number(summary.revenue).toFixed(2)}`, "#3D2B1F", "primary"], ["Orders", String(summary.order_count), "#D97706", ""], ["Items sold", String(summary.items_sold), "#6B4C3B", ""], ["Average ticket", `₱${averageTicket.toFixed(2)}`, "#2E7D32", ""]].map(([label, value, color, emphasis]) => <div key={label} className="rounded-2xl p-5" style={{ background: emphasis ? "linear-gradient(135deg, #3D2B1F 0%, #5B4030 100%)" : "#FDF9F5", border: emphasis ? "none" : "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.06)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", width: 80, height: 80, borderRadius: "50%", right: -25, top: -25, background: emphasis ? "rgba(217,119,6,.18)" : "rgba(217,119,6,.07)" }} /><p style={{ position: "relative", color: emphasis ? "rgba(255,255,255,.62)" : "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p><p style={{ position: "relative", marginTop: 10, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 27, fontWeight: 800, color: emphasis ? "#FDF9F5" : color }}>{value}</p></div>)}
+
+    <div className="inv-toolbar">
+      <div className="inv-search is-wide">
+        <IconSearch size={14} />
+        <input value={search} onChange={(event) => { setSearch(event.target.value); setVisible(ORDERS_PAGE_SIZE); }} placeholder="Order #, queue #, product, add-on or cashier" />
+        {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+      </div>
+      <label className="inv-filter"><span>Sort</span>
+        <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="inv-select">
+          <option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="highest">Highest total</option><option value="lowest">Lowest total</option>
+        </select>
+      </label>
+      <button type="button" className={`inv-secondary${moreCount ? " is-active" : ""}`} aria-expanded={moreFilters} onClick={() => setMoreFilters((open) => !open)}>More filters{moreCount ? ` (${moreCount})` : ""}</button>
+      <button type="button" className="inv-secondary" onClick={() => exportFinanceOrders(shown, filterLabel(), start === end ? start : `${start}-to-${end}`)} disabled={shown.length === 0}><IconDownload size={14} />Export {shown.length}</button>
     </div>
-    <div className="rounded-2xl px-5 py-4 mb-7 flex flex-wrap items-center gap-x-8 gap-y-2" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", opacity: loading ? 0.62 : 1 }}>
-      <div><p style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Cost of goods</p><p style={{ marginTop: 4, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#6B4C3B" }}>₱{Number(summary.cost_of_goods ?? 0).toFixed(2)}</p></div>
-      <div><p style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>Gross profit</p><p style={{ marginTop: 4, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#2E7D32" }}>₱{Number(summary.gross_profit ?? 0).toFixed(2)}{Number(summary.costed_revenue ?? 0) > 0 && <span style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: "#9C8278" }}>{((Number(summary.gross_profit ?? 0) / Number(summary.costed_revenue)) * 100).toFixed(1)}% margin</span>}</p></div>
-      <p style={{ flex: "1 1 260px", margin: 0, color: "#9C8278", fontSize: 11.5 }}>{Number(summary.uncosted_items ?? 0) > 0 ? `Based on items with a recorded cost. ${summary.uncosted_items} item${summary.uncosted_items === 1 ? "" : "s"} sold without a complete inventory cost ${summary.uncosted_items === 1 ? "is" : "are"} excluded.` : "Cost is taken from inventory unit costs at the time of each sale."}</p>
+
+    <div className="fin-filter-rows">
+      <div className="inv-range" role="group" aria-label="Status">
+        {([["all", "All"], ["completed", "Completed"], ["voided", "Voided"], ["refunded", "Refunded"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={status === id} onClick={() => setStatus(id)}>{label}</button>)}
+      </div>
+      <div className="inv-range" role="group" aria-label="Payment">
+        {([["all", "Any payment"], ["cash", "Cash"], ["online", "Online"], ["mobile", "Mobile"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{label}</button>)}
+      </div>
     </div>
-    <div className="grid gap-5 mb-7" style={{ gridTemplateColumns: "minmax(0, 1.15fr) minmax(0, .85fr)" }}><section className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 5px 18px rgba(61,43,31,.05)" }}><div className="flex items-center justify-between mb-4"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 17 }}>Top Sellers</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>What customers are ordering most</p></div><span style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>TOP 5</span></div>{topProducts.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No product sales in this period.</p> : topProducts.map((product, index) => <div key={product.product_name} className="flex items-center gap-3 py-3" style={{ borderBottom: index === topProducts.length - 1 ? "none" : "1px solid #F0E8E2" }}><span style={{ width: 26, height: 26, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, background: index === 0 ? "#D97706" : "#F3EDE5", color: index === 0 ? "#fff" : "#6B4C3B", fontWeight: 800, fontSize: 12 }}>{index + 1}</span><div style={{ flex: 1, minWidth: 0 }}><strong style={{ display: "block", fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{product.product_name}</strong><div style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{product.quantity} sold</div></div><span style={{ fontWeight: 700, fontSize: 13 }}>₱{Number(product.revenue).toFixed(2)}</span></div>)}</section><section className="rounded-2xl p-6" style={{ background: "linear-gradient(145deg, #3D2B1F, #674735)", color: "#FDF9F5", boxShadow: "0 8px 24px rgba(61,43,31,.16)", position: "relative", overflow: "hidden" }}><div style={{ position: "absolute", right: -35, bottom: -45, width: 150, height: 150, borderRadius: "50%", border: "22px solid rgba(253,249,245,.08)" }} /><div style={{ position: "relative" }}><span style={{ color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: ".1em" }}>    Owner&apos;s note</span><h3 style={{ margin: "12px 0 10px", fontWeight: 800, fontSize: 20 }}>Keep an eye on your best cups.</h3><p style={{ color: "rgba(255,255,255,.7)", fontSize: 13, lineHeight: 1.65 }}>Use top sellers to guide prep and purchasing. Inventory deductions happen automatically after every completed order.</p><div style={{ marginTop: 24, display: "inline-flex", padding: "6px 10px", borderRadius: 7, background: "rgba(255,255,255,.1)", color: "#FDE68A", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>{periodLabel}</div></div></section></div>
-    <ShiftReports period={period} />
-    <section className="mb-7"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Sales by Business Day</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>Grouped by the date each shift opened, so after-midnight sales count toward their night · {periodLabel}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={dailySalesDate} onChange={(event) => setDailySalesDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{dailySalesDate && <button onClick={() => setDailySalesDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{dailySales.length} day{dailySales.length === 1 ? "" : "s"}</span></div></div>{dailySales.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No dated sales records found.</div> : <div className="rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Date", "Orders", "Items sold", "Revenue", "Inspect"].map((heading) => <th key={heading} style={{ padding: "12px 16px", textAlign: heading === "Date" ? "left" : "right", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{dailySales.map((day) => <tr key={day.sale_date} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{formatSalesDate(day.sale_date)}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.order_count}</td><td style={{ padding: "14px 16px", textAlign: "right", color: "#6B4C3B" }}>{day.items_sold}</td><td style={{ padding: "14px 16px", textAlign: "right", fontWeight: 800 }}>₱{Number(day.revenue).toFixed(2)}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><button type="button" onClick={() => inspectSalesDate(day.sale_date)} aria-label={`Inspect sales for ${formatSalesDate(day.sale_date)}`} title="Inspect sales for this date" style={{ width: 32, height: 32, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button></td></tr>)}</tbody></table></div></div>}</section>
-    {exportOpen && <Modal onClose={() => setExportOpen(false)} closeDisabled={exporting} label="Export finance report" zIndex={50}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 560px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance report</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Export Excel report</h3></div><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} aria-label="Close export dialog" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Include sections</strong>{(["summary", "dailySales", "orderHistory", "productSales"] as const).map((section) => <label key={section} className="flex items-center gap-2" style={{ marginTop: 9, color: "#6B4C3B", fontSize: 13 }}><input type="checkbox" checked={exportSections[section]} onChange={(event) => setExportSections((current) => ({ ...current, [section]: event.target.checked }))} />{section === "summary" ? "Sales Summary" : section === "dailySales" ? "Daily Sales" : section === "orderHistory" ? "Order History" : "Product Sales"}</label>)}</div><div style={{ marginTop: 22 }}><strong style={{ display: "block", marginBottom: 10 }}>Date range</strong><div className="flex flex-col gap-2"><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "period"} onChange={() => setExportMode("period")} />Use current period ({periodLabel})</label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "date"} onChange={() => setExportMode("date")} />Specific date<input type="date" value={exportDate} onChange={(event) => setExportDate(event.target.value)} disabled={exportMode !== "date"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label><label className="flex items-center gap-2" style={{ color: "#6B4C3B", fontSize: 13 }}><input type="radio" name="export-date-mode" checked={exportMode === "range"} onChange={() => setExportMode("range")} />Date range<input type="date" value={exportStart} onChange={(event) => setExportStart(event.target.value)} disabled={exportMode !== "range"} style={{ marginLeft: 6, border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /><span>to</span><input type="date" value={exportEnd} onChange={(event) => setExportEnd(event.target.value)} disabled={exportMode !== "range"} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 8px", background: "#FFFDF9" }} /></label></div></div>    {exportError && <p role="alert" style={{ marginTop: 18, marginBottom: 0, padding: "10px 12px", border: "1px solid #FECACA", borderRadius: 10, background: "#FEF2F2", color: "#B91C1C", fontSize: 13 }}>{exportError}</p>}<div className="flex justify-end gap-3" style={{ marginTop: 26 }}><button type="button" onClick={() => setExportOpen(false)} disabled={exporting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 16px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer" }}>Cancel</button><button type="button" onClick={() => void exportFinanceReport()} disabled={exporting} style={{ border: "none", borderRadius: 10, padding: "9px 16px", background: exporting ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", cursor: exporting ? "default" : "pointer", fontWeight: 700 }}>{exporting ? "Generating..." : "Download Excel"}</button></div></section></Modal>}
-    {selectedDailyDate && <Modal onClose={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} label="Sales for the day" zIndex={45}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Daily sales record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{formatSalesDate(selectedDailyDate)}</h3></div><button type="button" onClick={() => { setSelectedDailyDate(""); setDailyDetailOrders([]); }} aria-label="Close daily sales details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>{dailyDetailLoading ? <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>Loading purchases...</p> : <>{dailyDetailOrders.map((order) => <div key={order.order_id} style={{ marginTop: 22, borderTop: "1px solid #E8DDD5", paddingTop: 16 }}><div className="flex items-start justify-between gap-3"><div><strong style={{ fontSize: 17 }}>Order #{order.order_id}</strong><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 12 }}>Punched by: {order.punched_by} · {formatFinanceDateTime(order.created_at)}</div></div><strong>₱{Number(order.total_amount).toFixed(2)}</strong></div>{order.items.map((item, index) => <div key={`${order.order_id}-${item.product_id}-${index}`} className="flex items-start justify-between gap-3" style={{ marginTop: 14, paddingBottom: 12, borderBottom: "1px solid #F0E8E2" }}><div>    <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div><strong>₱{(Number(item.unit_price) * Number(item.quantity)).toFixed(2)}</strong></div>)}</div>)}{!dailyDetailOrders.length && <p style={{ marginTop: 24, color: "#9C8278", fontSize: 13 }}>No purchases found for this date.</p>}<div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total for the day</strong><strong style={{ fontSize: 20 }}>₱{dailyDetailOrders.reduce((total, order) => total + Number(order.total_amount), 0).toFixed(2)}</strong></div></>}</section></Modal>}
-    <section id="order-history"><div className="flex items-end justify-between mb-3"><div><h3 style={{ margin: 0, fontWeight: 800, fontSize: 18 }}>Order History</h3><p style={{ marginTop: 3, color: "#9C8278", fontSize: 11 }}>{orderHistoryDate ? `Completed transactions on ${formatSalesDate(orderHistoryDate)}` : `Completed transactions in the selected period`}</p></div><div className="flex items-center gap-2"><label style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 12 }}>Date<input type="date" value={orderHistoryDate} onChange={(event) => setOrderHistoryDate(event.target.value)} style={{ border: "none", background: "transparent", color: "#6B4C3B", outline: "none" }} /></label>{orderHistoryDate && <button onClick={() => setOrderHistoryDate("")} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "8px 10px", background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer", fontSize: 12 }}>Clear</button>}<span style={{ color: "#9C8278", fontSize: 11 }}>{orders.length} shown</span>    <button onClick={() => { setClearConfirmation(""); setClearConfirmOpen(true); }} disabled={clearingRecords} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 10px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingRecords ? "default" : "pointer", fontSize: 11, fontWeight: 700 }}>{clearingRecords ? "Archiving..." : "Archive all records"}</button></div></div>{orders.length === 0 ? <div className="rounded-2xl p-6" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>No completed sales records found.</div> : <div className="flex flex-col gap-3">{orders.map((order) =>     <div key={order.order_id} className="rounded-2xl p-4 flex items-center justify-between gap-4" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 3px 12px rgba(61,43,31,.04)" }}><div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}>    Order #{order.order_id}    <span style={{ color: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#B91C1C" : "#2E7D32", background: ["void", "voided", "refund", "refunded"].includes(order.status.toLowerCase()) ? "#FEF2F2" : "#DCFCE7", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{order.status}</span><span style={{ color: "#6B4C3B", background: "#F3EDE5", borderRadius: 20, padding: "3px 8px", fontSize: 9, letterSpacing: ".06em", textTransform: "uppercase" }}>{getPaymentMethodLabel(order)}</span></div><div style={{ marginTop: 5, color: "#6B4C3B", fontSize: 11 }}>Punched by: {order.punched_by}</div><div style={{ marginTop: 4, color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{new Date(order.created_at).toLocaleString()} · {order.items.map((item) => `${item.product_name} (${item.size_label}) × ${item.quantity}${item.additions?.length ? ` + ${item.additions.map((addition) => addition.addition_name).join(", ")}` : ""}`).join(", ")}</div></div><div className="flex items-center gap-4"><strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 16, whiteSpace: "nowrap" }}>₱{Number(order.total_amount).toFixed(2)}</strong>    <button type="button" onClick={() => setSelectedOrder(order)} aria-label={`Inspect order #${order.order_id}`} title="Inspect order" style={{ width: 34, height: 34, display: "inline-flex", alignItems: "center", justifyContent: "center", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: "pointer" }}><IconEye size={14} /></button><button type="button" onClick={() => void deleteOrder(order.order_id)} disabled={deletingId === order.order_id} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: deletingId === order.order_id ? "default" : "pointer", fontSize: 11 }}>{deletingId === order.order_id ? "Archiving..." : "Archive test sale"}</button></div></div>)}</div>}</section></>}    {loading && orders.length > 0 && <div style={{ position: "sticky", bottom: 20, zIndex: 5, display: "flex", justifyContent: "center", pointerEvents: "none" }}><div style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: "9px 14px", color: "#6B4C3B", background: "rgba(253,249,245,.96)", border: "1px solid #E8DDD5", borderRadius: 999, boxShadow: "0 5px 18px rgba(61,43,31,.12)", fontSize: 12 }}><span style={{ width: 13, height: 13, border: "2px solid #E8DDD5", borderTopColor: "#D97706", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />Updating finance records...</div></div>}
-    {clearConfirmOpen && <Modal onClose={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} closeDisabled={clearingRecords} label="Archive all finance records" zIndex={50}><section style={{ width: "min(100%, 440px)", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><h3 style={{ margin: 0, color: "#3D2B1F", fontSize: 18 }}>Archive all finance records?</h3><p style={{ margin: "10px 0 16px", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This moves every sales record and its order items to Archives. They can be restored or permanently deleted from there later. Type <strong>CLEAR_FINANCE_RECORDS</strong> to continue.</p><input autoFocus value={clearConfirmation} onChange={(event) => setClearConfirmation(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void clearAllFinanceRecords(); }} placeholder="CLEAR_FINANCE_RECORDS" style={{ width: "100%", padding: "10px 12px", border: "1px solid #E8DDD5", borderRadius: 8, color: "#3D2B1F", background: "#fff" }} /><div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}><button onClick={() => { setClearConfirmOpen(false); setClearConfirmation(""); }} disabled={clearingRecords} style={{ padding: "9px 13px", border: "1px solid #E8DDD5", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", cursor: clearingRecords ? "default" : "pointer" }}>Cancel</button><button onClick={() => void clearAllFinanceRecords()} disabled={clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS"} style={{ padding: "9px 13px", border: "1px solid #FECACA", borderRadius: 8, background: "#B91C1C", color: "#fff", cursor: clearingRecords || clearConfirmation !== "CLEAR_FINANCE_RECORDS" ? "default" : "pointer" }}>{clearingRecords ? "Archiving..." : "Archive records"}</button></div></section></Modal>}
-   {selectedOrder && <Modal onClose={() => setSelectedOrder(null)} label="Order details" zIndex={45}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 620px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Finance record</p><h3 style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>Order #{selectedOrder.order_id}</h3></div><button onClick={() => setSelectedOrder(null)} aria-label="Close order details" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div>   <div className="grid gap-3 mt-5" style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Punched by</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.punched_by}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Order source</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.order_source === "online" ? "Online" : "Cashier"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Payment method</span><strong style={{ display: "block", marginTop: 4 }}>{getPaymentMethodLabel(selectedOrder)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Queue number</span><strong style={{ display: "block", marginTop: 4 }}>{selectedOrder.queue_number ?? "—"}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Created</span><strong style={{ display: "block", marginTop: 4 }}>{new Date(selectedOrder.created_at).toLocaleString()}</strong></div>{selectedOrder.payment_method !== "online" && <><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Received</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.received_amount ?? 0).toFixed(2)}</strong></div><div><span style={{ color: "#9C8278", fontSize: 10, textTransform: "uppercase" }}>Change</span><strong style={{ display: "block", marginTop: 4 }}>₱{Number(selectedOrder.change_amount ?? 0).toFixed(2)}</strong></div></>}</div><div style={{ marginTop: 22, borderTop: "1px solid #E8DDD5" }}>{selectedOrder.items.map((item, index) => <div key={`${item.product_id}-${index}`} style={{ padding: "14px 0", borderBottom: "1px solid #F0E8E2" }}><div className="flex items-start justify-between gap-3">   <strong>{item.product_name}{item.size_label ? ` · ${item.size_label}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong><strong>₱{(Number(item.unit_price) * item.quantity).toFixed(2)}</strong></div><div style={{ marginTop: 4, color: "#6B4C3B", fontSize: 12 }}>{item.quantity} × ₱{Number(item.unit_price).toFixed(2)}{item.additions?.length ? ` · Additions: ${item.additions.map((addition) => `${addition.addition_name} × ${addition.quantity}`).join(", ")}` : ""}</div></div>)}</div><div className="flex items-center justify-between" style={{ marginTop: 18, paddingTop: 14, borderTop: "2px solid #3D2B1F" }}><strong>Total</strong><strong style={{ fontSize: 20 }}>₱{Number(selectedOrder.total_amount).toFixed(2)}</strong></div></section></Modal>}  </main>;
+
+    {moreFilters && <div className="fin-more">
+      <label className="inv-filter"><span>Punched by</span><select value={cashier} onChange={(event) => setCashier(event.target.value)} className={`inv-select${cashier !== "all" ? " is-active" : ""}`}><option value="all">Anyone</option>{cashiers.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+      <label className="inv-filter"><span>Contains category</span><select value={category} onChange={(event) => setCategory(event.target.value)} className={`inv-select${category !== "all" ? " is-active" : ""}`}><option value="all">Any category</option>{categories.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
+      <label className="inv-filter"><span>Shift</span><select value={shift} onChange={(event) => setShift(event.target.value)} className={`inv-select${shift !== "all" ? " is-active" : ""}`}><option value="all">Any shift</option>{shifts.map((id) => <option key={id} value={String(id)}>Shift #{id}</option>)}</select></label>
+      <label className="inv-filter"><span>Total from (₱)</span><input type="number" min={0} value={minTotal} onChange={(event) => setMinTotal(event.target.value)} placeholder="0" className="inv-select" style={{ width: 110 }} /></label>
+      <label className="inv-filter"><span>Total up to (₱)</span><input type="number" min={0} value={maxTotal} onChange={(event) => setMaxTotal(event.target.value)} placeholder="Any" className="inv-select" style={{ width: 110 }} /></label>
+    </div>}
+
+    {anyFilter && <div className="inv-focus"><span>Showing: {filterLabel()}</span><button type="button" onClick={resetFilters}>Clear filters <IconX size={12} /></button></div>}
+
+    {loading ? <div className="inv-empty">Loading orders…</div>
+      : loadError ? <div className="inv-empty is-error">{loadError}</div>
+        : orders.length === 0 ? <div className="inv-empty">No orders in {formatRange(start, end)}.</div>
+          : shown.length === 0 ? <div className="inv-empty">No orders match these filters. <button type="button" className="inv-link" onClick={resetFilters}>Clear filters</button></div>
+            : <div className="flex flex-col gap-4">
+              {days.map((group) => {
+                const paid = group.orders.filter((order) => !order.reversed);
+                return <section key={group.day || "all"} className="invh-day">
+                  {group.day && <p className="invh-day-label">{formatRange(group.day, group.day)}<span>{group.orders.length} order{group.orders.length === 1 ? "" : "s"} · {peso(paid.reduce((sum, order) => sum + order.total, 0))} paid</span></p>}
+                  <ul>
+                    {group.orders.map((order) => {
+                      const orderStatus = orderStatusOf(order);
+                      const orderChannelKey = orderChannel(order);
+                      return <li key={order.orderId}>
+                        <button type="button" className="fin-order" onClick={() => setSelected(order)}>
+                          <span className="fin-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
+                          <span className="fin-order-main">
+                            <strong>{describeItems(order.items)}</strong>
+                            <span>{clockTime(order.createdAt)} · Order {order.orderId} · {order.punchedBy}{order.shiftId ? ` · Shift #${order.shiftId}` : ""}</span>
+                          </span>
+                          <span className="fin-order-tags">
+                            <span className={`fin-chip is-${orderChannelKey}`}>{orderChannelKey === "online" ? "Online" : channelLabels[orderChannelKey].replace(" menu", "")}</span>
+                            {orderStatus !== "completed" && <span className={`fin-status is-${orderStatus}`}>{orderStatus === "voided" ? "Voided" : "Refunded"}</span>}
+                          </span>
+                          <strong className={`fin-order-total${order.reversed ? " is-reversed" : ""}`}>{peso(order.total)}</strong>
+                        </button>
+                      </li>;
+                    })}
+                  </ul>
+                </section>;
+              })}
+              {shown.length > visible && <button type="button" className="inv-secondary" style={{ alignSelf: "center" }} onClick={() => setVisible((count) => count + ORDERS_PAGE_SIZE)}>Show {Math.min(ORDERS_PAGE_SIZE, shown.length - visible)} more of {shown.length - visible}</button>}
+              {truncated && <p className="inv-hint" style={{ textAlign: "center" }}>Only the latest 5,000 orders in this period are loaded. Pick a shorter range to see older ones.</p>}
+            </div>}
+
+    <div className="fin-cleanup">
+      <span>Test data from before the café went live? Archive all sales records at once. They can be restored from Archives.</span>
+      <button type="button" className="inv-mini is-danger" onClick={() => { setClearText(""); setClearError(""); setClearOpen(true); }}>Archive all records…</button>
+    </div>
+
+    {selected && <FinanceOrderDialog order={selected} onClose={() => setSelected(null)} onArchived={(orderId) => { setOrders((current) => current.filter((order) => order.orderId !== orderId)); setSelected(null); }} />}
+    {clearOpen && <Modal onClose={() => setClearOpen(false)} closeDisabled={clearing} label="Archive all sales records">
+      <section className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
+        <div className="ui-confirm-icon" data-tone="danger" aria-hidden="true">!</div>
+        <h2>Archive every sales record?</h2>
+        <div className="ui-confirm-message">This moves all sales records, in every period, to Archives. They can be restored or permanently deleted from there. Type <b>CLEAR_FINANCE_RECORDS</b> to continue.</div>
+        <input data-autofocus value={clearText} onChange={(event) => setClearText(event.target.value)} placeholder="CLEAR_FINANCE_RECORDS" style={{ ...packagingInput, marginTop: 14 }} aria-label="Type CLEAR_FINANCE_RECORDS to confirm" />
+        {clearError && <p role="alert" style={{ margin: "10px 0 0", fontSize: 12.5, color: "#B91C1C" }}>{clearError}</p>}
+        <div className="ui-confirm-actions">
+          <button type="button" className="ui-button ui-button-secondary" onClick={() => setClearOpen(false)} disabled={clearing}>Cancel</button>
+          <button type="button" className="ui-button ui-button-danger" onClick={() => void archiveAll()} disabled={clearing || clearText !== "CLEAR_FINANCE_RECORDS"} style={{ opacity: clearText === "CLEAR_FINANCE_RECORDS" ? 1 : 0.5 }}>{clearing ? "Archiving…" : "Archive all records"}</button>
+        </div>
+      </section>
+    </Modal>}
+  </div>;
 }
+
+// ─── Export: one workbook for the chosen range ────────────────────────────────
+type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; orders: boolean };
+
+function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onClose: () => void }) {
+  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, orders: true });
+  const [exporting, setExporting] = useState(false);
+  const [error, setError] = useState("");
+  const { start, end } = data.range;
+  const labels: Record<keyof FinanceExportSections, [string, string]> = {
+    summary: ["Summary", "Net sales, orders, profit, payments"],
+    daily: ["Sales by day", "One row per business day"],
+    products: ["Products", "Quantity, sales and margin per product"],
+    categories: ["Categories", "Sales per category"],
+    addons: ["Add-ons", "Quantity and sales per add-on"],
+    staff: ["Staff", "Orders and sales per person"],
+    orders: ["Orders and items", "Every order in the range, with its items"],
+  };
+
+  async function download() {
+    if (!Object.values(sections).some(Boolean)) { setError("Choose at least one section."); return; }
+    setExporting(true);
+    setError("");
+    try {
+      const workbook = XLSX.utils.book_new();
+      const append = (name: string, rows: Record<string, unknown>[]) => {
+        if (!rows.length) return;
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 12), 40) }));
+        XLSX.utils.book_append_sheet(workbook, sheet, name);
+      };
+      const { current, previous } = data;
+      if (sections.summary) {
+        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+          ["Brew Houze finance report"],
+          ["Period", formatRange(start, end), "Compared with", formatRange(data.previousRange.start, data.previousRange.end)],
+          ["Generated", formatFinanceDateTime(new Date().toISOString())],
+          [],
+          ["", "This period", "Period before"],
+          ["Net sales", current.netSales, previous.netSales],
+          ["Gross sales (before voids and refunds)", current.grossSales, previous.grossSales],
+          ["Voided or refunded amount", current.reversedAmount, previous.reversedAmount],
+          ["Voids", current.voids, previous.voids],
+          ["Refunds", current.refunds, previous.refunds],
+          ["Orders", current.orders, previous.orders],
+          ["Items sold", current.itemsSold, previous.itemsSold],
+          ["Average order", current.orders ? current.netSales / current.orders : 0, previous.orders ? previous.netSales / previous.orders : 0],
+          ["Cost of goods", current.costOfGoods, previous.costOfGoods],
+          ["Gross profit", current.grossProfit, previous.grossProfit],
+          ["Items sold without a cost (not in profit)", current.uncostedItems, previous.uncostedItems],
+          ["Cash at the counter", current.cashSales, previous.cashSales],
+          ["Online at the counter", current.counterOnlineSales, previous.counterOnlineSales],
+          ["Mobile menu", current.mobileSales, previous.mobileSales],
+        ]), "Summary");
+      }
+      if (sections.daily) append("Sales by Day", data.daily.map((day) => ({ "Business Date": day.day, Orders: day.orders, "Net Sales": day.netSales, "Voided or Refunded": day.reversedAmount })));
+      if (sections.products) append("Products", data.products.map((product) => ({ Product: product.name, Category: product.category, Sold: product.quantity, Sales: product.revenue, "Cost of Goods": product.cost ?? "", "Gross Profit": product.cost === null ? "" : product.revenue - product.cost })));
+      if (sections.categories) append("Categories", data.categories.map((category) => ({ Category: category.name, Sold: category.quantity, Sales: category.revenue })));
+      if (sections.addons) append("Add-ons", data.addons.map((addon) => ({ "Add-on": addon.name, Sold: addon.quantity, Sales: addon.revenue })));
+      if (sections.staff) append("Staff", data.staff.map((person) => ({ "Punched By": person.name, Orders: person.orders, "Net Sales": person.revenue, "Voided or Refunded Orders": person.reversedOrders, "Voided or Refunded Amount": person.reversedAmount })));
+      if (sections.orders) {
+        const response = await fetch(`/api/finance?start=${start}&end=${end}&view=orders`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the orders.");
+        const orders: FinanceOrder[] = payload.data ?? [];
+        append("Orders", orders.map((order) => ({ "Order #": order.orderId, "Queue #": order.queueNumber ?? "", "Business Date": order.businessDate, Time: formatFinanceDateTime(order.createdAt), Shift: order.shiftId ? `#${order.shiftId}` : "", "Punched By": order.punchedBy, Channel: channelLabels[orderChannel(order)], Status: orderStatusOf(order), Items: describeItems(order.items), Total: order.total, "Cost of Goods": order.cost ?? "" })));
+        append("Order Items", orders.flatMap((order) => order.items.map((item) => ({ "Order #": order.orderId, "Business Date": order.businessDate, Status: orderStatusOf(order), Product: item.productName, Category: item.category, Size: item.size ?? "", Quantity: item.quantity, "Unit Price": item.unitPrice, "Add-ons": item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", ") }))));
+      }
+      if (workbook.SheetNames.length === 0) throw new Error("There is nothing to export for this period.");
+      XLSX.writeFile(workbook, `brew-houze-finance-${start === end ? start : `${start}-to-${end}`}.xlsx`);
+      onClose();
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Could not create the report.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={exporting} label="Export finance report">
+    <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title="Export to Excel" sub={`${formatRange(start, end)} · change the dates in the date bar`} onClose={onClose} disabled={exporting} />
+      <div className="flex flex-col gap-2 px-6 py-5" style={{ overflowY: "auto" }}>
+        {(Object.keys(labels) as (keyof FinanceExportSections)[]).map((key) => <label key={key} className="fin-check">
+          <input type="checkbox" checked={sections[key]} onChange={(event) => setSections((current) => ({ ...current, [key]: event.target.checked }))} />
+          <span><strong>{labels[key][0]}</strong><em>{labels[key][1]}</em></span>
+        </label>)}
+        {error && <p role="alert" style={{ margin: "6px 0 0", fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={exporting}>Cancel</button>
+        <button type="button" className="ui-button ui-button-primary" onClick={() => void download()} disabled={exporting}>{exporting ? "Preparing…" : "Download .xlsx"}</button>
+      </div>
+    </section>
+  </Modal>;
+}
+
+function Finance() {
+  const [today] = useState(() => getFinanceDateStamp());
+  const presets = useMemo(() => financePresets(today), [today]);
+  const [tab, setTab] = useState<FinanceTab>("overview");
+  const [presetId, setPresetId] = useState("7");
+  const [custom, setCustom] = useState({ start: addDays(today, -6), end: today });
+  const [overview, setOverview] = useState<FinanceOverviewData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [exportOpen, setExportOpen] = useState(false);
+  const [ordersPreset, setOrdersPreset] = useState<OrdersPreset>({});
+  const [ordersKey, setOrdersKey] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const preset = presets.find((entry) => entry.id === presetId);
+  const start = preset ? preset.start : custom.start;
+  const end = preset ? preset.end : custom.end;
+  const rangeValid = Boolean(start && end && start <= end);
+
+  useEffect(() => {
+    if (!rangeValid) return;
+    let active = true;
+    const load = async (quiet: boolean) => {
+      if (!quiet) { setLoading(true); setLoadError(""); }
+      try {
+        const response = await fetch(`/api/finance?start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load finance figures.");
+        if (active) { setOverview(payload.data); setLoadError(""); }
+      } catch (error) {
+        if (active && !quiet) setLoadError(error instanceof Error ? error.message : "Could not load finance figures.");
+      } finally {
+        if (active && !quiet) setLoading(false);
+      }
+    };
+    const timer = window.setTimeout(() => void load(false), 0);
+    // Keep today's figures current while the page is open.
+    const interval = window.setInterval(() => { if (document.visibilityState === "visible" && end >= today) void load(true); }, 30_000);
+    return () => { active = false; window.clearTimeout(timer); window.clearInterval(interval); };
+  }, [start, end, rangeValid, today, reloadKey]);
+
+  function openOrders(presetFilters: OrdersPreset) {
+    setOrdersPreset(presetFilters);
+    setOrdersKey((key) => key + 1);
+    setTab("orders");
+  }
+
+  const tabs: { id: FinanceTab; label: string; Icon: React.FC<{ size?: number }> }[] = [
+    { id: "overview", label: "Overview", Icon: IconGrid },
+    { id: "shifts", label: "Shifts", Icon: IconRotateCcw },
+    { id: "orders", label: "Orders", Icon: IconDollar },
+  ];
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-head">
+        <div className="inv-tabs" role="tablist" aria-label="Finance views">
+          {tabs.map(({ id, label, Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={15} />{label}</button>)}
+        </div>
+        <button type="button" className="inv-secondary" onClick={() => setExportOpen(true)} disabled={!overview || loading}><IconDownload size={14} />Export</button>
+      </div>
+
+      <div className="fin-datebar">
+        <div className="menu-chips" role="group" aria-label="Period">
+          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => setPresetId(entry.id)}>{entry.label}</button>)}
+          <button type="button" aria-pressed={presetId === "custom"} onClick={() => { setCustom({ start, end }); setPresetId("custom"); }}>Custom</button>
+        </div>
+        {presetId === "custom" && <div className="inv-dates">
+          <input type="date" value={custom.start} max={custom.end || today} onChange={(event) => setCustom((current) => ({ ...current, start: event.target.value }))} aria-label="From" />
+          <span>to</span>
+          <input type="date" value={custom.end} min={custom.start} max={today} onChange={(event) => setCustom((current) => ({ ...current, end: event.target.value }))} aria-label="To" />
+        </div>}
+        <p className="fin-range-label"><strong>{rangeValid ? formatRange(start, end) : "Choose a valid date range"}</strong>{overview && rangeValid && <span>compared with {formatRange(overview.previousRange.start, overview.previousRange.end)} · business days, so after-midnight sales count toward their night</span>}</p>
+      </div>
+
+      {!rangeValid ? <div className="inv-empty is-error">The start date must be on or before the end date.</div>
+        : tab === "overview" ? (loading && !overview ? <div className="inv-empty">Loading finance figures…</div>
+          : loadError ? <div className="inv-empty is-error">{loadError} <button type="button" className="inv-link" onClick={() => setReloadKey((key) => key + 1)}>Try again</button></div>
+            : overview ? <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}><FinanceOverview data={overview} today={today} onOpenOrders={openOrders} /></div> : null)
+          : tab === "shifts" ? <ShiftReports start={start} end={end} />
+            : <FinanceOrders key={`${start}-${end}-${ordersKey}`} start={start} end={end} preset={ordersPreset} onArchivedAll={() => setReloadKey((key) => key + 1)} />}
+    </div>
+    {exportOpen && overview && <FinanceExportDialog data={overview} onClose={() => setExportOpen(false)} />}
+  </div>;
+}
+
 type EmployeeTimeLog = { id: number; timeIn: string; timeOut: string | null; shiftId?: number | null };
-type EmployeeTransaction = { id: number; amount: number; status: string; createdAt: string; reversalType: string | null; reversedAt: string | null };
+type EmployeeTransaction = { id: number; amount: number; status: string; createdAt: string; reversalType: string | null; reversedAt: string | null; queueNumber?: number | null; shiftId?: number | null };
 type EmployeeReversal = { id: number; amount: number; status: string; reversedAt: string | null };
 type ArchivingLogEntry = { kind: string; name: string; archivedAt: string };
-type CashierAccount = { id: number; fullName: string; email: string; role: string; isActive: boolean; canVoidOrders: boolean; canRefundOrders: boolean; timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[] ; sessions?: AccountDevice[] };
+type EmployeeStats = { hoursThisWeek: number; hours30d: number; shifts30d: number; orders30d: number; sales30d: number; reversals30d: number };
+type CashierAccount = {
+  id: number; fullName: string; email: string; role: string; isActive: boolean;
+  canVoidOrders: boolean; canRefundOrders: boolean; canOpenShift: boolean;
+  createdAt?: string; onDutySince: string | null; lastSeenAt: string | null; stats: EmployeeStats;
+  timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[]; sessions?: AccountDevice[];
+};
 type MyActivity = { fullName: string; email: string; timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[]; archives: ArchivingLogEntry[] };
 
 type AccountDevice = { id: number; app: string; device: string; signedInAt: string; lastSeenAt: string };
 
+function formatHours(hours: number): string {
+  if (hours <= 0) return "0h";
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
+  return `${hours < 10 ? hours.toFixed(1).replace(/\.0$/, "") : Math.round(hours)}h`;
+}
+
+function logDuration(log: EmployeeTimeLog, now: number): number {
+  return Math.max(0, ((log.timeOut ? new Date(log.timeOut).getTime() : now) - new Date(log.timeIn).getTime()) / 3_600_000);
+}
+
+// A readable temporary password: no look-alike characters (0/O, 1/l/I).
+function generateTemporaryPassword(): string {
+  const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint32Array(10);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+}
+
+function PermissionSwitch({ checked, title, description, onChange, disabled = false }: { checked: boolean; title: string; description: string; onChange: (checked: boolean) => void; disabled?: boolean }) {
+  return <label className={`acc-switch${checked ? " is-on" : ""}${disabled ? " is-disabled" : ""}`}>
+    <span className="acc-switch-text"><strong>{title}</strong><em>{description}</em></span>
+    <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+    <span className="acc-switch-track" aria-hidden="true"><span /></span>
+  </label>;
+}
+
 // Devices the employee is signed in on right now, with a way to end all of them (lost phone,
 // employee leaving). Their cashier attendance ends too, since they are no longer signed in anywhere.
 function AccountDevicesPanel({ account, onSignedOut }: { account: CashierAccount; onSignedOut: () => void }) {
-  const [confirming, setConfirming] = useState(false);
+  const confirmAction = useConfirm();
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
   const devices = account.sessions ?? [];
 
   async function signOutEverywhere() {
+    if (!(await confirmAction({ title: `Sign ${account.fullName} out everywhere?`, message: `They are signed out of ${devices.length} device${devices.length === 1 ? "" : "s"}, and any open attendance ends now. They can sign in again with their password.`, confirmLabel: "Sign out everywhere" }))) return;
     setWorking(true);
     setError("");
     try {
       const response = await fetch("/api/cashier-accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, action: "sign_out_everywhere" }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not sign the account out.");
-      setConfirming(false);
       onSignedOut();
     } catch (signOutError) {
       setError(signOutError instanceof Error ? signOutError.message : "Could not sign the account out.");
@@ -4145,244 +4720,501 @@ function AccountDevicesPanel({ account, onSignedOut }: { account: CashierAccount
     }
   }
 
-  return <div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}>
-    <div className="flex items-center justify-between gap-3">
-      <strong style={{ color: "#3D2B1F", fontSize: 14 }}>Signed-in devices <span style={{ color: "#9C8278", fontWeight: 500 }}>({devices.length})</span></strong>
-      {devices.length > 0 && !confirming && <button type="button" onClick={() => setConfirming(true)} style={{ border: "1px solid #FECACA", borderRadius: 8, padding: "6px 10px", background: "#FEF2F2", color: "#B91C1C", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Sign out of all devices</button>}
-    </div>
+  return <section className="acc-block">
+    <header className="acc-block-head">
+      <div><h3>Signed-in devices <span>({devices.length})</span></h3><p>Where this account is signed in right now.</p></div>
+      {devices.length > 0 && <button type="button" className="inv-mini is-danger" onClick={() => void signOutEverywhere()} disabled={working}>{working ? "Signing out…" : "Sign out everywhere"}</button>}
+    </header>
     {devices.length === 0
-      ? <p style={{ margin: "8px 0 0", color: "#9C8278", fontSize: 12.5 }}>Not signed in anywhere right now.</p>
-      : <div className="flex flex-col" style={{ marginTop: 8 }}>
-        {devices.map((device, index) => <div key={device.id} className="flex items-center justify-between gap-3" style={{ padding: "8px 0", borderTop: index ? "1px solid #F0E8E2" : "none", fontSize: 12.5 }}>
-          <span style={{ color: "#3D2B1F" }}><strong>{device.device}</strong> <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 6, background: device.app === "cashier" ? "#FFF7ED" : "#F3EDE5", color: device.app === "cashier" ? "#C2410C" : "#6B4C3B", fontSize: 11, fontWeight: 700 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"}</span></span>
-          <span style={{ color: "#9C8278", whiteSpace: "nowrap" }}>active {formatFinanceDateTime(device.lastSeenAt)}</span>
-        </div>)}
-      </div>}
-    {confirming && <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", fontSize: 12.5, color: "#7F1D1D", lineHeight: 1.5 }}>
-      Sign {account.fullName} out of all {devices.length} device{devices.length === 1 ? "" : "s"}? Any open cashier attendance ends now. They can sign in again with their password.
-      <div className="flex justify-end gap-2" style={{ marginTop: 8 }}>
-        <button type="button" onClick={() => setConfirming(false)} disabled={working} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "6px 12px", background: "#FFFFFF", color: "#6B4C3B", fontSize: 12, cursor: "pointer" }}>Cancel</button>
-        <button type="button" onClick={() => void signOutEverywhere()} disabled={working} style={{ border: "none", borderRadius: 8, padding: "6px 12px", background: working ? "#C9B8AF" : "#B91C1C", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: working ? "default" : "pointer" }}>{working ? "Signing out..." : "Sign out everywhere"}</button>
+      ? <p className="inv-hint">Not signed in anywhere right now.</p>
+      : <ul className="acc-list">
+        {devices.map((device) => <li key={device.id}>
+          <span><strong>{device.device}</strong><span className={`acc-app is-${device.app}`}>{device.app === "cashier" ? "Cashier app" : "Admin app"}</span></span>
+          <em>active {shiftTime(device.lastSeenAt)}</em>
+        </li>)}
+      </ul>}
+    {error && <p role="alert" className="acc-error">{error}</p>}
+  </section>;
+}
+
+function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
+  const [draft, setDraft] = useState({ fullName: "", email: "", password: "", canOpenShift: false, canVoidOrders: false, canRefundOrders: false });
+  const [showPassword, setShowPassword] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null);
+  const problem = !draft.fullName.trim() ? "Enter their full name." : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim()) ? "Enter a valid email address." : draft.password.length < 8 ? "Give a temporary password of at least 8 characters." : "";
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (problem || saving) { setError(problem); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim() }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not add the employee.");
+      setCreated({ name: draft.fullName.trim(), email: draft.email.trim().toLowerCase(), password: draft.password });
+      await onCreated();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not add the employee.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (created) return <Modal onClose={onClose} label="Employee added">
+    <section className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
+      <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: "#DCFCE7", color: "#15803D" }}>✓</div>
+      <h2>{created.name} can now sign in</h2>
+      <div className="ui-confirm-message">Give them these details for the cashier app. They can change the password in My Account after signing in.</div>
+      <div className="acc-credentials">
+        <div><span>Email</span><strong>{created.email}</strong></div>
+        <div><span>Temporary password</span><strong className="is-mono">{created.password}</strong></div>
       </div>
-    </div>}
-    {error && <p style={{ margin: "8px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
-  </div>;
+      <div className="ui-confirm-actions"><button type="button" className="ui-button ui-button-primary" data-autofocus onClick={onClose}>Done</button></div>
+    </section>
+  </Modal>;
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Add employee">
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title="Add an employee" sub="A cashier account for the counter tablet." onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <div className="inv-step-grid">
+          <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" /></WizardField>
+          <WizardField label="Email" hint="Used to sign in and to reset a forgotten password."><input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@gmail.com" style={packagingInput} autoComplete="off" /></WizardField>
+        </div>
+        <WizardField label="Temporary password" hint="At least 8 characters. Share it with them in person.">
+          <div className="flex gap-2">
+            <input type={showPassword ? "text" : "password"} value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="Type or generate one" style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" />
+            <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setShowPassword((value) => !value)}>{showPassword ? "Hide" : "Show"}</button>
+            <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => { setDraft((current) => ({ ...current, password: generateTemporaryPassword() })); setShowPassword(true); }}>Generate</button>
+          </div>
+        </WizardField>
+        <div className="acc-switches">
+          <PermissionSwitch checked={draft.canOpenShift} title="Open the store" description="Start the shift and enter the starting cash. Otherwise an admin opens it." onChange={(checked) => setDraft((current) => ({ ...current, canOpenShift: checked }))} />
+          <PermissionSwitch checked={draft.canVoidOrders} title="Void orders" description="Cancel an order and return its stock." onChange={(checked) => setDraft((current) => ({ ...current, canVoidOrders: checked }))} />
+          <PermissionSwitch checked={draft.canRefundOrders} title="Refund orders" description="Give money back for a completed order." onChange={(checked) => setDraft((current) => ({ ...current, canRefundOrders: checked }))} />
+        </div>
+        {error && <p role="alert" className="acc-error">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary" style={{ opacity: saving || problem ? 0.55 : 1 }}>{saving ? "Adding…" : "Add employee"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload, onExport }: { account: CashierAccount; now: number; exporting: boolean; onClose: () => void; onChanged: (account: CashierAccount) => void; onReload: () => Promise<void>; onExport: () => void }) {
+  const confirmAction = useConfirm();
+  const [tab, setTab] = useState<"access" | "activity" | "attendance">("access");
+  const [profile, setProfile] = useState({ fullName: account.fullName, email: account.email });
+  const [password, setPassword] = useState("");
+  const [working, setWorking] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const profileChanged = profile.fullName.trim() !== account.fullName || profile.email.trim().toLowerCase() !== account.email.toLowerCase();
+
+  async function patch(body: Record<string, unknown>, key: string, fallback: string) {
+    setWorking(key);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch("/api/cashier-accounts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, ...body }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || fallback);
+      return payload.data;
+    } catch (patchError) {
+      setError(patchError instanceof Error ? patchError.message : fallback);
+      return null;
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function setPermission(key: "canOpenShift" | "canVoidOrders" | "canRefundOrders", value: boolean) {
+    const previous = account;
+    onChanged({ ...account, [key]: value });
+    const saved = await patch({ [key]: value }, key, "Could not change the permission.");
+    if (!saved) onChanged(previous);
+  }
+
+  async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!profileChanged) return;
+    const saved = await patch({ action: "update_profile", fullName: profile.fullName.trim(), email: profile.email.trim() }, "profile", "Could not save the details.");
+    if (saved) { onChanged({ ...account, fullName: saved.fullName, email: saved.email }); setNotice("Details saved."); }
+  }
+
+  async function savePassword() {
+    if (password.length < 8) { setError("Use at least 8 characters for the password."); return; }
+    if (!(await confirmAction({ title: `Set a new password for ${account.fullName}?`, message: "Their old password stops working, and they are signed out of every device. Give them the new password in person.", confirmLabel: "Set password", tone: "default" }))) return;
+    const saved = await patch({ action: "set_password", password }, "password", "Could not set the password.");
+    if (saved) { setNotice(`New password set: ${password}. They were signed out of ${saved.signedOutDevices} device${saved.signedOutDevices === 1 ? "" : "s"}.`); setPassword(""); await onReload(); }
+  }
+
+  async function setActive(isActive: boolean) {
+    if (!isActive && !(await confirmAction({ title: `Deactivate ${account.fullName}?`, message: "They are signed out of every device and cannot sign in until the account is reactivated. Their sales and attendance records are kept.", confirmLabel: "Deactivate account" }))) return;
+    const saved = await patch({ action: "set_active", isActive }, "active", "Could not change the account status.");
+    if (saved) { onChanged({ ...account, isActive, sessions: isActive ? account.sessions : [], onDutySince: isActive ? account.onDutySince : null }); setNotice(isActive ? "Account reactivated. They can sign in again." : "Account deactivated."); await onReload(); }
+  }
+
+  async function archiveLogs() {
+    if (!(await confirmAction({ title: `Archive ${account.fullName}'s attendance history?`, message: "All their time logs move to Archives, where they can be restored or permanently deleted later.", confirmLabel: "Archive history" }))) return;
+    setWorking("logs");
+    setError("");
+    try {
+      const response = await fetch("/api/cashier-accounts", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, confirmation: "CLEAR_EMPLOYEE_LOGS" }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not archive the attendance history.");
+      await onReload();
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Could not archive the attendance history.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  const statusText = !account.isActive ? "Deactivated" : account.onDutySince ? `On duty since ${clockTime(account.onDutySince)}` : "Off duty";
+  return <Modal onClose={onClose} closeDisabled={working !== null} labelledBy="employee-dialog-title">
+    <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 680, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <header className="acc-dialog-head">
+        <UserAvatar name={account.fullName} size={52} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <h2 id="employee-dialog-title">{account.fullName}</h2>
+          <p>{account.email}</p>
+          <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{statusText}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" className="inv-mini" onClick={onExport} disabled={exporting}><IconDownload size={13} />{exporting ? "Exporting…" : "Export"}</button>
+          <button type="button" onClick={onClose} disabled={working !== null} title="Close" className="inv-mini" style={{ width: 34, padding: 0, justifyContent: "center" }}><IconX size={14} /></button>
+        </div>
+      </header>
+      <div className="acc-tabs" role="tablist" aria-label="Employee sections">
+        {([["access", "Access"], ["activity", "Sales activity"], ["attendance", "Attendance"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+      </div>
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        {notice && <div className="acc-notice" role="status">{notice}</div>}
+        {error && <p role="alert" className="acc-error">{error}</p>}
+
+        {tab === "access" && <>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Permissions</h3><p>Changes apply right away, even on a signed-in tablet.</p></div></header>
+            <div className="acc-switches">
+              <PermissionSwitch checked={account.canOpenShift} disabled={working === "canOpenShift" || !account.isActive} title="Open the store" description="Start the shift and enter the starting cash. Without this, an admin opens the store. Any cashier can close it." onChange={(checked) => void setPermission("canOpenShift", checked)} />
+              <PermissionSwitch checked={account.canVoidOrders} disabled={working === "canVoidOrders" || !account.isActive} title="Void orders" description="Cancel an order and return its stock." onChange={(checked) => void setPermission("canVoidOrders", checked)} />
+              <PermissionSwitch checked={account.canRefundOrders} disabled={working === "canRefundOrders" || !account.isActive} title="Refund orders" description="Give money back for a completed order." onChange={(checked) => void setPermission("canRefundOrders", checked)} />
+            </div>
+          </section>
+
+          <form className="acc-block" onSubmit={saveProfile}>
+            <header className="acc-block-head"><div><h3>Details</h3><p>The email is used to sign in and to reset a forgotten password.</p></div></header>
+            <div className="inv-step-grid">
+              <WizardField label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} style={packagingInput} /></WizardField>
+              <WizardField label="Email"><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} style={packagingInput} /></WizardField>
+            </div>
+            {profileChanged && <div className="flex justify-end gap-2" style={{ marginTop: 10 }}>
+              <button type="button" className="inv-mini" onClick={() => setProfile({ fullName: account.fullName, email: account.email })}>Undo</button>
+              <button type="submit" className="inv-mini" style={{ background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} disabled={working === "profile"}>{working === "profile" ? "Saving…" : "Save details"}</button>
+            </div>}
+          </form>
+
+          <AccountDevicesPanel account={account} onSignedOut={() => { onChanged({ ...account, sessions: [], onDutySince: null }); void onReload(); }} />
+
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Password</h3><p>Forgot it? They can also use “Forgot password” on the sign-in screen.</p></div></header>
+            <div className="flex flex-wrap gap-2">
+              <input type="text" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New temporary password" style={{ ...packagingInput, flex: "1 1 200px", width: "auto", fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" aria-label="New temporary password" />
+              <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setPassword(generateTemporaryPassword())}>Generate</button>
+              <button type="button" className="inv-mini" style={{ height: 42, background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void savePassword()} disabled={working === "password" || password.length === 0}>{working === "password" ? "Saving…" : "Set password"}</button>
+            </div>
+          </section>
+
+          <section className={`acc-block ${account.isActive ? "is-danger" : ""}`}>
+            <header className="acc-block-head">
+              <div><h3>{account.isActive ? "Deactivate account" : "Account deactivated"}</h3><p>{account.isActive ? "For someone who left or is on leave. Their records are kept, and you can reactivate the account later." : "They cannot sign in. Reactivate to let them sign in again with their password."}</p></div>
+              {account.isActive
+                ? <button type="button" className="inv-mini is-danger" onClick={() => void setActive(false)} disabled={working === "active"}>Deactivate</button>
+                : <button type="button" className="inv-mini" style={{ background: "#15803D", color: "#FFFFFF", borderColor: "#15803D" }} onClick={() => void setActive(true)} disabled={working === "active"}>Reactivate</button>}
+            </header>
+          </section>
+        </>}
+
+        {tab === "activity" && <>
+          <div className="acc-stats">
+            <div><span>Orders · 30 days</span><strong>{account.stats.orders30d}</strong></div>
+            <div><span>Sales · 30 days</span><strong>{peso(account.stats.sales30d)}</strong></div>
+            <div><span>Average order</span><strong>{account.stats.orders30d ? peso(account.stats.sales30d / account.stats.orders30d) : "—"}</strong></div>
+            <div><span>Voids & refunds done</span><strong className={account.stats.reversals30d ? "dash-down" : ""}>{account.stats.reversals30d}</strong></div>
+          </div>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Orders punched in</h3><p>The latest {account.transactions.length} orders.</p></div></header>
+            {account.transactions.length === 0 ? <p className="inv-hint">No orders yet.</p> : <ul className="acc-list">
+              {account.transactions.map((transaction) => {
+                const status = orderStatusOf(transaction);
+                return <li key={transaction.id}>
+                  <span><strong>Order {transaction.id}{transaction.queueNumber ? ` · #${transaction.queueNumber}` : ""}</strong><em>{shiftTime(transaction.createdAt)}{transaction.shiftId ? ` · Shift #${transaction.shiftId}` : ""}</em></span>
+                  <span className="acc-list-end">{status !== "completed" && <span className={`fin-status is-${status}`}>{status === "voided" ? "Voided" : "Refunded"}</span>}<strong className={status !== "completed" ? "fin-order-total is-reversed" : ""}>{peso(transaction.amount)}</strong></span>
+                </li>;
+              })}
+            </ul>}
+          </section>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Voids & refunds they did</h3><p>Orders this person voided or refunded, whoever sold them.</p></div></header>
+            {account.reversals.length === 0 ? <p className="inv-hint">None yet.</p> : <ul className="acc-list">
+              {account.reversals.map((reversal) => <li key={reversal.id}>
+                <span><strong>Order {reversal.id}</strong><em>{reversal.reversedAt ? shiftTime(reversal.reversedAt) : "Unknown time"}</em></span>
+                <span className="acc-list-end"><span className="fin-status is-voided" style={{ textTransform: "capitalize" }}>{reversal.status}</span><strong>{peso(reversal.amount)}</strong></span>
+              </li>)}
+            </ul>}
+          </section>
+        </>}
+
+        {tab === "attendance" && <>
+          <div className="acc-stats">
+            <div><span>This week</span><strong>{formatHours(account.stats.hoursThisWeek)}</strong></div>
+            <div><span>Last 30 days</span><strong>{formatHours(account.stats.hours30d)}</strong></div>
+            <div><span>Shifts · 30 days</span><strong>{account.stats.shifts30d}</strong></div>
+            <div><span>Status</span><strong className={account.onDutySince ? "dash-up" : ""}>{account.onDutySince ? "On duty" : "Off duty"}</strong></div>
+          </div>
+          <section className="acc-block">
+            <header className="acc-block-head">
+              <div><h3>Time in and out</h3><p>Recorded when they sign in and out of the cashier app. Closing a shift clocks everyone out.</p></div>
+              {account.timeLogs.length > 0 && <button type="button" className="inv-mini is-danger" onClick={() => void archiveLogs()} disabled={working === "logs"}>Archive history</button>}
+            </header>
+            {account.timeLogs.length === 0 ? <p className="inv-hint">No attendance yet.</p> : <ul className="acc-list">
+              {account.timeLogs.map((log) => <li key={log.id}>
+                <span><strong>{new Date(log.timeIn).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric" })}</strong><em>{clockTime(log.timeIn)} → {log.timeOut ? clockTime(log.timeOut) : "now"}{log.shiftId ? ` · Shift #${log.shiftId}` : ""}</em></span>
+                <span className="acc-list-end">{log.timeOut ? <strong>{formatHours(logDuration(log, now))}</strong> : <span className="fin-status is-completed">On duty · {formatHours(logDuration(log, now))}</span>}</span>
+              </li>)}
+            </ul>}
+          </section>
+        </>}
+      </div>
+    </section>
+  </Modal>;
 }
 
 function Accounts() {
-  const confirmAction = useConfirm();
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
-  const [permissionAccount, setPermissionAccount] = useState<CashierAccount | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"active" | "duty" | "inactive" | "all">("active");
+  const [now, setNow] = useState(() => Date.now());
   const [myActivity, setMyActivity] = useState<MyActivity | null>(null);
-  const [myActivityLoading, setMyActivityLoading] = useState(true);
+  const [myActivityOpen, setMyActivityOpen] = useState(false);
+  const [myActivityLoading, setMyActivityLoading] = useState(false);
   const [myActivityError, setMyActivityError] = useState("");
   const [exportingAccountId, setExportingAccountId] = useState<number | null>(null);
 
-  const loadMyActivity = async () => {
-    try {
-      const response = await fetch("/api/admin-activity", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to load your cashier activity.");
-      setMyActivity(payload.data ?? null);
-      setMyActivityError("");
-    } catch (loadError) {
-      setMyActivityError(loadError instanceof Error ? loadError.message : "Failed to load your cashier activity.");
-    } finally {
-      setMyActivityLoading(false);
-    }
-  };
-
-  const loadAccounts = async () => {
+  const loadAccounts = useCallback(async () => {
     try {
       const response = await fetch("/api/cashier-accounts", { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to load cashier accounts.");
-      const nextAccounts = payload.data ?? [];
-      setAccounts(nextAccounts);
-      setPermissionAccount((current) => current ? nextAccounts.find((account: CashierAccount) => account.id === current.id) ?? null : null);
+      setAccounts(payload.data ?? []);
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load cashier accounts.");
     } finally {
       setLoading(false);
+      setNow(Date.now());
     }
-  };
+  }, []);
 
-  async function updatePermissions(account: CashierAccount, changes: Partial<Pick<CashierAccount, "canVoidOrders" | "canRefundOrders">>) {
-    const nextAccount = { ...account, ...changes };
-    setAccounts((current) => current.map((item) => item.id === account.id ? nextAccount : item));
-    setPermissionAccount((current) => current?.id === account.id ? nextAccount : current);
+  async function loadMyActivity() {
+    setMyActivityLoading(true);
     try {
-      const response = await fetch("/api/cashier-accounts", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: account.id, canVoidOrders: nextAccount.canVoidOrders, canRefundOrders: nextAccount.canRefundOrders }),
-      });
+      const response = await fetch("/api/admin-activity", { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to update cashier permissions.");
-    } catch (updateError) {
-      setAccounts((current) => current.map((item) => item.id === account.id ? account : item));
-      setError(updateError instanceof Error ? updateError.message : "Failed to update cashier permissions.");
-    }
-
-  }
-
-  async function clearEmployeeLogs(account: CashierAccount) {
-    if (!(await confirmAction({ title: `Archive ${account.fullName}'s attendance history?`, message: "All their time logs move to Archives, where they can be restored or permanently deleted later.", confirmLabel: "Archive history" }))) return;
-    try {
-      const response = await fetch("/api/cashier-accounts", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: account.id, confirmation: "CLEAR_EMPLOYEE_LOGS" }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to archive employee log history.");
-      await loadAccounts();
-    } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : "Failed to archive employee log history.");
+      if (!response.ok) throw new Error(payload?.error || "Failed to load your activity.");
+      setMyActivity(payload.data ?? null);
+      setMyActivityError("");
+    } catch (loadError) {
+      setMyActivityError(loadError instanceof Error ? loadError.message : "Failed to load your activity.");
+    } finally {
+      setMyActivityLoading(false);
     }
   }
 
-  async function exportEmployeeReport(account: CashierAccount) {
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => { void loadAccounts(); }, 0);
+    const intervalId = window.setInterval(() => { if (document.visibilityState === "visible") void loadAccounts(); }, 20_000);
+    return () => { window.clearTimeout(initialLoad); window.clearInterval(intervalId); };
+  }, [loadAccounts]);
+
+  function exportEmployeeReport(account: CashierAccount) {
     setExportingAccountId(account.id);
     setError("");
     try {
       const workbook = XLSX.utils.book_new();
       const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
-        if (rows.length) {
-          const sheet = XLSX.utils.json_to_sheet(rows);
-          sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
-          XLSX.utils.book_append_sheet(workbook, sheet, name);
-        }
+        if (!rows.length) return;
+        const sheet = XLSX.utils.json_to_sheet(rows);
+        sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
+        XLSX.utils.book_append_sheet(workbook, sheet, name);
       };
-      const completedTransactions = account.transactions.filter((transaction) => !transaction.reversalType);
-      const totalRevenue = completedTransactions.reduce((sum, transaction) => sum + transaction.amount, 0);
       appendSheet("Employee Summary", [{
         Employee: account.fullName,
         Email: account.email,
-        Role: account.role,
-        Status: account.isActive ? "Active" : "Inactive",
+        Status: account.isActive ? "Active" : "Deactivated",
+        "Can Open the Store": account.canOpenShift ? "Yes" : "No",
         "Can Void Orders": account.canVoidOrders ? "Yes" : "No",
         "Can Refund Orders": account.canRefundOrders ? "Yes" : "No",
+        "Hours This Week": Number(account.stats.hoursThisWeek.toFixed(2)),
+        "Hours, Last 30 Days": Number(account.stats.hours30d.toFixed(2)),
+        "Shifts, Last 30 Days": account.stats.shifts30d,
+        "Orders, Last 30 Days": account.stats.orders30d,
+        "Sales, Last 30 Days": account.stats.sales30d,
+        "Voids and Refunds Done, Last 30 Days": account.stats.reversals30d,
         Generated: formatFinanceDateTime(new Date().toISOString()),
-        "Transactions On Record": account.transactions.length,
-        "Completed Transactions": completedTransactions.length,
-        "Void/Refund Count": account.reversals.length,
-        "Completed Revenue": totalRevenue,
-        "Attendance Entries On Record": account.timeLogs.length,
       }]);
-      appendSheet("Transaction Record", account.transactions.map((transaction) => ({
-        "Order ID": transaction.id,
-        "Order Date": formatFinanceDateTime(transaction.createdAt),
-        Amount: transaction.amount,
-        Status: transaction.status,
-        "Reversal Type": transaction.reversalType || "",
-        "Reversed At": transaction.reversedAt ? formatFinanceDateTime(transaction.reversedAt) : "",
-      })));
-      appendSheet("Void & Refund Activity", account.reversals.map((reversal) => ({
-        "Order ID": reversal.id,
-        "Reversed At": reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown",
-        Amount: reversal.amount,
-        Status: reversal.status,
-      })));
-      appendSheet("Attendance History", account.timeLogs.map((log) => ({
-        Shift: log.shiftId ? `#${log.shiftId}` : "",
-        "Time In": formatFinanceDateTime(log.timeIn),
-        "Time Out": log.timeOut ? formatFinanceDateTime(log.timeOut) : "Currently signed in",
-      })));
-      if (workbook.SheetNames.length === 0) {
-        throw new Error(`No activity found for ${account.fullName} yet.`);
-      }
+      appendSheet("Orders", account.transactions.map((transaction) => ({ "Order #": transaction.id, "Queue #": transaction.queueNumber ?? "", Shift: transaction.shiftId ? `#${transaction.shiftId}` : "", "Order Date": formatFinanceDateTime(transaction.createdAt), Amount: transaction.amount, Status: transaction.status, "Reversed At": transaction.reversedAt ? formatFinanceDateTime(transaction.reversedAt) : "" })));
+      appendSheet("Voids and Refunds Done", account.reversals.map((reversal) => ({ "Order #": reversal.id, "Reversed At": reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown", Amount: reversal.amount, Status: reversal.status })));
+      appendSheet("Attendance", account.timeLogs.map((log) => ({ Shift: log.shiftId ? `#${log.shiftId}` : "", "Time In": formatFinanceDateTime(log.timeIn), "Time Out": log.timeOut ? formatFinanceDateTime(log.timeOut) : "Still on duty", Hours: Number(logDuration(log, Date.now()).toFixed(2)) })));
       const fileNameSafeName = account.fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
       XLSX.writeFile(workbook, `brew-houze-employee-${fileNameSafeName}-${getFinanceDateStamp()}.xlsx`);
     } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : "Failed to export employee report.");
+      setError(exportError instanceof Error ? exportError.message : "Failed to export the employee report.");
     } finally {
       setExportingAccountId(null);
     }
   }
 
-  useEffect(() => {
-    const initialLoad = window.setTimeout(() => { void loadAccounts(); void loadMyActivity(); }, 0);
-    const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") { void loadAccounts(); void loadMyActivity(); }
-    }, 15_000);
-    return () => {
-      window.clearTimeout(initialLoad);
-      window.clearInterval(intervalId);
-    };
-  }, []);
+  const query = search.trim().toLowerCase();
+  const shown = accounts.filter((account) => {
+    if (statusFilter === "active" && !account.isActive) return false;
+    if (statusFilter === "inactive" && account.isActive) return false;
+    if (statusFilter === "duty" && !account.onDutySince) return false;
+    return !query || account.fullName.toLowerCase().includes(query) || account.email.toLowerCase().includes(query);
+  });
+  const active = accounts.filter((account) => account.isActive);
+  const onDuty = accounts.filter((account) => account.onDutySince);
+  const selected = accounts.find((account) => account.id === selectedId) ?? null;
 
-  const activeCount = accounts.filter((account) => account.isActive).length;
-
-  return <main className="p-8" style={{ color: "#3D2B1F", overflowY: "auto", maxWidth: 1180 }}>
-    <div className="flex items-start justify-between gap-4 mb-7">
-      <div><div style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Team access</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, letterSpacing: "-.03em" }}>Cashier Accounts</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13 }}>Overview of staff accounts that can access the Brew Houze cashier app.</p></div>
-      <button onClick={() => void loadAccounts()} disabled={loading} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: loading ? "default" : "pointer" }}>{loading ? "Loading..." : "Refresh"}</button>
-    </div>
-    <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-      <div className="rounded-xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Total cashiers</div><div style={{ marginTop: 8, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800 }}>{accounts.length}</div></div>
-      <div className="rounded-xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Active accounts</div><div style={{ marginTop: 8, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, color: "#2E7D32" }}>{activeCount}</div></div>
-      <div className="rounded-xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ color: "#9C8278", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em" }}>Access status</div><div style={{ marginTop: 8, fontSize: 14, fontWeight: 700, color: activeCount ? "#2E7D32" : "#B91C1C" }}>{activeCount ? "Ready for POS" : "No active cashier"}</div></div>
-    </div>
-    {error && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
-    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading employees...</div> : accounts.length === 0 ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier employees found.</div> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Email", "Role", "Status", "Manage"].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{accounts.map((account) => <tr key={account.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "15px 16px", fontWeight: 700 }}>{account.fullName}</td><td style={{ padding: "15px 16px", color: "#6B4C3B", fontSize: 13 }}>{account.email}</td><td style={{ padding: "15px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{account.role}</td><td style={{ padding: "15px 16px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, borderRadius: 20, padding: "5px 9px", background: account.isActive ? "#DCFCE7" : "#F3EDE5", color: account.isActive ? "#166534" : "#9C8278", fontSize: 11, fontWeight: 700 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: account.isActive ? "#22C55E" : "#B9A398" }} />{account.isActive ? "Active" : "Inactive"}</span></td><td style={{ padding: "12px 16px" }}><div className="flex items-center gap-2"><button type="button" onClick={() => setPermissionAccount(account)} style={{ border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Manage employee</button><button type="button" onClick={() => void exportEmployeeReport(account)} disabled={exportingAccountId === account.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 11px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === account.id ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}>{exportingAccountId === account.id ? "Exporting..." : "Export report"}</button></div></td></tr>)}</tbody></table></div></div>}
-
-    <section className="mt-8">
-      <div className="flex items-start justify-between gap-4 mb-4">
-        <div><div style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Your own record</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, letterSpacing: "-.03em" }}>My Cashier Activity</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13 }}>Your own attendance, transactions, reversals, and archiving activity when using the cashier and admin apps. Other admins cannot see this, and you cannot see theirs.</p></div>
-        <button onClick={() => void loadMyActivity()} disabled={myActivityLoading} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "10px 14px", background: "#3D2B1F", color: "#FDF9F5", cursor: myActivityLoading ? "default" : "pointer", fontSize: 12, whiteSpace: "nowrap" }}>{myActivityLoading ? "Loading..." : "Refresh"}</button>
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-summary">
+        <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active cashiers</span><strong>{active.length}</strong><em>{accounts.length - active.length} deactivated</em></button>
+        <button type="button" className="inv-stat" aria-pressed={statusFilter === "duty"} onClick={() => setStatusFilter(statusFilter === "duty" ? "active" : "duty")}><span>On duty now</span><strong style={{ color: onDuty.length ? "#15803D" : undefined }}>{onDuty.length}</strong><em>{onDuty.length ? onDuty.map((account) => account.fullName.split(/\s+/)[0]).join(", ") : "Nobody is clocked in"}</em></button>
+        <div className="inv-stat is-static"><span>Hours this week</span><strong>{formatHours(active.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0))}</strong><em>all cashiers, since Monday</em></div>
+        <div className="inv-stat is-static"><span>Can open the store</span><strong>{active.filter((account) => account.canOpenShift).length}</strong><em>plus every admin</em></div>
       </div>
-      {myActivityError && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{myActivityError}</div>}
-      {myActivityLoading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading your activity...</div> : !myActivity ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No cashier activity found for your account yet.</div> : <div className="rounded-2xl p-5" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}>
-        <div style={{ marginTop: 4 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{myActivity.transactions.length} recent</span></div>{myActivity.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}</div>
-        <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{myActivity.reversals.length} recent</span></div>{myActivity.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div>
-        <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong></div>{myActivity.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>{log.shiftId ? <strong style={{ marginRight: 8, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11 }}>Shift #{log.shiftId}</strong> : null}In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div>
-        <div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Archiving activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{myActivity.archives.length} recent</span></div>{myActivity.archives.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>You haven&apos;t archived anything yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{myActivity.archives.map((entry, index) => <div key={`${entry.kind}-${entry.name}-${index}`} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}><span style={{ color: "#9C8278", background: "#F3EDE5", borderRadius: 20, padding: "2px 8px", fontSize: 9, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", marginRight: 8 }}>{entry.kind}</span>{entry.name}</span><span style={{ color: "#9C8278" }}>{formatFinanceDateTime(entry.archivedAt)}</span></div>)}</div>}</div>
-      </div>}
-    </section>
 
-    {permissionAccount && <Modal onClose={() => setPermissionAccount(null)} labelledBy="cashier-employee-title" zIndex={50}><section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "85vh", overflowY: "auto", padding: 24, background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 16, boxShadow: "0 18px 50px rgba(61,43,31,.2)" }}><div className="flex items-start justify-between gap-4"><div><p style={{ margin: 0, color: "#D97706", fontSize: 10, fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase" }}>Employee management</p><h3 id="cashier-employee-title" style={{ margin: "6px 0 0", color: "#3D2B1F", fontSize: 22 }}>{permissionAccount.fullName}</h3><p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 13 }}>{permissionAccount.email}</p></div><button type="button" onClick={() => setPermissionAccount(null)} aria-label="Close employee management" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 24, cursor: "pointer" }}>×</button></div><div className="flex justify-end" style={{ marginTop: 14 }}><button type="button" onClick={() => void exportEmployeeReport(permissionAccount)} disabled={exportingAccountId === permissionAccount.id} style={{ border: "1px solid #E8DDD5", borderRadius: 8, padding: "8px 12px", background: "#3D2B1F", color: "#FDF9F5", cursor: exportingAccountId === permissionAccount.id ? "default" : "pointer", fontSize: 12, fontWeight: 700 }}>{exportingAccountId === permissionAccount.id ? "Exporting..." : "Export report (.xlsx)"}</button></div><AccountDevicesPanel account={permissionAccount} onSignedOut={() => { const cleared = { ...permissionAccount, sessions: [], timeLogs: permissionAccount.timeLogs.map((log) => log.timeOut ? log : { ...log, timeOut: new Date().toISOString() }) }; setPermissionAccount(cleared); setAccounts((current) => current.map((account) => account.id === cleared.id ? cleared : account)); }} /><div style={{ marginTop: 22, padding: 14, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFDF9" }}><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Order permissions</strong><label className="flex items-center gap-3" style={{ marginTop: 14, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canVoidOrders} onChange={() => void updatePermissions(permissionAccount, { canVoidOrders: !permissionAccount.canVoidOrders })} /> Allow cashier to void orders</label><label className="flex items-center gap-3" style={{ display: "flex", marginTop: 12, color: "#6B4C3B", fontSize: 14, fontWeight: 600 }}><input type="checkbox" checked={permissionAccount.canRefundOrders} onChange={() => void updatePermissions(permissionAccount, { canRefundOrders: !permissionAccount.canRefundOrders })} /> Allow cashier to refund orders    </label></div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Transaction record</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.transactions.length} recent</span></div>{permissionAccount.transactions.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No transactions yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.transactions.map((transaction) => <div key={transaction.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{transaction.id} · {formatFinanceDateTime(transaction.createdAt)}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{transaction.amount.toFixed(2)}</strong><span style={{ color: transaction.status === "completed" ? "#2E7D32" : "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{transaction.status}</span>{transaction.reversalType && <span style={{ display: "block", color: "#B91C1C", fontSize: 10 }}>Reversed: {transaction.reversalType}</span>}</span></div>)}</div>}    </div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Void & refund activity</strong><span style={{ color: "#9C8278", fontSize: 11 }}>{permissionAccount.reversals.length} recent</span></div>{permissionAccount.reversals.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No voids or refunds yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.reversals.map((reversal) => <div key={reversal.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>Order #{reversal.id} · {reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown time"}</span><span style={{ textAlign: "right" }}><strong style={{ display: "block", color: "#3D2B1F" }}>₱{reversal.amount.toFixed(2)}</strong><span style={{ color: "#B91C1C", fontSize: 10, fontWeight: 700, textTransform: "uppercase" }}>{reversal.status}</span></span></div>)}</div>}</div><div style={{ marginTop: 18 }}><div className="flex items-center justify-between gap-3"><strong style={{ color: "#3D2B1F", fontSize: 14 }}>Attendance history</strong><button type="button" onClick={() => void clearEmployeeLogs(permissionAccount)} style={{ border: "1px solid #FCA5A5", borderRadius: 8, padding: "6px 9px", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer", fontSize: 11, fontWeight: 700 }}>Archive log history</button></div>{permissionAccount.timeLogs.length === 0 ? <p style={{ color: "#9C8278", fontSize: 13 }}>No time logs yet.</p> : <div style={{ marginTop: 9, border: "1px solid #E8DDD5", borderRadius: 10, overflow: "hidden" }}>{permissionAccount.timeLogs.map((log) => <div key={log.id} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: "1px solid #F0E8E2", fontSize: 12 }}><span style={{ color: "#6B4C3B" }}>{log.shiftId ? <strong style={{ marginRight: 8, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11 }}>Shift #{log.shiftId}</strong> : null}In: {formatFinanceDateTime(log.timeIn)}</span><span style={{ color: log.timeOut ? "#6B4C3B" : "#2E7D32", fontWeight: log.timeOut ? 400 : 700 }}>{log.timeOut ? `Out: ${formatFinanceDateTime(log.timeOut)}` : "Currently signed in"}</span></div>)}</div>}</div><div className="flex justify-end" style={{ marginTop: 22 }}><button type="button" onClick={() => setPermissionAccount(null)} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 15px", background: "#FDF9F5", color: "#6B4C3B", cursor: "pointer", fontWeight: 700 }}>Done</button></div></section></Modal>}
-  </main>;
+      <div className="inv-toolbar">
+        <div className="inv-search is-wide">
+          <IconSearch size={14} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name or email" />
+          {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+        </div>
+        <div className="inv-range" role="group" aria-label="Show">
+          {([["active", "Active"], ["duty", "On duty"], ["inactive", "Deactivated"], ["all", "All"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={statusFilter === id} onClick={() => setStatusFilter(id)}>{label}</button>)}
+        </div>
+        <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add employee</button>
+      </div>
+
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+      {loading ? <div className="inv-empty">Loading employees…</div>
+        : accounts.length === 0 ? <div className="inv-onboard">
+          <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconUsers size={24} /></span>
+          <h2>No cashiers yet</h2>
+          <p>Add the people who work the counter. They sign in to the cashier app with their email and a password you give them.</p>
+          <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add employee</button>
+        </div>
+          : shown.length === 0 ? <div className="inv-empty">No employees match. <button type="button" className="inv-link" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Show everyone</button></div>
+            : <div className="acc-grid">
+              {shown.map((account) => <button key={account.id} type="button" className={`acc-card${account.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(account.id)}>
+                <span className="acc-card-top">
+                  <UserAvatar name={account.fullName} size={44} />
+                  <span className="acc-card-name"><strong>{account.fullName}</strong><em>{account.email}</em></span>
+                  <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{!account.isActive ? "Deactivated" : account.onDutySince ? `On duty · ${clockTime(account.onDutySince)}` : "Off duty"}</span>
+                </span>
+                <span className="acc-perms">
+                  {([["Open store", account.canOpenShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
+                </span>
+                <span className="acc-card-stats">
+                  <span><em>This week</em><strong>{formatHours(account.stats.hoursThisWeek)}</strong></span>
+                  <span><em>Orders · 30d</em><strong>{account.stats.orders30d}</strong></span>
+                  <span><em>Sales · 30d</em><strong>{peso(account.stats.sales30d)}</strong></span>
+                </span>
+                <span className="acc-card-foot">{account.sessions && account.sessions.length > 0 ? `Signed in on ${account.sessions.length} device${account.sessions.length === 1 ? "" : "s"}` : account.lastSeenAt ? `Last active ${shiftTime(account.lastSeenAt)}` : "Has not signed in yet"}<span>Manage <IconChevron size={13} /></span></span>
+              </button>)}
+            </div>}
+
+      <section className="acc-block acc-mine">
+        <button type="button" className="acc-mine-toggle" aria-expanded={myActivityOpen} onClick={() => { const next = !myActivityOpen; setMyActivityOpen(next); if (next && !myActivity) void loadMyActivity(); }}>
+          <span><strong>Your own activity at the counter</strong><em>When you sign in to the cashier app as admin: your orders, voids and refunds, attendance and archiving. Only you see this.</em></span>
+          <span className="inv-chevron" style={{ transform: myActivityOpen ? "rotate(90deg)" : undefined }}><IconChevron size={16} /></span>
+        </button>
+        {myActivityOpen && (myActivityLoading && !myActivity ? <p className="inv-hint">Loading your activity…</p>
+          : myActivityError ? <p className="acc-error">{myActivityError}</p>
+            : !myActivity ? null
+              : <div className="acc-mine-grid">
+                <div><h4>Orders ({myActivity.transactions.length})</h4>{myActivity.transactions.length === 0 ? <p className="inv-hint">None yet.</p> : <ul className="acc-list">{myActivity.transactions.slice(0, 8).map((transaction) => <li key={transaction.id}><span><strong>Order {transaction.id}</strong><em>{shiftTime(transaction.createdAt)}</em></span><strong>{peso(transaction.amount)}</strong></li>)}</ul>}</div>
+                <div><h4>Voids & refunds ({myActivity.reversals.length})</h4>{myActivity.reversals.length === 0 ? <p className="inv-hint">None yet.</p> : <ul className="acc-list">{myActivity.reversals.slice(0, 8).map((reversal) => <li key={reversal.id}><span><strong>Order {reversal.id}</strong><em>{reversal.reversedAt ? shiftTime(reversal.reversedAt) : "Unknown time"}</em></span><strong>{peso(reversal.amount)}</strong></li>)}</ul>}</div>
+                <div><h4>Attendance ({myActivity.timeLogs.length})</h4>{myActivity.timeLogs.length === 0 ? <p className="inv-hint">None yet.</p> : <ul className="acc-list">{myActivity.timeLogs.slice(0, 8).map((log) => <li key={log.id}><span><strong>{shiftTime(log.timeIn)}</strong><em>{log.timeOut ? `out ${clockTime(log.timeOut)}` : "still signed in"}</em></span></li>)}</ul>}</div>
+                <div><h4>Archived by you ({myActivity.archives.length})</h4>{myActivity.archives.length === 0 ? <p className="inv-hint">Nothing yet.</p> : <ul className="acc-list">{myActivity.archives.slice(0, 8).map((entry, index) => <li key={`${entry.kind}-${entry.name}-${index}`}><span><strong>{entry.name}</strong><em>{entry.kind} · {shiftTime(entry.archivedAt)}</em></span></li>)}</ul>}</div>
+              </div>)}
+      </section>
+    </div>
+
+    {adding && <AddEmployeeDialog onClose={() => setAdding(false)} onCreated={loadAccounts} />}
+    {selected && <EmployeeDialog key={selected.id} account={selected} now={now} exporting={exportingAccountId === selected.id} onClose={() => setSelectedId(null)} onChanged={(updated) => setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account))} onReload={loadAccounts} onExport={() => exportEmployeeReport(selected)} />}
+  </div>;
 }
 
 type ArchivedProduct = { id: number; name: string; category: string | null; price: number; archivedAt: string | null; archivedBy: string | null };
 type ArchivedProductVariant = { id: number; productId: number; productName: string; size: string | null; temperature: string | null; price: number; archivedAt: string | null; archivedBy: string | null };
 type ArchivedInventoryItem = { id: number; itemName: string; category: string | null; unit: string | null; quantity: number; archivedAt: string | null; archivedBy: string | null };
-type ArchivedAddition = { id: number; name: string; itemName: string; unit: string | null; quantity: number; price: number; archivedAt: string | null; archivedBy: string | null };
-type ArchivedSalesOrder = { id: number; totalAmount: number; status: string; createdAt: string; cashierName: string | null; archivedAt: string | null; archivedBy: string | null };
+type ArchivedPackaging = { id: number; name: string; brand: string | null; contentQuantity: number; lastPackPrice: number | null; itemName: string; unit: string; itemArchived: boolean; archivedAt: string | null; archivedBy: string | null };
+type ArchivedCategory = { id: number; name: string; productCount: number };
+type ArchivedAddition = { id: number; name: string; itemName: string; unit: string | null; quantity: number; price: number; itemArchived?: boolean; archivedAt: string | null; archivedBy: string | null };
+type ArchivedSalesOrder = { id: number; totalAmount: number; status: string; createdAt: string; cashierName: string | null; queueNumber?: number | null; shiftId?: number | null; items?: string; archivedAt: string | null; archivedBy: string | null };
 type ArchivedEmployeeTimeLog = { id: number; employeeName: string; timeIn: string; timeOut: string | null; archivedAt: string | null; archivedBy: string | null };
 type ArchivesData = {
   products: ArchivedProduct[];
   productVariants: ArchivedProductVariant[];
   inventory: ArchivedInventoryItem[];
+  packagings?: ArchivedPackaging[];
+  categories?: ArchivedCategory[];
   additions: ArchivedAddition[];
   salesOrders: ArchivedSalesOrder[];
   employeeTimeLogs: ArchivedEmployeeTimeLog[];
 };
-type RestoreType = "product" | "product_variant" | "inventory" | "addition" | "sales_order" | "employee_time_log";
-type ArchiveTab = "products" | "inventory" | "additions" | "sales" | "attendance";
+type RestoreType = "product" | "product_variant" | "inventory" | "packaging" | "addition" | "category" | "sales_order" | "employee_time_log";
+type ArchiveGroup = "products" | "inventory" | "addons" | "categories" | "sales" | "attendance";
+type ArchiveEntry = { key: string; type: RestoreType; id: number; group: ArchiveGroup; kind: string; title: string; subtitle: string; blocked: string | null; archivedAt: string | null; archivedBy: string | null; search: string };
 
-function RestoreButton({ type, id, restoringKey, onRestore }: { type: RestoreType; id: number; restoringKey: string | null; onRestore: (type: RestoreType, id: number) => void }) {
-  const key = `${type}:${id}`;
-  return <button type="button" onClick={() => onRestore(type, id)} disabled={restoringKey === key} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #D97706", borderRadius: 8, padding: "8px 11px", background: "#FFF7ED", color: "#B45309", cursor: restoringKey === key ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}><IconRotateCcw size={12} />{restoringKey === key ? "Restoring..." : "Restore"}</button>;
+const archiveGroups: { id: ArchiveGroup; label: string; restoreNote: string }[] = [
+  { id: "products", label: "Products", restoreNote: "Restored products and sizes return to the Menu, the cashier app and the mobile menu." },
+  { id: "inventory", label: "Inventory", restoreNote: "Restored items and packages return to Inventory with the stock they had when archived." },
+  { id: "addons", label: "Add-ons", restoreNote: "Restored add-ons can be punched at the POS again." },
+  { id: "categories", label: "Categories", restoreNote: "Restored categories can be picked when adding products again." },
+  { id: "sales", label: "Sales records", restoreNote: "Restored sales count in Finance again, under their original business date and shift." },
+  { id: "attendance", label: "Attendance", restoreNote: "Restored time logs count in the employee's hours again." },
+];
+
+function buildArchiveEntries(data: ArchivesData): ArchiveEntry[] {
+  const entries: ArchiveEntry[] = [];
+  const add = (entry: Omit<ArchiveEntry, "key" | "search">) => entries.push({ ...entry, key: `${entry.type}:${entry.id}`, search: `${entry.title} ${entry.subtitle} ${entry.kind} ${entry.archivedBy ?? ""}`.toLowerCase() });
+  for (const product of data.products) add({ type: "product", id: product.id, group: "products", kind: "Product", title: product.name, subtitle: `${product.category || "Uncategorized"} · ${peso(product.price)}`, blocked: null, archivedAt: product.archivedAt, archivedBy: product.archivedBy });
+  for (const variant of data.productVariants) add({ type: "product_variant", id: variant.id, group: "products", kind: "Size", title: `${variant.productName} · ${variant.size ?? "Regular"}${variant.temperature && variant.temperature !== "both" ? ` ${variant.temperature === "hot" ? "Hot" : "Cold"}` : ""}`, subtitle: `${peso(variant.price)} · the product itself is still on the menu`, blocked: null, archivedAt: variant.archivedAt, archivedBy: variant.archivedBy });
+  for (const item of data.inventory) add({ type: "inventory", id: item.id, group: "inventory", kind: "Inventory item", title: item.itemName, subtitle: `${item.category || "Uncategorized"} · ${item.unit ? formatStock(item.quantity, item.unit) : formatAmount(item.quantity)} when archived`, blocked: null, archivedAt: item.archivedAt, archivedBy: item.archivedBy });
+  for (const pack of data.packagings ?? []) add({ type: "packaging", id: pack.id, group: "inventory", kind: "Package", title: `${pack.name}${pack.brand ? ` (${pack.brand})` : ""}`, subtitle: `${formatStock(pack.contentQuantity, pack.unit)} of ${pack.itemName} per pack${pack.lastPackPrice !== null ? ` · ${peso(pack.lastPackPrice)}` : ""}`, blocked: pack.itemArchived ? `Restore the inventory item “${pack.itemName}” first.` : null, archivedAt: pack.archivedAt, archivedBy: pack.archivedBy });
+  for (const addon of data.additions) add({ type: "addition", id: addon.id, group: "addons", kind: "Add-on", title: addon.name, subtitle: `+${peso(addon.price)} · uses ${addon.unit ? formatStock(addon.quantity, addon.unit) : formatAmount(addon.quantity)} of ${addon.itemName}`, blocked: addon.itemArchived ? `Restore the inventory item “${addon.itemName}” first.` : null, archivedAt: addon.archivedAt, archivedBy: addon.archivedBy });
+  for (const category of data.categories ?? []) add({ type: "category", id: category.id, group: "categories", kind: "Category", title: category.name, subtitle: category.productCount ? `${category.productCount} active product${category.productCount === 1 ? "" : "s"} still use this name` : "No products use it", blocked: null, archivedAt: null, archivedBy: null });
+  for (const order of data.salesOrders) add({ type: "sales_order", id: order.id, group: "sales", kind: "Sale", title: `Order ${order.id}${order.queueNumber ? ` · #${order.queueNumber}` : ""} · ${peso(order.totalAmount)}`, subtitle: `${order.items || "Order"} · ${shiftTime(order.createdAt)}${order.cashierName ? ` · ${order.cashierName}` : ""}${order.status !== "completed" ? ` · ${order.status}` : ""}`, blocked: null, archivedAt: order.archivedAt, archivedBy: order.archivedBy });
+  for (const log of data.employeeTimeLogs) add({ type: "employee_time_log", id: log.id, group: "attendance", kind: "Attendance", title: log.employeeName, subtitle: `${shiftTime(log.timeIn)} → ${log.timeOut ? shiftTime(log.timeOut) : "no time out"}`, blocked: null, archivedAt: log.archivedAt, archivedBy: log.archivedBy });
+  return entries;
 }
 
-function PurgeButton({ type, id, label, purgingKey, onPurge }: { type: RestoreType; id: number; label: string; purgingKey: string | null; onPurge: (type: RestoreType, id: number, label: string) => void }) {
-  const key = `${type}:${id}`;
-  return <button type="button" onClick={() => onPurge(type, id, label)} disabled={purgingKey === key} title="Permanently delete" style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #FECACA", borderRadius: 8, padding: "8px 11px", background: "#FEF2F2", color: "#B91C1C", cursor: purgingKey === key ? "default" : "pointer", fontSize: 12, fontWeight: 700, whiteSpace: "nowrap" }}><IconTrash size={12} />{purgingKey === key ? "Deleting..." : "Delete forever"}</button>;
-}
-
-function ClearAllButton({ type, label, count, clearingType, onClearAll }: { type: RestoreType; label: string; count: number; clearingType: RestoreType | null; onClearAll: (type: RestoreType, label: string) => void }) {
-  if (count === 0) return null;
-  return <button type="button" onClick={() => onClearAll(type, label)} disabled={clearingType === type} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: "1px solid #FECACA", borderRadius: 8, padding: "8px 12px", background: "#FEF2F2", color: "#B91C1C", cursor: clearingType === type ? "default" : "pointer", fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" }}><IconTrash size={12} />{clearingType === type ? "Clearing..." : `Permanently clear all (${count})`}</button>;
-}
-
-function ArchivesEmptyState({ label }: { label: string }) {
-  return <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px dashed #D8C8BE", color: "#9C8278" }}>No archived {label} found.</div>;
-}
+const archiveKindLabels: Record<RestoreType, string> = { product: "product", product_variant: "size", inventory: "inventory item", packaging: "package", addition: "add-on", category: "category", sales_order: "sales record", employee_time_log: "attendance log" };
 
 function Archives() {
   const confirmAction = useConfirm();
@@ -4390,12 +5222,14 @@ function Archives() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [tab, setTab] = useState<ArchiveTab>("products");
-  const [restoringKey, setRestoringKey] = useState<string | null>(null);
-  const [purgingKey, setPurgingKey] = useState<string | null>(null);
-  const [clearingType, setClearingType] = useState<RestoreType | null>(null);
+  const [tab, setTab] = useState<ArchiveGroup | "all">("all");
+  const [search, setSearch] = useState("");
+  const [archivedBy, setArchivedBy] = useState("all");
+  const [sort, setSort] = useState<"newest" | "oldest" | "name">("newest");
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const loadArchives = async () => {
+  const loadArchives = useCallback(async () => {
     try {
       const response = await fetch("/api/archives", { cache: "no-store" });
       const payload = await response.json();
@@ -4407,134 +5241,158 @@ function Archives() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadArchives(); }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [loadArchives]);
 
-  async function restore(type: RestoreType, id: number) {
-    const key = `${type}:${id}`;
-    setRestoringKey(key);
+  const entries = useMemo(() => (data ? buildArchiveEntries(data) : []), [data]);
+  const archivers = useMemo(() => Array.from(new Set(entries.map((entry) => entry.archivedBy).filter((name): name is string => Boolean(name)))).sort((a, b) => a.localeCompare(b)), [entries]);
+  const counts = useMemo(() => Object.fromEntries(archiveGroups.map((group) => [group.id, entries.filter((entry) => entry.group === group.id).length])) as Record<ArchiveGroup, number>, [entries]);
+  const query = search.trim().toLowerCase();
+  const shown = entries
+    .filter((entry) => (tab === "all" || entry.group === tab) && (archivedBy === "all" || entry.archivedBy === archivedBy) && (!query || entry.search.includes(query)))
+    .sort((a, b) => sort === "name" ? a.title.localeCompare(b.title) : sort === "oldest" ? (a.archivedAt ?? "").localeCompare(b.archivedAt ?? "") : (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
+  const selectedShown = shown.filter((entry) => selected.has(entry.key));
+  const allShownSelected = shown.length > 0 && selectedShown.length === shown.length;
+  const salesTotal = (data?.salesOrders ?? []).reduce((sum, order) => sum + order.totalAmount, 0);
+
+  function toggle(key: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  }
+
+  async function send(method: "PATCH" | "DELETE", entry: ArchiveEntry): Promise<{ ok: boolean; message?: string; warning?: string }> {
     try {
-      const response = await fetch("/api/archives", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, id }),
-      });
+      const response = await fetch("/api/archives", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: entry.type, id: entry.id }) });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to restore this record.");
-      await loadArchives();
-    } catch (restoreError) {
-      setError(restoreError instanceof Error ? restoreError.message : "Failed to restore this record.");
-    } finally {
-      setRestoringKey(null);
+      if (!response.ok) return { ok: false, message: payload?.error || "Something went wrong." };
+      return { ok: true, warning: payload?.data?.warning ?? undefined };
+    } catch {
+      return { ok: false, message: "Could not reach the server." };
     }
   }
 
-  async function purge(type: RestoreType, id: number, label: string) {
-    if (!(await confirmAction({ title: `Permanently delete this ${label}?`, message: <>This <strong>cannot be undone</strong>. It will be gone from Archives for good.</>, confirmLabel: "Delete permanently" }))) return;
-    const key = `${type}:${id}`;
-    setPurgingKey(key);
-    setNotice("");
-    try {
-      const response = await fetch("/api/archives", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, id }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || `Failed to permanently delete this ${label}.`);
-      setError("");
-      await loadArchives();
-    } catch (purgeError) {
-      setError(purgeError instanceof Error ? purgeError.message : `Failed to permanently delete this ${label}.`);
-    } finally {
-      setPurgingKey(null);
-    }
-  }
-
-  async function clearAll(type: RestoreType, label: string) {
-    if (!(await confirmAction({ title: `Permanently delete every archived ${label}?`, message: <>This <strong>cannot be undone</strong>. Anything still used elsewhere is skipped and stays in Archives.</>, confirmLabel: "Delete all permanently" }))) return;
-    setClearingType(type);
-    setNotice("");
+  // Runs one action over several records, then reports how many worked and why any did not.
+  async function run(action: "restore" | "delete", targets: ArchiveEntry[]) {
+    if (targets.length === 0) return;
+    if (action === "delete" && !(await confirmAction({
+      title: targets.length === 1 ? `Delete this ${archiveKindLabels[targets[0].type]} forever?` : `Delete ${targets.length} records forever?`,
+      message: <>This <strong>cannot be undone</strong>. {targets.length === 1 ? <>“{targets[0].title}” will be gone for good.</> : "They will be gone for good."} Anything still used by past sales or another record is kept.</>,
+      confirmLabel: targets.length === 1 ? "Delete forever" : `Delete ${targets.length} forever`,
+    }))) return;
+    setBusy(targets.length === 1 ? targets[0].key : "bulk");
     setError("");
-    try {
-      const response = await fetch("/api/archives", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, clear_all: true }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || `Failed to clear archived ${label}s.`);
-      const { deletedCount, skippedCount } = payload.data ?? {};
-      if (skippedCount > 0) {
-        setNotice(`Permanently deleted ${deletedCount} ${label}${deletedCount === 1 ? "" : "s"}. ${skippedCount} ${skippedCount === 1 ? "was" : "were"} kept because ${skippedCount === 1 ? "it is" : "they are"} still referenced elsewhere.`);
+    setNotice("");
+    let done = 0;
+    const problems: string[] = [];
+    const warnings: string[] = [];
+    for (const target of targets) {
+      const result = await send(action === "restore" ? "PATCH" : "DELETE", target);
+      if (result.ok) {
+        done += 1;
+        if (result.warning) warnings.push(`${target.title}: ${result.warning}`);
       } else {
-        setNotice(`Permanently deleted ${deletedCount} ${label}${deletedCount === 1 ? "" : "s"}.`);
+        problems.push(`${target.title}: ${result.message}`);
       }
-      await loadArchives();
-    } catch (clearError) {
-      setError(clearError instanceof Error ? clearError.message : `Failed to clear archived ${label}s.`);
-    } finally {
-      setClearingType(null);
     }
+    setSelected((current) => {
+      const next = new Set(current);
+      targets.forEach((target) => next.delete(target.key));
+      return next;
+    });
+    await loadArchives();
+    setBusy(null);
+    const verb = action === "restore" ? "Restored" : "Deleted forever";
+    if (done > 0) setNotice([`${verb}: ${done} record${done === 1 ? "" : "s"}.`, ...warnings].join(" "));
+    if (problems.length > 0) setError(`${problems.length} could not be ${action === "restore" ? "restored" : "deleted"}. ${problems.slice(0, 3).join(" ")}${problems.length > 3 ? ` And ${problems.length - 3} more.` : ""}`);
   }
 
-  const tabs: { id: ArchiveTab; label: string; count: number }[] = data ? [
-    { id: "products", label: "Products", count: data.products.length + data.productVariants.length },
-    { id: "inventory", label: "Inventory", count: data.inventory.length },
-    { id: "additions", label: "Additions", count: data.additions.length },
-    { id: "sales", label: "Sales Records", count: data.salesOrders.length },
-    { id: "attendance", label: "Attendance Logs", count: data.employeeTimeLogs.length },
-  ] : [];
+  const tabNote = tab === "all" ? "Nothing here is shown in the apps. Restore puts a record back where it came from, and Delete forever removes it for good." : archiveGroups.find((group) => group.id === tab)?.restoreNote;
 
-  return <main className="p-8">
-    <div className="mb-6"><div style={{ color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Nothing is ever lost</div><h2 style={{ marginTop: 7, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, letterSpacing: "-.03em" }}>Archives</h2><p style={{ marginTop: 5, color: "#9C8278", fontSize: 13, maxWidth: 640 }}>Products, inventory items, additions, sales records, and cleared attendance logs are archived here instead of being permanently deleted. Restore anything back to where it came from at any time.</p></div>
-
-    {error && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
-    {notice && <div className="rounded-xl px-4 py-3 mb-4" style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", color: "#15803D", fontSize: 13 }}>{notice}</div>}
-
-    {loading ? <div className="rounded-xl p-8 text-center" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", color: "#9C8278" }}>Loading archives...</div> : !data ? null : <>
-      <div className="flex items-center gap-2 mb-5" style={{ flexWrap: "wrap" }}>
-        {tabs.map(({ id, label, count }) => <button key={id} type="button" onClick={() => setTab(id)} style={{ border: tab === id ? "1px solid #D97706" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 14px", background: tab === id ? "#3D2B1F" : "#FDF9F5", color: tab === id ? "#FDF9F5" : "#6B4C3B", cursor: "pointer", fontSize: 12.5, fontWeight: 700 }}>{label} <span style={{ opacity: 0.7 }}>({count})</span></button>)}
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-summary">
+        <button type="button" className="inv-stat" aria-pressed={tab === "all"} onClick={() => setTab("all")}><span>In Archives</span><strong>{entries.length}</strong><em>kept until you delete them</em></button>
+        <button type="button" className="inv-stat" aria-pressed={tab === "products"} onClick={() => setTab("products")}><span>Products</span><strong>{counts.products}</strong><em>plus {counts.addons} add-on{counts.addons === 1 ? "" : "s"}, {counts.categories} categor{counts.categories === 1 ? "y" : "ies"}</em></button>
+        <button type="button" className="inv-stat" aria-pressed={tab === "inventory"} onClick={() => setTab("inventory")}><span>Inventory</span><strong>{counts.inventory}</strong><em>items and packages</em></button>
+        <button type="button" className="inv-stat" aria-pressed={tab === "sales"} onClick={() => setTab("sales")}><span>Sales records</span><strong>{counts.sales}</strong><em>{peso(salesTotal)} not in Finance</em></button>
       </div>
 
-      {tab === "products" && <div className="flex flex-col gap-6">
-        <section>
-          <div className="flex items-center justify-between gap-3" style={{ marginBottom: 10 }}><h3 style={{ margin: 0, fontWeight: 800, fontSize: 15 }}>Archived products</h3><ClearAllButton type="product" label="product" count={data.products.length} clearingType={clearingType} onClearAll={clearAll} /></div>
-          {data.products.length === 0 ? <ArchivesEmptyState label="products" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Category", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.products.map((product) => <tr key={product.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{product.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{product.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{product.archivedAt ? formatFinanceDateTime(product.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{product.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="product" id={product.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="product" id={product.id} label="product" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
-        </section>
-        <section>
-          <div className="flex items-center justify-between gap-3" style={{ marginBottom: 10 }}><h3 style={{ margin: 0, fontWeight: 800, fontSize: 15 }}>Archived variants <span style={{ color: "#9C8278", fontWeight: 400, fontSize: 12 }}>(product itself is still active)</span></h3><ClearAllButton type="product_variant" label="variant" count={data.productVariants.length} clearingType={clearingType} onClearAll={clearAll} /></div>
-          {data.productVariants.length === 0 ? <ArchivesEmptyState label="variants" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Product", "Variant", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.productVariants.map((variant) => <tr key={variant.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{variant.productName}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{variant.size}{variant.temperature && variant.temperature !== "both" ? ` (${variant.temperature})` : ""}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{variant.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{variant.archivedAt ? formatFinanceDateTime(variant.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{variant.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="product_variant" id={variant.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="product_variant" id={variant.id} label="variant" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
-        </section>
-      </div>}
+      <div className="menu-chips" role="group" aria-label="Archive type">
+        <button type="button" aria-pressed={tab === "all"} onClick={() => setTab("all")}>All<b>{entries.length}</b></button>
+        {archiveGroups.map((group) => <button key={group.id} type="button" aria-pressed={tab === group.id} onClick={() => setTab(group.id)}>{group.label}<b>{counts[group.id] ?? 0}</b></button>)}
+      </div>
 
-      {tab === "inventory" && <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-end"><ClearAllButton type="inventory" label="inventory item" count={data.inventory.length} clearingType={clearingType} onClearAll={clearAll} /></div>
-        {data.inventory.length === 0 ? <ArchivesEmptyState label="inventory items" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Item", "Category", "Last Qty", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.inventory.map((item) => <tr key={item.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{item.itemName}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{item.category || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>{item.quantity} {item.unit}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{item.archivedAt ? formatFinanceDateTime(item.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{item.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="inventory" id={item.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="inventory" id={item.id} label="inventory item" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
-      </div>}
+      <div className="inv-toolbar">
+        <div className="inv-search is-wide">
+          <IconSearch size={14} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, order, employee or category" />
+          {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+        </div>
+        <label className="inv-filter"><span>Archived by</span>
+          <select value={archivedBy} onChange={(event) => setArchivedBy(event.target.value)} className={`inv-select${archivedBy !== "all" ? " is-active" : ""}`}>
+            <option value="all">Anyone</option>{archivers.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
+        <label className="inv-filter"><span>Sort</span>
+          <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="inv-select">
+            <option value="newest">Recently archived</option><option value="oldest">Oldest first</option><option value="name">Name A–Z</option>
+          </select>
+        </label>
+      </div>
 
-      {tab === "additions" && <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-end"><ClearAllButton type="addition" label="addition" count={data.additions.length} clearingType={clearingType} onClearAll={clearAll} /></div>
-        {data.additions.length === 0 ? <ArchivesEmptyState label="additions" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Addition", "Uses", "Price", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.additions.map((addition) => <tr key={addition.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{addition.name}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{addition.quantity} {addition.unit} of {addition.itemName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{addition.price.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{addition.archivedAt ? formatFinanceDateTime(addition.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{addition.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="addition" id={addition.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="addition" id={addition.id} label="addition" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
-      </div>}
+      {tabNote && <p className="inv-hint">{tabNote}</p>}
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="acc-notice" role="status">{notice}</div>}
 
-      {tab === "sales" && <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-end"><ClearAllButton type="sales_order" label="sales record" count={data.salesOrders.length} clearingType={clearingType} onClearAll={clearAll} /></div>
-        {data.salesOrders.length === 0 ? <ArchivesEmptyState label="sales records" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Order", "Cashier", "Amount", "Status", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.salesOrders.map((order) => <tr key={order.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>#{order.id}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{order.cashierName || "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 13 }}>₱{order.totalAmount.toFixed(2)}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12, textTransform: "capitalize" }}>{order.status}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{order.archivedAt ? formatFinanceDateTime(order.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{order.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="sales_order" id={order.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="sales_order" id={order.id} label="sales record" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
-      </div>}
-
-      {tab === "attendance" && <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-end"><ClearAllButton type="employee_time_log" label="attendance log" count={data.employeeTimeLogs.length} clearingType={clearingType} onClearAll={clearAll} /></div>
-        {data.employeeTimeLogs.length === 0 ? <ArchivesEmptyState label="attendance logs" /> : <div className="rounded-xl overflow-hidden" style={{ background: "#FDF9F5", border: "1px solid #E8DDD5" }}><div style={{ overflowX: "auto" }}><table style={{ width: "100%", borderCollapse: "collapse" }}><thead><tr style={{ background: "#F3EDE5" }}>{["Employee", "Time in", "Time out", "Archived", "By", ""].map((heading) => <th key={heading} style={{ padding: "13px 16px", textAlign: "left", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, letterSpacing: ".06em", textTransform: "uppercase" }}>{heading}</th>)}</tr></thead><tbody>{data.employeeTimeLogs.map((log) => <tr key={log.id} style={{ borderTop: "1px solid #F0E8E2" }}><td style={{ padding: "14px 16px", fontWeight: 700 }}>{log.employeeName}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{formatFinanceDateTime(log.timeIn)}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.timeOut ? formatFinanceDateTime(log.timeOut) : "—"}</td><td style={{ padding: "14px 16px", color: "#6B4C3B", fontSize: 12 }}>{log.archivedAt ? formatFinanceDateTime(log.archivedAt) : "—"}</td><td style={{ padding: "14px 16px", color: "#9C8278", fontSize: 12 }}>{log.archivedBy || "—"}</td><td style={{ padding: "10px 16px", textAlign: "right" }}><div className="flex items-center justify-end gap-2"><RestoreButton type="employee_time_log" id={log.id} restoringKey={restoringKey} onRestore={restore} /><PurgeButton type="employee_time_log" id={log.id} label="attendance log" purgingKey={purgingKey} onPurge={purge} /></div></td></tr>)}</tbody></table></div></div>}
-      </div>}
-    </>}
-  </main>;
+      {loading ? <div className="inv-empty">Loading archives…</div>
+        : !data ? null
+          : shown.length === 0 ? <div className="inv-empty">{entries.length === 0 ? "Archives are empty. Anything you archive shows up here." : query || archivedBy !== "all" ? "Nothing matches these filters." : "Nothing of this kind is archived."}</div>
+            : <section className="arc-list">
+              <div className={`arc-bulk${selectedShown.length ? " is-active" : ""}`}>
+                <label className="arc-check">
+                  <input type="checkbox" checked={allShownSelected} ref={(element) => { if (element) element.indeterminate = selectedShown.length > 0 && !allShownSelected; }} onChange={() => setSelected((current) => {
+                    const next = new Set(current);
+                    if (allShownSelected) shown.forEach((entry) => next.delete(entry.key)); else shown.forEach((entry) => next.add(entry.key));
+                    return next;
+                  })} aria-label="Select everything shown" />
+                  <span>{selectedShown.length ? `${selectedShown.length} selected` : `Select all ${shown.length}`}</span>
+                </label>
+                {selectedShown.length > 0 && <div className="arc-bulk-actions">
+                  <button type="button" className="arc-restore" onClick={() => void run("restore", selectedShown)} disabled={busy !== null}><IconRotateCcw size={13} />{busy === "bulk" ? "Working…" : "Restore"}</button>
+                  <button type="button" className="inv-mini is-danger" style={{ height: 38 }} onClick={() => void run("delete", selectedShown)} disabled={busy !== null}><IconTrash size={13} />Delete forever</button>
+                  <button type="button" className="inv-link" onClick={() => setSelected(new Set())}>Clear</button>
+                </div>}
+              </div>
+              <ul>
+                {shown.map((entry) => <li key={entry.key} className={`arc-row${selected.has(entry.key) ? " is-selected" : ""}`}>
+                  <label className="arc-check"><input type="checkbox" checked={selected.has(entry.key)} onChange={() => toggle(entry.key)} aria-label={`Select ${entry.title}`} /></label>
+                  <span className={`arc-kind is-${entry.group}`}>{entry.kind}</span>
+                  <div className="arc-main">
+                    <strong>{entry.title}</strong>
+                    <span>{entry.subtitle}</span>
+                    {entry.blocked && <em>{entry.blocked}</em>}
+                  </div>
+                  <div className="arc-when">
+                    <strong>{entry.archivedAt ? shiftTime(entry.archivedAt) : "—"}</strong>
+                    <span>{entry.archivedBy ? `by ${entry.archivedBy}` : entry.type === "category" ? "date not recorded" : ""}</span>
+                  </div>
+                  <div className="arc-actions">
+                    <button type="button" className="arc-restore" onClick={() => void run("restore", [entry])} disabled={busy !== null} title={entry.blocked ?? "Put it back where it came from"}><IconRotateCcw size={13} />{busy === entry.key ? "…" : "Restore"}</button>
+                    <button type="button" className="menu-archive" onClick={() => void run("delete", [entry])} disabled={busy !== null} title="Delete forever" aria-label={`Delete ${entry.title} forever`}><IconTrash size={14} /></button>
+                  </div>
+                </li>)}
+              </ul>
+            </section>}
+    </div>
+  </div>;
 }
-
 
 function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => void; onConfirm: () => void; signingOut: boolean }) {
   return <Modal onClose={onCancel} closeDisabled={signingOut} labelledBy="admin-sign-out-title" zIndex={100}>

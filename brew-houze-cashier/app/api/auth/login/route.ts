@@ -12,7 +12,8 @@ export async function POST(request: Request) {
     const result = await pool.query(`
       SELECT admin_id, full_name, email, role,
         COALESCE(can_void_orders, FALSE) AS can_void_orders,
-        COALESCE(can_refund_orders, FALSE) AS can_refund_orders
+        COALESCE(can_refund_orders, FALSE) AS can_refund_orders,
+        COALESCE(can_open_shift, FALSE) AS can_open_shift
       FROM admin_users
       WHERE LOWER(email) = $1
         AND password_hash = crypt($2, password_hash)
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
       adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role,
       canVoidOrders: isAdmin ? true : Boolean(admin.can_void_orders),
       canRefundOrders: isAdmin ? true : Boolean(admin.can_refund_orders),
+      canOpenShift: isAdmin ? true : Boolean(admin.can_open_shift),
     };
     await pool.query(`
       INSERT INTO employee_time_logs (admin_id)

@@ -121,6 +121,22 @@ export async function GET(request: Request) {
       }, { headers: { "Cache-Control": "no-store" } });
     }
 
+    // A range of business dates (inclusive), used by the Finance date bar.
+    const rangeStart = searchParams.get("start") ?? "";
+    const rangeEnd = searchParams.get("end") ?? "";
+    if (rangeStart || rangeEnd) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(rangeStart) || !/^\d{4}-\d{2}-\d{2}$/.test(rangeEnd) || rangeStart > rangeEnd) {
+        return NextResponse.json({ error: "Choose a valid date range." }, { status: 400 });
+      }
+      const ranged = await pool.query(`
+        ${summarySelect}
+        WHERE ss.business_date BETWEEN $1::date AND $2::date
+        ORDER BY ss.opened_at DESC
+        LIMIT 500
+      `, [rangeStart, rangeEnd]);
+      return NextResponse.json({ data: ranged.rows.map(mapSummary) }, { headers: { "Cache-Control": "no-store" } });
+    }
+
     const period = searchParams.get("period") ?? "30";
     const days = period === "all" || period === "week" ? null : Number(period);
     if (period !== "all" && period !== "week" && (!Number.isInteger(days) || ![7, 30, 90].includes(days ?? 0))) {
@@ -143,5 +159,79 @@ export async function GET(request: Request) {
   } catch (error) {
     console.error("GET /api/shifts failed:", error);
     return NextResponse.json({ error: "Could not retrieve shift reports." }, { status: 500 });
+  }
+}
+
+function parseAmount(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount >= 0 ? Math.round(amount * 100) / 100 : null;
+}
+
+// Opens or closes the store from the admin app. Opening does not clock the admin in (they may
+// not be at the counter), but cashiers already signed in join the new shift. Closing works like
+// the cashier app: everyone is clocked out and signed out of the cashier app, and the queue clears.
+export async function POST(request: Request) {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown };
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "A valid shift action is required." }, { status: 400 });
+  }
+
+  const client = await pool.connect();
+  try {
+    if (body.action === "open") {
+      const startingCash = parseAmount(body.starting_cash);
+      if (startingCash === null) return NextResponse.json({ error: "Enter the starting cash in the drawer (0 or more)." }, { status: 400 });
+      await client.query("BEGIN");
+      const inserted = await client.query("INSERT INTO shifts (opened_by, starting_cash) VALUES ($1, $2) RETURNING shift_id", [session.adminId, startingCash]);
+      const shiftId = Number(inserted.rows[0].shift_id);
+      await client.query("UPDATE employee_time_logs SET shift_id = $1 WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
+      await client.query("COMMIT");
+      const summary = await pool.query(`${summarySelect} WHERE ss.shift_id = $1`, [shiftId]);
+      return NextResponse.json({ data: mapSummary(summary.rows[0]) }, { status: 201 });
+    }
+
+    if (body.action === "close") {
+      const shiftId = Number(body.shift_id);
+      const countedCash = parseAmount(body.counted_cash);
+      const notes = String(body.notes ?? "").trim().slice(0, 500);
+      if (!Number.isInteger(shiftId) || shiftId <= 0) return NextResponse.json({ error: "A valid shift is required." }, { status: 400 });
+      if (countedCash === null) return NextResponse.json({ error: "Count the cash in the drawer and enter the amount (0 or more)." }, { status: 400 });
+      await client.query("BEGIN");
+      // Waits for any checkout still running in this shift (they hold a share lock on it).
+      const locked = await client.query("SELECT shift_id FROM shifts WHERE shift_id = $1 AND closed_at IS NULL FOR UPDATE", [shiftId]);
+      if (locked.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json({ error: "This shift was already closed. Refresh to see the current state." }, { status: 409 });
+      }
+      const expected = await client.query("SELECT expected_cash FROM shift_summaries WHERE shift_id = $1", [shiftId]);
+      await client.query(`
+        UPDATE shifts
+        SET closed_at = CURRENT_TIMESTAMP, closed_by = $2, counted_cash = $3, expected_cash = $4, closing_notes = NULLIF($5, '')
+        WHERE shift_id = $1
+      `, [shiftId, session.adminId, countedCash, Number(expected.rows[0].expected_cash), notes]);
+      await client.query("UPDATE employee_time_logs SET time_out = CURRENT_TIMESTAMP WHERE time_out IS NULL");
+      await client.query("UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, end_reason = 'shift_closed' WHERE app = 'cashier' AND ended_at IS NULL");
+      await client.query("UPDATE sales_orders SET queue_status = 'flushed' WHERE queue_status IN ('waiting', 'served')");
+      await client.query("COMMIT");
+      const summary = await pool.query(`${summarySelect} WHERE ss.shift_id = $1`, [shiftId]);
+      return NextResponse.json({ data: mapSummary(summary.rows[0]) });
+    }
+
+    return NextResponse.json({ error: "Unknown shift action." }, { status: 400 });
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if (error && typeof error === "object" && (error as { code?: string }).code === "23505") {
+      return NextResponse.json({ error: "A shift is already open. Refresh to see it." }, { status: 409 });
+    }
+    console.error("POST /api/shifts failed:", error);
+    return NextResponse.json({ error: "Could not update the shift." }, { status: 500 });
+  } finally {
+    client.release();
   }
 }

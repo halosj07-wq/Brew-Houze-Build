@@ -8,7 +8,7 @@ async function requireAdmin() {
   return session;
 }
 
-const RESTORE_TYPES = ["product", "product_variant", "inventory", "addition", "sales_order", "employee_time_log"] as const;
+const RESTORE_TYPES = ["product", "product_variant", "inventory", "packaging", "addition", "category", "sales_order", "employee_time_log"] as const;
 type RestoreType = (typeof RESTORE_TYPES)[number];
 
 type PurgeConfig = {
@@ -22,7 +22,9 @@ const PURGE_CONFIG: Record<RestoreType, PurgeConfig> = {
   product: { table: "products", pk: "product_id", archivedWhere: "is_archived = TRUE", label: "product" },
   product_variant: { table: "product_variants", pk: "product_variant_id", archivedWhere: "is_archived = TRUE", label: "variant" },
   inventory: { table: "inventory", pk: "inventory_id", archivedWhere: "is_archived = TRUE", label: "inventory item" },
-  addition: { table: "additions", pk: "addition_id", archivedWhere: "is_active = FALSE", label: "addition" },
+  packaging: { table: "inventory_packaging", pk: "packaging_id", archivedWhere: "is_archived = TRUE", label: "package" },
+  addition: { table: "additions", pk: "addition_id", archivedWhere: "is_active = FALSE", label: "add-on" },
+  category: { table: "product_categories", pk: "category_id", archivedWhere: "is_active = FALSE", label: "category" },
   sales_order: { table: "sales_orders", pk: "order_id", archivedWhere: "is_archived = TRUE", label: "sales record" },
   employee_time_log: { table: "employee_time_logs", pk: "time_log_id", archivedWhere: "is_archived = TRUE", label: "attendance log" },
 };
@@ -84,7 +86,7 @@ export async function GET() {
     `);
 
     const additionsResult = await pool.query(`
-      SELECT ad.addition_id, ad.addition_name, ad.quantity, ad.price, i.item_name, i.unit_of_measure,
+      SELECT ad.addition_id, ad.addition_name, ad.quantity, ad.price, i.item_name, i.unit_of_measure, i.is_archived AS item_archived,
         TO_CHAR(ad.archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at,
         a.full_name AS archived_by_name
       FROM additions ad
@@ -94,8 +96,32 @@ export async function GET() {
       ORDER BY ad.archived_at DESC NULLS LAST
     `);
 
+    // Packages archived on their own (their item is still in Inventory, or archived too).
+    const packagingResult = await pool.query(`
+      SELECT pk.packaging_id, pk.packaging_name, pk.brand, pk.content_quantity, pk.last_pack_price,
+        i.item_name, i.unit_of_measure, i.is_archived AS item_archived,
+        TO_CHAR(pk.archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at,
+        a.full_name AS archived_by_name
+      FROM inventory_packaging pk
+      JOIN inventory i ON i.inventory_id = pk.inventory_id
+      LEFT JOIN admin_users a ON a.admin_id = pk.archived_by
+      WHERE pk.is_archived = TRUE
+      ORDER BY pk.archived_at DESC NULLS LAST
+    `);
+
+    // Categories do not record when they were archived.
+    const categoriesResult = await pool.query(`
+      SELECT c.category_id, c.category_name,
+        (SELECT COUNT(*) FROM products p WHERE LOWER(p.product_category) = LOWER(c.category_name) AND p.is_archived = FALSE)::int AS product_count
+      FROM product_categories c
+      WHERE c.is_active = FALSE
+      ORDER BY c.category_name ASC
+    `);
+
     const salesOrdersResult = await pool.query(`
-      SELECT so.order_id, so.total_amount, so.status,
+      SELECT so.order_id, so.total_amount, so.status, so.queue_number, so.shift_id,
+        (SELECT STRING_AGG(p.product_name || CASE WHEN soi.quantity > 1 THEN ' x' || soi.quantity::text ELSE '' END, ', ' ORDER BY soi.order_item_id)
+          FROM sales_order_items soi JOIN products p ON p.product_id = soi.product_id WHERE soi.order_id = so.order_id) AS items,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.archived_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS archived_at,
         a.full_name AS archived_by_name,
@@ -149,6 +175,23 @@ export async function GET() {
           archivedAt: row.archived_at,
           archivedBy: row.archived_by_name,
         })),
+        packagings: packagingResult.rows.map((row) => ({
+          id: Number(row.packaging_id),
+          name: row.packaging_name,
+          brand: row.brand,
+          contentQuantity: Number(row.content_quantity),
+          lastPackPrice: row.last_pack_price === null ? null : Number(row.last_pack_price),
+          itemName: row.item_name,
+          unit: row.unit_of_measure,
+          itemArchived: Boolean(row.item_archived),
+          archivedAt: row.archived_at,
+          archivedBy: row.archived_by_name,
+        })),
+        categories: categoriesResult.rows.map((row) => ({
+          id: Number(row.category_id),
+          name: row.category_name,
+          productCount: Number(row.product_count),
+        })),
         additions: additionsResult.rows.map((row) => ({
           id: Number(row.addition_id),
           name: row.addition_name,
@@ -156,6 +199,7 @@ export async function GET() {
           unit: row.unit_of_measure,
           quantity: Number(row.quantity),
           price: Number(row.price),
+          itemArchived: Boolean(row.item_archived),
           archivedAt: row.archived_at,
           archivedBy: row.archived_by_name,
         })),
@@ -165,6 +209,9 @@ export async function GET() {
           status: row.status,
           createdAt: row.created_at,
           cashierName: row.cashier_name,
+          queueNumber: row.queue_number === null ? null : Number(row.queue_number),
+          shiftId: row.shift_id === null ? null : Number(row.shift_id),
+          items: row.items ?? "",
           archivedAt: row.archived_at,
           archivedBy: row.archived_by_name,
         })),
@@ -196,6 +243,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "A valid archive type and id are required." }, { status: 400 });
     }
 
+    let warning: string | null = null;
     switch (type) {
       case "product": {
         const result = await pool.query(
@@ -207,6 +255,15 @@ export async function PATCH(request: Request) {
           "UPDATE product_variants SET is_archived = FALSE, archived_at = NULL, archived_by = NULL WHERE product_id = $1 AND is_archived = TRUE",
           [id]
         );
+        const archivedIngredients = await pool.query(`
+          SELECT DISTINCT i.item_name FROM variant_ingredients vi
+          JOIN product_variants pv ON pv.product_variant_id = vi.product_variant_id
+          JOIN inventory i ON i.inventory_id = vi.inventory_id
+          WHERE pv.product_id = $1 AND i.is_archived = TRUE
+        `, [id]);
+        if ((archivedIngredients.rowCount ?? 0) > 0) {
+          warning = `Restored, but it shows as unavailable until these inventory items are restored too: ${archivedIngredients.rows.map((row) => row.item_name).join(", ")}.`;
+        }
         break;
       }
       case "product_variant": {
@@ -243,7 +300,28 @@ export async function PATCH(request: Request) {
         `, [restoredItem.inventory_id, restoredItem.item_name, restoredItem.ingredient_category, restoredItem.unit_of_measure, restoredItem.quantity, session.adminId ?? null]);
         break;
       }
+      case "packaging": {
+        const target = await pool.query(`
+          SELECT i.item_name, i.is_archived FROM inventory_packaging pk JOIN inventory i ON i.inventory_id = pk.inventory_id
+          WHERE pk.packaging_id = $1 AND pk.is_archived = TRUE
+        `, [id]);
+        if (target.rowCount === 0) return NextResponse.json({ error: "Archived package not found." }, { status: 404 });
+        if (target.rows[0].is_archived) return NextResponse.json({ error: `Cannot restore: "${target.rows[0].item_name}" is archived. Restore that inventory item first.` }, { status: 409 });
+        await pool.query("UPDATE inventory_packaging SET is_archived = FALSE, archived_at = NULL, archived_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE packaging_id = $1", [id]);
+        break;
+      }
+      case "category": {
+        const result = await pool.query("UPDATE product_categories SET is_active = TRUE WHERE category_id = $1 AND is_active = FALSE RETURNING category_id", [id]);
+        if (result.rowCount === 0) return NextResponse.json({ error: "Archived category not found." }, { status: 404 });
+        break;
+      }
       case "addition": {
+        const source = await pool.query(`
+          SELECT i.item_name, i.is_archived FROM additions ad JOIN inventory i ON i.inventory_id = ad.inventory_id
+          WHERE ad.addition_id = $1 AND ad.is_active = FALSE
+        `, [id]);
+        if (source.rowCount === 0) return NextResponse.json({ error: "Archived add-on not found." }, { status: 404 });
+        if (source.rows[0].is_archived) return NextResponse.json({ error: `Cannot restore: it uses "${source.rows[0].item_name}", which is archived. Restore that inventory item first.` }, { status: 409 });
         const result = await pool.query(
           "UPDATE additions SET is_active = TRUE, archived_at = NULL, archived_by = NULL WHERE addition_id = $1 AND is_active = FALSE RETURNING addition_id",
           [id]
@@ -269,8 +347,11 @@ export async function PATCH(request: Request) {
       }
     }
 
-    return NextResponse.json({ data: { type, id } });
+    return NextResponse.json({ data: { type, id, warning } });
   } catch (error) {
+    if (error && typeof error === "object" && (error as { code?: string }).code === "23505") {
+      return NextResponse.json({ error: "Cannot restore: something active already uses this name. Rename or archive that one first." }, { status: 409 });
+    }
     console.error("PATCH /api/archives failed:", error);
     return NextResponse.json({ error: "Could not restore the archived record." }, { status: 500 });
   }
