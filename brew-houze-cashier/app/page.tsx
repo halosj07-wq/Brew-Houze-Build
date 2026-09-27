@@ -131,6 +131,10 @@ function UserAvatar({ name, size = 36 }: { name: string; size?: number }) {
   return <span aria-hidden="true" className="flex items-center justify-center rounded-full" style={{ width: size, height: size, flexShrink: 0, background: color, color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: size * 0.38, boxShadow: "0 0 0 2px #FDF9F5, 0 0 0 4px rgba(217,119,6,0.35)" }}>{initials}</span>;
 }
 
+function IconPrinter({ size = 16 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" /></svg>;
+}
+
 function IconSwitchUser({ size = 18 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="7" r="4" /><path d="M2 21v-1a6 6 0 0 1 6-6h2" /><path d="m16 14 3 3-3 3" /><path d="M22 17h-7" /></svg>;
 }
@@ -308,6 +312,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
   const [devicesMessage, setDevicesMessage] = useState("");
   const [signingOutOthers, setSigningOutOthers] = useState(false);
   const keypad = useContext(KeypadContext);
+  const receipts = useContext(ReceiptContext);
 
   const loadDetails = useCallback(async () => {
     try {
@@ -420,6 +425,22 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
             </div>
             <button type="button" role="switch" aria-checked={keypad.enabled} aria-labelledby="keypad-setting-label" onClick={() => keypad.setEnabled(!keypad.enabled)} className={`setting-switch${keypad.enabled ? " is-on" : ""}`}><span /></button>
           </div>
+          <div className="flex items-center gap-4" style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Receipt paper</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>The width of the thermal printer roll. Most small printers use 58 mm.</p>
+            </div>
+            <div className="setting-choice" role="group" aria-label="Receipt paper width">
+              {([58, 80] as const).map((width) => <button key={width} type="button" aria-pressed={receipts.settings.paperWidth === width} onClick={() => receipts.setSettings({ ...receipts.settings, paperWidth: width })}>{width} mm</button>)}
+            </div>
+          </div>
+          <div className="flex items-center gap-4" style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p id="autoprint-setting-label" style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Print a receipt after every order</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>Opens the print window as soon as an order is placed. When off, tap Receipt on the order confirmation instead.</p>
+            </div>
+            <button type="button" role="switch" aria-checked={receipts.settings.autoPrint} aria-labelledby="autoprint-setting-label" onClick={() => receipts.setSettings({ ...receipts.settings, autoPrint: !receipts.settings.autoPrint })} className={`setting-switch${receipts.settings.autoPrint ? " is-on" : ""}`}><span /></button>
+          </div>
         </AccountSection>
 
         <AccountSection eyebrow="Access" title="What you can do">
@@ -473,6 +494,98 @@ const ADDONS_TAB = "__addons__";
 // Optional, per tablet (My Account → This tablet). When on, money boxes open this keypad instead
 // of the tablet keyboard, which covers half of a landscape screen. Saved on the device only, so
 // it stays on across cashiers and a phone or PC can keep its normal keyboard.
+// ─── Receipts ────────────────────────────────────────────────────────────────
+// Printed on the counter's thermal printer through the tablet's print dialog. The slip is read
+// back from the saved order, so a reprint matches the record exactly. It is not a BIR official
+// receipt: this system is not a BIR-registered POS, so the slip says so.
+// Lines under the café name (address, contact number, social media), one per line.
+const RECEIPT_BUSINESS = { name: "Brew Houze", lines: ["fb.com/BrewHouzeCafe"] as string[] };
+const RECEIPT_STORAGE_KEY = "brew-houze-cashier-receipt";
+
+type ReceiptSettings = { paperWidth: 58 | 80; autoPrint: boolean };
+const defaultReceiptSettings: ReceiptSettings = { paperWidth: 58, autoPrint: false };
+
+function readReceiptSettings(): ReceiptSettings {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(RECEIPT_STORAGE_KEY) ?? "{}") as Partial<ReceiptSettings>;
+    return { paperWidth: saved.paperWidth === 80 ? 80 : 58, autoPrint: saved.autoPrint === true };
+  } catch {
+    return defaultReceiptSettings;
+  }
+}
+
+function saveReceiptSettings(settings: ReceiptSettings) {
+  try { window.localStorage.setItem(RECEIPT_STORAGE_KEY, JSON.stringify(settings)); } catch { /* storage unavailable: applies until the page reloads */ }
+}
+
+type ReceiptData = {
+  orderId: number; queueNumber: number | null; shiftId: number | null; status: string; total: number;
+  paymentMethod: string; paymentProvider: string | null; paymentReference: string | null; cashPortion: number | null;
+  received: number | null; change: number | null; orderSource: string; returnMethod: string | null;
+  createdAt: string; reversedAt: string | null; cashierName: string | null;
+  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] }[];
+};
+
+const ReceiptContext = createContext<{ settings: ReceiptSettings; setSettings: (settings: ReceiptSettings) => void; printReceipt: (orderId: number, options?: { reprint?: boolean }) => Promise<string | null> }>({
+  settings: defaultReceiptSettings, setSettings: () => undefined, printReceipt: async () => "Printing is not available here.",
+});
+
+function receiptMoney(value: number): string {
+  return value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function receiptTime(value: string | null): string {
+  if (!value) return "";
+  return new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; reprint: boolean; paperWidth: 58 | 80 }) {
+  const status = receipt.status.startsWith("void") ? "VOIDED" : receipt.status.startsWith("refund") ? "REFUNDED" : null;
+  const isGcash = receipt.paymentProvider === "paymongo_gcash" || receipt.paymentMethod === "online";
+  const row = (label: React.ReactNode, value: React.ReactNode, strong = false) => <div className={`receipt-row${strong ? " is-strong" : ""}`}><span>{label}</span><span>{value}</span></div>;
+  return <div className={`receipt is-${paperWidth}`}>
+    <div className="receipt-center">
+      <div className="receipt-name">{RECEIPT_BUSINESS.name}</div>
+      {RECEIPT_BUSINESS.lines.map((line) => <div key={line} className="receipt-small">{line}</div>)}
+      <div className="receipt-title">ORDER SLIP{reprint ? " · REPRINT" : ""}</div>
+    </div>
+    {receipt.queueNumber !== null && <div className="receipt-queue"><span>Queue number</span><strong>#{receipt.queueNumber}</strong></div>}
+    {status && <div className="receipt-stamp">{status}{receipt.reversedAt ? ` ${receiptTime(receipt.reversedAt)}` : ""}</div>}
+    <div className="receipt-rule" />
+    {row("Date", receiptTime(receipt.createdAt))}
+    {row("Order", `#${receipt.orderId}${receipt.shiftId ? ` · shift ${receipt.shiftId}` : ""}`)}
+    {row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "—")}
+    <div className="receipt-rule" />
+    {receipt.items.map((item, index) => {
+      const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : ""].filter(Boolean).join(" · ");
+      return <div key={index} className="receipt-item">
+        {row(`${item.quantity} × ${item.name}`, receiptMoney(item.quantity * item.unitPrice))}
+        {details && <div className="receipt-detail">{details}</div>}
+        {item.additions.map((addition) => row(<span className="receipt-detail">+ {addition.name}{addition.quantity !== 1 ? ` ×${addition.quantity}` : ""}</span>, receiptMoney(addition.quantity * addition.unitPrice)))}
+      </div>;
+    })}
+    <div className="receipt-rule" />
+    {row("TOTAL", `₱${receiptMoney(receipt.total)}`, true)}
+    {receipt.paymentMethod === "split" && receipt.cashPortion !== null ? <>
+      {row("Cash", receiptMoney(receipt.cashPortion))}
+      {receipt.received !== null && row("  Cash received", receiptMoney(receipt.received))}
+      {receipt.change !== null && row("  Change", receiptMoney(receipt.change))}
+      {row("GCash", receiptMoney(receipt.total - receipt.cashPortion))}
+    </> : isGcash ? row("Paid with GCash", receiptMoney(receipt.total))
+      : <>
+        {receipt.received !== null && row("Cash received", receiptMoney(receipt.received))}
+        {receipt.change !== null && row("Change", receiptMoney(receipt.change))}
+      </>}
+    {isGcash && receipt.paymentReference && <div className="receipt-small">Payment ref {receipt.paymentReference}</div>}
+    <div className="receipt-rule" />
+    <div className="receipt-center">
+      <div>Thank you!{receipt.queueNumber !== null ? " Please wait for your number." : ""}</div>
+      <div className="receipt-small receipt-legal">THIS IS NOT AN OFFICIAL RECEIPT</div>
+      {reprint && <div className="receipt-small">Reprinted {receiptTime(new Date().toISOString())}</div>}
+    </div>
+  </div>;
+}
+
 const KEYPAD_STORAGE_KEY = "brew-houze-cashier-keypad";
 const KeypadContext = createContext<{ enabled: boolean; setEnabled: (enabled: boolean) => void }>({ enabled: false, setEnabled: () => undefined });
 
@@ -797,6 +910,19 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [cashPart, setCashPart] = useState("");
   // Phones only: the cart opens as a full-height sheet over the products (see .pos-cart in CSS).
   const [cartOpen, setCartOpen] = useState(false);
+  // The order just placed, with a button to print its receipt (or printing it right away).
+  const receipts = useContext(ReceiptContext);
+  const [lastPlaced, setLastPlaced] = useState<{ orderId: number; queueNumber: number; note: string } | null>(null);
+  useEffect(() => {
+    if (!lastPlaced) return;
+    const timer = window.setTimeout(() => setLastPlaced(null), 20_000);
+    return () => window.clearTimeout(timer);
+  }, [lastPlaced]);
+  async function printPlacedReceipt(orderId: number, queueNumber: number) {
+    setLastPlaced({ orderId, queueNumber, note: "Opening the print window…" });
+    const problem = await receipts.printReceipt(orderId);
+    setLastPlaced((current) => current && current.orderId === orderId ? { ...current, note: problem ?? "" } : current);
+  }
   // GCash through PayMongo, when the server has PayMongo keys.
   const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
   const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
@@ -987,7 +1113,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   }
 
   // Clears the cart and refreshes stock once an order is in the queue (cash or GCash).
-  async function afterOrderPlaced(queueNumber: number, shiftId: number) {
+  async function afterOrderPlaced(orderId: number, queueNumber: number, shiftId: number) {
+    setLastPlaced({ orderId, queueNumber, note: "" });
+    if (receipts.settings.autoPrint) void printPlacedReceipt(orderId, queueNumber);
     setCart([]);
     setReceivedAmount("");
     setCashPart("");
@@ -1057,7 +1185,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to complete checkout.");
-      await afterOrderPlaced(Number(payload.data.queueNumber), Number(payload.data.shiftId));
+      await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId));
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete checkout.");
     } finally {
@@ -1309,7 +1437,13 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       </div>
     </aside>
 
-    {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => { if ((gcashCheckout.cashAmount ?? 0) > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${(gcashCheckout.cashAmount ?? 0).toFixed(2)} cash part.`); setGcashCheckout(null); }} onPaid={(view) => { setGcashCheckout(null); if (view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.queueNumber, view.shiftId); }} />}
+    {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => { if ((gcashCheckout.cashAmount ?? 0) > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${(gcashCheckout.cashAmount ?? 0).toFixed(2)} cash part.`); setGcashCheckout(null); }} onPaid={(view) => { setGcashCheckout(null); if (view.orderId !== null && view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.orderId, view.queueNumber, view.shiftId); }} />}
+    {lastPlaced && <div className="pos-placed" role="status">
+      <span className="pos-placed-number">#{lastPlaced.queueNumber}</span>
+      <span className="pos-placed-text"><strong>Order sent to the queue</strong>{lastPlaced.note && <em>{lastPlaced.note}</em>}</span>
+      <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />Receipt</button>
+      <button type="button" className="pos-placed-close" onClick={() => setLastPlaced(null)} aria-label="Dismiss">×</button>
+    </div>}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
@@ -1571,6 +1705,7 @@ function isValidGcashNumber(value: string): boolean {
 const returnFieldStyle: React.CSSProperties = { width: "100%", border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 14, color: "#3D2B1F", outline: "none" };
 
 function ReversalsPage({ user }: { user: Session }) {
+  const receipts = useContext(ReceiptContext);
   const [orders, setOrders] = useState<QueueOrder[]>([]);
   const [pendingAction, setPendingAction] = useState<{ order: QueueOrder; action: "void" | "refund" } | null>(null);
   const [password, setPassword] = useState("");
@@ -1723,6 +1858,7 @@ function ReversalsPage({ user }: { user: Session }) {
                 {user.canVoidOrders && <button type="button" onClick={() => openAction(order, "void")} style={{ border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Void</button>}
                 {user.canRefundOrders && <button type="button" onClick={() => openAction(order, "refund")} style={{ border: "1px solid #E9D5FF", background: "#FAF5FF", color: "#7E22CE", borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Refund</button>}
               </div>}
+              <button type="button" className="rev-receipt" onClick={() => { setNotice(""); void receipts.printReceipt(order.order_id, { reprint: true }).then((problem) => { if (problem) setError(problem); }); }} title="Print this order's receipt again"><IconPrinter size={14} />Receipt</button>
             </div>
           </article>;
         })}
@@ -2385,6 +2521,35 @@ export default function App() {
   }, []);
   const keypadSetting = { enabled: keypadEnabled, setEnabled: (enabled: boolean) => { setKeypadEnabled(enabled); saveKeypadSetting(enabled); } };
 
+  // Receipts: settings saved on this tablet, and the slip being printed right now.
+  const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings>(defaultReceiptSettings);
+  const [receiptJob, setReceiptJob] = useState<{ receipt: ReceiptData; reprint: boolean } | null>(null);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setReceiptSettings(readReceiptSettings()), 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+  const printReceipt = useCallback(async (orderId: number, options?: { reprint?: boolean }) => {
+    try {
+      const response = await fetch(`/api/receipts/${orderId}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the receipt.");
+      setReceiptJob({ receipt: payload.data as ReceiptData, reprint: Boolean(options?.reprint) });
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Could not load the receipt.";
+    }
+  }, []);
+  // Once the slip is on the page, open the print window; clear it when printing is done.
+  useEffect(() => {
+    if (!receiptJob) return;
+    document.body.classList.add("is-printing-receipt");
+    const finish = () => { document.body.classList.remove("is-printing-receipt"); setReceiptJob(null); };
+    const timer = window.setTimeout(() => window.print(), 60);
+    window.addEventListener("afterprint", finish);
+    return () => { window.clearTimeout(timer); window.removeEventListener("afterprint", finish); document.body.classList.remove("is-printing-receipt"); };
+  }, [receiptJob]);
+  const receiptContext = { settings: receiptSettings, setSettings: (settings: ReceiptSettings) => { setReceiptSettings(settings); saveReceiptSettings(settings); }, printReceipt };
+
   // Restore the last punched number after mount (localStorage is browser-only).
   useEffect(() => {
     const timeout = window.setTimeout(() => setLastOrder(readStoredLastOrder()), 0);
@@ -2541,5 +2706,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} onChange={setPage} />{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} onChange={setPage} />{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }
