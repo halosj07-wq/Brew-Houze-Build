@@ -64,7 +64,8 @@ export async function createGcashPayment(input: { amount: number; description: s
   return { intentId: intent.id, redirectUrl };
 }
 
-export type IntentState = { status: "succeeded" | "pending" | "failed"; paymentId: string | null; failure: string | null };
+// redirectUrl: the GCash page to send the customer to, while the payment still waits for them.
+export type IntentState = { status: "succeeded" | "pending" | "failed"; paymentId: string | null; failure: string | null; redirectUrl: string | null };
 
 // Where the payment stands, straight from PayMongo (never from the customer's browser).
 export async function getIntentState(intentId: string): Promise<IntentState> {
@@ -72,11 +73,12 @@ export async function getIntentState(intentId: string): Promise<IntentState> {
   const status = String(intent.attributes.status);
   const payments = (intent.attributes.payments as PaymongoResource[] | undefined) ?? [];
   const paid = payments.find((payment) => payment.attributes.status === "paid");
-  if (status === "succeeded" || paid) return { status: "succeeded", paymentId: paid?.id ?? payments[0]?.id ?? null, failure: null };
+  if (status === "succeeded" || paid) return { status: "succeeded", paymentId: paid?.id ?? payments[0]?.id ?? null, failure: null, redirectUrl: null };
   const lastError = intent.attributes.last_payment_error as { failed_message?: string; failed_code?: string } | null;
   // A failed or cancelled GCash authorization sends the intent back to waiting for a method.
-  if (status === "awaiting_payment_method" && lastError) return { status: "failed", paymentId: null, failure: lastError.failed_message || lastError.failed_code || "The GCash payment did not go through." };
-  return { status: "pending", paymentId: null, failure: null };
+  if (status === "awaiting_payment_method" && lastError) return { status: "failed", paymentId: null, failure: lastError.failed_message || lastError.failed_code || "The GCash payment did not go through.", redirectUrl: null };
+  const nextAction = intent.attributes.next_action as { redirect?: { url?: string } } | null;
+  return { status: "pending", paymentId: null, failure: null, redirectUrl: nextAction?.redirect?.url ?? null };
 }
 
 export async function refundPayment(paymentId: string, amount: number, notes: string) {

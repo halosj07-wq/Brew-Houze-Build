@@ -70,7 +70,8 @@ export async function GET(request: Request) {
       ORDER BY so.queue_status DESC, so.queue_number ASC
     `);
     const recentResult = await pool.query(`
-      SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.payment_method, so.reversal_type,
+      SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.payment_method, so.payment_provider, so.reversal_type,
+        so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, reverser.full_name AS reversed_by,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
         COALESCE((
@@ -107,13 +108,16 @@ export async function GET(request: Request) {
           ), 'Order'
         ) AS items
       FROM sales_orders so
+      LEFT JOIN admin_users reverser ON reverser.admin_id = so.reversed_by_admin_id
       JOIN sales_order_items soi ON soi.order_id = so.order_id
       JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
+      -- Void & Refund lists the orders of the shift that is open now, the only ones that can be reversed.
       WHERE so.status IN ('completed', 'voided', 'refunded') AND so.is_archived = FALSE
-      GROUP BY so.order_id
+        AND so.shift_id = (SELECT shift_id FROM shifts WHERE closed_at IS NULL LIMIT 1)
+      GROUP BY so.order_id, reverser.full_name
       ORDER BY so.created_at DESC, so.order_id DESC
-      LIMIT 30
+      LIMIT 500
     `);
     return NextResponse.json({
       data: {

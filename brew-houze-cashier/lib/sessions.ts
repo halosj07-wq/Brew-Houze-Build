@@ -82,6 +82,18 @@ export async function getSession() {
   };
 }
 
+// Re-checks the signed-in account's password before a sensitive action (opening or closing the
+// shift, voids and refunds), since the counter tablet stays signed in and is shared.
+export const WRONG_PASSWORD = { error: "That password is incorrect.", code: "wrong_password" };
+export async function confirmPassword(adminId: number, password: unknown): Promise<boolean> {
+  if (typeof password !== "string" || password.length === 0 || password.length > 200) return false;
+  const result = await pool.query(
+    "SELECT 1 FROM admin_users WHERE admin_id = $1 AND is_active = TRUE AND password_hash = crypt($2, password_hash)",
+    [adminId, password]
+  );
+  return result.rowCount !== 0;
+}
+
 // Ends the session of this browser (sign out). Returns the account it belonged to.
 export async function endCurrentSession(): Promise<number | null> {
   const token = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);

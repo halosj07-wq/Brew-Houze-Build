@@ -60,6 +60,7 @@ export async function GET(request: Request) {
     const [orders, attendance, stock, products, checkouts] = await Promise.all([
       pool.query(`
         SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source,
+          so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference,
           so.shift_id = $1 AS sold_in_shift,
           COALESCE(so.reversed_shift_id = $1, FALSE) AS reversed_in_shift,
           ${orderCreatedText} AS created_at,
@@ -153,6 +154,7 @@ export async function GET(request: Request) {
           refundCount: Number(row.refund_count ?? 0),
           reversedAmount: Number(row.reversed_amount ?? 0),
           cashReversed: Number(row.cash_reversed ?? 0),
+          gcashReturned: Number(row.gcash_returned ?? 0),
           netSales: Number(row.net_sales ?? 0),
           costOfGoods: Number(row.cost_of_goods ?? 0),
           uncostedItems: Number(row.uncosted_items ?? 0),
@@ -171,6 +173,10 @@ export async function GET(request: Request) {
           reversedAt: (order.reversed_at as string | null) ?? null,
           punchedBy: order.punched_by as string,
           reversedBy: (order.reversed_by as string | null) ?? null,
+          returnMethod: (order.return_method as string | null) ?? null,
+          returnGcashName: (order.return_gcash_name as string | null) ?? null,
+          returnGcashNumber: (order.return_gcash_number as string | null) ?? null,
+          returnReference: (order.return_reference as string | null) ?? null,
           items: order.items as string,
         })),
         attendance: attendance.rows.map((log) => ({

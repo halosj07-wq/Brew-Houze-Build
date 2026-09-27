@@ -116,6 +116,7 @@ export async function GET(request: Request) {
         WITH ${ordersCte}
         SELECT o.order_id, o.queue_number, o.status, o.total_amount, o.payment_method, o.order_source, o.received_amount, o.change_amount,
           o.shift_id, o.reversed_shift_id, o.reversal_type, o.reversed,
+          o.return_method, o.return_gcash_name, o.return_gcash_number, o.return_reference, o.payment_provider,
           TO_CHAR(o.bd, 'YYYY-MM-DD') AS business_date,
           TO_CHAR(o.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
           TO_CHAR(o.reversed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
@@ -175,6 +176,11 @@ export async function GET(request: Request) {
           reversedAt: row.reversed_at,
           punchedBy: row.punched_by,
           reversedBy: row.reversed_by ?? null,
+          paymentProvider: row.payment_provider ?? null,
+          returnMethod: row.return_method ?? null,
+          returnGcashName: row.return_gcash_name ?? null,
+          returnGcashNumber: row.return_gcash_number ?? null,
+          returnReference: row.return_reference ?? null,
           cost: row.cost === null ? null : n(row.cost),
           items: (row.items as { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] }[]).map((item) => ({
             ...item,

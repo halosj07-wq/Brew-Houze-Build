@@ -3677,7 +3677,9 @@ function getFinanceDateStamp(): string {
 // log of everything recorded under it (orders, voids and refunds, clock-ins, stock changes and
 // GCash payments). Earlier shifts open in the same view from the picker.
 type ShiftLive = Omit<ShiftReport, "hoursOpen"> & { isOpen: boolean; previousShiftId: number | null; nextShiftId: number | null };
-type ShiftLiveOrder = ShiftOrder & { queueStatus: string | null; reversedBy: string | null };
+type ShiftLiveOrder = ShiftOrder & { queueStatus: string | null; reversedBy: string | null } & ReturnDetails;
+// How the money of a voided or refunded order went back to the customer (set by the cashier).
+type ReturnDetails = { returnMethod?: string | null; returnGcashName?: string | null; returnGcashNumber?: string | null; returnReference?: string | null };
 type ShiftStockLog = {
   logId: number; inventoryId: number | null; itemName: string; unit: string; changeType: string; delta: number | null; quantityAfter: number | null;
   orderId: number | null; packagingName: string | null; packsAdded: number | null; sourceApp: string | null; adminName: string | null; createdAt: string;
@@ -3707,6 +3709,18 @@ const shiftFeedFilters: { id: "all" | ShiftEventKind; label: string }[] = [
   { id: "stock", label: "Stock" },
   { id: "payment", label: "GCash" },
 ];
+
+function formatGcashNumber(value: string): string {
+  return /^09\d{9}$/.test(value) ? `${value.slice(0, 4)} ${value.slice(4, 7)} ${value.slice(7)}` : value;
+}
+
+// "Returned through GCash to Juan Dela Cruz · 0917 123 4567 · Ref 123", or null for orders
+// reversed before return methods were recorded.
+function describeReturn(order: ReturnDetails): string | null {
+  if (order.returnMethod === "cash") return "Returned in cash from the drawer";
+  if (order.returnMethod === "gcash") return `Returned through GCash to ${order.returnGcashName ?? "—"} · ${formatGcashNumber(order.returnGcashNumber ?? "")}${order.returnReference ? ` · Ref ${order.returnReference}` : " · no reference recorded"}`;
+  return null;
+}
 
 function shiftOrderChannel(order: { orderSource: string; paymentMethod: string }): "Mobile" | "Online" | "Cash" {
   return order.orderSource === "online" ? "Mobile" : order.paymentMethod === "online" ? "Online" : "Cash";
@@ -3744,7 +3758,7 @@ function buildShiftEvents(data: ShiftActivityData, now: number): ShiftEvent[] {
       events.push({
         key: `reversal-${order.orderId}`, at: order.reversedAt, kind: "reversal",
         title: `${queue} ${label}`,
-        detail: `${order.reversedBy ? `By ${order.reversedBy}` : "Reversed"}${order.soldInShift ? "" : " · sold in an earlier shift"}${order.paymentMethod === "cash" ? " · cash given back" : ""}`,
+        detail: `${order.reversedBy ? `By ${order.reversedBy}` : "Reversed"}${order.soldInShift ? "" : " · sold in an earlier shift"} · ${describeReturn(order) ?? (order.paymentMethod === "cash" ? "cash given back" : "online payment")}`,
         amount: { text: `−${peso(order.total)}`, tone: "minus" },
       });
     }
@@ -4010,7 +4024,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
             <div className="dash-drawer-legend">
               <span><i className="is-cash" />Cash {peso(shift.cashSales)}</span>
               <span><i className="is-online" />Online {peso(shift.onlineSales)}</span>
-              <span>Started with {peso(shift.startingCash)}{shift.cashReversed > 0 ? ` · −${peso(shift.cashReversed)} given back` : ""}</span>
+              <span>Started with {peso(shift.startingCash)}{shift.cashReversed > 0 ? ` · −${peso(shift.cashReversed)} given back` : ""}{(shift.gcashReturned ?? 0) > 0 ? ` · ${peso(shift.gcashReturned ?? 0)} returned by GCash` : ""}</span>
             </div>
           </>}
           {shift.closingNotes && <p className="dash-shift-meta">“{shift.closingNotes}”</p>}
@@ -4101,6 +4115,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
                 <div className="dash-order-main">
                   <strong>{order.items || "Order"}</strong>
                   <span>{timeWithDay(order.createdAt)} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b> · ref {order.orderId}{reversed && order.reversedAt ? ` · ${order.status.startsWith("void") ? "voided" : "refunded"} ${timeWithDay(order.reversedAt)}${order.reversedBy ? ` by ${order.reversedBy}` : ""}` : ""}</span>
+                  {reversed && describeReturn(order) && <span className={order.returnMethod === "gcash" ? "shiftm-return is-gcash" : "shiftm-return"}>{describeReturn(order)}</span>}
                 </div>
                 <div className="dash-order-total">
                   <strong className={reversed ? "is-reversed" : ""}>{peso(order.total)}</strong>
@@ -4201,6 +4216,7 @@ type ShiftReport = {
   refundCount: number;
   reversedAmount: number;
   cashReversed: number;
+  gcashReturned?: number;
   netSales: number;
   costOfGoods: number;
   uncostedItems: number;
@@ -4291,6 +4307,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
       ["Starting cash", summary.startingCash],
       ["Cash sales", summary.cashSales],
       ["Cash given back", summary.cashReversed],
+      ["Returned through GCash (not from the drawer)", summary.gcashReturned ?? 0],
       ["Expected cash", summary.expectedCash],
       ["Counted cash", summary.countedCash ?? "Not counted"],
       ["Difference", summary.cashDifference ?? "—"],
@@ -4406,6 +4423,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
                 {row("Starting cash", peso(summary.startingCash))}
                 {row("+ Cash sales", peso(summary.cashSales))}
                 {row("− Cash given back", peso(summary.cashReversed))}
+                {(summary.gcashReturned ?? 0) > 0 && row("Returned through GCash (not from the drawer)", peso(summary.gcashReturned ?? 0))}
                 <div style={{ borderTop: "1px solid #E8DDD5" }}>{row("Expected in drawer", peso(summary.expectedCash), true)}</div>
                 {row("Counted", summary.countedCash === null ? "Not counted yet" : peso(summary.countedCash))}
                 {row("Difference", summary.closedAt ? difference.text : "—", true, difference.color)}
@@ -4472,7 +4490,8 @@ type FinanceOrder = {
   orderId: number; queueNumber: number | null; status: string; reversed: boolean; total: number; paymentMethod: string; orderSource: string;
   received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
   businessDate: string; createdAt: string; reversedAt: string | null; punchedBy: string; reversedBy: string | null; cost: number | null; items: FinanceOrderItem[];
-};
+  paymentProvider?: string | null;
+} & ReturnDetails;
 type FinanceTab = "overview" | "shifts" | "orders";
 type OrdersPreset = { status?: OrderStatusFilter; cashier?: string; category?: string; channel?: OrderChannelFilter };
 type OrderStatusFilter = "all" | "completed" | "voided" | "refunded" | "reversed";
@@ -4748,6 +4767,7 @@ function FinanceOrderDialog({ order, onClose, onArchived }: { order: FinanceOrde
           <span className={`fin-chip is-${channel}`}>{channelLabels[channel]}</span>
         </div>
         {order.reversed && <p className="inv-focus" style={{ margin: 0 }}>{status === "voided" ? "Voided" : "Refunded"}{order.reversedAt ? ` ${shiftTime(order.reversedAt)}` : ""}{order.reversedBy ? ` by ${order.reversedBy}` : ""}{order.reversedShiftId && order.reversedShiftId !== order.shiftId ? ` during shift #${order.reversedShiftId}` : ""}. It is not counted in net sales.</p>}
+        {order.reversed && describeReturn(order) && <p className="inv-focus" style={{ margin: 0, background: order.returnMethod === "gcash" ? "#EFF6FF" : undefined, borderColor: order.returnMethod === "gcash" ? "#BFDBFE" : undefined, color: order.returnMethod === "gcash" ? "#1E40AF" : undefined }}>{describeReturn(order)}</p>}
         <div className="fin-facts">
           {fact("Business date", formatRange(order.businessDate, order.businessDate))}
           {fact("Shift", order.shiftId ? `#${order.shiftId}` : "—")}
@@ -4807,6 +4827,10 @@ function exportFinanceOrders(orders: FinanceOrder[], label: string, fileStamp: s
     "Gross Profit": order.cost === null || order.reversed ? "" : order.total - order.cost,
     "Reversed At": order.reversedAt ? formatFinanceDateTime(order.reversedAt) : "",
     "Reversed By": order.reversedBy ?? "",
+    "Returned Via": order.returnMethod === "gcash" ? "GCash" : order.returnMethod === "cash" ? "Cash" : "",
+    "Return GCash Name": order.returnGcashName ?? "",
+    "Return GCash Number": order.returnGcashNumber ?? "",
+    "Return Reference": order.returnReference ?? "",
   })));
   append("Order Items", orders.flatMap((order) => order.items.map((item) => ({
     "Order #": order.orderId,

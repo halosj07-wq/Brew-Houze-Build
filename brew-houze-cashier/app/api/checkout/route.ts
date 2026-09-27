@@ -12,7 +12,9 @@ export async function POST(request: Request) {
   const client = await pool.connect();
   try {
     const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown };
-    const paymentMethod = body.payment_method === "online" ? "online" : "cash";
+    // Cash only: GCash, the only online payment, goes through /api/payments (paid before the order).
+    if (body.payment_method !== undefined && body.payment_method !== "cash") return NextResponse.json({ error: "Only cash orders are punched here. Use GCash for online payments." }, { status: 400 });
+    const paymentMethod = "cash";
     const items = parseOrderItems(body.items);
     if (items.length === 0) return NextResponse.json({ error: "At least one valid cart item is required." }, { status: 400 });
 

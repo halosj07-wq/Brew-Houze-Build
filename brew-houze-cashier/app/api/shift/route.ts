@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { reconcilePendingCheckouts } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
-import { getSession } from "@/lib/sessions";
+import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 
 // A shift is the café's business day, and it may run past midnight. Admins open it (or a cashier
 // an admin allowed to), and any cashier can close it at the end of the night. Totals come from the shift_summaries view (see shift-migration.sql).
@@ -33,6 +33,7 @@ function mapSummary(row: SummaryRow) {
     refundCount: toNumber(row.refund_count),
     reversedAmount: toNumber(row.reversed_amount),
     cashReversed: toNumber(row.cash_reversed),
+    gcashReturned: toNumber(row.gcash_returned),
     netSales: toNumber(row.net_sales),
     expectedCash: toNumber(row.expected_cash),
     cashDifference: row.cash_difference === null || row.cash_difference === undefined ? null : toNumber(row.cash_difference),
@@ -79,19 +80,22 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown };
+  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown; password?: unknown };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json({ error: "A valid shift action is required." }, { status: 400 });
   }
+  if (body.action !== "open" && body.action !== "close") return NextResponse.json({ error: "Unknown shift action." }, { status: 400 });
+  if (body.action === "open" && !session.canOpenShift) {
+    return NextResponse.json({ error: "Only an admin, or a cashier an admin has allowed, can open the store." }, { status: 403 });
+  }
+  // Opening and closing the store are confirmed with the signed-in account's password.
+  if (!(await confirmPassword(session.adminId, body.password))) return NextResponse.json(WRONG_PASSWORD, { status: 403 });
 
   const client = await pool.connect();
   try {
     if (body.action === "open") {
-      if (!session.canOpenShift) {
-        return NextResponse.json({ error: "Only an admin, or a cashier an admin has allowed, can open the store." }, { status: 403 });
-      }
       const startingCash = parseAmount(body.starting_cash);
       if (startingCash === null) return NextResponse.json({ error: "Enter the starting cash in the drawer (0 or more)." }, { status: 400 });
 

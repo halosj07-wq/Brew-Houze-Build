@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { getSession } from "@/lib/sessions";
+import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 
 // Same redirection checkout uses: a bound item's quantity is moved onto its source item,
 // scaled by its ratio, since bound items never carry stock of their own.
@@ -24,13 +24,20 @@ async function resolveBoundDeductions(client: PoolClient, deductions: Map<number
   }
 }
 
+// A Philippine mobile number as 09XXXXXXXXX (accepts +63 / 63 prefixes, spaces and dashes).
+function normalizeGcashNumber(value: unknown): string | null {
+  const digits = String(value ?? "").replace(/[\s-]/g, "").replace(/^\+?63(?=9\d{9}$)/, "0");
+  return /^09\d{9}$/.test(digits) ? digits : null;
+}
+
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  let body: { order_id?: unknown; action?: unknown };
+  type Body = { order_id?: unknown; action?: unknown; password?: unknown; return_method?: unknown; gcash_name?: unknown; gcash_number?: unknown; reference?: unknown };
+  let body: Body;
   try {
-    body = await request.json() as { order_id?: unknown; action?: unknown };
+    body = await request.json() as Body;
   } catch {
     return NextResponse.json({ error: "A valid order action is required." }, { status: 400 });
   }
@@ -39,6 +46,19 @@ export async function POST(request: Request) {
   const action = body.action;
   if (!Number.isInteger(orderId) || orderId <= 0 || (action !== "void" && action !== "refund")) {
     return NextResponse.json({ error: "A valid order_id and action are required." }, { status: 400 });
+  }
+  // How the money goes back to the customer. Both are done by hand: cash from the drawer, or a
+  // GCash transfer from the cafe to the number the customer gives.
+  const returnMethod = body.return_method;
+  if (returnMethod !== "cash" && returnMethod !== "gcash") {
+    return NextResponse.json({ error: "Choose how the money is returned: cash or GCash." }, { status: 400 });
+  }
+  const gcashName = String(body.gcash_name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
+  const gcashNumber = normalizeGcashNumber(body.gcash_number);
+  const reference = String(body.reference ?? "").trim().slice(0, 60);
+  if (returnMethod === "gcash") {
+    if (!gcashName) return NextResponse.json({ error: "Enter the name on the customer's GCash account." }, { status: 400 });
+    if (!gcashNumber) return NextResponse.json({ error: "Enter the customer's GCash number, e.g. 0917 123 4567." }, { status: 400 });
   }
 
   const client = await pool.connect();
@@ -60,6 +80,8 @@ export async function POST(request: Request) {
     if (action === "refund" && !isAdmin && !account.can_refund_orders) {
       return NextResponse.json({ error: "You do not have permission to refund orders." }, { status: 403 });
     }
+    // Every void and refund is confirmed with the signed-in account's password.
+    if (!(await confirmPassword(session.adminId, body.password))) return NextResponse.json(WRONG_PASSWORD, { status: 403 });
 
     await client.query("BEGIN");
     // A void/refund is recorded in the shift it happens in (cash leaves that shift's drawer),
@@ -71,7 +93,7 @@ export async function POST(request: Request) {
     }
     const shiftId = Number(shiftResult.rows[0].shift_id);
     const orderResult = await client.query(`
-      SELECT order_id, status, queue_status
+      SELECT order_id, status, queue_status, shift_id
       FROM sales_orders
       WHERE order_id = $1
       FOR UPDATE
@@ -84,6 +106,12 @@ export async function POST(request: Request) {
     if (["void", "voided", "refund", "refunded"].includes(String(order.status).toLowerCase())) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: `Order is already ${order.status}.` }, { status: 409 });
+    }
+    // Only orders sold in the shift that is open now can be reversed. Earlier shifts are closed
+    // and their cash drawer already counted.
+    if (order.shift_id === null || Number(order.shift_id) !== shiftId) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "This order is from an earlier shift. Only orders from the current shift can be voided or refunded." }, { status: 409 });
     }
 
     // Restore exactly what checkout deducted, as recorded in the inventory log. Those rows are
@@ -153,10 +181,14 @@ export async function POST(request: Request) {
           reversed_by_admin_id = $3,
           reversed_at = CURRENT_TIMESTAMP,
           reversal_type = $2,
-          reversed_shift_id = $4
+          reversed_shift_id = $4,
+          return_method = $5,
+          return_gcash_name = $6,
+          return_gcash_number = $7,
+          return_reference = $8
       WHERE order_id = $1
-      RETURNING order_id, status, total_amount
-    `, [orderId, action, session.adminId, shiftId]);
+      RETURNING order_id, status, total_amount, return_method, return_gcash_name, return_gcash_number, return_reference
+    `, [orderId, action, session.adminId, shiftId, returnMethod, returnMethod === "gcash" ? gcashName : null, returnMethod === "gcash" ? gcashNumber : null, reference || null]);
 
     for (const [inventoryId, detail] of restorationDetails) {
       await client.query(`

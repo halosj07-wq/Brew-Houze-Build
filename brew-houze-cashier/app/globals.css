@@ -133,10 +133,14 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .gcash-amount { margin: 12px 0 0; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 34px; }
 .gcash-qr { width: 256px; height: 256px; margin: 14px auto 0; display: grid; place-items: center; padding: 8px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E8DDD5; color: #9C8278; font-size: 13px; }
 .gcash-qr img { display: block; width: 240px; height: 240px; }
-.gcash-steps { margin: 14px 0 0; padding: 0 0 0 20px; text-align: left; color: #6B4C3B; font-size: 13px; line-height: 1.6; }
+.gcash-steps { margin: 14px 0 0; padding: 0 0 0 20px; list-style: decimal; text-align: left; color: #6B4C3B; font-size: 13px; line-height: 1.6; }
 .gcash-waiting { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 12px 0 0; color: #0057E4; font-size: 13px; font-weight: 700; }
 .gcash-waiting span { width: 9px; height: 9px; border-radius: 999px; background: #0057E4; }
-.gcash-link { display: inline-block; margin-top: 8px; color: #9C8278; font-size: 12px; text-decoration: underline; }
+.gcash-link { display: inline-block; margin-top: 8px; padding: 0; border: none; background: none; color: #9C8278; font-size: 12px; text-decoration: underline; cursor: pointer; }
+.gcash-links { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px 16px; }
+.gcash-sign-hint { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 0; padding: 18px 16px; border-radius: 16px; background: #EFF6FF; border: 1px solid #BFDBFE; color: #1E3A8A; }
+.gcash-sign-hint strong { font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; font-weight: 800; }
+.gcash-sign-hint span { font-size: 13px; line-height: 1.5; color: #1E40AF; }
 .gcash-result { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: 16px; padding: 18px; border-radius: 16px; }
 .gcash-result strong { font-family: 'Hanken Grotesk', sans-serif; font-size: 20px; font-weight: 800; }
 .gcash-result span { font-size: 13px; line-height: 1.5; }

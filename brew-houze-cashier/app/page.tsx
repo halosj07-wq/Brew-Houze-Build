@@ -7,7 +7,7 @@ type Page = "pos" | "queue" | "reversals" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean };
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; reversal_type?: string | null; reversed_at?: string | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; return_method?: "cash" | "gcash" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -517,7 +517,8 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
 }
 
 // ─── GCash (PayMongo) at the counter ─────────────────────────────────────────
-// The customer scans the QR with their phone and approves the payment in GCash. This window asks
+// The customer scans the printed GCash sign at the counter (/pay/sign), which opens this payment
+// on their phone; the QR on this screen is a fallback. They approve it in GCash. This window asks
 // the server every couple of seconds; the server asks PayMongo, and creates the order (queue
 // number, stock) only once the payment is confirmed.
 type GcashCheckout = { token: string; amount: number; redirectUrl: string };
@@ -528,15 +529,17 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
   const [view, setView] = useState<GcashCheckoutView | null>(null);
   const [notice, setNotice] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const finished = view !== null && view.status !== "awaiting_payment";
 
   useEffect(() => {
+    if (!showQr) return;
     let active = true;
     void import("qrcode").then((QRCode) => QRCode.toDataURL(checkout.redirectUrl, { margin: 1, width: 280, color: { dark: "#3D2B1F", light: "#FFFFFF" } }))
       .then((url) => { if (active) setQr(url); })
       .catch(() => { if (active) setNotice("Could not draw the QR code. Use “Open on this tablet” instead."); });
     return () => { active = false; };
-  }, [checkout.redirectUrl]);
+  }, [checkout.redirectUrl, showQr]);
 
   useEffect(() => {
     if (finished) return;
@@ -594,14 +597,19 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
       </header>
       <p className="gcash-amount">₱{checkout.amount.toFixed(2)}</p>
       {status === "awaiting_payment" && <>
-        <div className="gcash-qr">{qr ? <Image src={qr} alt="QR code for the GCash payment" width={240} height={240} unoptimized /> : <span>Preparing QR…</span>}</div>
+        {showQr
+          ? <div className="gcash-qr">{qr ? <Image src={qr} alt="QR code for the GCash payment" width={240} height={240} unoptimized /> : <span>Preparing QR…</span>}</div>
+          : <div className="gcash-sign-hint"><strong>Ask the customer to scan the GCash sign</strong><span>This total appears on their phone. They tap “Pay with GCash” and approve it.</span></div>}
         <ol className="gcash-steps">
-          <li>Ask the customer to scan this with their phone camera.</li>
+          <li>{showQr ? "The customer scans this QR with their phone camera." : "The customer scans the printed GCash sign at the counter."}</li>
           <li>They approve the payment in GCash.</li>
           <li>This window confirms by itself and the order goes to the queue.</li>
         </ol>
         <p className="gcash-waiting"><span className="connection-pulse" />Waiting for the customer to pay…</p>
-        <a className="gcash-link" href={checkout.redirectUrl} target="_blank" rel="noreferrer">Open on this tablet instead</a>
+        <div className="gcash-links">
+          <button type="button" className="gcash-link" onClick={() => setShowQr((shown) => !shown)}>{showQr ? "Hide the QR on this screen" : "Show a QR on this screen instead"}</button>
+          <a className="gcash-link" href="/pay/sign" target="_blank" rel="noreferrer">Print the counter sign</a>
+        </div>
       </>}
       {status === "completed" && <div className="gcash-result is-paid">
         <strong>Paid</strong>
@@ -636,7 +644,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
   const [receivedAmount, setReceivedAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash" | "online">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash">("cash");
   // GCash through PayMongo, when the server has PayMongo keys.
   const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
   const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
@@ -905,7 +913,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const subtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
   const parsedReceivedAmount = Number.parseFloat(receivedAmount);
   const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
-  const hasValidPayment = paymentMethod === "online" || (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal);
+  const hasValidPayment = (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal);
 
   return <main className="pos-layout" style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
     <section className="pos-menu" style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1012,7 +1020,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
               <div style={{ display: "flex", gap: 6 }}>
-                {([["cash", "Cash"], ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const] : []), ["online", gcashConfig?.gcash ? "Other online" : "Online Payment"]] as const).map(([method, label]) => <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${method === "gcash" ? "#0057E4" : "#3D2B1F"}` : "1px solid #E8DDD5", background: paymentMethod === method ? (method === "gcash" ? "#0057E4" : "#3D2B1F") : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "gcash" ? "#0057E4" : "#6B4C3B", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>)}
+                {([["cash", "Cash"], ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const] : [])] as const).map(([method, label]) => <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${method === "gcash" ? "#0057E4" : "#3D2B1F"}` : "1px solid #E8DDD5", background: paymentMethod === method ? (method === "gcash" ? "#0057E4" : "#3D2B1F") : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "gcash" ? "#0057E4" : "#6B4C3B", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>)}
               </div>
             </div>
             {paymentMethod === "cash" ? <>
@@ -1025,7 +1033,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
                 <strong style={{ color: changeDue > 0 ? "#0F766E" : "#3D2B1F" }}>₱{changeDue.toFixed(2)}</strong>
               </div>
             </> : paymentMethod === "gcash" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>A QR code appears for the customer to scan and pay in GCash. The order goes to the queue once the payment is confirmed.{gcashConfig && subtotal > 0 && subtotal < gcashConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash needs at least ₱{gcashConfig.minimumAmount.toFixed(2)}.</strong> : null}</p>
-            : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.5 }}>Paid through another e-wallet or bank app outside this system. Check that the payment arrived before confirming.</p>}
+            : null}
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : "Checkout"}</button>
@@ -1284,9 +1292,28 @@ function describeOrderLine(detail: QueueOrderDetail): string {
   return `${detail.quantity}× ${detail.product_name}${size}${temperature}`;
 }
 
+// 09171234567 -> "0917 123 4567", the way people read GCash numbers aloud.
+function formatGcashNumber(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return /^09\d{9}$/.test(digits) ? `${digits.slice(0, 4)} ${digits.slice(4, 7)} ${digits.slice(7)}` : value;
+}
+
+function isValidGcashNumber(value: string): boolean {
+  return /^09\d{9}$/.test(value.replace(/[\s-]/g, "").replace(/^\+?63(?=9\d{9}$)/, "0"));
+}
+
+const returnFieldStyle: React.CSSProperties = { width: "100%", border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 14, color: "#3D2B1F", outline: "none" };
+
 function ReversalsPage({ user }: { user: Session }) {
   const [orders, setOrders] = useState<QueueOrder[]>([]);
   const [pendingAction, setPendingAction] = useState<{ order: QueueOrder; action: "void" | "refund" } | null>(null);
+  const [password, setPassword] = useState("");
+  const [wrongPassword, setWrongPassword] = useState(false);
+  // How the money goes back: handed back from the drawer, or sent by hand through GCash.
+  const [returnMethod, setReturnMethod] = useState<"cash" | "gcash">("cash");
+  const [gcashName, setGcashName] = useState("");
+  const [gcashNumber, setGcashNumber] = useState("");
+  const [gcashReference, setGcashReference] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -1310,18 +1337,26 @@ function ReversalsPage({ user }: { user: Session }) {
 
   async function reverseOrder(order: QueueOrder, action: "void" | "refund") {
     if (submitting) return;
+    if (returnMethod === "gcash") {
+      if (!gcashName.trim()) { setError("Enter the name on the customer’s GCash account."); return; }
+      if (!isValidGcashNumber(gcashNumber)) { setError("Enter the customer’s 11-digit GCash number, e.g. 0917 123 4567."); return; }
+    }
+    if (!password) { setError(`Enter your password to ${action} this order.`); setWrongPassword(true); return; }
     setSubmitting(true);
+    setWrongPassword(false);
     try {
       const response = await fetch("/api/order-actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: order.order_id, action }),
+        body: JSON.stringify({ order_id: order.order_id, action, password, return_method: returnMethod, gcash_name: gcashName, gcash_number: gcashNumber, reference: gcashReference }),
       });
       const payload = await response.json();
+      if (payload?.code === "wrong_password") { setPassword(""); setWrongPassword(true); }
       if (!response.ok) throw new Error(payload?.error || `Unable to ${action} order.`);
       setPendingAction(null);
+      setPassword("");
       setError("");
-      setNotice(`Order #${order.queue_number} ${action === "void" ? "voided" : "refunded"}. Its ingredients and add-ons were returned to inventory.`);
+      setNotice(`Order #${order.queue_number} ${action === "void" ? "voided" : "refunded"}. ${returnMethod === "gcash" ? `Send ₱${Number(order.total_amount ?? 0).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : `Hand back ₱${Number(order.total_amount ?? 0).toFixed(2)} in cash.`} Its ingredients and add-ons were returned to inventory.`);
       await loadOrders();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : `Unable to ${action} order.`);
@@ -1346,12 +1381,21 @@ function ReversalsPage({ user }: { user: Session }) {
     && (!query || String(order.queue_number) === query || String(order.order_id) === query || order.items.toLowerCase().includes(query)));
   const pendingTotal = Number(pendingAction?.order.total_amount ?? 0);
   const pendingIsOnline = pendingAction?.order.payment_method === "online";
+  const pendingIsGcash = pendingAction?.order.payment_provider === "paymongo_gcash";
+  const paymentLabel = (order: QueueOrder) => order.payment_provider === "paymongo_gcash" ? "GCash" : order.payment_method === "online" ? "Online payment" : "Cash";
+  const openAction = (order: QueueOrder, action: "void" | "refund") => {
+    setError(""); setPassword(""); setWrongPassword(false);
+    setReturnMethod(order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
+    setGcashName(""); setGcashNumber(""); setGcashReference("");
+    setPendingAction({ order, action });
+  };
+  const closeAction = () => { setPendingAction(null); setPassword(""); setWrongPassword(false); setError(""); };
 
   return <main className="p-6" style={{ maxWidth: 1100 }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <div>
         <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", margin: 0 }}>Void & Refund</h1>
-        <p style={{ color: "#9C8278", fontSize: 12.5, margin: "4px 0 0" }}>The 30 most recent orders. Reversing an order returns its ingredients and add-ons to inventory.</p>
+        <p style={{ color: "#9C8278", fontSize: 12.5, margin: "4px 0 0" }}>Orders from the current shift. Orders from earlier shifts can’t be voided or refunded. Reversing an order returns its ingredients and add-ons to inventory.</p>
       </div>
       <button type="button" onClick={() => { setLoading(true); void loadOrders(); }} style={{ border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#6B4C3B", borderRadius: 10, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Refresh</button>
     </div>
@@ -1371,8 +1415,8 @@ function ReversalsPage({ user }: { user: Session }) {
     {notice && <div role="status" style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12, padding: "10px 14px", borderRadius: 10, background: "#F0FDF4", border: "1px solid #BBF7D0", color: "#15803D", fontSize: 13, fontWeight: 600 }}><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss" style={{ border: "none", background: "transparent", color: "#15803D", fontSize: 18, cursor: "pointer", lineHeight: 1 }}>×</button></div>}
     {error && !pendingAction && <p style={{ margin: "0 0 12px", padding: "10px 14px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</p>}
 
-    {loading && orders.length === 0 ? <p style={{ color: "#9C8278" }}>Loading recent orders…</p>
-      : visibleOrders.length === 0 ? <div style={{ padding: "40px 0", textAlign: "center", border: "2px dashed #E8DDD5", borderRadius: 16, color: "#9C8278", fontSize: 13 }}>{orders.length === 0 ? "No recent orders." : "No orders match this search or filter."}</div>
+    {loading && orders.length === 0 ? <p style={{ color: "#9C8278" }}>Loading this shift’s orders…</p>
+      : visibleOrders.length === 0 ? <div style={{ padding: "40px 0", textAlign: "center", border: "2px dashed #E8DDD5", borderRadius: 16, color: "#9C8278", fontSize: 13 }}>{orders.length === 0 ? "No orders in this shift yet." : "No orders match this search or filter."}</div>
       : <div style={{ display: "flex", flexDirection: "column", gap: 10, opacity: loading ? 0.6 : 1 }}>
         {visibleOrders.map((order) => {
           const status = reversalStatusStyles[order.status ?? "completed"] ?? reversalStatusStyles.completed;
@@ -1387,8 +1431,14 @@ function ReversalsPage({ user }: { user: Session }) {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ padding: "2px 9px", borderRadius: 999, background: status.background, color: status.color, border: `1px solid ${status.border}`, fontSize: 11, fontWeight: 800 }}>{status.label}{!reversible && order.reversed_at ? ` · ${formatOrderTime(order.reversed_at)}` : ""}</span>
                 <span style={{ padding: "2px 9px", borderRadius: 999, background: isOnlineOrder ? "#CCFBF1" : "#F3EDE5", color: isOnlineOrder ? "#0F766E" : "#6B4C3B", fontSize: 11, fontWeight: 700 }}>{isOnlineOrder ? "Mobile order" : "Counter"}</span>
-                <span style={{ padding: "2px 9px", borderRadius: 999, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 700 }}>{order.payment_method === "online" ? "Online payment" : "Cash"}</span>
+                <span style={{ padding: "2px 9px", borderRadius: 999, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 700 }}>{paymentLabel(order)}</span>
               </div>
+              {!reversible && order.return_method && <div style={{ padding: "6px 10px", borderRadius: 9, background: order.return_method === "gcash" ? "#EFF6FF" : "#F3EDE5", color: order.return_method === "gcash" ? "#1E40AF" : "#6B4C3B", fontSize: 12, lineHeight: 1.45 }}>
+                {order.return_method === "gcash"
+                  ? <>Returned through <strong>GCash</strong> to <strong>{order.return_gcash_name}</strong> · {formatGcashNumber(order.return_gcash_number ?? "")}{order.return_reference ? ` · Ref ${order.return_reference}` : " · no reference yet"}</>
+                  : <>Returned in <strong>cash</strong> from the drawer</>}
+                {order.reversed_by ? ` · by ${order.reversed_by}` : ""}
+              </div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 2, color: reversible ? "#3D2B1F" : "#9C8278", fontSize: 13, textDecoration: reversible ? "none" : "line-through" }}>
                 {order.order_details.map((detail, index) => <span key={`${order.order_id}-${index}`}>
                   <strong style={{ fontWeight: 700 }}>{describeOrderLine(detail)}</strong>
@@ -1399,15 +1449,15 @@ function ReversalsPage({ user }: { user: Session }) {
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", justifyContent: "space-between", gap: 8, flexShrink: 0 }}>
               <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: reversible ? "#3D2B1F" : "#9C8278" }}>₱{Number(order.total_amount ?? 0).toFixed(2)}</strong>
               {reversible && (user.canVoidOrders || user.canRefundOrders) && <div style={{ display: "flex", gap: 6 }}>
-                {user.canVoidOrders && <button type="button" onClick={() => { setError(""); setPendingAction({ order, action: "void" }); }} style={{ border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Void</button>}
-                {user.canRefundOrders && <button type="button" onClick={() => { setError(""); setPendingAction({ order, action: "refund" }); }} style={{ border: "1px solid #E9D5FF", background: "#FAF5FF", color: "#7E22CE", borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Refund</button>}
+                {user.canVoidOrders && <button type="button" onClick={() => openAction(order, "void")} style={{ border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#B91C1C", borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Void</button>}
+                {user.canRefundOrders && <button type="button" onClick={() => openAction(order, "refund")} style={{ border: "1px solid #E9D5FF", background: "#FAF5FF", color: "#7E22CE", borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 800, cursor: "pointer" }}>Refund</button>}
               </div>}
             </div>
           </article>;
         })}
       </div>}
 
-    {pendingAction && <Modal onClose={() => setPendingAction(null)} closeDisabled={submitting} labelledBy="reverse-order-title" zIndex={50}>
+    {pendingAction && <Modal onClose={closeAction} closeDisabled={submitting} labelledBy="reverse-order-title" zIndex={50}>
       <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 480px)", maxHeight: "88vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
         <div style={{ padding: "18px 22px", background: pendingAction.action === "void" ? "#FEF2F2" : "#FAF5FF", borderBottom: `1px solid ${pendingAction.action === "void" ? "#FECACA" : "#E9D5FF"}` }}>
           <div className="flex items-start justify-between gap-3">
@@ -1416,7 +1466,7 @@ function ReversalsPage({ user }: { user: Session }) {
               <h2 id="reverse-order-title" style={{ margin: "5px 0 0", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800 }}>Order #{pendingAction.order.queue_number}</h2>
               <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 11.5 }}>{formatOrderTime(pendingAction.order.created_at)} · Ref {pendingAction.order.order_id}</p>
             </div>
-            <button type="button" onClick={() => setPendingAction(null)} disabled={submitting} aria-label="Close reversal confirmation" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 26, lineHeight: 1, cursor: submitting ? "default" : "pointer" }}>×</button>
+            <button type="button" onClick={closeAction} disabled={submitting} aria-label="Close reversal confirmation" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 26, lineHeight: 1, cursor: submitting ? "default" : "pointer" }}>×</button>
           </div>
           <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 12.5, lineHeight: 1.5 }}>{pendingAction.action === "void" ? "Use Void for an order punched by mistake or cancelled before it was handed over." : "Use Refund when the customer already received the order and is given their money back."}</p>
         </div>
@@ -1427,22 +1477,67 @@ function ReversalsPage({ user }: { user: Session }) {
               {detail.additions.length > 0 && <div style={{ marginTop: 3, color: "#7E22CE", fontSize: 12 }}>+ {detail.additions.map((addition) => formatQueueAddition(addition, Number(detail.quantity))).join(", ")}</div>}
             </div>)}
           </div>
-          <div style={{ marginTop: 14, padding: "12px 14px", borderRadius: 12, background: "#3D2B1F", color: "#FDF9F5", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>{pendingIsOnline ? "Reverse the online payment of" : "Return in cash to the customer"}</span>
-            <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, whiteSpace: "nowrap" }}>₱{pendingTotal.toFixed(2)}</strong>
+          <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>How is the money returned? <span style={{ fontWeight: 400, color: "#9C8278" }}>Paid with {pendingIsGcash ? "GCash" : pendingIsOnline ? "online payment" : "cash"}</span></p>
+          <div role="group" aria-label="Return method" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {([["cash", "Cash", "From the drawer"], ["gcash", "GCash", "Sent by the café"]] as const).map(([method, label, hint]) => {
+              const active = returnMethod === method;
+              const tone = method === "gcash" ? "#0057E4" : "#3D2B1F";
+              return <button key={method} type="button" aria-pressed={active} onClick={() => { setReturnMethod(method); setError(""); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: "9px 6px", borderRadius: 10, border: `1px solid ${active ? tone : "#E8DDD5"}`, background: active ? tone : "#FFFDF9", color: active ? "#FFFFFF" : tone, cursor: "pointer" }}>
+                <strong style={{ fontSize: 13.5 }}>{label}</strong>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>{hint}</span>
+              </button>;
+            })}
           </div>
-          <p style={{ margin: "12px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>Stock is returned to inventory, the order leaves the queue, and it no longer counts as a sale. This cannot be undone.</p>
+          <form onSubmit={(event) => { event.preventDefault(); void reverseOrder(pendingAction.order, pendingAction.action); }}>
+          {returnMethod === "gcash" && <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Name on the customer’s GCash
+              <input value={gcashName} onChange={(event) => { setGcashName(event.target.value); setError(""); }} maxLength={120} autoComplete="off" placeholder="e.g. Juan Dela Cruz" style={returnFieldStyle} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Customer’s GCash number
+              <input value={gcashNumber} onChange={(event) => { setGcashNumber(event.target.value); setError(""); }} inputMode="tel" autoComplete="off" maxLength={16} placeholder="0917 123 4567" style={{ ...returnFieldStyle, borderColor: gcashNumber && !isValidGcashNumber(gcashNumber) ? "#FCA5A5" : "#E8DDD5" }} />
+            </label>
+            <label style={{ display: "flex", flexDirection: "column", gap: 4, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}><span>Reference no. of the café’s transfer <span style={{ fontWeight: 400, color: "#9C8278" }}>(optional)</span></span>
+              <input value={gcashReference} onChange={(event) => setGcashReference(event.target.value)} maxLength={60} autoComplete="off" placeholder="From the GCash receipt after sending" style={returnFieldStyle} />
+            </label>
+          </div>}
+          <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 12, background: returnMethod === "gcash" ? "#0057E4" : "#3D2B1F", color: "#FDF9F5" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>{returnMethod === "gcash" ? "Send through GCash" : "Hand back in cash"}</span>
+              <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, whiteSpace: "nowrap" }}>₱{pendingTotal.toFixed(2)}</strong>
+            </div>
+            {returnMethod === "gcash" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.25)", fontSize: 13, lineHeight: 1.5 }}>
+              <div>To <strong>{gcashName.trim() || "—"}</strong></div>
+              <div style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 16, fontWeight: 700, letterSpacing: "0.04em" }}>{gcashNumber && isValidGcashNumber(gcashNumber) ? formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0")) : "—"}</div>
+            </div>}
+          </div>
+          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>{returnMethod === "gcash" ? "Send it from the café’s GCash by hand. The cash drawer is not affected." : "Taken out of the expected cash in the drawer."} Stock is returned to inventory, the order leaves the queue, and it no longer counts as a sale. This cannot be undone.</p>
+          <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={user.fullName} invalid={wrongPassword} />
           {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
           <div className="flex justify-end gap-2" style={{ marginTop: 18 }}>
-            <button type="button" onClick={() => setPendingAction(null)} disabled={submitting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 16px", background: "#F3EDE5", color: "#6B4C3B", cursor: submitting ? "default" : "pointer", fontWeight: 700 }}>Keep order</button>
-            <button type="button" onClick={() => void reverseOrder(pendingAction.order, pendingAction.action)} disabled={submitting} style={{ border: "none", borderRadius: 10, padding: "11px 18px", background: submitting ? "#C9B8AF" : pendingAction.action === "void" ? "#B91C1C" : "#7E22CE", color: "#fff", cursor: submitting ? "default" : "pointer", fontWeight: 800 }}>{submitting ? "Processing…" : pendingAction.action === "void" ? "Void order" : "Refund order"}</button>
+            <button type="button" onClick={closeAction} disabled={submitting} style={{ border: "1px solid #E8DDD5", borderRadius: 10, padding: "11px 16px", background: "#F3EDE5", color: "#6B4C3B", cursor: submitting ? "default" : "pointer", fontWeight: 700 }}>Keep order</button>
+            <button type="submit" disabled={submitting} style={{ border: "none", borderRadius: 10, padding: "11px 18px", background: submitting ? "#C9B8AF" : pendingAction.action === "void" ? "#B91C1C" : "#7E22CE", color: "#fff", cursor: submitting ? "default" : "pointer", fontWeight: 800 }}>{submitting ? "Processing…" : pendingAction.action === "void" ? "Void order" : "Refund order"}</button>
           </div>
+          </form>
         </div>
       </section>
     </Modal>}
   </main>;
 }
 
+
+// Password of the signed-in account, asked again before opening or closing the shift and before
+// voids and refunds (the counter tablet stays signed in, so anyone standing at it could act).
+function ConfirmPasswordField({ value, onChange, userName, invalid, autoFocus = false }: { value: string; onChange: (value: string) => void; userName: string; invalid?: boolean; autoFocus?: boolean }) {
+  const [visible, setVisible] = useState(false);
+  return <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14, color: "#6B4C3B", fontSize: 12, fontWeight: 700, textAlign: "left" }}>
+    <span>Your password <span style={{ fontWeight: 400, color: "#9C8278" }}>to confirm as {userName}</span></span>
+    <span style={{ display: "flex", alignItems: "center", gap: 8, border: `1px solid ${invalid ? "#FCA5A5" : "#E8DDD5"}`, borderRadius: 12, background: "#FFFFFF", padding: "0 6px 0 14px", color: "#9C8278" }}>
+      <LoginFieldIcon kind="lock" />
+      <input autoFocus={autoFocus} type={visible ? "text" : "password"} autoComplete="current-password" value={value} onChange={(event) => onChange(event.target.value)} placeholder="Password" aria-invalid={invalid || undefined} style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "12px 0", fontSize: 14, color: "#3D2B1F" }} />
+      <button type="button" onClick={() => setVisible((shown) => !shown)} aria-label={visible ? "Hide password" : "Show password"} style={{ display: "flex", border: "none", background: "transparent", color: "#9C8278", padding: 8, cursor: "pointer" }}><LoginEyeIcon hidden={visible} /></button>
+    </span>
+  </label>;
+}
 
 function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => void; onConfirm: () => void; signingOut: boolean }) {
   return <Modal onClose={onCancel} closeDisabled={signingOut} labelledBy="sign-out-title" zIndex={100}>
@@ -1713,6 +1808,7 @@ type CurrentShift = {
   refundCount: number;
   reversedAmount: number;
   cashReversed: number;
+  gcashReturned?: number;
   netSales: number;
   expectedCash: number;
   cashDifference: number | null;
@@ -1785,8 +1881,10 @@ function WaitingForShiftPanel({ userName, onCheckAgain, onSwitchCashier }: { use
 
 function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: string; onOpened: (shift: CurrentShift) => void; onSwitchCashier: () => void }) {
   const [startingCash, setStartingCash] = useState("");
+  const [password, setPassword] = useState("");
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
+  const [wrongPassword, setWrongPassword] = useState(false);
 
   async function openShift(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1796,11 +1894,14 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
       setError("Enter the starting cash in the drawer (0 if the drawer is empty).");
       return;
     }
+    if (!password) { setError("Enter your password to open the shift."); setWrongPassword(true); return; }
     setOpening(true);
     setError("");
+    setWrongPassword(false);
     try {
-      const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "open", starting_cash: amount }) });
+      const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "open", starting_cash: amount, password }) });
       const payload = await response.json();
+      if (payload?.code === "wrong_password") { setPassword(""); setWrongPassword(true); }
       if (!response.ok) throw new Error(payload?.error || "Unable to open the shift.");
       onOpened(payload.data as CurrentShift);
     } catch (openError) {
@@ -1822,6 +1923,7 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
           <input autoFocus type="number" min={0} step="0.01" inputMode="decimal" value={startingCash} onChange={(event) => setStartingCash(event.target.value)} placeholder="0.00" style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "13px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, color: "#3D2B1F" }} />
         </span>
       </label>
+      <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={userName} invalid={wrongPassword} />
       {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
       <button type="submit" disabled={opening} style={{ width: "100%", height: 50, marginTop: 18, border: "none", borderRadius: 12, background: opening ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16, cursor: opening ? "default" : "pointer", boxShadow: opening ? "none" : "0 8px 18px rgba(217,119,6,0.28)" }}>{opening ? "Opening…" : "Open shift"}</button>
       <p style={{ margin: "14px 0 0", textAlign: "center", color: "#9C8278", fontSize: 12.5 }}>Opening as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch cashier</button></p>
@@ -1841,11 +1943,13 @@ function describeCashDifference(difference: number): { label: string; tone: stri
   return difference > 0 ? { label: `Over by ${formatPeso(difference)}`, tone: "#B45309" } : { label: `Short by ${formatPeso(-difference)}`, tone: "#B91C1C" };
 }
 
-function CloseShiftDialog({ shiftId, onCancel, onClosed }: { shiftId: number; onCancel: () => void; onClosed: () => void }) {
+function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: number; userName: string; onCancel: () => void; onClosed: () => void }) {
   const [summary, setSummary] = useState<CurrentShift | null>(null);
   const [closedSummary, setClosedSummary] = useState<CurrentShift | null>(null);
   const [countedCash, setCountedCash] = useState("");
   const [notes, setNotes] = useState("");
+  const [password, setPassword] = useState("");
+  const [wrongPassword, setWrongPassword] = useState(false);
   const [error, setError] = useState("");
   const [closing, setClosing] = useState(false);
 
@@ -1874,11 +1978,14 @@ function CloseShiftDialog({ shiftId, onCancel, onClosed }: { shiftId: number; on
       setError("Count the cash in the drawer and enter the total.");
       return;
     }
+    if (!password) { setError("Enter your password to close the shift."); setWrongPassword(true); return; }
     setClosing(true);
     setError("");
+    setWrongPassword(false);
     try {
-      const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shiftId, counted_cash: amount, notes }) });
+      const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shiftId, counted_cash: amount, notes, password }) });
       const payload = await response.json();
+      if (payload?.code === "wrong_password") { setPassword(""); setWrongPassword(true); }
       if (!response.ok) throw new Error(payload?.error || "Unable to close the shift.");
       setClosedSummary(payload.data as CurrentShift);
     } catch (closeError) {
@@ -1935,6 +2042,7 @@ function CloseShiftDialog({ shiftId, onCancel, onClosed }: { shiftId: number; on
             <ShiftSummaryRow label="Starting cash" value={formatPeso(summary.startingCash)} />
             <ShiftSummaryRow label="+ Cash sales" value={formatPeso(summary.cashSales)} />
             <ShiftSummaryRow label="− Cash given back (voids/refunds)" value={formatPeso(summary.cashReversed)} />
+            {(summary.gcashReturned ?? 0) > 0 && <ShiftSummaryRow label="Returned through GCash (not from the drawer)" value={formatPeso(summary.gcashReturned ?? 0)} tone="#1E40AF" />}
             <div style={{ borderTop: "1px solid #E8DDD5" }}><ShiftSummaryRow label="Expected in drawer" value={formatPeso(summary.expectedCash)} strong /></div>
 
             <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
@@ -1949,6 +2057,7 @@ function CloseShiftDialog({ shiftId, onCancel, onClosed }: { shiftId: number; on
               Notes <span style={{ fontWeight: 400, color: "#9C8278" }}>(optional, e.g. why the drawer is short)</span>
               <textarea value={notes} maxLength={500} rows={2} onChange={(event) => setNotes(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "9px 11px", fontSize: 13, color: "#3D2B1F", outline: "none", resize: "vertical" }} />
             </label>
+            <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={userName} invalid={wrongPassword} />
 
             {(summary.openQueueCount > 0 || summary.signedInCount > 0) && <div style={{ marginTop: 14, padding: "10px 12px", borderRadius: 10, background: "#FEF3C7", border: "1px solid #FCD34D", color: "#92400E", fontSize: 12, lineHeight: 1.55 }}>
               {summary.openQueueCount > 0 && <div>• {summary.openQueueCount} order{summary.openQueueCount === 1 ? " is" : "s are"} still in the queue and will be cleared from the queue screens.</div>}
@@ -2119,5 +2228,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
+  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
 }

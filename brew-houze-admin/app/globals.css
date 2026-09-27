@@ -498,6 +498,8 @@ body {
 
 .shiftm-orders li.is-earlier { background: #FEF2F2; margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 10px; }
 .dash-tag.shiftm-ready { background: #DCFCE7; color: #15803D; }
+.shiftm-return { display: block; margin-top: 3px; padding: 4px 8px; border-radius: 8px; background: #F3EDE5; color: #6B4C3B !important; font-size: 11.5px; white-space: normal !important; }
+.shiftm-return.is-gcash { background: #EFF6FF; color: #1E40AF !important; }
 
 .shiftm-staff { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr)); gap: 12px; }
 .shiftm-person { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: 14px; border: 1px solid #F0E8E1; background: #FFFFFF; }

@@ -210,6 +210,28 @@ export async function reconcilePendingCheckouts() {
   `);
 }
 
+// The counter payment a customer can pay right now from the printed GCash sign (/pay/counter):
+// the newest cashier checkout still waiting, started in the last 15 minutes. Only one runs at a
+// time because the counter has one tablet. Returns null when there is nothing to pay.
+export async function currentCounterCheckout(): Promise<{ token: string; amount: number; redirectUrl: string } | null> {
+  const result = await pool.query(`
+    SELECT public_token, amount, intent_id FROM payment_checkouts
+    WHERE source_app = 'cashier' AND status = 'awaiting_payment' AND intent_id IS NOT NULL
+      AND created_at > CURRENT_TIMESTAMP - INTERVAL '15 minutes'
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+  const row = result.rows[0];
+  if (!row) return null;
+  const state = await getIntentState(String(row.intent_id));
+  if (state.status !== "pending" || !state.redirectUrl) {
+    // Paid or failed in the meantime: record it the usual way and show nothing to pay.
+    await refreshCheckout(String(row.public_token));
+    return null;
+  }
+  return { token: String(row.public_token), amount: Number(row.amount), redirectUrl: state.redirectUrl };
+}
+
 // Called by the PayMongo webhook (payment.paid / payment.failed).
 export async function handlePaymentEvent(intentId: string, paid: boolean, paymentId: string | null, failure: string | null) {
   const result = await pool.query("SELECT checkout_id, status FROM payment_checkouts WHERE intent_id = $1", [intentId]);

@@ -35,6 +35,7 @@ function mapSummary(row: SummaryRow) {
     refundCount: Number(row.refund_count ?? 0),
     reversedAmount: Number(row.reversed_amount ?? 0),
     cashReversed: Number(row.cash_reversed ?? 0),
+    gcashReturned: Number(row.gcash_returned ?? 0),
     netSales: Number(row.net_sales ?? 0),
     costOfGoods: Number(row.cost_of_goods ?? 0),
     uncostedItems: Number(row.uncosted_items ?? 0),
