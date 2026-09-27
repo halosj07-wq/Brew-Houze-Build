@@ -5761,43 +5761,17 @@ export default function App() {
     }
   }
 
+  // Menu and stock data load once someone is signed in (and again after switching accounts).
+  // Nothing is requested from the sign-in screen: these endpoints require a signed-in admin.
+  const signedInId = authUser?.adminId ?? null;
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const response = await fetch("/api/inventory", { cache: "no-store" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Failed to load inventory.");
-        if (active) setInventory(payload.data ?? []);
-      } catch {
-        if (active) setInventory([]);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => { void refreshCategories(); }, 0);
+    if (signedInId === null) return;
+    const timer = window.setTimeout(() => { void refreshInventory(); void refreshProducts(); void refreshCategories(); }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [signedInId]);
 
   useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const response = await fetch("/api/products", { cache: "no-store" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Failed to load products.");
-        if (active) setProducts(payload.data ?? []);
-      } catch (error) {
-        console.error(error);
-        if (active) setProducts([]);
-      }
-    })();
-    return () => { active = false; };
-  }, []);
-
-  useEffect(() => {
+    if (signedInId === null) return;
     let requestInFlight = false;
     const refreshWhenVisible = () => {
       if (requestInFlight || document.visibilityState !== "visible") return;
@@ -5821,7 +5795,7 @@ export default function App() {
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, [page]);
+  }, [page, signedInId]);
 
   useEffect(() => {
     const collapseOnPhone = window.setTimeout(() => {
