@@ -22,6 +22,10 @@ type CartItem = { key: string; product: Product; variantId: number | null; varia
 type OrderStatus = "waiting" | "served" | "flushed";
 type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
 const trackedOrdersStorageKey = "brew-houze-tracked-orders";
+// A GCash payment in progress: its reference and the cart, so the cart comes back if it fails.
+const pendingPaymentStorageKey = "brew-houze-pending-payment";
+type PaymentConfig = { method: "gcash" | "none"; testMode?: boolean; minimumAmount?: number };
+type PaymentCheck = { token: string; state: "checking" | "slow" | "failed"; message?: string; cart: CartItem[] };
 
 function sortVariants(variants: Variant[]): Variant[] {
   const sizeOrder = new Map([["8 oz", 0], ["12 oz", 1], ["16 oz", 2], ["22 oz", 3]]);
@@ -72,6 +76,8 @@ export default function MenuPage() {
   const [placingOrder, setPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
+  const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ method: "none" });
+  const [paymentCheck, setPaymentCheck] = useState<PaymentCheck | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackedOrdersHydratedRef = useRef(false);
   const pendingReadyPingRef = useRef(false);
@@ -145,14 +151,86 @@ export default function MenuPage() {
   }, [trackedOrders]);
 
   useEffect(() => {
+    let restored: PaymentCheck | null = null;
+    try {
+      const stored = window.localStorage.getItem(pendingPaymentStorageKey);
+      const pending = stored ? JSON.parse(stored) as { token?: unknown; cart?: unknown } : null;
+      const fromUrl = new URLSearchParams(window.location.search).get("payment");
+      const token = typeof pending?.token === "string" ? pending.token : fromUrl;
+      if (token && /^[0-9a-f-]{36}$/i.test(token)) restored = { token, state: "checking", cart: Array.isArray(pending?.cart) ? pending.cart as CartItem[] : [] };
+      if (fromUrl) window.history.replaceState(null, "", window.location.pathname);
+    } catch (storageError) {
+      console.error("Mobile menu: failed to restore the payment in progress", storageError);
+    }
+    if (!restored) return;
+    const timer = window.setTimeout(() => setPaymentCheck(restored), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  // Asks the server until PayMongo has an answer. The server creates the order once it is paid.
+  const checkingPayment = paymentCheck !== null && paymentCheck.state !== "failed";
+  const checkingToken = paymentCheck?.token ?? null;
+  useEffect(() => {
+    if (!checkingPayment || !checkingToken) return;
+    let active = true;
+    let inFlight = false;
+    const started = Date.now();
+    const check = async () => {
+      if (inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/payments/${checkingToken}`, { cache: "no-store" });
+        const payload = await response.json() as { data?: { status: string; queueNumber: number | null; message: string | null; trackingToken: string }; error?: string };
+        if (!active) return;
+        const result = payload.data;
+        if (response.status === 404) {
+          window.localStorage.removeItem(pendingPaymentStorageKey);
+          setPaymentCheck(null);
+          return;
+        }
+        if (!response.ok || !result) return;
+        if (result.status === "completed") {
+          window.localStorage.removeItem(pendingPaymentStorageKey);
+          setCart([]);
+          setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting" }]);
+          setPaymentCheck(null);
+          setOrderPlaced(true);
+          return;
+        }
+        if (result.status !== "awaiting_payment") {
+          window.localStorage.removeItem(pendingPaymentStorageKey);
+          setPaymentCheck((current) => current ? { ...current, state: "failed", message: result.message ?? "The GCash payment did not go through." } : current);
+          return;
+        }
+        if (Date.now() - started > 90_000) setPaymentCheck((current) => current && current.state === "checking" ? { ...current, state: "slow" } : current);
+      } catch (checkError) {
+        console.error("Mobile menu: payment check failed", checkError);
+      } finally {
+        inFlight = false;
+      }
+    };
+    void check();
+    const intervalId = window.setInterval(() => void check(), 2500);
+    return () => { active = false; window.clearInterval(intervalId); };
+  }, [checkingPayment, checkingToken]);
+
+  function returnToOrder() {
+    if (paymentCheck?.cart.length) setCart(paymentCheck.cart);
+    try { window.localStorage.removeItem(pendingPaymentStorageKey); } catch { /* storage unavailable */ }
+    setPaymentCheck(null);
+    setCartOpen(true);
+  }
+
+  useEffect(() => {
     let active = true;
     fetch("/api/products", { cache: "default" })
       .then(async (response) => {
-        const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; error?: string };
+        const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; error?: string };
         if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
         if (active) {
           setProducts(payload.data ?? []);
           setStoreOpen(payload.storeOpen !== false);
+          if (payload.payment) setPaymentConfig(payload.payment);
         }
       })
       .catch((loadError) => {
@@ -262,6 +340,20 @@ export default function MenuPage() {
     if (cart.length === 0) return;
     setPlacingOrder(true);
     setOrderError("");
+    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) }));
+    if (paymentConfig.method === "gcash") {
+      try {
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems }) });
+        const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
+        if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
+        try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
+        window.location.assign(payload.data.redirectUrl);
+      } catch (paymentError) {
+        setOrderError(paymentError instanceof Error ? paymentError.message : "Could not start the GCash payment.");
+        setPlacingOrder(false);
+      }
+      return;
+    }
     try {
       const response = await fetch("/api/orders", {
         method: "POST",
@@ -409,9 +501,24 @@ export default function MenuPage() {
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
       <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
         {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.variantName} · ₱{item.price.toFixed(2)}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
-        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">Payment is not included yet. Your order will be sent to the café for preparation.</p><button className="add-order-button" disabled={placingOrder || !storeOpen} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? "Sending order..." : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
+        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" ? "Opening GCash..." : "Sending order...") : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}
     {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
+    {paymentCheck && <div className="modal-backdrop">
+      <section className="confirmation-modal payment-check" role="status" aria-live="polite">
+        {paymentCheck.state === "failed" ? <>
+          <div className="payment-check-icon is-failed" aria-hidden="true">!</div>
+          <h2>Payment not completed</h2>
+          <p>{paymentCheck.message}</p>
+          <button className="add-order-button" onClick={returnToOrder}>Back to my order</button>
+        </> : <>
+          <div className="payment-check-spinner" aria-hidden="true" />
+          <h2>Confirming your GCash payment…</h2>
+          <p>{paymentCheck.state === "slow" ? "GCash is taking longer than usual. If you finished paying, your order appears here as soon as it is confirmed. You can keep this page open." : "This only takes a moment. Please keep this page open."}</p>
+          {paymentCheck.state === "slow" && <button className="add-order-button secondary" onClick={returnToOrder}>I didn&apos;t pay, go back to my order</button>}
+        </>}
+      </section>
+    </div>}
   </main>;
 }

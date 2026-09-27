@@ -18,7 +18,7 @@ export async function GET() {
           AND column_name = 'created_at'
       ) AS available
     `);
-    const createdAtExpression = columnResult.rows[0]?.available ? "created_at" : "NULL";
+    const createdAtExpression = columnResult.rows[0]?.available ? "(created_at AT TIME ZONE 'UTC')" : "NULL"; // stored in UTC without a time zone
     const result = await pool.query(`
       SELECT full_name, email, role, ${createdAtExpression} AS created_at
       FROM admin_users

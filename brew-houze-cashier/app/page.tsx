@@ -225,7 +225,7 @@ function ConnectionIndicator() {
         {row("Brew Houze server", serverReachable === null ? "Checking" : serverReachable ? `Reachable${roundTripMs !== null ? ` · ${roundTripMs} ms` : ""}` : "Not reachable", serverReachable)}
         {row("Database", state === "checking" ? "Checking" : state === "database" ? "Not responding" : dbMs !== null ? `Responding · ${dbMs} ms` : "Unknown", state === "checking" ? null : state === "database" || state === "offline" ? false : dbMs !== null)}
         <div className="flex items-center justify-between gap-3" style={{ marginTop: 10 }}>
-          <span style={{ color: "#9C8278", fontSize: 11 }}>{checkedAt ? `Checked ${checkedAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+          <span style={{ color: "#9C8278", fontSize: 11 }}>{checkedAt ? `Checked ${checkedAt.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit", second: "2-digit" })}` : ""}</span>
           <button type="button" onClick={() => void check()} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "7px 12px", background: "#F3EDE5", color: "#3D2B1F", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Check again</button>
         </div>
       </div>
@@ -376,7 +376,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           <span style={{ padding: "2px 9px", borderRadius: 999, background: isAdmin ? "#FDF9F5" : "#D97706", color: isAdmin ? "#3D2B1F" : "#FFFFFF", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase" }}>{isAdmin ? "Admin" : "Cashier"}</span>
         </div>
         <p style={{ margin: "5px 0 0", color: "rgba(253,249,245,0.75)", fontSize: 13.5 }}>{user.email}</p>
-        <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
+        <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
       </div>
       <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconSwitchUser size={17} />Switch cashier</button>
     </section>
@@ -388,7 +388,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
         <AccountSection eyebrow="Today" title="This shift">
           {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : <>
             <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))" }}>
-              {stat("Clocked in", details.clockedInAt ? new Date(details.clockedInAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }) : "—", details.clockedInAt ? `for ${formatDuration(details.clockedInAt, now)}` : "Not clocked in")}
+              {stat("Clocked in", details.clockedInAt ? new Date(details.clockedInAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" }) : "—", details.clockedInAt ? `for ${formatDuration(details.clockedInAt, now)}` : "Not clocked in")}
               {stat("Orders you punched", details.shift ? String(details.shift.orders) : "—", details.shift ? `₱${details.shift.sales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in sales` : "No shift open")}
               {stat("Voids & refunds", details.shift ? String(details.shift.reversals) : "—", details.shift ? "made by you this shift" : undefined)}
             </div>
@@ -412,7 +412,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
               <span>
                 <strong style={{ color: "#3D2B1F" }}>{device.device}</strong>
                 {device.isCurrent && <span style={{ marginLeft: 8, padding: "1px 7px", borderRadius: 999, background: "#DCFCE7", color: "#15803D", fontSize: 10.5, fontWeight: 800 }}>This device</span>}
-                <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
               </span>
             </div>)}
           </div>}
@@ -516,6 +516,112 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
   </div>;
 }
 
+// ─── GCash (PayMongo) at the counter ─────────────────────────────────────────
+// The customer scans the QR with their phone and approves the payment in GCash. This window asks
+// the server every couple of seconds; the server asks PayMongo, and creates the order (queue
+// number, stock) only once the payment is confirmed.
+type GcashCheckout = { token: string; amount: number; redirectUrl: string };
+type GcashCheckoutView = { token: string; status: "awaiting_payment" | "completed" | "failed" | "cancelled" | "refunded" | "needs_attention"; amount: number; orderId: number | null; queueNumber: number | null; shiftId: number | null; message: string | null };
+
+function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout: GcashCheckout; testMode: boolean; onPaid: (view: GcashCheckoutView) => void; onClose: () => void }) {
+  const [qr, setQr] = useState("");
+  const [view, setView] = useState<GcashCheckoutView | null>(null);
+  const [notice, setNotice] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const finished = view !== null && view.status !== "awaiting_payment";
+
+  useEffect(() => {
+    let active = true;
+    void import("qrcode").then((QRCode) => QRCode.toDataURL(checkout.redirectUrl, { margin: 1, width: 280, color: { dark: "#3D2B1F", light: "#FFFFFF" } }))
+      .then((url) => { if (active) setQr(url); })
+      .catch(() => { if (active) setNotice("Could not draw the QR code. Use “Open on this tablet” instead."); });
+    return () => { active = false; };
+  }, [checkout.redirectUrl]);
+
+  useEffect(() => {
+    if (finished) return;
+    let active = true;
+    let inFlight = false;
+    const check = async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch(`/api/payments/${checkout.token}`, { cache: "no-store" });
+        const payload = await response.json() as { data?: GcashCheckoutView; error?: string };
+        if (!active) return;
+        if (response.ok && payload.data) { setView(payload.data); setNotice(""); }
+        else setNotice(payload.error || "Checking the payment…");
+      } catch {
+        if (active) setNotice("Connection hiccup. Still checking…");
+      } finally {
+        inFlight = false;
+      }
+    };
+    const first = window.setTimeout(() => void check(), 1500);
+    const intervalId = window.setInterval(() => void check(), 2500);
+    return () => { active = false; window.clearTimeout(first); window.clearInterval(intervalId); };
+  }, [checkout.token, finished]);
+
+  useEffect(() => {
+    if (view?.status !== "completed") return;
+    const timer = window.setTimeout(() => onPaid(view), 1800);
+    return () => window.clearTimeout(timer);
+  }, [view, onPaid]);
+
+  async function cancel() {
+    if (finished) { onClose(); return; }
+    setCancelling(true);
+    try {
+      const response = await fetch(`/api/payments/${checkout.token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) });
+      const payload = await response.json() as { data?: GcashCheckoutView; error?: string };
+      if (!response.ok || !payload.data) throw new Error(payload.error || "Could not cancel the payment.");
+      // Paid just before cancelling: the order was created, so treat it as paid.
+      if (payload.data.status === "completed") setView(payload.data);
+      else onClose();
+    } catch (cancelError) {
+      setNotice(cancelError instanceof Error ? cancelError.message : "Could not cancel the payment.");
+    } finally {
+      setCancelling(false);
+    }
+  }
+
+  const status = view?.status ?? "awaiting_payment";
+  return <Modal onClose={() => void cancel()} closeDisabled={cancelling || status === "completed"} label="GCash payment">
+    <section className="gcash-dialog">
+      <header>
+        <span className="gcash-badge">GCash</span>
+        {testMode && <span className="gcash-test">Test mode · no real money</span>}
+      </header>
+      <p className="gcash-amount">₱{checkout.amount.toFixed(2)}</p>
+      {status === "awaiting_payment" && <>
+        <div className="gcash-qr">{qr ? <Image src={qr} alt="QR code for the GCash payment" width={240} height={240} unoptimized /> : <span>Preparing QR…</span>}</div>
+        <ol className="gcash-steps">
+          <li>Ask the customer to scan this with their phone camera.</li>
+          <li>They approve the payment in GCash.</li>
+          <li>This window confirms by itself and the order goes to the queue.</li>
+        </ol>
+        <p className="gcash-waiting"><span className="connection-pulse" />Waiting for the customer to pay…</p>
+        <a className="gcash-link" href={checkout.redirectUrl} target="_blank" rel="noreferrer">Open on this tablet instead</a>
+      </>}
+      {status === "completed" && <div className="gcash-result is-paid">
+        <strong>Paid</strong>
+        <span>Queue number</span>
+        <b>#{view?.queueNumber ?? "—"}</b>
+      </div>}
+      {status !== "awaiting_payment" && status !== "completed" && <div className={`gcash-result ${status === "refunded" || status === "cancelled" ? "is-info" : "is-failed"}`}>
+        <strong>{status === "failed" ? "Payment didn’t go through" : status === "cancelled" ? "Cancelled" : status === "refunded" ? "Refunded" : "Needs attention"}</strong>
+        <span>{view?.message}</span>
+      </div>}
+      {notice && <p className="gcash-notice">{notice}</p>}
+      <div className="gcash-actions">
+        {status === "completed"
+          ? <button type="button" className="ui-button ui-button-primary" onClick={() => view && onPaid(view)}>Done</button>
+          : <button type="button" className="ui-button ui-button-secondary" onClick={() => void cancel()} disabled={cancelling}>{finished ? "Close" : cancelling ? "Cancelling…" : "Cancel payment"}</button>}
+      </div>
+    </section>
+  </Modal>;
+}
+
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
@@ -530,7 +636,10 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
   const [receivedAmount, setReceivedAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "online">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash" | "online">("cash");
+  // GCash through PayMongo, when the server has PayMongo keys.
+  const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
+  const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [additions, setAdditions] = useState<Addition[]>([]);
@@ -540,6 +649,15 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [activeCategory, setActiveCategory] = useState("");
   const [selectionProduct, setSelectionProduct] = useState<Product | null>(null);
   const cartLineId = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/payments", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload) => { if (active && payload?.data) setGcashConfig(payload.data); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -708,6 +826,19 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     return `${item.name}${item.size ? ` — ${item.size}` : ""}${item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}`;
   }
 
+  // Clears the cart and refreshes stock once an order is in the queue (cash or GCash).
+  async function afterOrderPlaced(queueNumber: number, shiftId: number) {
+    setCart([]);
+    setReceivedAmount("");
+    onQueueAssigned(queueNumber, shiftId);
+    const refresh = await fetch("/api/products", { cache: "no-store" });
+    if (refresh.ok) {
+      const refreshedPayload = await refresh.json() as ProductsResponse;
+      setProducts(refreshedPayload.data ?? []);
+      setAdditions(refreshedPayload.additions ?? []);
+    }
+  }
+
   async function checkout() {
     if (cart.length === 0 || checkingOut) return;
     const subtotalValue = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
@@ -720,6 +851,24 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     }
     setCheckingOut(true);
     setCheckoutError("");
+    const cartItems = cart.filter((item) => item.variantId !== null).map((item) => ({
+      product_variant_id: item.variantId,
+      quantity: item.qty,
+      addition_ids: item.additions.flatMap((addition) => Array.from({ length: addition.count }, () => addition.addition_id)),
+    }));
+    if (paymentMethod === "gcash") {
+      try {
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems }) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not start the GCash payment.");
+        setGcashCheckout(payload.data as GcashCheckout);
+      } catch (error) {
+        setCheckoutError(error instanceof Error ? error.message : "Could not start the GCash payment.");
+      } finally {
+        setCheckingOut(false);
+      }
+      return;
+    }
     try {
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -737,16 +886,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to complete checkout.");
-      setCart([]);
-      setReceivedAmount("");
-      const queueNumber = Number(payload.data.queueNumber);
-      onQueueAssigned(queueNumber, Number(payload.data.shiftId));
-      const refresh = await fetch("/api/products", { cache: "no-store" });
-      if (refresh.ok) {
-        const refreshedPayload = await refresh.json() as ProductsResponse;
-        setProducts(refreshedPayload.data ?? []);
-        setAdditions(refreshedPayload.additions ?? []);
-      }
+      await afterOrderPlaced(Number(payload.data.queueNumber), Number(payload.data.shiftId));
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete checkout.");
     } finally {
@@ -765,7 +905,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const subtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
   const parsedReceivedAmount = Number.parseFloat(receivedAmount);
   const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
-  const hasValidPayment = paymentMethod === "online" || subtotal === 0 || (Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal);
+  const hasValidPayment = paymentMethod === "online" || (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal);
 
   return <main className="pos-layout" style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
     <section className="pos-menu" style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -872,8 +1012,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
               <div style={{ display: "flex", gap: 6 }}>
-                <button type="button" onClick={() => { setPaymentMethod("cash"); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === "cash" ? "1px solid #3D2B1F" : "1px solid #E8DDD5", background: paymentMethod === "cash" ? "#3D2B1F" : "#FFFDF9", color: paymentMethod === "cash" ? "#FDF9F5" : "#6B4C3B", padding: "9px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Cash Payment</button>
-                <button type="button" onClick={() => { setPaymentMethod("online"); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === "online" ? "1px solid #3D2B1F" : "1px solid #E8DDD5", background: paymentMethod === "online" ? "#3D2B1F" : "#FFFDF9", color: paymentMethod === "online" ? "#FDF9F5" : "#6B4C3B", padding: "9px 10px", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Online Payment</button>
+                {([["cash", "Cash"], ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const] : []), ["online", gcashConfig?.gcash ? "Other online" : "Online Payment"]] as const).map(([method, label]) => <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${method === "gcash" ? "#0057E4" : "#3D2B1F"}` : "1px solid #E8DDD5", background: paymentMethod === method ? (method === "gcash" ? "#0057E4" : "#3D2B1F") : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "gcash" ? "#0057E4" : "#6B4C3B", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>)}
               </div>
             </div>
             {paymentMethod === "cash" ? <>
@@ -885,16 +1024,18 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
                 <span>Change</span>
                 <strong style={{ color: changeDue > 0 ? "#0F766E" : "#3D2B1F" }}>₱{changeDue.toFixed(2)}</strong>
               </div>
-            </> : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.5 }}>Customer will pay via e-wallet/online. This order proceeds directly to checkout without received-amount entry.</p>}
+            </> : paymentMethod === "gcash" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>A QR code appears for the customer to scan and pay in GCash. The order goes to the queue once the payment is confirmed.{gcashConfig && subtotal > 0 && subtotal < gcashConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash needs at least ₱{gcashConfig.minimumAmount.toFixed(2)}.</strong> : null}</p>
+            : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.5 }}>Paid through another e-wallet or bank app outside this system. Check that the payment arrived before confirming.</p>}
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : "Checkout"}</button>
+            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : "Checkout"}</button>
             <button onClick={() => { setCart([]); setReceivedAmount(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
     </aside>
 
+    {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => setGcashCheckout(null)} onPaid={(view) => { setGcashCheckout(null); if (view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.queueNumber, view.shiftId); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
@@ -1132,8 +1273,9 @@ function formatOrderTime(value: string | null | undefined): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const time = date.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
-  return date.toDateString() === new Date().toDateString() ? time : `${date.toLocaleDateString("en-PH", { month: "short", day: "numeric" })} · ${time}`;
+  const time = date.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
+  const manilaDay = (moment: Date) => moment.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+  return manilaDay(date) === manilaDay(new Date()) ? time : `${date.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" })} · ${time}`;
 }
 
 function describeOrderLine(detail: QueueOrderDetail): string {
@@ -1594,7 +1736,7 @@ function formatShiftDuration(hours: number): string {
 
 function formatClock(value: string | null): string {
   if (!value) return "";
-  return new Date(value).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" });
+  return new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 }
 
 function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; onOpenShift: () => void; onCloseShift: () => void }) {

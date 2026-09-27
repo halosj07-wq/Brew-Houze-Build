@@ -14,7 +14,7 @@ export async function GET() {
         WHERE table_schema = 'public' AND table_name = 'admin_users' AND column_name = 'created_at'
       ) AS available
     `);
-    const createdAtExpression = columnResult.rows[0]?.available ? "created_at" : "NULL";
+    const createdAtExpression = columnResult.rows[0]?.available ? "(created_at AT TIME ZONE 'UTC')" : "NULL"; // stored in UTC without a time zone
     const accountResult = await pool.query(`SELECT ${createdAtExpression} AS created_at FROM admin_users WHERE admin_id = $1`, [session.adminId]);
 
     const attendanceResult = await pool.query(

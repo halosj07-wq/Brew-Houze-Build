@@ -160,3 +160,14 @@ button { cursor: pointer; }
   .header-action { padding: 8px 9px; }
   .header-action.queue-action { top: 12px; right: 12px; width: 58px; height: 58px; }
 }
+
+/* GCash payment check (after returning from GCash) */
+.payment-check { text-align: center; padding: 28px 22px; }
+.payment-check h2 { margin: 16px 0 0; }
+.payment-check p { margin: 10px 0 18px; color: #6B4C3B; font-size: 14px; line-height: 1.55; }
+.payment-check-spinner { width: 46px; height: 46px; margin: 0 auto; border-radius: 999px; border: 4px solid #DBEAFE; border-top-color: #0057E4; animation: payment-spin 0.9s linear infinite; }
+.payment-check-icon { width: 52px; height: 52px; margin: 0 auto; display: grid; place-items: center; border-radius: 16px; font-size: 26px; font-weight: 800; }
+.payment-check-icon.is-failed { background: #FEE2E2; color: #B91C1C; }
+.add-order-button.secondary { background: #F3EDE5; color: #6B4C3B; box-shadow: none; }
+@keyframes payment-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .payment-check-spinner { animation-duration: 3s; } }

@@ -4,7 +4,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, u
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "inventory" | "products" | "finance" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -108,6 +108,9 @@ function isWholeUnit(unit: string): boolean {
 
 function IconGrid({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>;
+}
+function IconClock({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>;
 }
 function IconBox({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="21 8 21 21 3 21 3 8" /><rect x="1" y="3" width="22" height="5" /><line x1="10" y1="12" x2="14" y2="12" /></svg>;
@@ -294,6 +297,7 @@ function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
 const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: "dashboard", label: "Dashboard", short: "Home", Icon: IconGrid },
+  { id: "shift", label: "Shift", short: "Shift", Icon: IconClock },
   { id: "inventory", label: "Inventory", short: "Inventory", Icon: IconBox },
   { id: "products", label: "Menu", short: "Menu", Icon: IconCoffee },
   { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
@@ -302,13 +306,13 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 ];
 
 const navGroups: { label: string; items: Page[] }[] = [
-  { label: "Overview", items: ["dashboard"] },
+  { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
   { label: "Business", items: ["finance", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
-const mobileTabs: Page[] = ["dashboard", "inventory", "products", "finance"];
+const mobileTabs: Page[] = ["dashboard", "shift", "inventory", "finance"];
 
 // Initials on a colour picked from the name, the same as in the cashier app.
 const avatarColors = ["#B45309", "#9A3412", "#6B4C3B", "#0F766E", "#7E22CE", "#1D4ED8", "#BE185D"];
@@ -432,7 +436,7 @@ function ConnectionIndicator() {
         {row("Brew Houze server", serverReachable === null ? "Checking" : serverReachable ? `Reachable${roundTripMs !== null ? ` · ${roundTripMs} ms` : ""}` : "Not reachable", serverReachable)}
         {row("Database", state === "checking" ? "Checking" : state === "database" ? "Not responding" : dbMs !== null ? `Responding · ${dbMs} ms` : "Unknown", state === "checking" ? null : state === "database" || state === "offline" ? false : dbMs !== null)}
         <div className="flex items-center justify-between gap-3" style={{ marginTop: 10 }}>
-          <span style={{ color: "#9C8278", fontSize: 11 }}>{checkedAt ? `Checked ${checkedAt.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : ""}</span>
+          <span style={{ color: "#9C8278", fontSize: 11 }}>{checkedAt ? `Checked ${checkedAt.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit", second: "2-digit" })}` : ""}</span>
           <button type="button" onClick={() => void check()} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "7px 12px", background: "#F3EDE5", color: "#3D2B1F", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Check again</button>
         </div>
       </div>
@@ -657,7 +661,7 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
           <span style={{ padding: "2px 9px", borderRadius: 999, background: "#FDF9F5", color: "#3D2B1F", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em" }}>ADMIN</span>
         </div>
         <p style={{ margin: "5px 0 0", color: "rgba(253,249,245,0.75)", fontSize: 13.5 }}>{user.email}</p>
-        <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
+        <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
       </div>
       <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconLogOut size={17} />Sign out</button>
     </section>
@@ -669,7 +673,7 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
         <AccountSection eyebrow="Right now" title={details?.shift ? "The café is open" : "The café is closed"}>
           {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : details.shift ? <>
             <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))" }}>
-              {stat("Shift open", formatElapsed(details.shift.openedAt, now), `since ${new Date(details.shift.openedAt).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}${details.shift.openedByName ? ` by ${details.shift.openedByName.split(" ")[0]}` : ""}`)}
+              {stat("Shift open", formatElapsed(details.shift.openedAt, now), `since ${new Date(details.shift.openedAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}${details.shift.openedByName ? ` by ${details.shift.openedByName.split(" ")[0]}` : ""}`)}
               {stat("Orders", String(details.shift.orders), `${details.shift.reversals} voided/refunded`)}
               {stat("Net sales", `₱${details.shift.netSales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, "so far this shift")}
             </div>
@@ -682,7 +686,7 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
             {details.devices.map((device, index) => <div key={device.id} style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", fontSize: 13 }}>
               <strong style={{ color: "#3D2B1F" }}>{device.device}</strong>
               {device.isCurrent && <span style={{ marginLeft: 8, padding: "1px 7px", borderRadius: 999, background: "#DCFCE7", color: "#15803D", fontSize: 10.5, fontWeight: 800 }}>This device</span>}
-              <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+              <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
             </div>)}
           </div>}
           {devicesMessage && <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 12.5 }}>{devicesMessage}</p>}
@@ -945,7 +949,7 @@ function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenSt
       <div className="dash-shift-top">
         <span className="dash-shift-pill is-open"><span className="dash-live-dot" />Shift open</span>
         <span className="flex items-center gap-2">
-          <button type="button" className="dash-shift-link" onClick={onOpenReports}>Reports <IconChevron size={13} /></button>
+          <button type="button" className="dash-shift-link" onClick={onOpenReports}>Shift details <IconChevron size={13} /></button>
           <button type="button" className="dash-shift-link is-close" onClick={onCloseShift}>Close shift</button>
         </span>
       </div>
@@ -974,7 +978,7 @@ function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenSt
   return <section className="dash-shift is-closed">
     <div className="dash-shift-top">
       <span className="dash-shift-pill">Store closed</span>
-      {previousShift && <button type="button" className="dash-shift-link" onClick={onOpenReports}>Shift reports <IconChevron size={13} /></button>}
+      {previousShift && <button type="button" className="dash-shift-link" onClick={onOpenReports}>Last shift <IconChevron size={13} /></button>}
     </div>
     {previousShift ? <>
       <p className="dash-shift-label">Net sales last shift</p>
@@ -1125,7 +1129,7 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
         <div className="dash-kpis">{[0, 1, 2, 3].map((index) => <div key={index} className="dash-skeleton" style={{ minHeight: 130 }} />)}</div>
       </div>) : <>
         <div className="dash-hero">
-          <DashboardShiftCard shift={data.shift} previousShift={data.previousShift} now={now} onOpenReports={() => onNavigate("finance")} onOpenStore={() => setShiftAction("open")} onCloseShift={() => setShiftAction("close")} />
+          <DashboardShiftCard shift={data.shift} previousShift={data.previousShift} now={now} onOpenReports={() => onNavigate("shift")} onOpenStore={() => setShiftAction("open")} onCloseShift={() => setShiftAction("close")} />
           <div className="dash-kpis">
             <DashKpi
               label="Sales · last 7 days"
@@ -2382,7 +2386,13 @@ function Inventory({
         if (!own && !child) return false;
         if (!own && child) matchedChild.add(group.item.inventory_id);
       }
-      if (filters.category !== "all" && group.item.ingredient_category !== filters.category) return false;
+      // A portion can have its own category (Espresso Shot in "Coffee Shot"): picking it shows the
+      // item it is drawn from, opened so the portion is visible.
+      if (filters.category !== "all") {
+        const ownCategory = group.item.ingredient_category === filters.category;
+        if (!ownCategory && !group.portions.some((portion) => portion.ingredient_category === filters.category)) return false;
+        if (!ownCategory) matchedChild.add(group.item.inventory_id);
+      }
       if (filters.status === "attention" ? group.status === "ok" : filters.status !== "all" && group.status !== filters.status) return false;
       if (filters.kind === "packaged" && group.packs.length === 0) return false;
       if (filters.kind === "loose" && (group.packs.length > 0 || group.orphan)) return false;
@@ -3135,11 +3145,56 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
           {tabs.map(({ id, label, count, Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count">{count}</span>}</button>)}
         </div>
       </div>
-      {tab === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} />}
+      {tab === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} onCategoryCreated={(category) => onCategoriesChange([...categories.filter((entry) => entry.id !== category.id), category].sort((a, b) => a.name.localeCompare(b.name)))} />}
       {tab === "addons" && <AddonsPanel addons={addons} loading={addonsLoading} error={addonsError} inventory={inventory} onChange={setAddons} />}
       {tab === "categories" && <CategoriesPanel categories={categories} products={products} onChange={onCategoriesChange} onRenamed={() => void onRefreshProducts()} onShowProducts={(category) => { setCategoryFilter(category); setTab("products"); }} />}
     </div>
   </div>;
+}
+
+// Category field of the product window. A new category can be created right here, so adding
+// the first product never requires leaving the window for the Categories tab.
+function CategoryPicker({ value, names, onChange, onCreated, inputStyle }: { value: string; names: string[]; onChange: (name: string) => void; onCreated: (category: ProductCategory) => void; inputStyle: React.CSSProperties }) {
+  const [adding, setAdding] = useState(names.length === 0);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function create() {
+    const name = draft.trim();
+    if (!name || saving) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/product-categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ category_name: name }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not add the category.");
+      onCreated(payload.data as ProductCategory);
+      onChange((payload.data as ProductCategory).name);
+      setDraft("");
+      setAdding(false);
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : "Could not add the category.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (adding || names.length === 0) {
+    return <div className="flex flex-col gap-1.5">
+      <div className="flex gap-2">
+        <input autoFocus value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void create(); } if (event.key === "Escape" && names.length > 0) { event.stopPropagation(); setAdding(false); } }} placeholder="New category, e.g. Espresso Based" style={{ ...inputStyle, flex: 1 }} aria-label="New category name" />
+        <button type="button" onClick={() => void create()} disabled={saving || !draft.trim()} style={{ flexShrink: 0, border: "none", borderRadius: 10, padding: "0 14px", background: saving || !draft.trim() ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: saving || !draft.trim() ? "default" : "pointer" }}>{saving ? "Adding…" : "Add"}</button>
+        {names.length > 0 && <button type="button" onClick={() => { setAdding(false); setError(""); }} style={{ flexShrink: 0, border: "1px solid #E8DDD5", borderRadius: 10, padding: "0 12px", background: "#FDF9F5", color: "#6B4C3B", fontSize: 13, cursor: "pointer" }}>Cancel</button>}
+      </div>
+      <span style={{ color: error ? "#B91C1C" : "#9C8278", fontSize: 11.5 }}>{error || (names.length === 0 ? "No categories yet. Type one to create it." : "It is added to the menu categories too.")}</span>
+    </div>;
+  }
+
+  return <select value={value || names[0] || ""} onChange={(event) => { if (event.target.value === "__new__") { setAdding(true); return; } onChange(event.target.value); }} style={{ ...inputStyle, cursor: "pointer" }}>
+    {names.map((category) => <option key={category} value={category}>{category}</option>)}
+    <option value="__new__">+ New category…</option>
+  </select>;
 }
 
 function ProductManagement({
@@ -3151,6 +3206,7 @@ function ProductManagement({
   onDelete,
   categoryFilter,
   onCategoryFilterChange,
+  onCategoryCreated,
 }: {
   products: Product[];
   inventory: InventoryItem[];
@@ -3160,6 +3216,7 @@ function ProductManagement({
   onDelete: (id: number, variantSize?: string) => Promise<void>;
   categoryFilter: string;
   onCategoryFilterChange: (category: string) => void;
+  onCategoryCreated: (category: ProductCategory) => void;
 }) {
   const confirmAction = useConfirm();
   const [showModal, setShowModal] = useState(false);
@@ -3549,7 +3606,7 @@ function ProductManagement({
             <div className="flex flex-col gap-5 px-6 py-6" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Short Description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><textarea value={formDescription} maxLength={240} onChange={(e) => setFormDescription(e.target.value)} placeholder="e.g. Smooth espresso with steamed milk and caramel." rows={3} style={{ ...inputBase, resize: "vertical" }} /><span style={{ color: "#9C8278", fontSize: 11 }}>{formDescription.length}/240</span></div>
-              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><select value={formCat || categoryNames[0] || ""} onChange={(e) => setFormCat(e.target.value)} style={{ ...inputBase, cursor: "pointer" }} disabled={categoryNames.length === 0}>{categoryNames.length === 0 ? <option value="">Add a category first</option> : formCategoryNames.map((category) => <option key={category}>{category}</option>)}</select></div>
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><CategoryPicker value={formCat} names={formCategoryNames} onChange={setFormCat} onCreated={onCategoryCreated} inputStyle={inputBase} /></div>
               <div className="flex flex-col gap-2" role="radiogroup" aria-label="Product type">
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Type</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -3613,6 +3670,508 @@ function formatFinanceDateTime(value: string): string {
 
 function getFinanceDateStamp(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+}
+
+// ─── Shift ───────────────────────────────────────────────────────────────────
+// The shift as it happens: open or close the store, the drawer and sales so far, and a running
+// log of everything recorded under it (orders, voids and refunds, clock-ins, stock changes and
+// GCash payments). Earlier shifts open in the same view from the picker.
+type ShiftLive = Omit<ShiftReport, "hoursOpen"> & { isOpen: boolean; previousShiftId: number | null; nextShiftId: number | null };
+type ShiftLiveOrder = ShiftOrder & { queueStatus: string | null; reversedBy: string | null };
+type ShiftStockLog = {
+  logId: number; inventoryId: number | null; itemName: string; unit: string; changeType: string; delta: number | null; quantityAfter: number | null;
+  orderId: number | null; packagingName: string | null; packsAdded: number | null; sourceApp: string | null; adminName: string | null; createdAt: string;
+};
+type ShiftPayment = { checkoutId: number; sourceApp: string; status: string; amount: number; error: string | null; createdAt: string };
+type ShiftActivityData = {
+  shifts: { shiftId: number; isOpen: boolean; openedAt: string }[];
+  shift: ShiftLive | null;
+  orders: ShiftLiveOrder[];
+  attendance: ShiftAttendance[];
+  stock: ShiftStockLog[];
+  products: { name: string; category: string; quantity: number; revenue: number }[];
+  payments: ShiftPayment[];
+  generatedAt: string;
+};
+type ShiftEventKind = "shift" | "order" | "reversal" | "staff" | "stock" | "payment";
+type ShiftEvent = { key: string; at: string; kind: ShiftEventKind; title: string; detail: string; amount?: { text: string; tone: "plus" | "minus" | "muted" } };
+type ShiftTab = "activity" | "orders" | "staff" | "stock";
+
+const SHIFT_REFRESH_MS = 20_000;
+const orderUsageTypes = new Set(["order_deduction", "void_restore", "refund_restore"]);
+const shiftFeedFilters: { id: "all" | ShiftEventKind; label: string }[] = [
+  { id: "all", label: "Everything" },
+  { id: "order", label: "Orders" },
+  { id: "reversal", label: "Voids & refunds" },
+  { id: "staff", label: "Staff" },
+  { id: "stock", label: "Stock" },
+  { id: "payment", label: "GCash" },
+];
+
+function shiftOrderChannel(order: { orderSource: string; paymentMethod: string }): "Mobile" | "Online" | "Cash" {
+  return order.orderSource === "online" ? "Mobile" : order.paymentMethod === "online" ? "Online" : "Cash";
+}
+
+function durationLabel(fromIso: string, toIso: string | null, now: number): string {
+  return formatElapsed(fromIso, toIso ? new Date(toIso).getTime() : now);
+}
+
+function unitAmount(amount: number, unit: string): string {
+  return `${formatAmount(amount)} ${Math.abs(amount) === 1 ? singularUnit(unit) : unit}`;
+}
+
+function buildShiftEvents(data: ShiftActivityData, now: number): ShiftEvent[] {
+  const shift = data.shift;
+  if (!shift) return [];
+  const events: ShiftEvent[] = [{ key: "opened", at: shift.openedAt, kind: "shift", title: "Store opened", detail: `${shift.openedByName ? `By ${shift.openedByName} · ` : ""}${shift.isHistorical ? "recorded before shifts were introduced" : `started with ${peso(shift.startingCash)} in the drawer`}` }];
+  if (shift.closedAt) {
+    const difference = cashDifferenceLabel(shift.cashDifference);
+    events.push({ key: "closed", at: shift.closedAt, kind: "shift", title: "Store closed", detail: `${shift.closedByName ? `By ${shift.closedByName} · ` : ""}${shift.countedCash === null ? "cash not counted" : `counted ${peso(shift.countedCash)} (${difference.text.toLowerCase()})`}` });
+  }
+  for (const order of data.orders) {
+    const queue = order.queueNumber === null ? `Order ${order.orderId}` : `Order #${order.queueNumber}`;
+    const reversed = isReversedStatus(order.status);
+    if (order.soldInShift) {
+      events.push({
+        key: `order-${order.orderId}`, at: order.createdAt, kind: "order",
+        title: `${queue} · ${shiftOrderChannel(order)}`,
+        detail: `${order.items || "No items"} · ${order.punchedBy}`,
+        amount: { text: peso(order.total), tone: reversed ? "muted" : "plus" },
+      });
+    }
+    if (order.reversedInShift && order.reversedAt) {
+      const label = order.status.startsWith("void") ? "voided" : "refunded";
+      events.push({
+        key: `reversal-${order.orderId}`, at: order.reversedAt, kind: "reversal",
+        title: `${queue} ${label}`,
+        detail: `${order.reversedBy ? `By ${order.reversedBy}` : "Reversed"}${order.soldInShift ? "" : " · sold in an earlier shift"}${order.paymentMethod === "cash" ? " · cash given back" : ""}`,
+        amount: { text: `−${peso(order.total)}`, tone: "minus" },
+      });
+    }
+  }
+  for (const log of data.attendance) {
+    events.push({ key: `in-${log.id}`, at: log.timeIn, kind: "staff", title: `${log.name} clocked in`, detail: log.role });
+    if (log.timeOut) events.push({ key: `out-${log.id}`, at: log.timeOut, kind: "staff", title: `${log.name} clocked out`, detail: `Worked ${durationLabel(log.timeIn, log.timeOut, now)}` });
+  }
+  for (const log of data.stock) {
+    if (orderUsageTypes.has(log.changeType)) continue;
+    const who = log.adminName ? ` · by ${log.adminName}` : log.sourceApp ? ` · ${sourceAppLabels[log.sourceApp] ?? log.sourceApp}` : "";
+    const change = log.delta === null || log.delta === 0 ? "" : `${log.delta > 0 ? "+" : "−"}${unitAmount(Math.abs(log.delta), log.unit)}`;
+    const detail = log.changeType === "restocked" && log.packagingName
+      ? `${log.packsAdded ?? "?"} × ${log.packagingName}${change ? ` (${change})` : ""}`
+      : change;
+    events.push({ key: `stock-${log.logId}`, at: log.createdAt, kind: "stock", title: `${inventoryChangeLabels[log.changeType] ?? log.changeType}: ${log.itemName}`, detail: `${detail || "No quantity change"}${log.quantityAfter !== null && change ? ` → ${unitAmount(log.quantityAfter, log.unit)} left` : ""}${who}` });
+  }
+  for (const payment of data.payments) {
+    const title = payment.status === "awaiting_payment" ? "GCash payment waiting" : payment.status === "needs_attention" ? "GCash payment needs attention" : "GCash payment failed";
+    events.push({ key: `pay-${payment.checkoutId}`, at: payment.createdAt, kind: "payment", title, detail: `${payment.sourceApp === "mobile" ? "Mobile menu" : "Cashier"}${payment.error ? ` · ${payment.error}` : ""}`, amount: { text: peso(payment.amount), tone: "muted" } });
+  }
+  return events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime() || a.key.localeCompare(b.key));
+}
+
+function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [data, setData] = useState<ShiftActivityData | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [switching, setSwitching] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [action, setAction] = useState<"open" | "close" | null>(null);
+  const [tab, setTab] = useState<ShiftTab>("activity");
+  const [feedFilter, setFeedFilter] = useState<"all" | ShiftEventKind>("all");
+  const [feedLimit, setFeedLimit] = useState(60);
+  const [orderStatus, setOrderStatus] = useState<"all" | "completed" | "voided" | "refunded">("all");
+  const [orderChannelFilter, setOrderChannelFilter] = useState<"all" | "Cash" | "Online" | "Mobile">("all");
+  const [orderCashier, setOrderCashier] = useState("all");
+  const [orderSearch, setOrderSearch] = useState("");
+  const requestRef = useRef(0);
+  const liveRef = useRef(false);
+
+  const load = useCallback(async () => {
+    const request = ++requestRef.current;
+    try {
+      const response = await fetch(`/api/shift-activity${selectedId === null ? "" : `?shift_id=${selectedId}`}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the shift.");
+      if (request !== requestRef.current) return;
+      setData(payload.data);
+      setLoadError("");
+    } catch (error) {
+      if (request === requestRef.current) setLoadError(error instanceof Error ? error.message : "Could not load the shift.");
+    } finally {
+      if (request === requestRef.current) { setSwitching(false); setNow(Date.now()); }
+    }
+  }, [selectedId]);
+
+  useEffect(() => { liveRef.current = Boolean(data?.shift?.isOpen); }, [data]);
+
+  useEffect(() => {
+    let inFlight = false;
+    const refresh = (force: boolean) => {
+      if (inFlight || document.visibilityState !== "visible" || (!force && !liveRef.current)) return;
+      inFlight = true;
+      void load().finally(() => { inFlight = false; });
+    };
+    const firstLoad = window.setTimeout(() => refresh(true), 0);
+    const intervalId = window.setInterval(() => refresh(false), SHIFT_REFRESH_MS);
+    const clockId = window.setInterval(() => setNow(Date.now()), 30_000);
+    const onVisible = () => refresh(false);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(firstLoad);
+      window.clearInterval(intervalId);
+      window.clearInterval(clockId);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [load]);
+
+  function viewShift(shiftId: number | null) {
+    if (shiftId === selectedId) return;
+    setSwitching(true);
+    setFeedLimit(60);
+    setSelectedId(shiftId);
+  }
+
+  async function refreshNow() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
+  const events = useMemo(() => (data ? buildShiftEvents(data, now) : []), [data, now]);
+  const shownEvents = feedFilter === "all" ? events : events.filter((event) => event.kind === feedFilter);
+  const eventCounts = useMemo(() => {
+    const counts: Record<string, number> = { all: events.length };
+    for (const event of events) counts[event.kind] = (counts[event.kind] ?? 0) + 1;
+    return counts;
+  }, [events]);
+
+  const shift = data?.shift ?? null;
+  const openShiftId = data?.shifts.find((entry) => entry.isOpen)?.shiftId ?? null;
+  const orders = useMemo(() => data?.orders ?? [], [data]);
+  const soldOrders = useMemo(() => orders.filter((order) => order.soldInShift), [orders]);
+
+  const hourly = useMemo(() => {
+    const byHour = new Map<number, { hour: number; orders: number; revenue: number }>();
+    for (const order of soldOrders) {
+      if (isReversedStatus(order.status)) continue;
+      const hour = manilaHour(order.createdAt);
+      const entry = byHour.get(hour) ?? { hour, orders: 0, revenue: 0 };
+      entry.orders += 1;
+      entry.revenue += order.total;
+      byHour.set(hour, entry);
+    }
+    return Array.from(byHour.values());
+  }, [soldOrders]);
+  const hourBars = shift ? shiftHourBars(shift, hourly, now) : [];
+  const peakHour = hourly.reduce<(typeof hourly)[number] | null>((top, entry) => (entry.revenue > (top?.revenue ?? 0) ? entry : top), null);
+
+  const staff = useMemo(() => {
+    const people = new Map<string, { name: string; role: string; logs: ShiftAttendance[]; orders: number; sales: number; reversals: number }>();
+    const person = (name: string, role = "") => {
+      const existing = people.get(name);
+      if (existing) return existing;
+      const created = { name, role, logs: [] as ShiftAttendance[], orders: 0, sales: 0, reversals: 0 };
+      people.set(name, created);
+      return created;
+    };
+    for (const log of data?.attendance ?? []) {
+      const entry = person(log.name, log.role);
+      entry.role = log.role;
+      entry.logs.push(log);
+    }
+    for (const order of soldOrders) {
+      if (order.orderSource === "online" && order.punchedBy === "Mobile order") continue;
+      const entry = person(order.punchedBy);
+      if (isReversedStatus(order.status)) entry.reversals += 1;
+      else { entry.orders += 1; entry.sales += order.total; }
+    }
+    return Array.from(people.values()).sort((a, b) => Number(b.logs.some((log) => !log.timeOut)) - Number(a.logs.some((log) => !log.timeOut)) || b.sales - a.sales || a.name.localeCompare(b.name));
+  }, [data, soldOrders]);
+  const onDuty = staff.filter((entry) => entry.logs.some((log) => !log.timeOut));
+
+  const stockUse = useMemo(() => {
+    const items = new Map<string, { name: string; unit: string; used: number; orders: Set<number> }>();
+    for (const log of data?.stock ?? []) {
+      if (!orderUsageTypes.has(log.changeType) || log.delta === null) continue;
+      const key = String(log.inventoryId ?? log.itemName);
+      const entry = items.get(key) ?? { name: log.itemName, unit: log.unit, used: 0, orders: new Set<number>() };
+      entry.used -= log.delta;
+      if (log.orderId !== null && log.changeType === "order_deduction") entry.orders.add(log.orderId);
+      items.set(key, entry);
+    }
+    return Array.from(items.values()).filter((entry) => Math.abs(entry.used) > 1e-9).sort((a, b) => b.orders.size - a.orders.size || a.name.localeCompare(b.name));
+  }, [data]);
+  const stockChanges = useMemo(() => (data?.stock ?? []).filter((log) => !orderUsageTypes.has(log.changeType)), [data]);
+
+  const cashierNames = useMemo(() => Array.from(new Set(orders.map((order) => order.punchedBy))).sort((a, b) => a.localeCompare(b)), [orders]);
+  const shownOrders = orders.filter((order) => {
+    const reversed = isReversedStatus(order.status);
+    if (orderStatus === "completed" && reversed) return false;
+    if (orderStatus === "voided" && !order.status.startsWith("void")) return false;
+    if (orderStatus === "refunded" && !order.status.startsWith("refund")) return false;
+    if (orderChannelFilter !== "all" && shiftOrderChannel(order) !== orderChannelFilter) return false;
+    if (orderCashier !== "all" && order.punchedBy !== orderCashier) return false;
+    const query = orderSearch.trim().toLowerCase().replace(/^#/, "");
+    if (query && !(String(order.queueNumber ?? "") === query || String(order.orderId) === query || order.items.toLowerCase().includes(query))) return false;
+    return true;
+  });
+  const queueWaiting = shift?.isOpen ? orders.filter((order) => order.queueStatus === "waiting").length : 0;
+  const queueReady = shift?.isOpen ? orders.filter((order) => order.queueStatus === "served").length : 0;
+  const paymentsNeedingAttention = (data?.payments ?? []).filter((payment) => payment.status === "needs_attention");
+
+  const dayOf = (value: string) => manilaDay(value);
+  const shiftDay = shift ? dayOf(shift.openedAt) : "";
+  const timeWithDay = (value: string) => dayOf(value) === shiftDay ? clockTime(value) : shiftTime(value);
+
+  if (!data) {
+    return <div className="dash-wrap"><div className="dash">
+      {loadError
+        ? <div className="dash-error" role="alert"><span>{loadError}</span><button type="button" onClick={() => void refreshNow()}>Try again</button></div>
+        : <><div className="dash-skeleton" style={{ minHeight: 230 }} /><div className="dash-skeleton" style={{ minHeight: 420 }} /></>}
+    </div></div>;
+  }
+
+  const paid = shift ? shift.cashSales + shift.onlineSales : 0;
+  const cashShare = shift && paid > 0 ? (shift.cashSales / paid) * 100 : 0;
+  const reversals = shift ? shift.voidCount + shift.refundCount : 0;
+  const longOpen = shift?.isOpen && (now - new Date(shift.openedAt).getTime()) / HOUR_MS > LONG_OPEN_SHIFT_HOURS;
+  const counted = shift ? cashDifferenceLabel(shift.cashDifference) : null;
+  const tabs: { id: ShiftTab; label: string; count: number }[] = [
+    { id: "activity", label: "Activity", count: events.length },
+    { id: "orders", label: "Orders", count: orders.length },
+    { id: "staff", label: "Staff", count: staff.length },
+    { id: "stock", label: "Items & stock", count: (data.products.length || 0) + stockChanges.length },
+  ];
+
+  return <div className="dash-wrap">
+    <div className="dash">
+      <div className="shiftm-bar">
+        {shift && <div className="shiftm-picker" role="group" aria-label="Choose a shift">
+          <button type="button" onClick={() => shift?.previousShiftId && viewShift(shift.previousShiftId)} disabled={!shift?.previousShiftId || switching} aria-label="Previous shift" title="Previous shift"><span style={{ display: "inline-flex", transform: "rotate(180deg)" }}><IconChevron size={16} /></span></button>
+          <select value={shift?.shiftId ?? ""} onChange={(event) => viewShift(Number(event.target.value) === openShiftId ? null : Number(event.target.value))} disabled={data.shifts.length === 0 || switching} aria-label="Shift">
+            {shift && !data.shifts.some((entry) => entry.shiftId === shift.shiftId) && <option value={shift.shiftId}>Shift #{shift.shiftId}</option>}
+            {data.shifts.map((entry) => <option key={entry.shiftId} value={entry.shiftId}>#{entry.shiftId} · {shiftTime(entry.openedAt)}{entry.isOpen ? " · open now" : ""}</option>)}
+          </select>
+          <button type="button" onClick={() => shift?.nextShiftId && viewShift(shift.nextShiftId === openShiftId ? null : shift.nextShiftId)} disabled={!shift?.nextShiftId || switching} aria-label="Next shift" title="Next shift"><IconChevron size={16} /></button>
+        </div>}
+        {selectedId !== null && <button type="button" className="shiftm-current" onClick={() => viewShift(null)} disabled={switching}>{openShiftId ? "Back to the open shift" : "Back to the latest shift"}</button>}
+        <div className="dash-head-actions" style={{ marginLeft: "auto" }}>
+          <span className="dash-updated">{switching ? "Loading…" : shift?.isOpen ? `Live · updated ${clockTime(data.generatedAt)}` : `Updated ${clockTime(data.generatedAt)}`}</span>
+          <button type="button" className="dash-refresh" onClick={() => void refreshNow()} disabled={refreshing}>
+            <span style={{ display: "inline-flex", animation: refreshing ? "spin 0.8s linear infinite" : undefined }}><IconRotateCcw size={14} /></span>
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
+      </div>
+
+      {loadError && <div className="dash-error" role="alert"><span>Could not refresh. Showing the last loaded shift.</span><button type="button" onClick={() => void refreshNow()}>Try again</button></div>}
+
+      {!shift ? <section className="dash-shift is-closed shiftm-hero">
+        <div className="shiftm-hero-main">
+          <span className="dash-shift-pill">Store closed</span>
+          <p className="dash-shift-value" style={{ fontSize: 30, marginTop: 14 }}>No shifts yet</p>
+          <p className="dash-shift-meta">Open the store to start the first shift. Sales, queue numbers, attendance and stock changes are recorded under it.</p>
+        </div>
+        <div className="shiftm-hero-actions"><button type="button" className="dash-open-store" onClick={() => setAction("open")}>Start shift</button></div>
+      </section> : <section className={`dash-shift shiftm-hero${shift.isOpen ? "" : " is-closed"}`} style={switching ? { opacity: 0.7 } : undefined}>
+        <div className="shiftm-hero-main">
+          <div className="flex items-center gap-2 flex-wrap">
+            {shift.isOpen ? <span className="dash-shift-pill is-open"><span className="dash-live-dot" />Shift open</span> : <span className="dash-shift-pill">{shift.shiftId === data.shifts[0]?.shiftId ? "Store closed" : "Past shift"}</span>}
+            {shift.isHistorical && <span className="dash-shift-pill">Historical</span>}
+          </div>
+          <p className="dash-shift-label">Shift #{shift.shiftId} · {shiftBusinessDate(shift.businessDate)}</p>
+          <p className="dash-shift-value">{peso(shift.netSales)}<span className="shiftm-value-note">net sales</span></p>
+          <p className="dash-shift-meta">
+            {shift.isOpen
+              ? <>Open for {formatElapsed(shift.openedAt, now)} · opened by {shift.openedByName ?? "a cashier"} at {clockTime(shift.openedAt)}</>
+              : <>{shiftTime(shift.openedAt)} – {shiftTime(shift.closedAt)} · {durationLabel(shift.openedAt, shift.closedAt, now)}{shift.openedByName ? ` · opened by ${shift.openedByName}` : ""}{shift.closedByName ? `, closed by ${shift.closedByName}` : ""}</>}
+          </p>
+        </div>
+        <div className="shiftm-hero-actions">
+          {shift.isOpen
+            ? <button type="button" className="shiftm-end" onClick={() => setAction("close")}>End shift</button>
+            : openShiftId === null
+              ? <button type="button" className="dash-open-store" onClick={() => setAction("open")}>Start shift</button>
+              : <button type="button" className="dash-shift-link" onClick={() => viewShift(null)}>Go to the open shift <IconChevron size={13} /></button>}
+          <button type="button" className="dash-shift-link" onClick={() => onNavigate("finance")}>Shift reports <IconChevron size={13} /></button>
+        </div>
+        <div className="dash-shift-stats shiftm-stats">
+          <div><span>Orders</span><strong>{shift.orderCount}</strong><em>{shift.mobileOrderCount > 0 ? `${shift.mobileOrderCount} from mobile` : `${shift.itemsSold} item${shift.itemsSold === 1 ? "" : "s"} sold`}</em></div>
+          <div><span>Avg. order</span><strong>{shift.orderCount > 0 ? peso(shift.grossSales / shift.orderCount) : "—"}</strong><em>per receipt</em></div>
+          <div><span>Voids & refunds</span><strong>{reversals}</strong><em>{shift.reversedAmount > 0 ? `−${peso(shift.reversedAmount)}` : "None"}</em></div>
+          <div><span>{shift.isOpen ? "On duty" : "Staff"}</span><strong>{shift.isOpen ? onDuty.length : staff.filter((entry) => entry.logs.length > 0).length}</strong><em>{shift.isOpen ? (queueWaiting ? `${queueWaiting} order${queueWaiting === 1 ? "" : "s"} preparing` : "queue is clear") : "clocked in this shift"}</em></div>
+        </div>
+        <div className="dash-drawer shiftm-drawer">
+          {shift.isHistorical ? <p className="dash-shift-meta" style={{ margin: 0 }}>Cash drawer not tracked: this day was recorded before shifts and cash counts were introduced.</p> : <>
+            <div className="dash-drawer-row"><span>{shift.isOpen ? "Expected in cash drawer" : "Expected in drawer"}</span><strong>{peso(shift.expectedCash)}</strong></div>
+            {!shift.isOpen && <div className="dash-drawer-row" style={{ marginTop: 4 }}><span>Counted{shift.countedCash === null ? "" : ` ${peso(shift.countedCash)}`}</span><strong style={{ fontSize: 14, color: darkCashDifference(shift.cashDifference).color }}>{darkCashDifference(shift.cashDifference).text}</strong></div>}
+            <div className="dash-split" aria-hidden="true"><span style={{ width: `${cashShare}%` }} /></div>
+            <div className="dash-drawer-legend">
+              <span><i className="is-cash" />Cash {peso(shift.cashSales)}</span>
+              <span><i className="is-online" />Online {peso(shift.onlineSales)}</span>
+              <span>Started with {peso(shift.startingCash)}{shift.cashReversed > 0 ? ` · −${peso(shift.cashReversed)} given back` : ""}</span>
+            </div>
+          </>}
+          {shift.closingNotes && <p className="dash-shift-meta">“{shift.closingNotes}”</p>}
+        </div>
+        {longOpen && <p className="dash-shift-warning shiftm-wide">This shift has been open for over {LONG_OPEN_SHIFT_HOURS} hours. Close it when the café closes so the day is recorded correctly.</p>}
+        {counted && !shift.isOpen && shift.countedCash === null && !shift.isHistorical && <p className="dash-shift-warning shiftm-wide">The cash in the drawer was not counted when this shift closed.</p>}
+      </section>}
+
+      {paymentsNeedingAttention.length > 0 && <div className="dash-error" role="alert"><span>{paymentsNeedingAttention.length} GCash payment{paymentsNeedingAttention.length === 1 ? " was" : "s were"} paid but could not become an order. Check the PayMongo dashboard and refund the customer if needed.</span></div>}
+
+      {shift && <section className="dash-card shiftm-details">
+        <div className="shiftm-tabs-row">
+          <div className="inv-tabs" role="tablist" aria-label="Shift details">
+            {tabs.map((entry) => <button key={entry.id} type="button" role="tab" aria-selected={tab === entry.id} onClick={() => setTab(entry.id)}>{entry.label}<span className="shiftm-count">{entry.count}</span></button>)}
+          </div>
+        </div>
+
+        {tab === "activity" && <div className="shiftm-activity">
+          <div className="shiftm-feed-col">
+            <div className="shiftm-chips" role="group" aria-label="Show">
+              {shiftFeedFilters.filter((entry) => entry.id === "all" || (eventCounts[entry.id] ?? 0) > 0).map((entry) => <button key={entry.id} type="button" aria-pressed={feedFilter === entry.id} onClick={() => { setFeedFilter(entry.id); setFeedLimit(60); }}>{entry.label} <b>{eventCounts[entry.id] ?? 0}</b></button>)}
+            </div>
+            {shownEvents.length === 0 ? <p className="dash-empty">Nothing recorded yet.</p> : <ol className="shiftm-feed">
+              {shownEvents.slice(0, feedLimit).map((event) => <li key={event.key} className={`shiftm-event is-${event.kind}`}>
+                <time dateTime={event.at}>{timeWithDay(event.at)}</time>
+                <span className="shiftm-dot" aria-hidden="true" />
+                <div className="shiftm-event-main"><strong>{event.title}</strong>{event.detail && <span>{event.detail}</span>}</div>
+                {event.amount && <b className={`shiftm-amount is-${event.amount.tone}`}>{event.amount.text}</b>}
+              </li>)}
+            </ol>}
+            {shownEvents.length > feedLimit && <button type="button" className="shiftm-more" onClick={() => setFeedLimit((limit) => limit + 100)}>Show {Math.min(100, shownEvents.length - feedLimit)} more</button>}
+          </div>
+          <div className="shiftm-rail">
+            <div className="shiftm-panel">
+              <h3>Sales by hour</h3>
+              <p>{peakHour ? <>Busiest {hourLabel(peakHour.hour)}–{hourLabel((peakHour.hour + 1) % 24)} · {peso(peakHour.revenue)}</> : "No sales yet"}</p>
+              <DashBars bars={hourBars} emptyLabel="No orders yet." />
+            </div>
+            {shift.isOpen && <div className="shiftm-panel">
+              <h3>Queue now</h3>
+              <div className="shiftm-queue">
+                <div className={queueWaiting ? "is-busy" : ""}><strong>{queueWaiting}</strong><span>preparing</span></div>
+                <div><strong>{queueReady}</strong><span>ready for pickup</span></div>
+              </div>
+            </div>}
+            <div className="shiftm-panel">
+              <h3>{shift.isOpen ? "On duty" : "Worked this shift"}</h3>
+              {(shift.isOpen ? onDuty : staff.filter((entry) => entry.logs.length > 0)).length === 0
+                ? <p>{shift.isOpen ? "Nobody is clocked in." : "No clock-ins recorded."}</p>
+                : <ul className="shiftm-people">
+                  {(shift.isOpen ? onDuty : staff.filter((entry) => entry.logs.length > 0)).map((entry) => {
+                    const first = entry.logs[0];
+                    const open = entry.logs.find((log) => !log.timeOut);
+                    return <li key={entry.name}>
+                      <UserAvatar name={entry.name} size={28} />
+                      <div><strong>{entry.name}</strong><span>{open ? `In since ${clockTime(open.timeIn)} · ${formatElapsed(open.timeIn, now)}` : first ? `${clockTime(first.timeIn)} – ${clockTime(entry.logs[entry.logs.length - 1].timeOut ?? first.timeIn)}` : ""}</span></div>
+                    </li>;
+                  })}
+                </ul>}
+            </div>
+          </div>
+        </div>}
+
+        {tab === "orders" && <div className="flex flex-col gap-3">
+          <div className="inv-toolbar">
+            <label className="inv-search"><IconSearch size={15} /><input value={orderSearch} onChange={(event) => setOrderSearch(event.target.value)} placeholder="Queue #, order ref or item" aria-label="Search orders" />{orderSearch && <button type="button" onClick={() => setOrderSearch("")} aria-label="Clear search"><IconX size={12} /></button>}</label>
+            <div className="inv-range" role="group" aria-label="Status">
+              {([["all", "All"], ["completed", "Completed"], ["voided", "Voided"], ["refunded", "Refunded"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={orderStatus === id} onClick={() => setOrderStatus(id)}>{label}</button>)}
+            </div>
+            <label className="inv-filter"><span>Payment</span>
+              <select value={orderChannelFilter} onChange={(event) => setOrderChannelFilter(event.target.value as typeof orderChannelFilter)} className={`inv-select${orderChannelFilter !== "all" ? " is-active" : ""}`}>
+                <option value="all">Any</option><option value="Cash">Cash</option><option value="Online">Online at counter</option><option value="Mobile">Mobile menu</option>
+              </select>
+            </label>
+            <label className="inv-filter"><span>Punched by</span>
+              <select value={orderCashier} onChange={(event) => setOrderCashier(event.target.value)} className={`inv-select${orderCashier !== "all" ? " is-active" : ""}`}>
+                <option value="all">Anyone</option>{cashierNames.map((name) => <option key={name} value={name}>{name}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="inv-hint">{shownOrders.length} of {orders.length} order{orders.length === 1 ? "" : "s"} · {peso(shownOrders.filter((order) => order.soldInShift && !isReversedStatus(order.status)).reduce((sum, order) => sum + order.total, 0))} completed in this view. Orders sold in an earlier shift show here when they were voided or refunded during this one.</p>
+          {shownOrders.length === 0 ? <p className="dash-empty">{orders.length === 0 ? "No orders in this shift yet." : "No orders match these filters."}</p> : <ul className="dash-orders shiftm-orders">
+            {shownOrders.map((order) => {
+              const reversed = isReversedStatus(order.status);
+              const channel = shiftOrderChannel(order);
+              return <li key={order.orderId} className={!order.soldInShift ? "is-earlier" : ""}>
+                <span className="dash-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
+                <div className="dash-order-main">
+                  <strong>{order.items || "Order"}</strong>
+                  <span>{timeWithDay(order.createdAt)} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b> · ref {order.orderId}{reversed && order.reversedAt ? ` · ${order.status.startsWith("void") ? "voided" : "refunded"} ${timeWithDay(order.reversedAt)}${order.reversedBy ? ` by ${order.reversedBy}` : ""}` : ""}</span>
+                </div>
+                <div className="dash-order-total">
+                  <strong className={reversed ? "is-reversed" : ""}>{peso(order.total)}</strong>
+                  {reversed ? <span className="dash-tag is-out">{order.status.startsWith("void") ? "Voided" : "Refunded"}{order.soldInShift ? "" : " · earlier sale"}</span>
+                    : order.queueStatus === "waiting" && shift.isOpen ? <span className="dash-tag is-low">Preparing</span>
+                      : order.queueStatus === "served" && shift.isOpen ? <span className="dash-tag shiftm-ready">Ready</span> : null}
+                </div>
+              </li>;
+            })}
+          </ul>}
+        </div>}
+
+        {tab === "staff" && (staff.length === 0 ? <p className="dash-empty">Nobody has clocked in or punched an order in this shift.</p> : <div className="shiftm-staff">
+          {staff.map((entry) => {
+            const open = entry.logs.find((log) => !log.timeOut);
+            return <article key={entry.name} className={`shiftm-person${open ? " is-on" : ""}`}>
+              <div className="shiftm-person-head">
+                <UserAvatar name={entry.name} size={36} />
+                <div><strong>{entry.name}</strong><span>{entry.role || "Staff"}</span></div>
+                <span className={`shiftm-status${open ? " is-on" : ""}`}>{open ? "On duty" : entry.logs.length ? "Clocked out" : "Not clocked in"}</span>
+              </div>
+              <div className="shiftm-person-stats">
+                <div><span>Orders</span><strong>{entry.orders}</strong></div>
+                <div><span>Sales</span><strong>{peso(entry.sales)}</strong></div>
+                <div><span>Voided/refunded</span><strong>{entry.reversals}</strong></div>
+              </div>
+              {entry.logs.length > 0 && <ul className="shiftm-times">
+                {entry.logs.map((log) => <li key={log.id}><span>{timeWithDay(log.timeIn)} → {log.timeOut ? timeWithDay(log.timeOut) : <b>now</b>}</span><em>{durationLabel(log.timeIn, log.timeOut, now)}</em></li>)}
+              </ul>}
+            </article>;
+          })}
+        </div>)}
+
+        {tab === "stock" && <div className="shiftm-stock">
+          <div>
+            <h3 className="shiftm-subhead">Items sold</h3>
+            {data.products.length === 0 ? <p className="dash-empty">Nothing sold yet.</p> : <ol className="dash-rank">
+              {data.products.map((product, index) => <li key={`${product.name}-${index}`}>
+                <span className={`dash-rank-num${index === 0 ? " is-first" : ""}`}>{index + 1}</span>
+                <div className="dash-rank-main">
+                  <div className="dash-rank-line"><strong>{product.name}</strong><span>{product.quantity} sold</span></div>
+                  <div className="dash-meter"><span style={{ width: `${(product.quantity / Math.max(1, data.products[0].quantity)) * 100}%` }} /></div>
+                  <div className="dash-rank-sub"><span>{product.category || "Uncategorized"}</span><span>{peso(product.revenue)}</span></div>
+                </div>
+              </li>)}
+            </ol>}
+          </div>
+          <div>
+            <h3 className="shiftm-subhead">Stock used by orders</h3>
+            {stockUse.length === 0 ? <p className="dash-empty">No stock used yet.</p> : <ul className="dash-stock">
+              {stockUse.map((entry) => <li key={entry.name}>
+                <div className="dash-stock-main"><strong>{entry.name}</strong><span>{entry.orders.size} order{entry.orders.size === 1 ? "" : "s"}</span></div>
+                <div className="dash-stock-qty"><strong style={{ color: entry.used < 0 ? "#15803D" : "#3D2B1F" }}>{entry.used < 0 ? "+" : ""}{unitAmount(Math.abs(entry.used), entry.unit)}</strong></div>
+              </li>)}
+            </ul>}
+            <h3 className="shiftm-subhead" style={{ marginTop: 18 }}>Restocks & corrections</h3>
+            {stockChanges.length === 0 ? <p className="dash-empty">No restocks or stock corrections in this shift.</p> : <ul className="dash-stock">
+              {stockChanges.map((log) => <li key={log.logId}>
+                <div className="dash-stock-main"><strong>{log.itemName}</strong><span>{inventoryChangeLabels[log.changeType] ?? log.changeType} · {timeWithDay(log.createdAt)}{log.adminName ? ` · ${log.adminName}` : ""}</span></div>
+                <div className="dash-stock-qty"><strong style={{ color: (log.delta ?? 0) < 0 ? "#B91C1C" : "#15803D" }}>{log.delta === null || log.delta === 0 ? "—" : `${log.delta > 0 ? "+" : "−"}${unitAmount(Math.abs(log.delta), log.unit)}`}</strong></div>
+              </li>)}
+            </ul>}
+            <button type="button" className="dash-link" style={{ marginTop: 10 }} onClick={() => onNavigate("inventory")}>Full inventory history <IconChevron size={13} /></button>
+          </div>
+        </div>}
+      </section>}
+
+      {action === "open" && <AdminOpenShiftDialog onClose={() => setAction(null)} onOpened={() => { setAction(null); if (selectedId === null) void load(); else viewShift(null); }} />}
+      {action === "close" && shift?.isOpen && <AdminCloseShiftDialog shift={shift} onClose={() => setAction(null)} onClosed={() => { setAction(null); void load(); }} />}
+    </div>
+  </div>;
 }
 
 // ─── Shift reports ────────────────────────────────────────────────────────────
@@ -5899,7 +6458,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", inventory: "Inventory Management", products: "Menu", finance: "Finance", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -5916,6 +6475,7 @@ export default function App() {
       <TopBar title={pageTitles[page]} page={page} user={authUser} onAccount={() => goTo("account")} onRequestLogout={() => setShowSignOut(true)} />
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
         {page === "dashboard" && <Dashboard user={authUser} inventory={inventory} products={products} onNavigate={goTo} onRefreshStock={() => Promise.all([refreshInventory(), refreshProducts()])} />}
+        {page === "shift" && <ShiftMonitor onNavigate={goTo} />}
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
         {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
         {page === "finance" && <Finance />}

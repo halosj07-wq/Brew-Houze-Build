@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { paymongoConfigured, paymongoTestMode, PAYMONGO_MIN_AMOUNT } from "@/lib/paymongo";
 
 export async function GET() {
   try {
@@ -119,7 +120,9 @@ export async function GET() {
     // Customers can only order while a shift is open; otherwise the menu shows the café as closed.
     const shiftResult = await pool.query("SELECT EXISTS (SELECT 1 FROM shifts WHERE closed_at IS NULL) AS store_open");
 
-    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open) }, {
+    // How customers pay: GCash through PayMongo when its keys are set on this server.
+    const payment = paymongoConfigured() ? { method: "gcash", testMode: paymongoTestMode(), minimumAmount: PAYMONGO_MIN_AMOUNT } : { method: "none" };
+    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open), payment }, {
       headers: {
         "Cache-Control": "public, max-age=5, stale-while-revalidate=30",
       },

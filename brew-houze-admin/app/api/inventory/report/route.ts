@@ -12,8 +12,11 @@ export async function GET(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const searchParams = new URL(request.url).searchParams;
-    const end = searchParams.get("end") || new Date().toISOString().slice(0, 10);
-    const start = searchParams.get("start") || new Date(Date.now() - 29 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    // Defaults are Philippine calendar days; toISOString() would give the UTC date, which is a
+    // day behind before 8:00 AM.
+    const manilaDate = (time: number) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date(time));
+    const end = searchParams.get("end") || manilaDate(Date.now());
+    const start = searchParams.get("start") || manilaDate(Date.now() - 29 * 24 * 60 * 60 * 1000);
 
     if (!DATE_RE.test(start) || !DATE_RE.test(end)) {
       return NextResponse.json({ error: "Dates must use YYYY-MM-DD format." }, { status: 400 });
@@ -42,10 +45,12 @@ export async function GET(request: Request) {
         il.packs_added,
         il.pack_price,
         au.full_name AS admin_name,
-        TO_CHAR(il.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
+        -- created_at already carries its time zone (unlike sales_orders.created_at), so a
+        -- single conversion gives Philippine time.
+        TO_CHAR(il.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
       FROM inventory_log il
       LEFT JOIN admin_users au ON au.admin_id = il.admin_id
-      WHERE DATE(il.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila') BETWEEN $1 AND $2
+      WHERE (il.created_at AT TIME ZONE 'Asia/Manila')::date BETWEEN $1 AND $2
       ORDER BY il.created_at DESC
       LIMIT 5000
     `, [start, end]);
