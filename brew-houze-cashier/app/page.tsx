@@ -112,7 +112,7 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
         </span>
       </>}
     </button>}
-    <div className="px-6 py-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.35)" }}>CASHIER PORTAL</p></div>
+    <div className="px-6 py-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.35)" }}>STAFF PORTAL</p></div>
   </aside>;
 }
 
@@ -279,9 +279,9 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, on
           <span style={{ alignSelf: "flex-start", marginTop: 3, padding: "1px 7px", borderRadius: 999, background: isAdmin ? "#3D2B1F" : "#FFF7ED", color: isAdmin ? "#FDF9F5" : "#C2410C", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>{roleLabel(user.role)}</span>
         </span>
       </button>
-      <button type="button" onClick={onRequestLogout} title="Sign out so another cashier can sign in" className="topbar-switch" style={{ display: "flex", alignItems: "center", gap: 8, height: 46, padding: "0 14px", borderRadius: 13, border: "none", background: "#3D2B1F", color: "#FDF9F5", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 14px rgba(61,43,31,0.18)" }}>
+      <button type="button" onClick={onRequestLogout} title="Sign out so someone else can sign in" className="topbar-switch" style={{ display: "flex", alignItems: "center", gap: 8, height: 46, padding: "0 14px", borderRadius: 13, border: "none", background: "#3D2B1F", color: "#FDF9F5", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 14px rgba(61,43,31,0.18)" }}>
         <IconSwitchUser size={18} />
-        <span className="topbar-switch-label">{isQueueOnlyRole(user.role) ? "Switch user" : "Switch cashier"}</span>
+        <span className="topbar-switch-label">Switch user</span>
       </button>
     </div>
   </header>;
@@ -409,7 +409,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
         <p style={{ margin: "5px 0 0", color: "rgba(253,249,245,0.75)", fontSize: 13.5 }}>{user.email}</p>
         <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
       </div>
-      <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconSwitchUser size={17} />{isQueueOnlyRole(user.role) ? "Switch user" : "Switch cashier"}</button>
+      <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconSwitchUser size={17} />Switch user</button>
     </section>
 
     {loadError && <p style={{ margin: "14px 0 0", padding: "10px 14px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{loadError}</p>}
@@ -479,7 +479,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
               <span>
                 <strong style={{ color: "#3D2B1F" }}>{device.device}</strong>
                 {device.isCurrent && <span style={{ marginLeft: 8, padding: "1px 7px", borderRadius: 999, background: "#DCFCE7", color: "#15803D", fontSize: 10.5, fontWeight: 800 }}>This device</span>}
-                <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Staff app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
               </span>
             </div>)}
           </div>}
@@ -645,7 +645,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   if (reprint) text(`Reprinted ${receiptTime(new Date().toISOString())}`, base * 0.85);
 
   const doc = new jsPDF({ unit: "mm", format: [paperWidth, Math.max(y + margin, 40)] });
-  doc.setProperties({ title: `Brew Houze order ${receipt.orderId}`, creator: "Brew Houze cashier" });
+  doc.setProperties({ title: `Brew Houze order ${receipt.orderId}`, creator: "Brew Houze staff portal" });
   doc.setDrawColor(0);
   doc.setTextColor(0);
   for (const op of ops) {
@@ -2084,8 +2084,8 @@ function SignOutDialog({ onCancel, onConfirm, signingOut }: { onCancel: () => vo
   return <Modal onClose={onCancel} closeDisabled={signingOut} labelledBy="sign-out-title" zIndex={100}>
     <div className="rounded-2xl p-6" style={{ width: "min(100% - 40px, 380px)", background: "#FDF9F5", boxShadow: "0 20px 60px rgba(61,43,31,0.25)" }}>
       <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Session</p>
-      <h2 id="sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Switch cashier?</h2>
-      <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This signs you out so the next cashier can sign in. Your attendance ends unless you are still signed in on another device.</p>
+      <h2 id="sign-out-title" style={{ margin: "8px 0 0", color: "#3D2B1F", fontSize: 21 }}>Switch user?</h2>
+      <p style={{ margin: "9px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.5 }}>This signs you out so the next person can sign in. Your attendance ends unless you are still signed in on another device.</p>
       <div className="flex justify-end gap-2" style={{ marginTop: 22 }}><button type="button" onClick={onCancel} disabled={signingOut} style={{ border: "1px solid #E8DDD5", borderRadius: 9, padding: "9px 14px", background: "#FDF9F5", color: "#6B4C3B", cursor: signingOut ? "default" : "pointer" }}>Cancel</button><button type="button" onClick={onConfirm} disabled={signingOut} style={{ border: "none", borderRadius: 9, padding: "9px 14px", background: signingOut ? "#C9B8AF" : "#B91C1C", color: "#FFF", cursor: signingOut ? "default" : "pointer", fontWeight: 700 }}>{signingOut ? "Signing out..." : "Sign out"}</button></div>
     </div>
   </Modal>;
@@ -2144,7 +2144,7 @@ function PortalAuthLayout({ children }: { children: React.ReactNode }) {
           <div className="flex items-center justify-center rounded-2xl" style={{ width: 48, height: 48, background: "#D97706", color: "#FDF9F5", boxShadow: "0 10px 24px rgba(217,119,6,0.35)" }}><IconCoffee size={24} /></div>
           <div>
             <p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 20, color: "#FDF9F5", lineHeight: 1.1 }}>Brew Houze</p>
-            <p style={{ margin: "3px 0 0", fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#F59E0B", letterSpacing: "0.12em" }}>CASHIER PORTAL</p>
+            <p style={{ margin: "3px 0 0", fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#F59E0B", letterSpacing: "0.12em" }}>STAFF PORTAL</p>
           </div>
         </div>
         <div className="login-brand-copy">
@@ -2156,7 +2156,7 @@ function PortalAuthLayout({ children }: { children: React.ReactNode }) {
             </li>)}
           </ul>
         </div>
-        <p className="login-brand-foot" style={{ margin: 0, color: "rgba(253,249,245,0.4)", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: "0.08em" }}>BREW HOUZE CAFE · CASHIER PORTAL</p>
+        <p className="login-brand-foot" style={{ margin: 0, color: "rgba(253,249,245,0.4)", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: "0.08em" }}>BREW HOUZE CAFE · STAFF PORTAL</p>
       </div>
     </section>
     <section className="login-panel">{children}</section>
@@ -2219,7 +2219,7 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
   return <PortalAuthLayout>
     {mode === "login" && <form onSubmit={signIn} className="login-card">
       <p style={authEyebrow}>Welcome back</p>
-      <h1 style={authTitle}>Sign in to the cashier portal</h1>
+      <h1 style={authTitle}>Sign in to the staff portal</h1>
       <p style={authLead}>Use the email and password of your Brew Houze account.</p>
       {notice && <AuthAlert tone="success">{notice}</AuthAlert>}
       {emailField}
@@ -2418,7 +2418,7 @@ function WaitingForShiftPanel({ userName, queueOnly = false, onCheckAgain, onSwi
       <h2 style={{ margin: "6px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, color: "#3D2B1F" }}>Waiting for the store to open</h2>
       <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.6 }}>{queueOnly ? "An admin or cashier opens the shift. The queue opens here by itself as soon as they do." : "An admin opens the shift from the admin app. The register opens here by itself as soon as they do."} Your attendance is already recorded.</p>
       <button type="button" onClick={() => void checkNow()} disabled={checking} style={{ width: "100%", height: 48, marginTop: 20, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: checking ? "default" : "pointer" }}>{checking ? "Checking…" : "Check again"}</button>
-      <p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12.5 }}>Signed in as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>{queueOnly ? "Switch user" : "Switch cashier"}</button></p>
+      <p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12.5 }}>Signed in as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch user</button></p>
     </section>
   </main>;
 }
@@ -2470,7 +2470,7 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
       <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={userName} invalid={wrongPassword} />
       {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
       <button type="submit" disabled={opening} style={{ width: "100%", height: 50, marginTop: 18, border: "none", borderRadius: 12, background: opening ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16, cursor: opening ? "default" : "pointer", boxShadow: opening ? "none" : "0 8px 18px rgba(217,119,6,0.28)" }}>{opening ? "Opening…" : "Open shift"}</button>
-      <p style={{ margin: "14px 0 0", textAlign: "center", color: "#9C8278", fontSize: 12.5 }}>Opening as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch cashier</button></p>
+      <p style={{ margin: "14px 0 0", textAlign: "center", color: "#9C8278", fontSize: 12.5 }}>Opening as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch user</button></p>
     </form>
   </main>;
 }
@@ -2961,7 +2961,7 @@ export default function App() {
   }
 
   function handleShiftClosed() {
-    endLocalSession("Shift closed and everyone was signed out. The next cashier can sign in to open a new shift.");
+    endLocalSession("Shift closed and everyone was signed out. Sign in again once a new shift is opened.");
   }
 
   useEffect(() => {

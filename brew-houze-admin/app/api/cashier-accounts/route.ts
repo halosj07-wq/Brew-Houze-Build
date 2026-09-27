@@ -3,7 +3,7 @@ import pool from "@/lib/db";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
 import { endAllSessions, getSession } from "@/lib/sessions";
 
-// Cashier accounts for Accounts & Employees: who they are, what they may do, whether they are
+// Staff accounts (cashiers and baristas) for Accounts & Employees: who they are, what they may do, whether they are
 // on duty, how much they worked and sold, and their recent activity. Only admins reach this app.
 
 const TZ = "Asia/Manila";
@@ -121,7 +121,7 @@ export async function GET() {
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET /api/cashier-accounts failed:", error);
-    return NextResponse.json({ error: "Could not retrieve cashier accounts." }, { status: 500 });
+    return NextResponse.json({ error: "Could not retrieve employee accounts." }, { status: 500 });
   }
 }
 
@@ -168,13 +168,13 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") {
-    return NextResponse.json({ error: "Only an admin can change cashier accounts." }, { status: 403 });
+    return NextResponse.json({ error: "Only an admin can change employee accounts." }, { status: 403 });
   }
 
   try {
     const body = await request.json() as { id?: unknown; action?: unknown; role?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
     const id = Number(body.id);
-    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid cashier account is required." }, { status: 400 });
+    if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid employee account is required." }, { status: 400 });
     const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista')", [id]);
     if (exists.rowCount === 0) return NextResponse.json({ error: "Employee account not found." }, { status: 404 });
     const currentRole = String(exists.rows[0].role) as StaffRole;

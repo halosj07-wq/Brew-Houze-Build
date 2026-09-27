@@ -293,7 +293,7 @@ function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
 // ─── App shell ────────────────────────────────────────────────────────────────
 // Built for the two devices the admin uses: a tablet in landscape (sidebar) and a phone in
-// portrait (bottom tab bar + "More" sheet). Shares its look with the cashier app.
+// portrait (bottom tab bar + "More" sheet). Shares its look with the staff app.
 
 const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?: number }> }[] = [
   { id: "dashboard", label: "Dashboard", short: "Home", Icon: IconGrid },
@@ -314,7 +314,7 @@ const navGroups: { label: string; items: Page[] }[] = [
 // Destinations on the phone tab bar; everything else is under "More".
 const mobileTabs: Page[] = ["dashboard", "shift", "inventory", "finance"];
 
-// Initials on a colour picked from the name, the same as in the cashier app.
+// Initials on a colour picked from the name, the same as in the staff app.
 const avatarColors = ["#B45309", "#9A3412", "#6B4C3B", "#0F766E", "#7E22CE", "#1D4ED8", "#BE185D"];
 
 function UserAvatar({ name, size = 36 }: { name: string; size?: number }) {
@@ -684,7 +684,7 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
               {stat("Net sales", `₱${details.shift.netSales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, "so far this shift")}
             </div>
             <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Full shift reports are in Finance.</p>
-          </> : <p style={{ margin: 0, color: "#6B4C3B", fontSize: 13, lineHeight: 1.55 }}>No shift is open. A cashier opens one from the cashier app to start taking orders; the mobile menu shows the café as closed until then.</p>}
+          </> : <p style={{ margin: 0, color: "#6B4C3B", fontSize: 13, lineHeight: 1.55 }}>No shift is open. A cashier opens one from the staff app to start taking orders; the mobile menu shows the café as closed until then.</p>}
         </AccountSection>
 
         <AccountSection eyebrow="Security" title="Signed-in devices" action={otherDevices.length > 0 ? <button type="button" onClick={() => void signOutOtherDevices()} disabled={signingOutOthers} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "8px 12px", background: "#FEF2F2", color: "#B91C1C", fontSize: 12, fontWeight: 700, cursor: signingOutOthers ? "default" : "pointer", whiteSpace: "nowrap" }}>{signingOutOthers ? "Signing out…" : "Sign out other devices"}</button> : undefined}>
@@ -692,7 +692,7 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
             {details.devices.map((device, index) => <div key={device.id} style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", fontSize: 13 }}>
               <strong style={{ color: "#3D2B1F" }}>{device.device}</strong>
               {device.isCurrent && <span style={{ marginLeft: 8, padding: "1px 7px", borderRadius: 999, background: "#DCFCE7", color: "#15803D", fontSize: 10.5, fontWeight: 800 }}>This device</span>}
-              <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Cashier app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+              <span style={{ display: "block", marginTop: 2, color: "#9C8278", fontSize: 11.5 }}>{device.app === "cashier" ? "Staff app" : "Admin app"} · signed in {new Date(device.signedInAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
             </div>)}
           </div>}
           {devicesMessage && <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 12.5 }}>{devicesMessage}</p>}
@@ -878,7 +878,7 @@ function AdminOpenShiftDialog({ onClose, onOpened }: { onClose: () => void; onOp
     <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 440px)" }}>
       <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: "#DCFCE7", color: "#15803D" }}>☕</div>
       <h2>Open the store</h2>
-      <div className="ui-confirm-message">Starts today’s shift. Sales, queue numbers, attendance and stock changes are recorded under it until it is closed, even past midnight. The cashier app and mobile menu open right away.</div>
+      <div className="ui-confirm-message">Starts today’s shift. Sales, queue numbers, attendance and stock changes are recorded under it until it is closed, even past midnight. The staff app and mobile menu open right away.</div>
       <label className="acc-money">
         <span>Starting cash in the drawer</span>
         <span className="acc-money-field"><b>₱</b><input data-autofocus type="number" min={0} step="0.01" inputMode="decimal" value={startingCash} onChange={(event) => setStartingCash(event.target.value)} placeholder="0.00" /></span>
@@ -922,7 +922,7 @@ function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardS
     <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 480px)" }}>
       <div className="ui-confirm-icon" data-tone="danger" aria-hidden="true">⏻</div>
       <h2>Close shift #{shift.shiftId}</h2>
-      <div className="ui-confirm-message">Everyone still on duty is clocked out, the cashier app signs out, the queue clears, and the mobile menu shows the café as closed.</div>
+      <div className="ui-confirm-message">Everyone still on duty is clocked out, the staff app signs out, the queue clears, and the mobile menu shows the café as closed.</div>
       <div className="acc-close-facts">
         <div><span>Net sales</span><strong>{peso(shift.netSales)}</strong></div>
         <div><span>Orders</span><strong>{shift.orderCount}</strong></div>
@@ -1074,7 +1074,7 @@ function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenSt
     </>}
     <div className="dash-shift-open">
       <button type="button" className="dash-open-store" onClick={onOpenStore}>Open the store</button>
-      <p className="dash-shift-note">Starts the shift and opens the cashier app and mobile menu. Cashiers you allow in Accounts & Employees can also open it from the counter.</p>
+      <p className="dash-shift-note">Starts the shift and opens the staff app and mobile menu. Cashiers you allow in Accounts & Employees can also open it from the counter.</p>
     </div>
   </section>;
 }
@@ -2173,7 +2173,7 @@ const historyTypeFilters: { id: string; label: string; types: string[] | null }[
   { id: "cost", label: "Cost changes", types: ["cost_updated"] },
   { id: "items", label: "Added & archived", types: ["created", "archived", "restored", "purged", "deleted"] },
 ];
-const sourceAppLabels: Record<string, string> = { admin: "Admin", cashier: "Cashier", mobile: "Mobile Menu" };
+const sourceAppLabels: Record<string, string> = { admin: "Admin", cashier: "Staff app", mobile: "Mobile Menu" };
 
 function describeInventoryLog(log: InventoryLogEntry): string {
   const unit = log.unit_of_measure;
@@ -2378,7 +2378,7 @@ function InventoryHistory({ focus, onClearFocus }: { focus: { ids: number[]; lab
       <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="inv-select" aria-label="Done from">
         <option value="all">All apps</option>
         <option value="admin">Admin</option>
-        <option value="cashier">Cashier</option>
+        <option value="cashier">Staff app</option>
         <option value="mobile">Mobile Menu</option>
       </select>
       <button type="button" className="inv-secondary" onClick={exportShown} disabled={loading}><IconDownload size={14} />Export {shown.length > 0 ? `${shown.length} ` : ""}to Excel</button>
@@ -4028,7 +4028,7 @@ function buildShiftEvents(data: ShiftActivityData, now: number): ShiftEvent[] {
   }
   for (const payment of data.payments) {
     const title = payment.status === "awaiting_payment" ? "GCash payment waiting" : payment.status === "needs_attention" ? "GCash payment needs attention" : "GCash payment failed";
-    events.push({ key: `pay-${payment.checkoutId}`, at: payment.createdAt, kind: "payment", title, detail: `${payment.sourceApp === "mobile" ? "Mobile menu" : "Cashier"}${payment.error ? ` · ${payment.error}` : ""}`, amount: { text: peso(payment.amount), tone: "muted" } });
+    events.push({ key: `pay-${payment.checkoutId}`, at: payment.createdAt, kind: "payment", title, detail: `${payment.sourceApp === "mobile" ? "Mobile menu" : "Staff app"}${payment.error ? ` · ${payment.error}` : ""}`, amount: { text: peso(payment.amount), tone: "muted" } });
   }
   for (const entry of data.movements ?? []) {
     events.push({ key: `drawer-${entry.id}`, at: entry.createdAt, kind: "drawer", title: `${drawerKindLabels[entry.kind] ?? entry.kind}: ${entry.reason}`, detail: `${entry.by ? `By ${entry.by}` : ""}${entry.source === "admin" ? " (admin app)" : ""}${entry.note ? ` · ${entry.note}` : ""}`, amount: { text: `${entry.kind === "cash_in" ? "+" : "−"}${peso(entry.amount)}`, tone: entry.kind === "cash_in" ? "plus" : "minus" } });
@@ -4450,7 +4450,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
 }
 
 // ─── Shift reports ────────────────────────────────────────────────────────────
-// A shift is the café's business day, opened and closed from the cashier app. It can run past
+// A shift is the café's business day, opened and closed from the staff app. It can run past
 // midnight, so these reports are the accurate per-night view of sales and the cash drawer.
 type ShiftReport = {
   shiftId: number;
@@ -4615,7 +4615,7 @@ function exportShiftReport(shift: ShiftDetail) {
       { header: "Reason", value: (entry) => entry.reason },
       { header: "Amount", value: drawerSigned, kind: "money" },
       { header: "By", value: (entry) => entry.by ?? "" },
-      { header: "From", value: (entry) => entry.source === "admin" ? "Admin app" : "Cashier app" },
+      { header: "From", value: (entry) => entry.source === "admin" ? "Admin app" : "Staff app" },
       { header: "Note", value: (entry) => entry.note ?? "" },
     ]) : null],
     ["Attendance", shift.attendance.length ? excelTable(shift.attendance, [
@@ -4697,7 +4697,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
       </label>
     </div>
     {shownShifts.length > 0 && <div className="flex justify-end"><button type="button" className="inv-secondary" onClick={() => exportShiftList(shownShifts, `${start === end ? start : `${start} to ${end}`}${drawerFilter !== "all" ? ` · ${drawerFilter}` : ""}${staffFilter !== "all" ? ` · ${staffFilter}` : ""}`, start === end ? start : `${start}-to-${end}`)}><IconDownload size={14} />Export {shownShifts.length} shift{shownShifts.length === 1 ? "" : "s"}</button></div>}
-    <p className="inv-hint">Each shift is one business day, opened and closed from the cashier app, even past midnight. Voids and refunds count in the shift they happened in. Tap a shift for its full report and Excel export.</p>
+    <p className="inv-hint">Each shift is one business day, opened and closed from the staff app, even past midnight. Voids and refunds count in the shift they happened in. Tap a shift for its full report and Excel export.</p>
     {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
     {loading && shifts.length === 0 ? <div className="inv-empty">Loading shifts…</div>
       : shownShifts.length === 0 ? <div className="inv-empty">{shifts.length === 0 ? "No shifts in this period." : "No shifts match these filters."}</div>
@@ -5110,7 +5110,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
         </div>
       </div>
       <div className="flex items-center justify-between gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
-        <p className="inv-hint" style={{ margin: 0 }}>Sales records are kept permanently. {order.reversed ? "This one was already reversed." : "To correct it, void or refund it in the cashier app during its shift."}</p>
+        <p className="inv-hint" style={{ margin: 0 }}>Sales records are kept permanently. {order.reversed ? "This one was already reversed." : "To correct it, void or refund it in the staff app during its shift."}</p>
         <button type="button" className="ui-button ui-button-primary" onClick={onClose}>Done</button>
       </div>
     </section>
@@ -5673,7 +5673,7 @@ function AccountDevicesPanel({ account, onSignedOut }: { account: CashierAccount
       ? <p className="inv-hint">Not signed in anywhere right now.</p>
       : <ul className="acc-list">
         {devices.map((device) => <li key={device.id}>
-          <span><strong>{device.device}</strong><span className={`acc-app is-${device.app}`}>{device.app === "cashier" ? "Cashier app" : "Admin app"}</span></span>
+          <span><strong>{device.device}</strong><span className={`acc-app is-${device.app}`}>{device.app === "cashier" ? "Staff app" : "Admin app"}</span></span>
           <em>active {shiftTime(device.lastSeenAt)}</em>
         </li>)}
       </ul>}
@@ -5978,7 +5978,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
                 <span className="acc-list-end">{log.timeOut ? <strong>{formatHours(logDuration(log, now))}</strong> : <span className="fin-status is-completed">On duty · {formatHours(logDuration(log, now))}</span>}</span>
               </li>)}
             </ul>}
-            <p className="inv-hint" style={{ marginTop: 10 }}>Recorded when they sign in and out of the cashier app. Closing a shift clocks everyone out. Kept permanently as the record of hours worked.</p>
+            <p className="inv-hint" style={{ marginTop: 10 }}>Recorded when they sign in and out of the staff app. Closing a shift clocks everyone out. Kept permanently as the record of hours worked.</p>
           </section>
         </>}
       </div>
@@ -6005,11 +6005,11 @@ function Accounts() {
     try {
       const response = await fetch("/api/cashier-accounts", { cache: "no-store" });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Failed to load cashier accounts.");
+      if (!response.ok) throw new Error(payload?.error || "Failed to load employee accounts.");
       setAccounts(payload.data ?? []);
       setError("");
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load cashier accounts.");
+      setError(loadError instanceof Error ? loadError.message : "Failed to load employee accounts.");
     } finally {
       setLoading(false);
       setNow(Date.now());
@@ -6144,7 +6144,7 @@ function Accounts() {
       <div className="inv-summary">
         <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active staff</span><strong>{active.length}</strong><em>{accounts.length - active.length} deactivated</em></button>
         <button type="button" className="inv-stat" aria-pressed={statusFilter === "duty"} onClick={() => setStatusFilter(statusFilter === "duty" ? "active" : "duty")}><span>On duty now</span><strong style={{ color: onDuty.length ? "#15803D" : undefined }}>{onDuty.length}</strong><em>{onDuty.length ? onDuty.map((account) => account.fullName.split(/\s+/)[0]).join(", ") : "Nobody is clocked in"}</em></button>
-        <div className="inv-stat is-static"><span>Hours this week</span><strong>{formatHours(active.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0))}</strong><em>all cashiers, since Monday</em></div>
+        <div className="inv-stat is-static"><span>Hours this week</span><strong>{formatHours(active.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0))}</strong><em>all staff, since Monday</em></div>
         <div className="inv-stat is-static"><span>Can open the store</span><strong>{active.filter((account) => account.canOpenShift).length}</strong><em>plus every admin</em></div>
       </div>
 
@@ -6166,8 +6166,8 @@ function Accounts() {
       {loading ? <div className="inv-empty">Loading employees…</div>
         : accounts.length === 0 ? <div className="inv-onboard">
           <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconUsers size={24} /></span>
-          <h2>No cashiers yet</h2>
-          <p>Add the people who work the counter. They sign in to the cashier app with their email and a password you give them.</p>
+          <h2>No employees yet</h2>
+          <p>Add the people who work the counter. They sign in to the staff app with their email and a password you give them.</p>
           <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add employee</button>
         </div>
           : shown.length === 0 ? <div className="inv-empty">No employees match. <button type="button" className="inv-link" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Show everyone</button></div>
@@ -6192,7 +6192,7 @@ function Accounts() {
 
       <section className="acc-block acc-mine">
         <button type="button" className="acc-mine-toggle" aria-expanded={myActivityOpen} onClick={() => { const next = !myActivityOpen; setMyActivityOpen(next); if (next && !myActivity) void loadMyActivity(); }}>
-          <span><strong>Your own activity at the counter</strong><em>When you sign in to the cashier app as admin: your orders, voids and refunds, attendance and archiving. Only you see this.</em></span>
+          <span><strong>Your own activity at the counter</strong><em>When you sign in to the staff app as admin: your orders, voids and refunds, attendance and archiving. Only you see this.</em></span>
           <span className="inv-chevron" style={{ transform: myActivityOpen ? "rotate(90deg)" : undefined }}><IconChevron size={16} /></span>
         </button>
         {myActivityOpen && (myActivityLoading && !myActivity ? <p className="inv-hint">Loading your activity…</p>
@@ -6235,7 +6235,7 @@ type ArchiveGroup = "products" | "inventory" | "addons" | "categories" | "sales"
 type ArchiveEntry = { key: string; type: RestoreType; id: number; group: ArchiveGroup; kind: string; title: string; subtitle: string; blocked: string | null; archivedAt: string | null; archivedBy: string | null; search: string };
 
 const archiveGroups: { id: ArchiveGroup; label: string; restoreNote: string }[] = [
-  { id: "products", label: "Products", restoreNote: "Restored products and sizes return to the Menu, the cashier app and the mobile menu." },
+  { id: "products", label: "Products", restoreNote: "Restored products and sizes return to the Menu, the staff app and the mobile menu." },
   { id: "inventory", label: "Inventory", restoreNote: "Restored items and packages return to Inventory with the stock they had when archived." },
   { id: "addons", label: "Add-ons", restoreNote: "Restored add-ons can be punched at the POS again." },
   { id: "categories", label: "Categories", restoreNote: "Restored categories can be picked when adding products again." },

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 
-// Shift reports for Finance. Shifts are opened/closed from the cashier app; totals come from
+// Shift reports for Finance. Shifts are opened/closed from the staff app; totals come from
 // the shift_summaries view (see shift-migration.sql). A shift's business date is the date it
 // opened, so an 8 PM–2 AM shift belongs to the evening it started.
 
@@ -191,7 +191,7 @@ function parseAmount(value: unknown): number | null {
 
 // Opens or closes the store from the admin app. Opening does not clock the admin in (they may
 // not be at the counter), but cashiers already signed in join the new shift. Closing works like
-// the cashier app: everyone is clocked out and signed out of the cashier app, and the queue clears.
+// the staff app: everyone is clocked out and signed out of the staff app, and the queue clears.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });

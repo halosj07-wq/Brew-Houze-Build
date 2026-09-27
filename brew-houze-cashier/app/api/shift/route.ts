@@ -67,7 +67,7 @@ function parseAmount(value: unknown): number | null {
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-  // The cashier app asks for the shift every 15 seconds; after answering, finish any GCash
+  // The staff app asks for the shift every 15 seconds; after answering, finish any GCash
   // payment that was paid while nobody was watching (see reconcilePendingCheckouts).
   if (paymongoConfigured()) after(() => reconcilePendingCheckouts().catch((error) => console.error("GCash reconcile failed:", error)));
   try {

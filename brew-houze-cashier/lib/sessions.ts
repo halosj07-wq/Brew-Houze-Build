@@ -117,7 +117,7 @@ export async function endCurrentSession(): Promise<number | null> {
 }
 
 // Attendance follows the person, not the device: the open time log ends only when they are no
-// longer signed in to the cashier app anywhere.
+// longer signed in to the staff app anywhere.
 export async function closeAttendanceIfSignedOutEverywhere(adminId: number, db: Db = pool): Promise<void> {
   await db.query(`
     UPDATE employee_time_logs SET time_out = CURRENT_TIMESTAMP

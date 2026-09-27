@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const admin = result.rows[0];
     // The admin portal manages finance, accounts and inventory, so only admin accounts may use it.
     if (!isAllowedRole(admin.role)) {
-      return NextResponse.json({ error: "This account does not have admin access. Use the cashier portal instead." }, { status: 403 });
+      return NextResponse.json({ error: "This account does not have admin access. Use the staff portal instead." }, { status: 403 });
     }
 
     const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));

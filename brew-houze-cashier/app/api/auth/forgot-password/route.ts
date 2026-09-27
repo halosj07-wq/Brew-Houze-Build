@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { resolveAppUrl, sendPasswordResetEmail } from "@/lib/password-reset";
 
-const PORTAL_NAME = "Cashier Portal";
+const PORTAL_NAME = "Staff Portal";
 
 // Always answers the same way, and sends the email only after the response has gone out, so
 // neither the message nor the response time reveals whether an email has an account.
