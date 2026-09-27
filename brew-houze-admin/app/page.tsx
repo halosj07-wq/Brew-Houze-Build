@@ -2983,6 +2983,39 @@ function InventoryOptionGroups({ inventory }: { inventory: InventoryItem[] }) {
 
 const productStatusLabels: Record<ProductInsight["status"], string> = { available: "Available", partial: "Some sizes out", soldout: "Sold out" };
 
+// Menu photos only need to look good on a card or a phone screen, so they are resized to at
+// most 800 px and saved as WebP (JPEG where the browser cannot make WebP) before upload: a
+// 4 MB phone photo becomes roughly 40-80 KB. Keeps the database and every menu load small.
+const PRODUCT_IMAGE_MAX_SIDE = 800;
+async function shrinkProductImage(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new window.Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("unreadable"));
+      element.src = url;
+    });
+    const scale = Math.min(1, PRODUCT_IMAGE_MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("no canvas");
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const webp = canvas.toDataURL("image/webp", 0.8);
+    if (webp.startsWith("data:image/webp")) return webp;
+    // No WebP encoder (older Safari): JPEG has no transparency, so paint a white background.
+    context.globalCompositeOperation = "destination-over";
+    context.fillStyle = "#FFFFFF";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.82);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function MenuProductCard({ product, insight, onEdit, onArchive }: { product: Product; insight: ProductInsight; onEdit: () => void; onArchive: () => void }) {
   const image = product.imageData || product.imageUrl.trim();
   const isStock = product.productType === "stock";
@@ -3538,23 +3571,27 @@ function ProductManagement({
     setCopiedVariantIndices((current) => current.includes(selectedVariantIndex) ? current : [...current, selectedVariantIndex]);
   }
 
-  function importProductImage(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+  async function importProductImage(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setActionError("Please select an image file.");
+    if (!file.type.startsWith("image/") || file.type === "image/svg+xml") {
+      setActionError("Please select a photo (JPG, PNG, WebP or HEIC).");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setActionError("Imported images must be 5 MB or smaller.");
+    if (file.size > 25 * 1024 * 1024) {
+      setActionError("That photo is over 25 MB. Choose a smaller one.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
+    try {
+      const shrunk = await shrinkProductImage(file);
+      setActionError("");
       setFormImage("");
-      setFormImageData(typeof reader.result === "string" ? reader.result : "");
-    };
-    reader.readAsDataURL(file);
+      setFormImageData(shrunk);
+    } catch {
+      setActionError("Could not read that image. Try a JPG or PNG.");
+    }
   }
 
   function removeProductImage() {

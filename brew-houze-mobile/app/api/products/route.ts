@@ -12,6 +12,9 @@ export async function GET() {
         p.product_category,
         p.price,
         p.image_url,
+        -- Uploaded photos are served separately (see products/[id]/image) and cached for good.
+        (p.image_data IS NOT NULL) AS has_image_data,
+        p.xmin::text AS image_version,
         p.product_type,
         -- Any active addition can be attached to a recipe item. Direct-sale (stock) products
         -- such as canned drinks take no additions.
@@ -112,7 +115,7 @@ export async function GET() {
       category: row.product_category || "Menu",
       price: Number(row.price),
       productType: row.product_type === "stock" ? "stock" : "recipe",
-      image: row.image_url || "",
+      image: row.has_image_data ? `/api/products/${row.product_id}/image?v=${row.image_version}` : row.image_url || "",
       additions: row.additions ?? [],
       variants: row.variants,
     }));

@@ -21,8 +21,8 @@ type ProductRow = {
   product_category: string | null;
   product_type: ProductType;
   image_url: string | null;
-  image_data: string | null;
-  image_mime_type: string | null;
+  has_image_data: boolean;
+  image_version: string;
   price: number;
   product_variant_id: number | null;
   size_label: string | null;
@@ -100,8 +100,10 @@ const productSelect = `
     p.product_type,
     p.price,
     p.image_url,
-    encode(p.image_data, 'base64') AS image_data,
-    p.image_mime_type,
+    -- Uploaded photos are served by /api/products/[id]/image, not in this list: the list has a
+    -- row per size and component, and a large catalog would carry every photo many times over.
+    (p.image_data IS NOT NULL) AS has_image_data,
+    p.xmin::text AS image_version,
     pv.product_variant_id,
     pv.size_label,
     pv.temperature,
@@ -150,7 +152,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
         category: row.product_category ?? "",
         productType: row.product_type === "stock" ? "stock" : "recipe",
         imageUrl: row.image_url ?? "",
-        imageData: row.image_data && row.image_mime_type ? `data:${row.image_mime_type};base64,${row.image_data}` : "",
+        imageData: row.has_image_data ? imageLink(Number(row.product_id), row.image_version) : "",
         price: Number(row.price),
         hasSales: Boolean(row.product_has_sales),
         ingredients: (row.product_ingredients ?? []).map((ingredient) => ({
@@ -190,13 +192,32 @@ async function loadProduct(productId: number): Promise<Product | undefined> {
   return mapProducts(result.rows)[0];
 }
 
-function parseImageData(value: unknown): { data: Buffer | null; mimeType: string | null } {
+// Link to a product's uploaded photo. The version changes whenever the product row changes, so
+// browsers can cache each link for good.
+function imageLink(productId: number, version: string): string {
+  return `/api/products/${productId}/image?v=${version}`;
+}
+
+// The admin app shrinks photos before upload (about 800 px WebP, tens of KB), so anything near
+// this limit did not go through it. SVG is refused: it can carry scripts.
+const MAX_IMAGE_BYTES = 1024 * 1024;
+const IMAGE_TYPES = ["image/webp", "image/jpeg", "image/png"];
+
+// What to do with the stored photo on save:
+// - a data: URL is a new upload;
+// - a link to a product's own image keeps it (or, when adding, copies that product's photo);
+// - anything else removes it.
+type ImageChange = { kind: "set"; data: Buffer; mimeType: string } | { kind: "keep"; fromProductId: number } | { kind: "clear" };
+function parseImageData(value: unknown): ImageChange {
   const imageData = String(value ?? "");
+  const link = imageData.match(/^\/api\/products\/(\d+)\/image(\?|$)/);
+  if (link) return { kind: "keep", fromProductId: Number(link[1]) };
   const match = imageData.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/);
-  if (!match) return { data: null, mimeType: null };
+  if (!match) return { kind: "clear" };
+  if (!IMAGE_TYPES.includes(match[1])) throw new Error("Use a JPG, PNG or WebP image.");
   const data = Buffer.from(match[2], "base64");
-  if (data.length > 5 * 1024 * 1024) throw new Error("Imported images must be 5 MB or smaller.");
-  return { data, mimeType: match[1] };
+  if (data.length > MAX_IMAGE_BYTES) throw new Error("That image is too large. Choose it again so it can be resized.");
+  return { kind: "set", data, mimeType: match[1] };
 }
 
 function parseProductType(value: unknown): ProductType | null {
@@ -290,7 +311,13 @@ export async function POST(request: Request) {
       INSERT INTO products (product_name, product_description, product_category, product_type, price, image_url, image_data, image_mime_type)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING product_id
-    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.data, importedImage.mimeType]);
+    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null]);
+    if (importedImage.kind === "keep") {
+      await client.query(`
+        UPDATE products SET image_data = source.image_data, image_mime_type = source.image_mime_type
+        FROM products source WHERE products.product_id = $1 AND source.product_id = $2
+      `, [Number(productResult.rows[0].product_id), importedImage.fromProductId]);
+    }
 
     const productId = Number(productResult.rows[0].product_id);
 
@@ -345,12 +372,16 @@ export async function PATCH(request: Request) {
 
     await client.query("BEGIN");
 
+    // A kept photo is not sent back and forth; only a new upload or a removal touches it.
+    const keepImage = importedImage.kind === "keep" && importedImage.fromProductId === productId;
     const productResult = await client.query(`
       UPDATE products
-      SET product_name = $1, product_description = $2, product_category = $3, product_type = $4, price = $5, image_url = $6, image_data = $7, image_mime_type = $8
+      SET product_name = $1, product_description = $2, product_category = $3, product_type = $4, price = $5, image_url = $6,
+        image_data = CASE WHEN $10 THEN image_data ELSE $7 END,
+        image_mime_type = CASE WHEN $10 THEN image_mime_type ELSE $8 END
       WHERE product_id = $9
       RETURNING product_id
-    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.data, importedImage.mimeType, productId]);
+    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, productId, keepImage]);
 
     if (productResult.rowCount === 0) {
       await client.query("ROLLBACK");
