@@ -474,7 +474,127 @@ function Sidebar({ current, collapsed, user, onChange, onToggle, onAccount }: { 
   </aside>;
 }
 
-function TopBar({ title, page, user, onAccount, onRequestLogout }: { title: string; page: Page; user: AdminSession; onAccount: () => void; onRequestLogout: () => void }) {
+// ─── Notification bell ──────────────────────────────────────────────────────────────────────────
+// Alerts worked out by /api/notifications from existing records (stock, GCash problems, voids and
+// refunds, drawer short or over, new customer sign-ups). Which ones were seen is remembered per
+// device in the browser; keys of alerts that are gone are dropped, so an item that runs low
+// again after a restock shows up as new.
+type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
+const SEEN_NOTIFICATIONS_KEY = "brew-houze-admin-seen-notifications";
+const NOTIFICATION_REFRESH_MS = 60_000;
+
+function IconBell({ size = 18 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>;
+}
+
+function readSeenNotifications(): Set<string> {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(SEEN_NOTIFICATIONS_KEY) ?? "[]");
+    return new Set(Array.isArray(stored) ? stored.filter((key): key is string => typeof key === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSeenNotifications(keys: Set<string>) {
+  try { window.localStorage.setItem(SEEN_NOTIFICATIONS_KEY, JSON.stringify(Array.from(keys).slice(-500))); } catch { /* storage unavailable: everything shows as new */ }
+}
+
+function notificationAge(value: string, now: number): string {
+  const minutes = Math.max(0, Math.round((now - new Date(value).getTime()) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 24 * 60) return `${Math.round(minutes / 60)}h ago`;
+  return new Date(value).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" });
+}
+
+function NotificationBell({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const [items, setItems] = useState<AdminNotification[] | null>(null);
+  const [seen, setSeen] = useState<Set<string>>(() => new Set());
+  const [open, setOpen] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/notifications", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error);
+      const next: AdminNotification[] = payload.data ?? [];
+      setItems(next);
+      setFailed(false);
+      setNow(Date.now());
+      // Forget alerts that are gone, so they count as new if they come back.
+      const current = new Set(next.map((item) => item.key));
+      setSeen(() => {
+        const kept = new Set(Array.from(readSeenNotifications()).filter((key) => current.has(key)));
+        saveSeenNotifications(kept);
+        return kept;
+      });
+    } catch {
+      setFailed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const first = window.setTimeout(() => void load(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, NOTIFICATION_REFRESH_MS);
+    const onVisible = () => { if (document.visibilityState === "visible") void load(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [load]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => { if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onPointer); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+
+  function markSeen(keys: string[]) {
+    setSeen((current) => {
+      const next = new Set(current);
+      keys.forEach((key) => next.add(key));
+      saveSeenNotifications(next);
+      return next;
+    });
+  }
+
+  const list = items ?? [];
+  const unread = list.filter((item) => !seen.has(item.key));
+  const urgent = unread.some((item) => item.tone === "danger");
+  const kindIcon = (kind: AdminNotification["kind"]) => kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
+
+  return <div className="notif" ref={wrapRef}>
+    <button type="button" className={`notif-bell${open ? " is-open" : ""}`} onClick={() => { setOpen((value) => !value); setNow(Date.now()); }} aria-label={unread.length ? `Notifications, ${unread.length} new` : "Notifications"} aria-expanded={open} title="Notifications">
+      <IconBell />
+      {unread.length > 0 && <span className={`notif-badge${urgent ? " is-urgent" : ""}`}>{unread.length > 99 ? "99+" : unread.length}</span>}
+    </button>
+    {open && <div className="notif-panel" role="dialog" aria-label="Notifications">
+      <header className="notif-head">
+        <div><strong>Notifications</strong><span>{unread.length ? `${unread.length} new` : "All caught up"}</span></div>
+        {unread.length > 0 && <button type="button" className="inv-link" onClick={() => markSeen(list.map((item) => item.key))}>Mark all as read</button>}
+      </header>
+      {failed && <p className="notif-error">Could not refresh. Showing the last loaded alerts.</p>}
+      {items === null ? <p className="notif-empty">Loading…</p>
+        : list.length === 0 ? <p className="notif-empty">Nothing needs your attention. Stock, GCash problems, voids and refunds, drawer differences and new customers show up here.</p>
+          : <ul className="notif-list">
+            {list.map((item) => <li key={item.key}>
+              <button type="button" className={`notif-item is-${item.tone}${seen.has(item.key) ? "" : " is-unread"}`} onClick={() => { markSeen([item.key]); setOpen(false); onNavigate(item.page); }}>
+                <span className="notif-icon">{kindIcon(item.kind)}</span>
+                <span className="notif-text"><strong>{item.title}</strong><em>{item.detail}</em><small>{item.kind === "stock" ? "Needs restocking" : notificationAge(item.at, now)}</small></span>
+                {!seen.has(item.key) && <i className="notif-dot" aria-label="New" />}
+              </button>
+            </li>)}
+          </ul>}
+    </div>}
+  </div>;
+}
+
+function TopBar({ title, page, user, onAccount, onNavigate, onRequestLogout }: { title: string; page: Page; user: AdminSession; onAccount: () => void; onNavigate: (page: Page) => void; onRequestLogout: () => void }) {
   return <header className="admin-topbar">
     <div className="flex items-center gap-3 min-w-0">
       <div className="admin-topbar-logo flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, flexShrink: 0, background: "#D97706", color: "#FDF9F5" }}><IconCoffee size={19} /></div>
@@ -482,6 +602,7 @@ function TopBar({ title, page, user, onAccount, onRequestLogout }: { title: stri
     </div>
     <div className="flex items-center gap-2.5">
       <ConnectionIndicator />
+      <NotificationBell onNavigate={onNavigate} />
       <button type="button" onClick={onAccount} aria-label={`My account: ${user.fullName}`} title="My account" className="admin-topbar-profile" style={{ border: page === "account" ? "1px solid #D97706" : "1px solid #E8DDD5", background: page === "account" ? "#FFF7ED" : "#FFFFFF" }}>
         <UserAvatar name={user.fullName} size={32} />
         <span className="admin-topbar-profile-text flex flex-col" style={{ lineHeight: 1.2 }}>
@@ -7444,7 +7565,7 @@ export default function App() {
   return <ConfirmProvider><div className="admin-shell">
     <Sidebar current={page} collapsed={sidebarCollapsed} user={authUser} onChange={goTo} onToggle={() => setSidebarCollapsed((collapsed) => !collapsed)} onAccount={() => goTo("account")} />
     <div className="admin-main">
-      <TopBar title={pageTitles[page]} page={page} user={authUser} onAccount={() => goTo("account")} onRequestLogout={() => setShowSignOut(true)} />
+      <TopBar title={pageTitles[page]} page={page} user={authUser} onAccount={() => goTo("account")} onNavigate={goTo} onRequestLogout={() => setShowSignOut(true)} />
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
         {page === "dashboard" && <Dashboard user={authUser} inventory={inventory} products={products} onNavigate={goTo} onRefreshStock={() => Promise.all([refreshInventory(), refreshProducts()])} />}
         {page === "shift" && <ShiftMonitor onNavigate={goTo} />}
