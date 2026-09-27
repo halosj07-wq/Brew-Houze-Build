@@ -1,0 +1,58 @@
+/* Customer account screens (app/account.tsx). Uses the menu's colours (globals.css :root). */
+.acct-header-button { gap: 6px; height: 34px; padding: 0 11px 0 9px; }
+.acct-header-button.is-signed-in { padding-left: 4px; }
+.acct-header-label { max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-avatar { display: grid; place-items: center; flex-shrink: 0; width: 46px; height: 46px; color: var(--paper); background: var(--ink); border-radius: 50%; font-size: 16px; font-weight: 700; }
+.acct-avatar.is-small { width: 26px; height: 26px; background: var(--teal); font-size: 10px; }
+
+.acct-sheet { display: flex; flex-direction: column; }
+.acct-form { display: flex; flex-direction: column; gap: 13px; }
+.acct-form .add-order-button { margin-top: 4px; }
+.acct-intro { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.acct-field { display: flex; flex-direction: column; gap: 6px; }
+.acct-label { color: var(--ink); font-size: 12px; font-weight: 700; }
+.acct-hint { color: var(--muted); font-size: 11px; line-height: 1.4; }
+.acct-field input, .acct-password { width: 100%; min-height: 46px; padding: 0 13px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 11px; font-size: 16px; outline: none; }
+.acct-field input:focus, .acct-password:focus-within { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(13,148,136,.14); }
+.acct-field input:disabled { color: var(--muted); background: #f5eadf; }
+.acct-password { display: flex; align-items: center; gap: 8px; padding-right: 6px; }
+.acct-password input { flex: 1; min-width: 0; height: 44px; padding: 0; background: transparent; border: 0; box-shadow: none !important; }
+.acct-password button { padding: 7px 10px; color: var(--muted); background: #f5eadf; border: 0; border-radius: 8px; font-size: 11px; font-weight: 700; }
+.acct-link, .acct-switch button, .acct-consent button, .acct-cart-note button { padding: 0; color: var(--teal); background: none; border: 0; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.acct-link { align-self: flex-start; font-size: 12px; }
+.acct-switch { margin: 2px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
+.acct-notice { margin: 0 0 12px; padding: 10px; color: #176b57; background: #d9f0e8; border-radius: 9px; font-size: 12px; }
+.acct-consent { padding: 11px 12px; background: #f5eadf; border-radius: 11px; font-size: 12px; line-height: 1.45; }
+.acct-consent label { display: flex; align-items: flex-start; gap: 9px; }
+.acct-consent input { width: 18px; height: 18px; margin: 0; flex-shrink: 0; accent-color: var(--teal); }
+.acct-privacy { margin: 10px 0 0; padding-left: 18px; color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.acct-privacy li + li { margin-top: 4px; }
+
+.acct-home { display: flex; flex-direction: column; gap: 14px; }
+.acct-card { display: flex; align-items: center; gap: 12px; padding: 14px; background: #f5eadf; border-radius: 16px; }
+.acct-card div { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.acct-card strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+.acct-card span { color: var(--muted); font-size: 12px; }
+.acct-card em { padding: 5px 9px; color: var(--teal); background: var(--paper); border-radius: 999px; font-size: 11px; font-style: normal; font-weight: 700; white-space: nowrap; }
+.acct-rewards-soon { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; background: #fff5e8; border: 1px dashed #e5ae6d; border-radius: 14px; }
+.acct-rewards-soon strong { color: #7d4e24; font-size: 13px; }
+.acct-rewards-soon span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.acct-section-title { margin: 4px 0 -4px; font-family: 'Playfair Display', serif; font-size: 19px; }
+.acct-orders { display: flex; flex-direction: column; margin: 0; padding: 0; list-style: none; }
+.acct-orders li { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.acct-orders li > div:first-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.acct-orders strong { font-size: 13px; }
+.acct-orders span { color: var(--muted); font-size: 11px; }
+.acct-orders small { color: var(--ink); font-size: 11.5px; line-height: 1.4; }
+.acct-order-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+.acct-order-status { padding: 2px 7px; color: #a33b2b !important; background: #fae8e3; border-radius: 6px; font-weight: 700; }
+.acct-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.acct-actions button { padding: 11px 6px; color: var(--ink); background: #f3e8dc; border: 0; border-radius: 11px; font-size: 12px; font-weight: 700; }
+.acct-danger-link { align-self: center; padding: 4px; color: #a33b2b; background: none; border: 0; font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+.add-order-button.acct-danger { background: #b91c1c; }
+.acct-cart-note { margin: 12px 0 0; color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+@media (max-width: 380px) {
+  .acct-header-label { display: none; }
+  .acct-header-button { padding: 0 8px; }
+  .acct-actions { grid-template-columns: 1fr; }
+}

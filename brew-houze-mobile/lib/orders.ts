@@ -15,6 +15,9 @@ export type PlaceOrderInput = {
   receivedAmount?: number;
   cashAmount?: number;
   customerToken?: string | null;
+  // The customer account the order belongs to (a signed-in mobile customer, or one the counter
+  // attached), so their purchases and stars follow them.
+  customerId?: number | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
@@ -182,11 +185,11 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   }
 
   const order = await client.query(`
-    INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion)
-    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12)
+    INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id)
+    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
-  `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion]);
+  `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null]);
   const orderId = Number(order.rows[0].order_id);
 
   for (const [inventoryId, detail] of deductionDetails) {

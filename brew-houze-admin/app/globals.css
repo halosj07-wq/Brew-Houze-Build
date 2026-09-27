@@ -1107,6 +1107,7 @@ strong.is-low { color: #B45309 !important; }
 .acc-status.is-off { background: #FEE2E2; color: #B91C1C; }
 .acc-status.is-off i { background: #DC2626; }
 .acc-perms { display: flex; flex-wrap: wrap; gap: 5px; }
+.cust-note { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; padding: 7px 10px; border-left: 3px solid #F59E0B; border-radius: 6px; background: #FFFBEB; color: #6B4C3B; font-size: 12px; font-style: italic; line-height: 1.45; text-align: left; }
 .acc-perm { padding: 3px 9px; border-radius: 8px; border: 1px dashed #E8DDD5; color: #B9A398; font-size: 11.5px; font-weight: 700; }
 .acc-perm.is-on { border: 1px solid #FED7AA; background: #FFF7ED; color: #B45309; }
 .acc-card-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { parseOrderItems, placeOrder } from "@/lib/orders";
 import { paymongoConfigured } from "@/lib/paymongo";
+import { getCustomerSession } from "@/lib/customers";
 
 // Places a mobile order without an online payment. Only used while GCash (PayMongo) is not set
 // up on this server: with PayMongo keys present, mobile orders go through /api/payments and are
@@ -18,8 +19,10 @@ export async function POST(request: Request) {
     const items = parseOrderItems(body.items).map((item) => ({ ...item, additionIds: Array.from(new Set(item.additionIds)) }));
     if (items.length === 0) return NextResponse.json({ error: "At least one valid order item is required." }, { status: 400 });
     const customerToken = randomUUID();
+    // Signed-in customers get the order saved to their account.
+    const customer = await getCustomerSession();
     await client.query("BEGIN");
-    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod: "online", customerToken });
+    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod: "online", customerToken, customerId: customer?.customerId ?? null });
     await client.query("COMMIT");
     return NextResponse.json({ data: { orderId: placed.orderId, queueNumber: placed.queueNumber, trackingToken: customerToken, total: placed.total, createdAt: placed.createdAt } }, { status: 201 });
   } catch (error) {

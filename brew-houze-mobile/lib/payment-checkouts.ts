@@ -32,7 +32,7 @@ export type CheckoutView = {
 type CheckoutRow = {
   checkout_id: number; source_app: OrderSource; status: CheckoutStatus; amount: string; items: OrderItemInput[];
   cashier_admin_id: number | null; public_token: string; intent_id: string | null; payment_id: string | null;
-  cash_amount?: string | null; received_amount?: string | null;
+  cash_amount?: string | null; received_amount?: string | null; customer_id?: number | null;
   order_id: number | null; error: string | null; queue_number?: number | null; shift_id?: number | null;
 };
 
@@ -73,7 +73,7 @@ async function loadByToken(token: string): Promise<CheckoutRow | null> {
 
 // Prices the cart (stock, prices and the open shift all checked), opens a PayMongo GCash
 // payment for exactly that amount, and returns where to send the customer.
-export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
+export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
   const client = await pool.connect();
   let total: number;
   try {
@@ -99,10 +99,10 @@ export async function startCheckout(input: { source: OrderSource; items: OrderIt
 
   const token = randomUUID();
   const inserted = await pool.query(`
-    INSERT INTO payment_checkouts (source_app, status, amount, items, cashier_admin_id, public_token, cash_amount, received_amount)
-    VALUES ($1, 'awaiting_payment', $2, $3::jsonb, $4, $5, $6, $7)
+    INSERT INTO payment_checkouts (source_app, status, amount, items, cashier_admin_id, public_token, cash_amount, received_amount, customer_id)
+    VALUES ($1, 'awaiting_payment', $2, $3::jsonb, $4, $5, $6, $7, $8)
     RETURNING checkout_id
-  `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token, cashAmount, receivedAmount]);
+  `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token, cashAmount, receivedAmount, input.customerId ?? null]);
   const checkoutId = Number(inserted.rows[0].checkout_id);
   try {
     const payment = await createGcashPayment({
@@ -163,6 +163,7 @@ async function finalizePaid(checkoutId: number, paymentId: string | null): Promi
         cashAmount,
         receivedAmount: row.received_amount === null || row.received_amount === undefined ? cashAmount : Number(row.received_amount),
         customerToken: row.source_app === "mobile" ? row.public_token : null,
+        customerId: row.customer_id === null || row.customer_id === undefined ? null : Number(row.customer_id),
         paymentReference: paymentId,
         paymentProvider: "paymongo_gcash",
       });

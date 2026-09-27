@@ -280,8 +280,8 @@
     const cards = {
       "staff-grid": [
         { app: "admin", icon: "admin", tone: "is-amber", featured: true, title: "Admin Portal", who: "Owner & managers · tablet or phone",
-          desc: "Run the café: start and end the shift, watch sales live, and manage inventory, the menu, finance, employees and archives.",
-          uses: ["Dashboard", "Shift", "Inventory", "Menu", "Finance", "Employees"], url: APPS.admin, qr: true },
+          desc: "Run the café: start and end the shift, watch sales live, and manage inventory, the menu, finance, customers, employees and archives.",
+          uses: ["Dashboard", "Shift", "Inventory", "Menu", "Finance", "Customers", "Employees"], url: APPS.admin, qr: true },
         { app: "cashier", icon: "cashier", tone: "", featured: true, title: "Staff Portal", who: "Counter tablet · cashiers & baristas",
           desc: "Cashiers take orders and payments (cash or GCash) and void or refund orders in the current shift. Baristas see and manage the queue.",
           uses: ["Point of Sale", "Queue", "Void & Refund", "Cash drawer", "Attendance"], url: APPS.cashier, qr: true },
@@ -289,7 +289,7 @@
       "customer-grid": [
         { app: "mobile", icon: "mobile", tone: "is-teal", title: "Mobile Menu", who: "Customers’ phones",
           desc: "Customers browse the menu, order and pay with GCash from their own phone, then wait for their queue number.",
-          uses: ["Browse menu", "Order ahead", "GCash"], url: APPS.mobile, qr: true, qrNote: "Print this for the tables so customers can order from their phones." },
+          uses: ["Browse menu", "Order ahead", "GCash", "Customer accounts"], url: APPS.mobile, qr: true, qrNote: "Print this for the tables so customers can order from their phones." },
         { app: "queue", icon: "queue", tone: "is-purple", title: "Queue Screen", who: "TV or monitor facing customers",
           desc: "Shows which orders are being prepared and which are ready for pickup. Open it in full screen and leave it running.",
           uses: ["Preparing", "Ready for pickup"], url: APPS.queue },

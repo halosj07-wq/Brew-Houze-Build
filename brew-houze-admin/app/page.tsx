@@ -4,7 +4,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, u
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -301,6 +301,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "inventory", label: "Inventory", short: "Inventory", Icon: IconBox },
   { id: "products", label: "Menu", short: "Menu", Icon: IconCoffee },
   { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
+  { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
   { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
   { id: "archives", label: "Archives", short: "Archives", Icon: IconArchive },
 ];
@@ -308,7 +309,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "customers", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -6023,6 +6024,438 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
   </Modal>;
 }
 
+// ─── Customers ─────────────────────────────────────────────────────────────────────────────────
+// The café's customer directory: customers who made an account on the mobile menu, and profiles
+// the admin made for regulars without one. Purchases fill in by themselves; notes are the café's
+// own (never shown to the customer). Customers are never deleted, since their orders are sales
+// records: a customer who asks to be forgotten has their personal details erased instead.
+
+type Customer = {
+  id: number; username: string | null; fullName: string; email: string | null; birthday: string | null; notes: string;
+  isActive: boolean; hasLogin: boolean; consented: boolean; createdAt: string; createdBy: string | null;
+  visits: number; visits30d: number; spent: number; lastVisit: string | null; favourite: string | null; devices: number;
+};
+type CustomerOrder = { id: number; queueNumber: number | null; shiftId: number | null; status: string; total: number; paymentMethod: string; source: "mobile" | "counter"; createdAt: string; punchedBy: string; items: string };
+type CustomerDetail = { orders: CustomerOrder[]; devices: { device: string; signedInAt: string; lastSeenAt: string }[] };
+type CustomerFilter = "active" | "app" | "profile" | "inactive";
+type CustomerSort = "name" | "recent" | "visits" | "spent";
+
+const CUSTOMERS_PAGE_SIZE = 48;
+
+function IconHeart({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z" /></svg>;
+}
+
+function birthdayLabel(birthday: string | null): string {
+  if (!birthday) return "";
+  const date = new Date(`${birthday}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleDateString("en-PH", { timeZone: "UTC", month: "long", day: "numeric" });
+}
+
+function birthdayThisMonth(birthday: string | null): boolean {
+  return Boolean(birthday) && birthday!.slice(5, 7) === getFinanceDateStamp().slice(5, 7);
+}
+
+async function patchCustomer(body: Record<string, unknown>, fallback: string) {
+  const response = await fetch("/api/customers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload?.error || fallback);
+  return payload.data;
+}
+
+function customerOrderColumns(): ExcelColumn<CustomerOrder>[] {
+  return [
+    { header: "Order", value: (order) => order.id, kind: "count" },
+    { header: "Queue #", value: (order) => order.queueNumber ?? "" },
+    { header: "Date and time", value: (order) => excelDateTime(order.createdAt) },
+    { header: "Shift", value: (order) => order.shiftId ?? "" },
+    { header: "Ordered at", value: (order) => order.source === "mobile" ? "Mobile menu" : "Counter" },
+    { header: "Punched by", value: (order) => order.punchedBy },
+    { header: "Items", value: (order) => order.items },
+    { header: "Status", value: (order) => order.status === "voided" ? "Voided" : order.status === "refunded" ? "Refunded" : "Completed" },
+    { header: "Total", value: (order) => order.total, kind: "money" },
+  ];
+}
+
+function customerListColumns(): ExcelColumn<Customer>[] {
+  return [
+    { header: "Customer", value: (customer) => customer.fullName },
+    { header: "Username", value: (customer) => customer.username ? `@${customer.username}` : "No login" },
+    { header: "Email", value: (customer) => customer.email ?? "" },
+    { header: "Birthday", value: (customer) => birthdayLabel(customer.birthday) },
+    { header: "Status", value: (customer) => customer.isActive ? "Active" : "Deactivated" },
+    { header: "Visits", value: (customer) => customer.visits, kind: "count" },
+    { header: "Visits, 30 days", value: (customer) => customer.visits30d, kind: "count" },
+    { header: "Total spent", value: (customer) => customer.spent, kind: "money" },
+    { header: "Favourite", value: (customer) => customer.favourite ?? "" },
+    { header: "Last visit", value: (customer) => excelDateTime(customer.lastVisit) },
+    { header: "Notes", value: (customer) => customer.notes },
+    { header: "Added", value: (customer) => excelDateTime(customer.createdAt) },
+    { header: "Added by", value: (customer) => customer.createdBy ?? "Signed up on the mobile menu" },
+  ];
+}
+
+function exportCustomerReport(customer: Customer, detail: CustomerDetail) {
+  const paid = detail.orders.filter((order) => order.status === "completed");
+  const fileNameSafeName = customer.fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "customer";
+  saveWorkbook([
+    ["Summary", excelInfo([
+      [`Brew Houze customer report: ${customer.fullName}`],
+      ["Username", customer.username ? `@${customer.username}` : "No login"],
+      ["Email", customer.email ?? ""],
+      ["Birthday", birthdayLabel(customer.birthday)],
+      ["Status", customer.isActive ? "Active" : "Deactivated"],
+      ["Generated", excelNow()],
+      [],
+      ["Purchases"],
+      ["Visits", paid.length],
+      ["Total spent", paid.reduce((sum, order) => sum + order.total, 0)],
+      ["Average order", paid.length ? paid.reduce((sum, order) => sum + order.total, 0) / paid.length : 0],
+      ["Favourite", customer.favourite ?? ""],
+      ["Last visit", excelDateTime(customer.lastVisit)],
+      [],
+      ["Notes", customer.notes],
+    ], ["Visits"])],
+    ["Orders", detail.orders.length ? excelTable(detail.orders, customerOrderColumns()) : null],
+  ], `brew-houze-customer-${fileNameSafeName}-${getFinanceDateStamp()}.xlsx`);
+}
+
+function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
+  const [draft, setDraft] = useState({ fullName: "", email: "", birthday: "", notes: "", withLogin: false, username: "", password: "" });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [created, setCreated] = useState<{ name: string; username: string; password: string } | null>(null);
+  const problem = !draft.fullName.trim() ? "Enter their name."
+    : draft.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim()) ? "Enter a valid email, or leave it empty."
+    : draft.withLogin && !/^[A-Za-z0-9][A-Za-z0-9._]{2,29}$/.test(draft.username.trim()) ? "Usernames have 3 to 30 letters, numbers, dots or underscores."
+    : draft.withLogin && draft.password.length < 8 ? "Give a temporary password of at least 8 characters." : "";
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (problem || saving) { setError(problem); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        fullName: draft.fullName.trim(), email: draft.email.trim(), birthday: draft.birthday, notes: draft.notes.trim(),
+        ...(draft.withLogin ? { username: draft.username.trim(), password: draft.password } : {}),
+      }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not add the customer.");
+      await onCreated();
+      if (draft.withLogin) setCreated({ name: draft.fullName.trim(), username: draft.username.trim(), password: draft.password });
+      else onClose();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not add the customer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (created) return <Modal onClose={onClose} label="Customer added">
+    <section className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
+      <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: "#DCFCE7", color: "#15803D" }}>✓</div>
+      <h2>{created.name} can now sign in</h2>
+      <div className="ui-confirm-message">Give them these details for the mobile menu (tap Sign in at the top). They can change the password in their account.</div>
+      <div className="acc-credentials">
+        <div><span>Username</span><strong>{created.username}</strong></div>
+        <div><span>Temporary password</span><strong className="is-mono">{created.password}</strong></div>
+      </div>
+      <div className="ui-confirm-actions"><button type="button" className="ui-button ui-button-primary" data-autofocus onClick={onClose}>Done</button></div>
+    </section>
+  </Modal>;
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Add customer">
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title="Add a customer" sub="A profile for a regular. Their purchases fill in once the counter links orders to them." onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <div className="inv-step-grid">
+          <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" maxLength={120} /></WizardField>
+          <WizardField label="Birthday (optional)"><input type="date" value={draft.birthday} max={getFinanceDateStamp()} onChange={(event) => setDraft((current) => ({ ...current, birthday: event.target.value }))} style={packagingInput} /></WizardField>
+        </div>
+        <WizardField label="Email (optional)" hint="Lets them reset a forgotten password by themselves."><input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@gmail.com" style={packagingInput} autoComplete="off" /></WizardField>
+        <WizardField label="Notes (optional)" hint="Private to the café. For example: wants their hot drinks with a straw."><textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} rows={3} maxLength={1000} style={{ ...packagingInput, resize: "vertical", lineHeight: 1.45 }} /></WizardField>
+        <PermissionSwitch checked={draft.withLogin} title="Give them a login" description="A username and temporary password for the mobile menu. You can also do this later." onChange={(checked) => setDraft((current) => ({ ...current, withLogin: checked, password: checked && !current.password ? generateTemporaryPassword() : current.password }))} />
+        {draft.withLogin && <div className="inv-step-grid">
+          <WizardField label="Username"><input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} placeholder="mariasantos" style={packagingInput} autoComplete="off" maxLength={30} /></WizardField>
+          <WizardField label="Temporary password"><div className="flex gap-2"><input value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" /><button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setDraft((current) => ({ ...current, password: generateTemporaryPassword() }))}>New</button></div></WizardField>
+        </div>}
+        {error && <p role="alert" className="acc-error">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary" style={{ opacity: saving || problem ? 0.55 : 1 }}>{saving ? "Adding…" : "Add customer"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: Customer; onClose: () => void; onChanged: (customer: Customer) => void; onReload: () => Promise<void> }) {
+  const confirmAction = useConfirm();
+  const [tab, setTab] = useState<"profile" | "purchases">("profile");
+  const [detail, setDetail] = useState<CustomerDetail | null>(null);
+  const [detailError, setDetailError] = useState("");
+  const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "" });
+  const [notes, setNotes] = useState(customer.notes);
+  const [login, setLogin] = useState({ username: "", password: "" });
+  const [working, setWorking] = useState<string | null>(null);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const profileChanged = profile.fullName.trim() !== customer.fullName || profile.email.trim().toLowerCase() !== (customer.email ?? "") || profile.birthday !== (customer.birthday ?? "");
+  const notesChanged = notes.trim() !== customer.notes;
+
+  useEffect(() => {
+    let active = true;
+    void fetch(`/api/customers/${customer.id}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the purchases.");
+        if (active) setDetail(payload.data);
+      })
+      .catch((loadError) => { if (active) setDetailError(loadError instanceof Error ? loadError.message : "Could not load the purchases."); });
+    return () => { active = false; };
+  }, [customer.id]);
+
+  async function act<T>(key: string, body: Record<string, unknown>, fallback: string, onDone: (data: T) => void) {
+    setWorking(key);
+    setError("");
+    setNotice("");
+    try {
+      onDone(await patchCustomer({ id: customer.id, ...body }, fallback) as T);
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : fallback);
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function setTemporaryPassword() {
+    const password = generateTemporaryPassword();
+    if (!(await confirmAction({ title: `Set a temporary password for ${customer.fullName}?`, message: "Their old password stops working and they are signed out of every phone. Tell them the new one in person.", confirmLabel: "Set password", tone: "default" }))) return;
+    await act<{ username: string; signedOutDevices: number }>("password", { action: "set_login", password }, "Could not set the password.", (data) => { setNotice(`New temporary password for @${data.username}: ${password}`); void onReload(); });
+  }
+
+  async function erase() {
+    if (!(await confirmAction({ title: `Erase ${customer.fullName}'s personal details?`, message: "Use this when a customer asks to be forgotten. Their name, username, email, birthday and notes are erased for good and they are signed out. Their past orders stay in the sales records without a name. This cannot be undone.", confirmLabel: "Erase details" }))) return;
+    await act("erase", { action: "erase" }, "Could not erase the customer.", () => { void onReload(); onClose(); });
+  }
+
+  const paid = detail?.orders.filter((order) => order.status === "completed") ?? [];
+  const paidTotal = paid.reduce((sum, order) => sum + order.total, 0);
+  return <Modal onClose={onClose} closeDisabled={working !== null} labelledBy="customer-dialog-title">
+    <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 680, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <header className="acc-dialog-head">
+        <UserAvatar name={customer.fullName} size={52} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <h2 id="customer-dialog-title">{customer.fullName}</h2>
+          <p>{customer.username ? `@${customer.username}` : "No login"}{customer.email ? ` · ${customer.email}` : ""}</p>
+          <span className={`acc-role ${customer.hasLogin ? "is-barista" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span>{" "}
+          {!customer.isActive && <span className="acc-status is-off"><i />Deactivated</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" className="inv-mini" onClick={() => detail && exportCustomerReport(customer, detail)} disabled={!detail}><IconDownload size={13} />Export</button>
+          <button type="button" onClick={onClose} disabled={working !== null} title="Close" className="inv-mini" style={{ width: 34, padding: 0, justifyContent: "center" }}><IconX size={14} /></button>
+        </div>
+      </header>
+      <div className="acc-tabs" role="tablist" aria-label="Customer sections">
+        {([["profile", "Profile & notes"], ["purchases", `Purchases${detail ? ` (${detail.orders.length})` : ""}`]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+      </div>
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        {notice && <div className="acc-notice" role="status">{notice}</div>}
+        {error && <p role="alert" className="acc-error">{error}</p>}
+
+        {tab === "profile" && <>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Notes</h3><p>Private to the café, never shown to the customer. For example: wants their hot drinks with a straw.</p></div></header>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={1000} placeholder="Preferences, allergies, how they like their drink…" style={{ ...packagingInput, resize: "vertical", lineHeight: 1.5 }} />
+            <div className="flex justify-end" style={{ marginTop: 10 }}>
+              <button type="button" className="ui-button ui-button-primary" disabled={!notesChanged || working !== null} onClick={() => void act<{ notes: string }>("notes", { action: "set_notes", notes }, "Could not save the notes.", (data) => { onChanged({ ...customer, notes: data.notes }); setNotes(data.notes); setNotice("Notes saved."); })}>{working === "notes" ? "Saving…" : "Save notes"}</button>
+            </div>
+          </section>
+
+          <form className="acc-block" onSubmit={(event) => { event.preventDefault(); void act<{ fullName: string; email: string | null; birthday: string | null }>("profile", { action: "update_profile", ...profile }, "Could not save the details.", (data) => { onChanged({ ...customer, ...data }); setNotice("Details saved."); }); }}>
+            <header className="acc-block-head"><div><h3>Details</h3><p>{customer.createdBy ? `Added by ${customer.createdBy}` : "Signed up on the mobile menu"} on {shiftTime(customer.createdAt)}.{customer.hasLogin && !customer.consented ? " Has not seen the privacy notice yet (made by an admin)." : ""}</p></div></header>
+            <div className="inv-step-grid">
+              <WizardField label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} style={packagingInput} maxLength={120} /></WizardField>
+              <WizardField label="Birthday"><input type="date" value={profile.birthday} max={getFinanceDateStamp()} onChange={(event) => setProfile((current) => ({ ...current, birthday: event.target.value }))} style={packagingInput} /></WizardField>
+            </div>
+            <div style={{ marginTop: 12 }}><WizardField label="Email"><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} style={packagingInput} /></WizardField></div>
+            <div className="flex justify-end" style={{ marginTop: 12 }}><button type="submit" className="ui-button ui-button-primary" disabled={!profileChanged || !profile.fullName.trim() || working !== null}>{working === "profile" ? "Saving…" : "Save details"}</button></div>
+          </form>
+
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Mobile menu login</h3><p>{customer.hasLogin ? `@${customer.username} · ${customer.devices ? `signed in on ${customer.devices} phone${customer.devices === 1 ? "" : "s"}` : "not signed in anywhere"}` : "No login yet. Give them one so their mobile orders are saved to this profile."}</p></div></header>
+            {customer.hasLogin
+              ? <div className="flex flex-wrap gap-2">
+                <button type="button" className="ui-button ui-button-secondary" disabled={working !== null || !customer.isActive} onClick={() => void setTemporaryPassword()}>{working === "password" ? "Setting…" : "Set a temporary password"}</button>
+                {customer.devices > 0 && <button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ signedOutDevices: number }>("signout", { action: "sign_out_everywhere" }, "Could not sign them out.", (data) => { setNotice(`Signed out of ${data.signedOutDevices} phone${data.signedOutDevices === 1 ? "" : "s"}.`); void onReload(); })}>Sign out everywhere</button>}
+              </div>
+              : <form className="inv-step-grid" onSubmit={(event) => { event.preventDefault(); const password = login.password || generateTemporaryPassword(); void act<{ username: string }>("login", { action: "set_login", username: login.username.trim(), password }, "Could not make the login.", (data) => { setNotice(`Login made. Username: ${data.username} · temporary password: ${password}`); setLogin({ username: "", password: "" }); void onReload(); }); }}>
+                <WizardField label="Username"><input value={login.username} onChange={(event) => setLogin((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} style={packagingInput} maxLength={30} autoComplete="off" /></WizardField>
+                <WizardField label="Temporary password" hint="Leave empty to generate one."><div className="flex gap-2"><input value={login.password} onChange={(event) => setLogin((current) => ({ ...current, password: event.target.value }))} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" /><button type="submit" className="ui-button ui-button-primary" disabled={!login.username.trim() || working !== null || !customer.isActive}>{working === "login" ? "…" : "Make login"}</button></div></WizardField>
+              </form>}
+          </section>
+
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Profile status</h3><p>Deactivated customers cannot sign in. Their notes and purchases stay.</p></div></header>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ isActive: boolean }>("active", { action: "set_active", isActive: !customer.isActive }, "Could not change the status.", (data) => { onChanged({ ...customer, isActive: data.isActive, devices: data.isActive ? customer.devices : 0 }); setNotice(data.isActive ? "Reactivated." : "Deactivated and signed out."); })}>{customer.isActive ? "Deactivate" : "Reactivate"}</button>
+              <button type="button" className="ui-button ui-button-secondary" style={{ color: "#B91C1C" }} disabled={working !== null} onClick={() => void erase()}>Erase personal details…</button>
+            </div>
+          </section>
+        </>}
+
+        {tab === "purchases" && <>
+          <div className="acc-stats">
+            <div><span>Visits</span><strong>{paid.length}</strong></div>
+            <div><span>Total spent</span><strong>{peso(paidTotal)}</strong></div>
+            <div><span>Average order</span><strong>{paid.length ? peso(paidTotal / paid.length) : "—"}</strong></div>
+            <div><span>Favourite</span><strong style={{ fontSize: 14 }}>{customer.favourite ?? "—"}</strong></div>
+          </div>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Orders</h3><p>Orders placed while signed in on the mobile menu, and (after the counter update) orders the cashier links to them.</p></div></header>
+            {detailError ? <p className="acc-error">{detailError}</p>
+              : !detail ? <p className="inv-hint">Loading…</p>
+                : detail.orders.length === 0 ? <p className="inv-hint">No orders yet.</p>
+                  : <ul className="acc-list">
+                    {detail.orders.map((order) => <li key={order.id}>
+                      <span><strong>Order {order.id}{order.queueNumber ? ` · #${order.queueNumber}` : ""}</strong><em>{shiftTime(order.createdAt)} · {order.source === "mobile" ? "Mobile menu" : `Counter · ${order.punchedBy}`}</em><em style={{ color: "#6B4C3B" }}>{order.items}</em></span>
+                      <span className="acc-list-end">{order.status !== "completed" && <span className={`fin-status is-${order.status}`}>{order.status === "voided" ? "Voided" : "Refunded"}</span>}<strong className={order.status !== "completed" ? "fin-order-total is-reversed" : ""}>{peso(order.total)}</strong></span>
+                    </li>)}
+                  </ul>}
+          </section>
+        </>}
+      </div>
+    </section>
+  </Modal>;
+}
+
+function Customers() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<CustomerFilter>("active");
+  const [sort, setSort] = useState<CustomerSort>("recent");
+  const [visible, setVisible] = useState(CUSTOMERS_PAGE_SIZE);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [adding, setAdding] = useState(false);
+
+  const loadCustomers = useCallback(async () => {
+    try {
+      const response = await fetch("/api/customers", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Failed to load the customers.");
+      setCustomers(payload.data ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load the customers.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadCustomers(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadCustomers]);
+
+  const query = search.trim().toLowerCase().replace(/^@/, "");
+  const shown = customers.filter((customer) => {
+    if (filter === "active" && !customer.isActive) return false;
+    if (filter === "inactive" && customer.isActive) return false;
+    if (filter === "app" && (!customer.hasLogin || !customer.isActive)) return false;
+    if (filter === "profile" && (customer.hasLogin || !customer.isActive)) return false;
+    return !query || [customer.fullName, customer.username ?? "", customer.email ?? "", customer.notes].some((value) => value.toLowerCase().includes(query));
+  }).sort((a, b) => sort === "name" ? a.fullName.localeCompare(b.fullName)
+    : sort === "visits" ? b.visits - a.visits || a.fullName.localeCompare(b.fullName)
+      : sort === "spent" ? b.spent - a.spent || a.fullName.localeCompare(b.fullName)
+        : (b.lastVisit ?? b.createdAt).localeCompare(a.lastVisit ?? a.createdAt));
+  const active = customers.filter((customer) => customer.isActive);
+  const monthStart = `${getFinanceDateStamp().slice(0, 7)}-01`;
+  const newThisMonth = active.filter((customer) => customer.createdAt.slice(0, 10) >= monthStart).length;
+  const birthdays = active.filter((customer) => birthdayThisMonth(customer.birthday));
+  const selected = customers.find((customer) => customer.id === selectedId) ?? null;
+
+  function exportAllCustomers() {
+    try {
+      const list = [...customers].sort((a, b) => a.fullName.localeCompare(b.fullName));
+      saveWorkbook([
+        ["Summary", excelInfo([
+          ["Brew Houze customers"],
+          ["Generated", excelNow()],
+          ["Customers", list.length],
+          ["Active", list.filter((customer) => customer.isActive).length],
+          ["With a mobile menu login", list.filter((customer) => customer.hasLogin).length],
+          ["Visited in the last 30 days", list.filter((customer) => customer.visits30d > 0).length],
+          ["Total spent, all customers", list.reduce((sum, customer) => sum + customer.spent, 0)],
+        ], ["Customers", "Active", "With a mobile menu login", "Visited in the last 30 days"])],
+        ["Customers", list.length ? excelTable(list, customerListColumns()) : null],
+      ], `brew-houze-customers-${getFinanceDateStamp()}.xlsx`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Failed to export the customers.");
+    }
+  }
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-summary">
+        <button type="button" className="inv-stat" aria-pressed={filter === "active"} onClick={() => setFilter("active")}><span>Customers</span><strong>{active.length}</strong><em>{newThisMonth} new this month</em></button>
+        <button type="button" className="inv-stat" aria-pressed={filter === "app"} onClick={() => setFilter(filter === "app" ? "active" : "app")}><span>With app login</span><strong>{active.filter((customer) => customer.hasLogin).length}</strong><em>{active.filter((customer) => !customer.hasLogin).length} profile{active.filter((customer) => !customer.hasLogin).length === 1 ? "" : "s"} only</em></button>
+        <div className="inv-stat is-static"><span>Visited · 30 days</span><strong>{active.filter((customer) => customer.visits30d > 0).length}</strong><em>at least one order</em></div>
+        <div className="inv-stat is-static"><span>Birthdays this month</span><strong>{birthdays.length}</strong><em>{birthdays.length ? birthdays.slice(0, 2).map((customer) => customer.fullName.split(" ")[0]).join(", ") + (birthdays.length > 2 ? "…" : "") : "none"}</em></div>
+      </div>
+
+      <div className="inv-toolbar">
+        <div className="inv-search is-wide">
+          <IconSearch size={14} />
+          <input value={search} onChange={(event) => { setSearch(event.target.value); setVisible(CUSTOMERS_PAGE_SIZE); }} placeholder="Search name, username, email or notes" />
+          {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+        </div>
+        <div className="inv-range" role="group" aria-label="Show">
+          {([["active", "All active"], ["app", "App login"], ["profile", "Profile only"], ["inactive", "Deactivated"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={filter === id} onClick={() => { setFilter(id); setVisible(CUSTOMERS_PAGE_SIZE); }}>{label}</button>)}
+        </div>
+        <label className="inv-filter"><span>Sort</span><select value={sort} onChange={(event) => setSort(event.target.value as CustomerSort)} className="inv-select"><option value="recent">Last visit</option><option value="name">Name</option><option value="visits">Most visits</option><option value="spent">Most spent</option></select></label>
+        <button type="button" className="inv-secondary" onClick={exportAllCustomers} disabled={customers.length === 0}><IconDownload size={14} />Export all</button>
+        <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add customer</button>
+      </div>
+
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+      {loading ? <div className="inv-empty">Loading customers…</div>
+        : customers.length === 0 ? <div className="inv-onboard">
+          <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconHeart size={24} /></span>
+          <h2>No customers yet</h2>
+          <p>Customers appear here when they make an account on the mobile menu. You can also add your regulars yourself, with notes on how they like their order.</p>
+          <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add customer</button>
+        </div>
+          : shown.length === 0 ? <div className="inv-empty">No customers match. <button type="button" className="inv-link" onClick={() => { setSearch(""); setFilter("active"); }}>Show everyone</button></div>
+            : <>
+              <div className="acc-grid">
+                {shown.slice(0, visible).map((customer) => <button key={customer.id} type="button" className={`acc-card${customer.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(customer.id)}>
+                  <span className="acc-card-top">
+                    <UserAvatar name={customer.fullName} size={44} />
+                    <span className="acc-card-name"><strong>{customer.fullName}</strong><em>{customer.username ? `@${customer.username}` : customer.email ?? "No login"}</em><span className={`acc-role ${customer.hasLogin ? "is-barista" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span></span>
+                    {!customer.isActive ? <span className="acc-status is-off"><i />Deactivated</span> : birthdayThisMonth(customer.birthday) ? <span className="acc-status is-on">🎂 {birthdayLabel(customer.birthday)}</span> : null}
+                  </span>
+                  {customer.notes && <span className="cust-note">{customer.notes}</span>}
+                  <span className="acc-card-stats">
+                    <span><em>Visits</em><strong>{customer.visits}</strong></span>
+                    <span><em>Spent</em><strong>{peso(customer.spent)}</strong></span>
+                    <span><em>Favourite</em><strong>{customer.favourite ?? "—"}</strong></span>
+                  </span>
+                  <span className="acc-card-foot">{customer.lastVisit ? `Last visit ${shiftTime(customer.lastVisit)}` : "No visits yet"}<span>Open <IconChevron size={13} /></span></span>
+                </button>)}
+              </div>
+              {shown.length > visible && <div className="flex justify-center" style={{ marginTop: 16 }}><button type="button" className="inv-secondary" onClick={() => setVisible((count) => count + CUSTOMERS_PAGE_SIZE)}>Show more ({shown.length - visible} left)</button></div>}
+            </>}
+    </div>
+    {adding && <AddCustomerDialog onClose={() => setAdding(false)} onCreated={loadCustomers} />}
+    {selected && <CustomerDialog key={selected.id} customer={selected} onClose={() => setSelectedId(null)} onChanged={(changed) => setCustomers((current) => current.map((customer) => customer.id === changed.id ? changed : customer))} onReload={loadCustomers} />}
+  </div>;
+}
+
 function Accounts() {
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -6439,6 +6872,7 @@ function Archives() {
           <div><strong>Archive and restore</strong><span>Products, sizes, add-ons, categories, inventory items and packages. Archiving hides them from the apps; restoring brings them back.</span></div>
           <div><strong>Delete forever</strong><span>The same setup data, once archived. Refused while a past sale or a recipe still uses it.</span></div>
           <div><strong>Kept forever</strong><span>Sales records, voids and refunds, shifts, attendance and stock history. They are the café’s financial record, so they cannot be archived or deleted. Correct a sale by voiding or refunding it.</span></div>
+          <div><strong>Customers</strong><span>Deactivated in Customers instead of archived. A customer who asks to be forgotten has their personal details erased; their orders stay in the sales records without a name.</span></div>
         </div>
       </details>
 
@@ -6996,7 +7430,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -7017,6 +7451,7 @@ export default function App() {
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
         {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
         {page === "finance" && <Finance />}
+        {page === "customers" && <Customers />}
         {page === "accounts" && <Accounts />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}

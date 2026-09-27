@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { AccountButton, AccountSheet, CartAccountNote, useCustomerAccount } from "./account";
 
 type Product = {
   id: number;
@@ -78,6 +79,12 @@ export default function MenuPage() {
   const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ method: "none" });
   const [paymentCheck, setPaymentCheck] = useState<PaymentCheck | null>(null);
+  // Customer account (optional). All account logic lives in ./account.tsx.
+  const customer = useCustomerAccount();
+  const { refresh: refreshAccount } = customer;
+  const [accountOpen, setAccountOpen] = useState(false);
+  // A password reset link from email opens the account sheet on its reset screen.
+  const [resetToken, setResetToken] = useState<string | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackedOrdersHydratedRef = useRef(false);
   const pendingReadyPingRef = useRef(false);
@@ -167,6 +174,20 @@ export default function MenuPage() {
     return () => window.clearTimeout(timer);
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("reset");
+    if (!token) return;
+    const timer = window.setTimeout(() => {
+      // The link is used once: take it out of the address so a refresh does not reopen it.
+      params.delete("reset");
+      window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+      setResetToken(token);
+      setAccountOpen(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   // Asks the server until PayMongo has an answer. The server creates the order once it is paid.
   const checkingPayment = paymentCheck !== null && paymentCheck.state !== "failed";
   const checkingToken = paymentCheck?.token ?? null;
@@ -195,6 +216,7 @@ export default function MenuPage() {
           setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting" }]);
           setPaymentCheck(null);
           setOrderPlaced(true);
+          void refreshAccount();
           return;
         }
         if (result.status !== "awaiting_payment") {
@@ -212,7 +234,7 @@ export default function MenuPage() {
     void check();
     const intervalId = window.setInterval(() => void check(), 2500);
     return () => { active = false; window.clearInterval(intervalId); };
-  }, [checkingPayment, checkingToken]);
+  }, [checkingPayment, checkingToken, refreshAccount]);
 
   function returnToOrder() {
     if (paymentCheck?.cart.length) setCart(paymentCheck.cart);
@@ -372,6 +394,7 @@ export default function MenuPage() {
         }]);
       }
       setOrderPlaced(true);
+      void refreshAccount();
     } catch (submitError) {
       setOrderError(submitError instanceof Error ? submitError.message : "Unable to place order.");
     } finally {
@@ -432,6 +455,7 @@ export default function MenuPage() {
         <div className="brand-mark"><IconCoffee /></div>
         <div className="brand-copy"><strong>Brew Houze</strong><span>Online Menu</span></div>
         <div className="header-actions">
+          {!customer.loading && <AccountButton state={customer} onOpen={() => setAccountOpen(true)} />}
           <button className="header-action cart-logo-button" onClick={() => setCartOpen(true)} aria-label={cartCount > 0 ? `Open cart with ${cartCount} items` : "Open empty cart"}><IconCart />{cartCount > 0 && <span className="header-count">{cartCount}</span>}</button>
           {activeOrder && <button className="header-action queue-action" onClick={() => setOrderPlaced(true)} aria-label="View active orders" title="View order status"><span className="queue-action-label">{activeOrders.length === 1 ? `#${activeOrders[0].queueNumber ?? "—"}` : activeOrders.length}</span><span className="queue-action-caption">ORDER</span></button>}
           <div className="table-pill"><span className="status-dot" />Table QR</div>
@@ -501,10 +525,11 @@ export default function MenuPage() {
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
       <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
         {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.variantName} · ₱{item.price.toFixed(2)}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
-        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" ? "Opening GCash..." : "Sending order...") : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
+        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" ? "Opening GCash..." : "Sending order...") : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}
     {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
+    {accountOpen && <AccountSheet state={customer} resetToken={resetToken} onClose={() => { setAccountOpen(false); setResetToken(null); }} onResetDone={() => setResetToken(null)} />}
     {paymentCheck && <div className="modal-backdrop">
       <section className="confirmation-modal payment-check" role="status" aria-live="polite">
         {paymentCheck.state === "failed" ? <>
