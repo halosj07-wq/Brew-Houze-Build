@@ -7,7 +7,7 @@ type Page = "pos" | "queue" | "reversals" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean };
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; return_method?: "cash" | "gcash" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -521,8 +521,9 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
 // on their phone; the QR on this screen is a fallback. They approve it in GCash. This window asks
 // the server every couple of seconds; the server asks PayMongo, and creates the order (queue
 // number, stock) only once the payment is confirmed.
-type GcashCheckout = { token: string; amount: number; redirectUrl: string };
-type GcashCheckoutView = { token: string; status: "awaiting_payment" | "completed" | "failed" | "cancelled" | "refunded" | "needs_attention"; amount: number; orderId: number | null; queueNumber: number | null; shiftId: number | null; message: string | null };
+// amount: what GCash charges. For a split ticket, cashAmount was already paid in cash.
+type GcashCheckout = { token: string; amount: number; cashAmount?: number; total?: number; redirectUrl: string };
+type GcashCheckoutView = { token: string; status: "awaiting_payment" | "completed" | "failed" | "cancelled" | "refunded" | "needs_attention"; amount: number; cashAmount?: number; orderId: number | null; queueNumber: number | null; shiftId: number | null; message: string | null };
 
 function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout: GcashCheckout; testMode: boolean; onPaid: (view: GcashCheckoutView) => void; onClose: () => void }) {
   const [qr, setQr] = useState("");
@@ -596,6 +597,7 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
         {testMode && <span className="gcash-test">Test mode · no real money</span>}
       </header>
       <p className="gcash-amount">₱{checkout.amount.toFixed(2)}</p>
+      {(checkout.cashAmount ?? 0) > 0 && <p className="gcash-split">Split ticket · ₱{(checkout.cashAmount ?? 0).toFixed(2)} paid in cash{checkout.total ? ` · total ₱${checkout.total.toFixed(2)}` : ""}</p>}
       {status === "awaiting_payment" && <>
         {showQr
           ? <div className="gcash-qr">{qr ? <Image src={qr} alt="QR code for the GCash payment" width={240} height={240} unoptimized /> : <span>Preparing QR…</span>}</div>
@@ -644,7 +646,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
   const [receivedAmount, setReceivedAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash">("cash");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash" | "split">("cash");
+  // Split ticket: the part the customer pays in cash; GCash covers the rest.
+  const [cashPart, setCashPart] = useState("");
   // GCash through PayMongo, when the server has PayMongo keys.
   const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
   const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
@@ -838,6 +842,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   async function afterOrderPlaced(queueNumber: number, shiftId: number) {
     setCart([]);
     setReceivedAmount("");
+    setCashPart("");
     onQueueAssigned(queueNumber, shiftId);
     const refresh = await fetch("/api/products", { cache: "no-store" });
     if (refresh.ok) {
@@ -864,9 +869,18 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       quantity: item.qty,
       addition_ids: item.additions.flatMap((addition) => Array.from({ length: addition.count }, () => addition.addition_id)),
     }));
-    if (paymentMethod === "gcash") {
+    if (paymentMethod === "split") {
+      const cash = Number.parseFloat(cashPart);
+      const received = receivedAmount.trim() === "" ? cash : parsedReceivedAmount;
+      const minimum = gcashConfig?.minimumAmount ?? 0;
+      if (!Number.isFinite(cash) || cash <= 0 || cash >= subtotalValue) { setCheckoutError("Enter a cash part between ₱0 and the subtotal."); return; }
+      if (subtotalValue - cash < minimum) { setCheckoutError(`The GCash part must be at least ₱${minimum.toFixed(2)}.`); return; }
+      if (!Number.isFinite(received) || received < cash) { setCheckoutError("The cash received must cover the cash part."); return; }
+    }
+    if (paymentMethod === "gcash" || paymentMethod === "split") {
+      const split = paymentMethod === "split" ? { cash_amount: Number.parseFloat(cashPart), received_amount: receivedAmount.trim() === "" ? Number.parseFloat(cashPart) : parsedReceivedAmount } : null;
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems, split }) });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || "Could not start the GCash payment.");
         setGcashCheckout(payload.data as GcashCheckout);
@@ -913,7 +927,19 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const subtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
   const parsedReceivedAmount = Number.parseFloat(receivedAmount);
   const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
-  const hasValidPayment = (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal);
+  // Split ticket figures: the cash part, what GCash charges, and change on the cash part.
+  const parsedCashPart = Number.parseFloat(cashPart);
+  const splitCash = Number.isFinite(parsedCashPart) ? Math.round(parsedCashPart * 100) / 100 : 0;
+  const splitGcash = Math.max(0, Math.round((subtotal - splitCash) * 100) / 100);
+  const splitReceived = receivedAmount.trim() === "" ? splitCash : parsedReceivedAmount;
+  const splitChange = Number.isFinite(splitReceived) ? Math.max(0, splitReceived - splitCash) : 0;
+  const splitProblem = paymentMethod !== "split" || subtotal === 0 ? ""
+    : splitCash <= 0 ? "Enter how much the customer pays in cash."
+      : splitCash >= subtotal ? "The cash part must be less than the subtotal. Use Cash instead."
+        : gcashConfig && splitGcash < gcashConfig.minimumAmount ? `The GCash part must be at least ₱${gcashConfig.minimumAmount.toFixed(2)}. Lower the cash part to ₱${Math.max(0, subtotal - gcashConfig.minimumAmount).toFixed(2)} or less.`
+          : !Number.isFinite(splitReceived) || splitReceived < splitCash ? "The cash received must cover the cash part."
+            : "";
+  const hasValidPayment = (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal) || (paymentMethod === "split" && cashPart.trim() !== "" && splitProblem === "");
 
   return <main className="pos-layout" style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
     <section className="pos-menu" style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1020,7 +1046,10 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
               <div style={{ display: "flex", gap: 6 }}>
-                {([["cash", "Cash"], ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const] : [])] as const).map(([method, label]) => <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${method === "gcash" ? "#0057E4" : "#3D2B1F"}` : "1px solid #E8DDD5", background: paymentMethod === method ? (method === "gcash" ? "#0057E4" : "#3D2B1F") : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "gcash" ? "#0057E4" : "#6B4C3B", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>)}
+                {([["cash", "Cash"], ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const, ["split", "Split"] as const] : [])] as const).map(([method, label]) => {
+                  const tone = method === "gcash" ? "#0057E4" : method === "split" ? "#7E22CE" : "#3D2B1F";
+                  return <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} title={method === "split" ? "Part cash, part GCash" : undefined} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${tone}` : "1px solid #E8DDD5", background: paymentMethod === method ? tone : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "cash" ? "#6B4C3B" : tone, padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>;
+                })}
               </div>
             </div>
             {paymentMethod === "cash" ? <>
@@ -1032,18 +1061,36 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
                 <span>Change</span>
                 <strong style={{ color: changeDue > 0 ? "#0F766E" : "#3D2B1F" }}>₱{changeDue.toFixed(2)}</strong>
               </div>
+            </> : paymentMethod === "split" ? <>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0, color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>
+                  <span>Cash part</span>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={cashPart} onChange={(event) => { setCashPart(event.target.value); if (checkoutError) setCheckoutError(""); }} placeholder="0.00" style={{ minWidth: 0, border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
+                </label>
+                <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0, color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>
+                  <span>Cash received</span>
+                  <input type="number" min="0" step="0.01" inputMode="decimal" value={receivedAmount} onChange={(event) => { setReceivedAmount(event.target.value); if (checkoutError) setCheckoutError(""); }} placeholder={splitCash > 0 ? splitCash.toFixed(2) : "Exact"} style={{ minWidth: 0, border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
+                </label>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3, padding: "8px 10px", borderRadius: 8, background: "#FAF5FF", border: "1px solid #E9D5FF", fontSize: 12.5, color: "#6B4C3B" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>Cash now</span><strong style={{ color: "#3D2B1F" }}>₱{splitCash.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>Then GCash</span><strong style={{ color: "#0057E4" }}>₱{splitGcash.toFixed(2)}</strong></div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}><span>Change</span><strong style={{ color: splitChange > 0 ? "#0F766E" : "#3D2B1F" }}>₱{splitChange.toFixed(2)}</strong></div>
+              </div>
+              {splitProblem && cashPart.trim() !== "" ? <p style={{ margin: 0, color: "#B91C1C", fontSize: 11.5, lineHeight: 1.4 }}>{splitProblem}</p>
+                : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.45 }}>Take the cash first. The customer pays the rest with GCash, and the order goes to the queue once GCash confirms.</p>}
             </> : paymentMethod === "gcash" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>A QR code appears for the customer to scan and pay in GCash. The order goes to the queue once the payment is confirmed.{gcashConfig && subtotal > 0 && subtotal < gcashConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash needs at least ₱{gcashConfig.minimumAmount.toFixed(2)}.</strong> : null}</p>
             : null}
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : "Checkout"}</button>
-            <button onClick={() => { setCart([]); setReceivedAmount(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
+            <button onClick={() => { setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
     </aside>
 
-    {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => setGcashCheckout(null)} onPaid={(view) => { setGcashCheckout(null); if (view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.queueNumber, view.shiftId); }} />}
+    {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => { if ((gcashCheckout.cashAmount ?? 0) > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${(gcashCheckout.cashAmount ?? 0).toFixed(2)} cash part.`); setGcashCheckout(null); }} onPaid={(view) => { setGcashCheckout(null); if (view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.queueNumber, view.shiftId); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
@@ -1310,7 +1357,7 @@ function ReversalsPage({ user }: { user: Session }) {
   const [password, setPassword] = useState("");
   const [wrongPassword, setWrongPassword] = useState(false);
   // How the money goes back: handed back from the drawer, or sent by hand through GCash.
-  const [returnMethod, setReturnMethod] = useState<"cash" | "gcash">("cash");
+  const [returnMethod, setReturnMethod] = useState<"cash" | "gcash" | "split">("cash");
   const [gcashName, setGcashName] = useState("");
   const [gcashNumber, setGcashNumber] = useState("");
   const [gcashReference, setGcashReference] = useState("");
@@ -1337,7 +1384,7 @@ function ReversalsPage({ user }: { user: Session }) {
 
   async function reverseOrder(order: QueueOrder, action: "void" | "refund") {
     if (submitting) return;
-    if (returnMethod === "gcash") {
+    if (returnMethod === "gcash" || returnMethod === "split") {
       if (!gcashName.trim()) { setError("Enter the name on the customer’s GCash account."); return; }
       if (!isValidGcashNumber(gcashNumber)) { setError("Enter the customer’s 11-digit GCash number, e.g. 0917 123 4567."); return; }
     }
@@ -1356,7 +1403,7 @@ function ReversalsPage({ user }: { user: Session }) {
       setPendingAction(null);
       setPassword("");
       setError("");
-      setNotice(`Order #${order.queue_number} ${action === "void" ? "voided" : "refunded"}. ${returnMethod === "gcash" ? `Send ₱${Number(order.total_amount ?? 0).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : `Hand back ₱${Number(order.total_amount ?? 0).toFixed(2)} in cash.`} Its ingredients and add-ons were returned to inventory.`);
+      setNotice(`Order #${order.queue_number} ${action === "void" ? "voided" : "refunded"}. ${returnMethod === "split" ? `Hand back ₱${Number(order.cash_portion ?? 0).toFixed(2)} in cash and send ₱${(Number(order.total_amount ?? 0) - Number(order.cash_portion ?? 0)).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : returnMethod === "gcash" ? `Send ₱${Number(order.total_amount ?? 0).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : `Hand back ₱${Number(order.total_amount ?? 0).toFixed(2)} in cash.`} Its ingredients and add-ons were returned to inventory.`);
       await loadOrders();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : `Unable to ${action} order.`);
@@ -1382,10 +1429,13 @@ function ReversalsPage({ user }: { user: Session }) {
   const pendingTotal = Number(pendingAction?.order.total_amount ?? 0);
   const pendingIsOnline = pendingAction?.order.payment_method === "online";
   const pendingIsGcash = pendingAction?.order.payment_provider === "paymongo_gcash";
-  const paymentLabel = (order: QueueOrder) => order.payment_provider === "paymongo_gcash" ? "GCash" : order.payment_method === "online" ? "Online payment" : "Cash";
+  const paymentLabel = (order: QueueOrder) => order.payment_method === "split" ? `Cash ₱${Number(order.cash_portion ?? 0).toFixed(2)} + GCash` : order.payment_provider === "paymongo_gcash" ? "GCash" : order.payment_method === "online" ? "Online payment" : "Cash";
+  const pendingIsSplit = pendingAction?.order.payment_method === "split";
+  const pendingCashPart = pendingIsSplit ? Number(pendingAction?.order.cash_portion ?? 0) : 0;
+  const pendingGcashPart = Math.max(0, pendingTotal - pendingCashPart);
   const openAction = (order: QueueOrder, action: "void" | "refund") => {
     setError(""); setPassword(""); setWrongPassword(false);
-    setReturnMethod(order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
+    setReturnMethod(order.payment_method === "split" ? "split" : order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
     setGcashName(""); setGcashNumber(""); setGcashReference("");
     setPendingAction({ order, action });
   };
@@ -1434,7 +1484,9 @@ function ReversalsPage({ user }: { user: Session }) {
                 <span style={{ padding: "2px 9px", borderRadius: 999, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 700 }}>{paymentLabel(order)}</span>
               </div>
               {!reversible && order.return_method && <div style={{ padding: "6px 10px", borderRadius: 9, background: order.return_method === "gcash" ? "#EFF6FF" : "#F3EDE5", color: order.return_method === "gcash" ? "#1E40AF" : "#6B4C3B", fontSize: 12, lineHeight: 1.45 }}>
-                {order.return_method === "gcash"
+                {order.return_method === "split"
+                  ? <>Returned as paid: <strong>₱{Number(order.cash_portion ?? 0).toFixed(2)} cash</strong> + <strong>₱{(Number(order.total_amount ?? 0) - Number(order.cash_portion ?? 0)).toFixed(2)} GCash</strong> to <strong>{order.return_gcash_name}</strong> · {formatGcashNumber(order.return_gcash_number ?? "")}{order.return_reference ? ` · Ref ${order.return_reference}` : " · no reference yet"}</>
+                  : order.return_method === "gcash"
                   ? <>Returned through <strong>GCash</strong> to <strong>{order.return_gcash_name}</strong> · {formatGcashNumber(order.return_gcash_number ?? "")}{order.return_reference ? ` · Ref ${order.return_reference}` : " · no reference yet"}</>
                   : <>Returned in <strong>cash</strong> from the drawer</>}
                 {order.reversed_by ? ` · by ${order.reversed_by}` : ""}
@@ -1477,11 +1529,11 @@ function ReversalsPage({ user }: { user: Session }) {
               {detail.additions.length > 0 && <div style={{ marginTop: 3, color: "#7E22CE", fontSize: 12 }}>+ {detail.additions.map((addition) => formatQueueAddition(addition, Number(detail.quantity))).join(", ")}</div>}
             </div>)}
           </div>
-          <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>How is the money returned? <span style={{ fontWeight: 400, color: "#9C8278" }}>Paid with {pendingIsGcash ? "GCash" : pendingIsOnline ? "online payment" : "cash"}</span></p>
-          <div role="group" aria-label="Return method" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-            {([["cash", "Cash", "From the drawer"], ["gcash", "GCash", "Sent by the café"]] as const).map(([method, label, hint]) => {
+          <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>How is the money returned? <span style={{ fontWeight: 400, color: "#9C8278" }}>Paid with {pendingIsSplit ? `₱${pendingCashPart.toFixed(2)} cash + ₱${pendingGcashPart.toFixed(2)} GCash` : pendingIsGcash ? "GCash" : pendingIsOnline ? "online payment" : "cash"}</span></p>
+          <div role="group" aria-label="Return method" style={{ display: "grid", gridTemplateColumns: pendingIsSplit ? "1fr 1fr 1fr" : "1fr 1fr", gap: 6 }}>
+            {([...(pendingIsSplit ? [["split", "As paid", "Cash + GCash"] as const] : []), ["cash", "Cash", "From the drawer"], ["gcash", "GCash", "Sent by the café"]] as const).map(([method, label, hint]) => {
               const active = returnMethod === method;
-              const tone = method === "gcash" ? "#0057E4" : "#3D2B1F";
+              const tone = method === "gcash" ? "#0057E4" : method === "split" ? "#7E22CE" : "#3D2B1F";
               return <button key={method} type="button" aria-pressed={active} onClick={() => { setReturnMethod(method); setError(""); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: "9px 6px", borderRadius: 10, border: `1px solid ${active ? tone : "#E8DDD5"}`, background: active ? tone : "#FFFDF9", color: active ? "#FFFFFF" : tone, cursor: "pointer" }}>
                 <strong style={{ fontSize: 13.5 }}>{label}</strong>
                 <span style={{ fontSize: 11, opacity: 0.8 }}>{hint}</span>
@@ -1489,7 +1541,7 @@ function ReversalsPage({ user }: { user: Session }) {
             })}
           </div>
           <form onSubmit={(event) => { event.preventDefault(); void reverseOrder(pendingAction.order, pendingAction.action); }}>
-          {returnMethod === "gcash" && <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+          {(returnMethod === "gcash" || returnMethod === "split") && <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
             <label style={{ display: "flex", flexDirection: "column", gap: 4, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Name on the customer’s GCash
               <input value={gcashName} onChange={(event) => { setGcashName(event.target.value); setError(""); }} maxLength={120} autoComplete="off" placeholder="e.g. Juan Dela Cruz" style={returnFieldStyle} />
             </label>
@@ -1500,17 +1552,21 @@ function ReversalsPage({ user }: { user: Session }) {
               <input value={gcashReference} onChange={(event) => setGcashReference(event.target.value)} maxLength={60} autoComplete="off" placeholder="From the GCash receipt after sending" style={returnFieldStyle} />
             </label>
           </div>}
-          <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 12, background: returnMethod === "gcash" ? "#0057E4" : "#3D2B1F", color: "#FDF9F5" }}>
+          {returnMethod === "split" && <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 12, background: "#3D2B1F", color: "#FDF9F5", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>Hand back in cash</span>
+            <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, whiteSpace: "nowrap" }}>₱{pendingCashPart.toFixed(2)}</strong>
+          </div>}
+          <div style={{ marginTop: returnMethod === "split" ? 6 : 12, padding: "12px 14px", borderRadius: 12, background: returnMethod === "cash" ? "#3D2B1F" : "#0057E4", color: "#FDF9F5" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>{returnMethod === "gcash" ? "Send through GCash" : "Hand back in cash"}</span>
-              <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, whiteSpace: "nowrap" }}>₱{pendingTotal.toFixed(2)}</strong>
+              <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>{returnMethod === "cash" ? "Hand back in cash" : returnMethod === "split" ? "And send through GCash" : "Send through GCash"}</span>
+              <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, whiteSpace: "nowrap" }}>₱{(returnMethod === "split" ? pendingGcashPart : pendingTotal).toFixed(2)}</strong>
             </div>
-            {returnMethod === "gcash" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.25)", fontSize: 13, lineHeight: 1.5 }}>
+            {returnMethod !== "cash" && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.25)", fontSize: 13, lineHeight: 1.5 }}>
               <div>To <strong>{gcashName.trim() || "—"}</strong></div>
               <div style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 16, fontWeight: 700, letterSpacing: "0.04em" }}>{gcashNumber && isValidGcashNumber(gcashNumber) ? formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0")) : "—"}</div>
             </div>}
           </div>
-          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>{returnMethod === "gcash" ? "Send it from the café’s GCash by hand. The cash drawer is not affected." : "Taken out of the expected cash in the drawer."} Stock is returned to inventory, the order leaves the queue, and it no longer counts as a sale. This cannot be undone.</p>
+          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>{returnMethod === "gcash" ? "Send it from the café’s GCash by hand. The cash drawer is not affected." : returnMethod === "split" ? "The cash part comes out of the drawer. Send the GCash part from the café’s GCash by hand." : "Taken out of the expected cash in the drawer."} Stock is returned to inventory, the order leaves the queue, and it no longer counts as a sale. This cannot be undone.</p>
           <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={user.fullName} invalid={wrongPassword} />
           {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
           <div className="flex justify-end gap-2" style={{ marginTop: 18 }}>

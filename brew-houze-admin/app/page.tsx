@@ -1233,7 +1233,7 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
                 {data.recentOrders.map((order) => {
                   const reversed = isReversedStatus(order.status);
                   const when = manilaDay(order.createdAt) === manilaDay(now) ? clockTime(order.createdAt) : shiftTime(order.createdAt);
-                  const channel = order.orderSource === "online" ? "Mobile" : order.paymentMethod === "online" ? "Online" : "Cash";
+                  const channel = order.orderSource === "online" ? "Mobile" : order.paymentMethod === "split" ? "Split" : order.paymentMethod === "online" ? "Online" : "Cash";
                   return <li key={order.orderId}>
                     <span className="dash-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
                     <div className="dash-order-main">
@@ -3679,7 +3679,7 @@ function getFinanceDateStamp(): string {
 type ShiftLive = Omit<ShiftReport, "hoursOpen"> & { isOpen: boolean; previousShiftId: number | null; nextShiftId: number | null };
 type ShiftLiveOrder = ShiftOrder & { queueStatus: string | null; reversedBy: string | null } & ReturnDetails;
 // How the money of a voided or refunded order went back to the customer (set by the cashier).
-type ReturnDetails = { returnMethod?: string | null; returnGcashName?: string | null; returnGcashNumber?: string | null; returnReference?: string | null };
+type ReturnDetails = { returnMethod?: string | null; returnGcashName?: string | null; returnGcashNumber?: string | null; returnReference?: string | null; cashPortion?: number | null; total?: number };
 type ShiftStockLog = {
   logId: number; inventoryId: number | null; itemName: string; unit: string; changeType: string; delta: number | null; quantityAfter: number | null;
   orderId: number | null; packagingName: string | null; packsAdded: number | null; sourceApp: string | null; adminName: string | null; createdAt: string;
@@ -3718,12 +3718,13 @@ function formatGcashNumber(value: string): string {
 // reversed before return methods were recorded.
 function describeReturn(order: ReturnDetails): string | null {
   if (order.returnMethod === "cash") return "Returned in cash from the drawer";
+  if (order.returnMethod === "split") return `Returned as paid: ${peso(order.cashPortion ?? 0)} in cash and ${peso(Math.max(0, (order.total ?? 0) - (order.cashPortion ?? 0)))} through GCash to ${order.returnGcashName ?? "—"} · ${formatGcashNumber(order.returnGcashNumber ?? "")}${order.returnReference ? ` · Ref ${order.returnReference}` : " · no reference recorded"}`;
   if (order.returnMethod === "gcash") return `Returned through GCash to ${order.returnGcashName ?? "—"} · ${formatGcashNumber(order.returnGcashNumber ?? "")}${order.returnReference ? ` · Ref ${order.returnReference}` : " · no reference recorded"}`;
   return null;
 }
 
-function shiftOrderChannel(order: { orderSource: string; paymentMethod: string }): "Mobile" | "Online" | "Cash" {
-  return order.orderSource === "online" ? "Mobile" : order.paymentMethod === "online" ? "Online" : "Cash";
+function shiftOrderChannel(order: { orderSource: string; paymentMethod: string }): "Mobile" | "Online" | "Cash" | "Split" {
+  return order.orderSource === "online" ? "Mobile" : order.paymentMethod === "split" ? "Split" : order.paymentMethod === "online" ? "Online" : "Cash";
 }
 
 function durationLabel(fromIso: string, toIso: string | null, now: number): string {
@@ -3795,7 +3796,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [feedFilter, setFeedFilter] = useState<"all" | ShiftEventKind>("all");
   const [feedLimit, setFeedLimit] = useState(60);
   const [orderStatus, setOrderStatus] = useState<"all" | "completed" | "voided" | "refunded">("all");
-  const [orderChannelFilter, setOrderChannelFilter] = useState<"all" | "Cash" | "Online" | "Mobile">("all");
+  const [orderChannelFilter, setOrderChannelFilter] = useState<"all" | "Cash" | "Online" | "Split" | "Mobile">("all");
   const [orderCashier, setOrderCashier] = useState("all");
   const [orderSearch, setOrderSearch] = useState("");
   const requestRef = useRef(0);
@@ -4096,7 +4097,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
             </div>
             <label className="inv-filter"><span>Payment</span>
               <select value={orderChannelFilter} onChange={(event) => setOrderChannelFilter(event.target.value as typeof orderChannelFilter)} className={`inv-select${orderChannelFilter !== "all" ? " is-active" : ""}`}>
-                <option value="all">Any</option><option value="Cash">Cash</option><option value="Online">Online at counter</option><option value="Mobile">Mobile menu</option>
+                <option value="all">Any</option><option value="Cash">Cash</option><option value="Online">GCash at counter</option><option value="Split">Split (cash + GCash)</option><option value="Mobile">Mobile menu</option>
               </select>
             </label>
             <label className="inv-filter"><span>Punched by</span>
@@ -4491,11 +4492,13 @@ type FinanceOrder = {
   received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
   businessDate: string; createdAt: string; reversedAt: string | null; punchedBy: string; reversedBy: string | null; cost: number | null; items: FinanceOrderItem[];
   paymentProvider?: string | null;
+  // Split ticket: the part paid in cash (the rest was GCash).
+  cashPortion?: number | null;
 } & ReturnDetails;
 type FinanceTab = "overview" | "shifts" | "orders";
 type OrdersPreset = { status?: OrderStatusFilter; cashier?: string; category?: string; channel?: OrderChannelFilter };
 type OrderStatusFilter = "all" | "completed" | "voided" | "refunded" | "reversed";
-type OrderChannelFilter = "all" | "cash" | "online" | "mobile";
+type OrderChannelFilter = "all" | "cash" | "online" | "split" | "mobile";
 
 function financePresets(today: string) {
   const weekday = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7;
@@ -4517,11 +4520,12 @@ function formatRange(start: string, end: string): string {
   return `${date(start, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })} – ${date(end, { month: "short", day: "numeric", year: "numeric" })}`;
 }
 
-function orderChannel(order: Pick<FinanceOrder, "orderSource" | "paymentMethod">): "mobile" | "online" | "cash" {
+function orderChannel(order: Pick<FinanceOrder, "orderSource" | "paymentMethod">): "mobile" | "online" | "cash" | "split" {
   if (order.orderSource === "online") return "mobile";
+  if (order.paymentMethod === "split") return "split";
   return order.paymentMethod === "cash" ? "cash" : "online";
 }
-const channelLabels = { cash: "Cash", online: "Online at counter", mobile: "Mobile menu" } as const;
+const channelLabels = { cash: "Cash", online: "Online at counter", split: "Split (cash + GCash)", mobile: "Mobile menu" } as const;
 
 function orderStatusOf(order: Pick<FinanceOrder, "status">): "completed" | "voided" | "refunded" {
   const status = order.status.toLowerCase();
@@ -4645,7 +4649,7 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
             <span className="is-mobile" style={{ width: `${share(current.mobileSales, paid)}%` }} />
           </div>
           <ul className="fin-mix-list">
-            {([["cash", current.cashSales, "Paid in cash at the counter"], ["online", current.counterOnlineSales, "Paid online at the counter"], ["mobile", current.mobileSales, `${current.mobileOrders} order${current.mobileOrders === 1 ? "" : "s"} from the mobile menu`]] as const).map(([key, value, hint]) => <li key={key}>
+            {([["cash", current.cashSales, "Paid in cash at the counter, incl. the cash part of split tickets"], ["online", current.counterOnlineSales, "Paid with GCash at the counter, incl. split tickets"], ["mobile", current.mobileSales, `${current.mobileOrders} order${current.mobileOrders === 1 ? "" : "s"} from the mobile menu`]] as const).map(([key, value, hint]) => <li key={key}>
               <button type="button" onClick={() => onOpenOrders({ status: "completed", channel: key })}>
                 <i className={`is-${key}`} />
                 <span><strong>{channelLabels[key]}</strong><em>{hint}</em></span>
@@ -4772,9 +4776,9 @@ function FinanceOrderDialog({ order, onClose, onArchived }: { order: FinanceOrde
           {fact("Business date", formatRange(order.businessDate, order.businessDate))}
           {fact("Shift", order.shiftId ? `#${order.shiftId}` : "—")}
           {fact("Punched by", order.punchedBy)}
-          {fact("Payment", order.paymentMethod === "cash" ? "Cash" : "Online")}
-          {order.paymentMethod === "cash" && order.received !== null && fact("Received", peso(order.received))}
-          {order.paymentMethod === "cash" && order.change !== null && fact("Change", peso(order.change))}
+          {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
+          {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.received !== null && fact("Cash received", peso(order.received))}
+          {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.change !== null && fact("Change", peso(order.change))}
         </div>
         <ul className="fin-items">
           {order.items.map((item, index) => {
@@ -4986,7 +4990,7 @@ function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; e
         {([["all", "All"], ["completed", "Completed"], ["voided", "Voided"], ["refunded", "Refunded"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={status === id} onClick={() => setStatus(id)}>{label}</button>)}
       </div>
       <div className="inv-range" role="group" aria-label="Payment">
-        {([["all", "Any payment"], ["cash", "Cash"], ["online", "Online"], ["mobile", "Mobile"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{label}</button>)}
+        {([["all", "Any payment"], ["cash", "Cash"], ["online", "Online"], ["split", "Split"], ["mobile", "Mobile"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{label}</button>)}
       </div>
     </div>
 
@@ -5021,7 +5025,7 @@ function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; e
                             <span>{clockTime(order.createdAt)} · Order {order.orderId} · {order.punchedBy}{order.shiftId ? ` · Shift #${order.shiftId}` : ""}</span>
                           </span>
                           <span className="fin-order-tags">
-                            <span className={`fin-chip is-${orderChannelKey}`}>{orderChannelKey === "online" ? "Online" : channelLabels[orderChannelKey].replace(" menu", "")}</span>
+                            <span className={`fin-chip is-${orderChannelKey}`}>{orderChannelKey === "online" ? "Online" : orderChannelKey === "split" ? "Split" : channelLabels[orderChannelKey].replace(" menu", "")}</span>
                             {orderStatus !== "completed" && <span className={`fin-status is-${orderStatus}`}>{orderStatus === "voided" ? "Voided" : "Refunded"}</span>}
                           </span>
                           <strong className={`fin-order-total${order.reversed ? " is-reversed" : ""}`}>{peso(order.total)}</strong>

@@ -69,8 +69,9 @@ async function totals(start: string, end: string) {
       (SELECT COUNT(*) FILTER (WHERE status IN ('void', 'voided')) FROM o WHERE bd BETWEEN $1::date AND $2::date)::int AS voids,
       (SELECT COUNT(*) FILTER (WHERE status IN ('refund', 'refunded')) FROM o WHERE bd BETWEEN $1::date AND $2::date)::int AS refunds,
       (SELECT COALESCE(SUM(total_amount) FILTER (WHERE reversed), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS reversed_amount,
-      (SELECT COALESCE(SUM(total_amount) FILTER (WHERE NOT reversed AND COALESCE(order_source, '') <> 'online' AND COALESCE(payment_method, 'cash') = 'cash'), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS cash_sales,
-      (SELECT COALESCE(SUM(total_amount) FILTER (WHERE NOT reversed AND COALESCE(order_source, '') <> 'online' AND COALESCE(payment_method, 'cash') <> 'cash'), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS counter_online_sales,
+      -- A split ticket counts its cash part as cash and the rest as online.
+      (SELECT COALESCE(SUM(CASE COALESCE(payment_method, 'cash') WHEN 'cash' THEN total_amount WHEN 'split' THEN COALESCE(cash_portion, 0) ELSE 0 END) FILTER (WHERE NOT reversed AND COALESCE(order_source, '') <> 'online'), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS cash_sales,
+      (SELECT COALESCE(SUM(CASE COALESCE(payment_method, 'cash') WHEN 'cash' THEN 0 WHEN 'split' THEN total_amount - COALESCE(cash_portion, 0) ELSE total_amount END) FILTER (WHERE NOT reversed AND COALESCE(order_source, '') <> 'online'), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS counter_online_sales,
       (SELECT COALESCE(SUM(total_amount) FILTER (WHERE NOT reversed AND order_source = 'online'), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS mobile_sales,
       (SELECT COUNT(*) FILTER (WHERE NOT reversed AND order_source = 'online') FROM o WHERE bd BETWEEN $1::date AND $2::date)::int AS mobile_orders,
       (SELECT COALESCE(SUM(quantity), 0) FROM lines)::int AS items_sold,
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
         WITH ${ordersCte}
         SELECT o.order_id, o.queue_number, o.status, o.total_amount, o.payment_method, o.order_source, o.received_amount, o.change_amount,
           o.shift_id, o.reversed_shift_id, o.reversal_type, o.reversed,
-          o.return_method, o.return_gcash_name, o.return_gcash_number, o.return_reference, o.payment_provider,
+          o.return_method, o.return_gcash_name, o.return_gcash_number, o.return_reference, o.payment_provider, o.cash_portion,
           TO_CHAR(o.bd, 'YYYY-MM-DD') AS business_date,
           TO_CHAR(o.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
           TO_CHAR(o.reversed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
@@ -177,6 +178,7 @@ export async function GET(request: Request) {
           punchedBy: row.punched_by,
           reversedBy: row.reversed_by ?? null,
           paymentProvider: row.payment_provider ?? null,
+          cashPortion: row.cash_portion === null || row.cash_portion === undefined ? null : n(row.cash_portion),
           returnMethod: row.return_method ?? null,
           returnGcashName: row.return_gcash_name ?? null,
           returnGcashNumber: row.return_gcash_number ?? null,

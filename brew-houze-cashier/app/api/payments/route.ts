@@ -16,12 +16,14 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (!paymongoConfigured()) return NextResponse.json({ error: "GCash is not set up on this server." }, { status: 503 });
   try {
-    const body = await request.json() as { items?: unknown };
+    const body = await request.json() as { items?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null };
     const items = parseOrderItems(body.items);
     if (items.length === 0) return NextResponse.json({ error: "At least one valid cart item is required." }, { status: 400 });
     // After paying, the customer's phone lands on a public page of this app (no sign-in needed).
     const origin = process.env.APP_URL?.replace(/\/$/, "") || new URL(request.url).origin;
-    const started = await startCheckout({ source: "cashier", items, cashierAdminId: session.adminId, returnUrl: (token) => `${origin}/pay/done?ref=${token}` });
+    // Split ticket: the cash part is collected at the counter, GCash charges the rest.
+    const split = body.split ? { cashAmount: Number(body.split.cash_amount), receivedAmount: Number(body.split.received_amount) } : null;
+    const started = await startCheckout({ source: "cashier", items, cashierAdminId: session.adminId, returnUrl: (token) => `${origin}/pay/done?ref=${token}`, split });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
     console.error("POST /api/payments failed:", error);

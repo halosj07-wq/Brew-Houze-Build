@@ -10,8 +10,10 @@ export type PlaceOrderInput = {
   items: OrderItemInput[];
   source: OrderSource;
   cashierAdminId: number | null;
-  paymentMethod: "cash" | "online";
+  // split: part cash (cashAmount, paid with receivedAmount) and the rest through GCash.
+  paymentMethod: "cash" | "online" | "split";
   receivedAmount?: number;
+  cashAmount?: number;
   customerToken?: string | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
@@ -165,18 +167,26 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   let receivedAmount = total;
   let changeAmount = 0;
+  let cashPortion: number | null = null;
   if (input.paymentMethod === "cash") {
     receivedAmount = Number(input.receivedAmount);
     if (!Number.isFinite(receivedAmount) || receivedAmount < total) throw new Error("Received payment must be at least the subtotal amount.");
     changeAmount = Number((receivedAmount - total).toFixed(2));
   }
+  if (input.paymentMethod === "split") {
+    cashPortion = Math.round(Number(input.cashAmount) * 100) / 100;
+    if (!Number.isFinite(cashPortion) || cashPortion <= 0 || cashPortion >= total) throw new Error("The cash part must be more than ₱0 and less than the total.");
+    receivedAmount = Number(input.receivedAmount);
+    if (!Number.isFinite(receivedAmount) || receivedAmount < cashPortion) throw new Error("The cash received must cover the cash part.");
+    changeAmount = Number((receivedAmount - cashPortion).toFixed(2));
+  }
 
   const order = await client.query(`
-    INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider)
-    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11)
+    INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion)
+    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
-  `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null]);
+  `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion]);
   const orderId = Number(order.rows[0].order_id);
 
   for (const [inventoryId, detail] of deductionDetails) {

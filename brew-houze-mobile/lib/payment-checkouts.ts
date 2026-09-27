@@ -12,6 +12,9 @@ import { createGcashPayment, getIntentState, PAYMONGO_MIN_AMOUNT, refundPayment 
 //   awaiting_payment -> cancelled        the cashier cancelled before any payment
 //   any -> needs_attention -> refunded   paid, but the order could not be created (stock ran
 //                                         out, the shift closed, or it was cancelled), refunded
+//
+// Split payments (counter only): the cashier collects cash_amount in cash first, and the
+// checkout charges the rest (amount) through GCash. The order records both parts.
 
 export type CheckoutStatus = "awaiting_payment" | "completed" | "failed" | "cancelled" | "refunded" | "needs_attention";
 export type CheckoutView = {
@@ -19,6 +22,7 @@ export type CheckoutView = {
   source: OrderSource;
   status: CheckoutStatus;
   amount: number;
+  cashAmount: number;
   orderId: number | null;
   queueNumber: number | null;
   shiftId: number | null;
@@ -28,6 +32,7 @@ export type CheckoutView = {
 type CheckoutRow = {
   checkout_id: number; source_app: OrderSource; status: CheckoutStatus; amount: string; items: OrderItemInput[];
   cashier_admin_id: number | null; public_token: string; intent_id: string | null; payment_id: string | null;
+  cash_amount?: string | null; received_amount?: string | null;
   order_id: number | null; error: string | null; queue_number?: number | null; shift_id?: number | null;
 };
 
@@ -38,6 +43,9 @@ const selectCheckout = `
 `;
 
 function toView(row: CheckoutRow): CheckoutView {
+  const cashAmount = Number(row.cash_amount ?? 0);
+  // Split payment that did not go through: the cash part was already handed over.
+  const cashBack = cashAmount > 0 ? ` Give the customer back the ₱${cashAmount.toFixed(2)} cash they paid.` : "";
   const messages: Partial<Record<CheckoutStatus, string>> = {
     failed: row.error ?? "The GCash payment did not go through.",
     cancelled: "Cancelled before payment.",
@@ -52,7 +60,8 @@ function toView(row: CheckoutRow): CheckoutView {
     orderId: row.order_id === null ? null : Number(row.order_id),
     queueNumber: row.queue_number === null || row.queue_number === undefined ? null : Number(row.queue_number),
     shiftId: row.shift_id === null || row.shift_id === undefined ? null : Number(row.shift_id),
-    message: messages[row.status] ?? null,
+    cashAmount,
+    message: messages[row.status] ? `${messages[row.status]}${cashBack}` : null,
   };
 }
 
@@ -64,32 +73,46 @@ async function loadByToken(token: string): Promise<CheckoutRow | null> {
 
 // Prices the cart (stock, prices and the open shift all checked), opens a PayMongo GCash
 // payment for exactly that amount, and returns where to send the customer.
-export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; returnUrl: (token: string) => string }) {
+export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
   const client = await pool.connect();
-  let amount: number;
+  let total: number;
   try {
-    amount = await quoteOrder(client, { items: input.items, source: input.source, cashierAdminId: input.cashierAdminId });
+    total = await quoteOrder(client, { items: input.items, source: input.source, cashierAdminId: input.cashierAdminId });
   } finally {
     client.release();
   }
-  if (amount < PAYMONGO_MIN_AMOUNT) throw new Error(`GCash payments start at ₱${PAYMONGO_MIN_AMOUNT.toFixed(2)}. This order is ₱${amount.toFixed(2)}.`);
+  let cashAmount = 0;
+  let receivedAmount: number | null = null;
+  if (input.split) {
+    cashAmount = Math.round(Number(input.split.cashAmount) * 100) / 100;
+    receivedAmount = Math.round(Number(input.split.receivedAmount) * 100) / 100;
+    if (!Number.isFinite(cashAmount) || cashAmount <= 0 || cashAmount >= total) throw new Error(`The cash part must be more than ₱0 and less than the ₱${total.toFixed(2)} total.`);
+    if (!Number.isFinite(receivedAmount) || receivedAmount < cashAmount) throw new Error("The cash received must cover the cash part.");
+  }
+  // What GCash charges: the whole order, or what is left after the cash part.
+  const amount = Math.round((total - cashAmount) * 100) / 100;
+  if (amount < PAYMONGO_MIN_AMOUNT) {
+    throw new Error(input.split
+      ? `The GCash part must be at least ₱${PAYMONGO_MIN_AMOUNT.toFixed(2)}. Lower the cash part to ₱${(total - PAYMONGO_MIN_AMOUNT).toFixed(2)} or less.`
+      : `GCash payments start at ₱${PAYMONGO_MIN_AMOUNT.toFixed(2)}. This order is ₱${amount.toFixed(2)}.`);
+  }
 
   const token = randomUUID();
   const inserted = await pool.query(`
-    INSERT INTO payment_checkouts (source_app, status, amount, items, cashier_admin_id, public_token)
-    VALUES ($1, 'awaiting_payment', $2, $3::jsonb, $4, $5)
+    INSERT INTO payment_checkouts (source_app, status, amount, items, cashier_admin_id, public_token, cash_amount, received_amount)
+    VALUES ($1, 'awaiting_payment', $2, $3::jsonb, $4, $5, $6, $7)
     RETURNING checkout_id
-  `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token]);
+  `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token, cashAmount, receivedAmount]);
   const checkoutId = Number(inserted.rows[0].checkout_id);
   try {
     const payment = await createGcashPayment({
       amount,
-      description: `Brew Houze ${input.source === "mobile" ? "mobile" : "counter"} order`,
+      description: `Brew Houze ${input.source === "mobile" ? "mobile" : "counter"} order${cashAmount > 0 ? ` (GCash part, ₱${cashAmount.toFixed(2)} paid in cash)` : ""}`,
       returnUrl: input.returnUrl(token),
       reference: token,
     });
     await pool.query("UPDATE payment_checkouts SET intent_id = $2, updated_at = CURRENT_TIMESTAMP WHERE checkout_id = $1", [checkoutId, payment.intentId]);
-    return { token, amount, redirectUrl: payment.redirectUrl };
+    return { token, amount, cashAmount, total, redirectUrl: payment.redirectUrl };
   } catch (error) {
     await pool.query("UPDATE payment_checkouts SET status = 'failed', error = $2, updated_at = CURRENT_TIMESTAMP WHERE checkout_id = $1", [checkoutId, error instanceof Error ? error.message : "Could not start the payment."]);
     throw error;
@@ -131,16 +154,20 @@ async function finalizePaid(checkoutId: number, paymentId: string | null): Promi
     }
     await client.query("SAVEPOINT place_order");
     try {
+      const cashAmount = Number(row.cash_amount ?? 0);
       const placed = await placeOrder(client, {
         items: row.items,
         source: row.source_app,
         cashierAdminId: row.cashier_admin_id === null ? null : Number(row.cashier_admin_id),
-        paymentMethod: "online",
+        paymentMethod: cashAmount > 0 ? "split" : "online",
+        cashAmount,
+        receivedAmount: row.received_amount === null || row.received_amount === undefined ? cashAmount : Number(row.received_amount),
         customerToken: row.source_app === "mobile" ? row.public_token : null,
         paymentReference: paymentId,
         paymentProvider: "paymongo_gcash",
       });
-      if (Math.abs(placed.total - Number(row.amount)) > 0.005) throw new Error(`The order total changed to ₱${placed.total.toFixed(2)} while paying ₱${Number(row.amount).toFixed(2)}`);
+      const paidTotal = Number(row.amount) + cashAmount;
+      if (Math.abs(placed.total - paidTotal) > 0.005) throw new Error(`The order total changed to ₱${placed.total.toFixed(2)} while paying ₱${paidTotal.toFixed(2)}`);
       await client.query("UPDATE payment_checkouts SET status = 'completed', order_id = $2, payment_id = $3, paid_at = CURRENT_TIMESTAMP, error = NULL, updated_at = CURRENT_TIMESTAMP WHERE checkout_id = $1", [checkoutId, placed.orderId, paymentId]);
     } catch (orderError) {
       await client.query("ROLLBACK TO SAVEPOINT place_order");

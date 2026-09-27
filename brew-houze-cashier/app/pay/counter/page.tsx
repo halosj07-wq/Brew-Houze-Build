@@ -50,7 +50,7 @@ export default function CounterPayment() {
       <p style={{ margin: "14px 0 0", color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 11, letterSpacing: ".12em", textTransform: "uppercase" }}>Brew Houze · pay at the counter</p>
 
       {current.state === "ready" ? <>
-        <p style={{ margin: "14px 0 0", color: "#6B4C3B", fontSize: 14 }}>Your order total</p>
+        <p style={{ margin: "14px 0 0", color: "#6B4C3B", fontSize: 14 }}>Amount to pay with GCash</p>
         <p style={{ margin: "2px 0 0", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 44 }}>₱{current.amount.toFixed(2)}</p>
         <p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 12.5, lineHeight: 1.5 }}>Check that this matches the amount the cashier told you.</p>
         <a

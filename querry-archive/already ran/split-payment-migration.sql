@@ -1,32 +1,39 @@
--- Void and refund return method migration
+-- Split payment migration
 --
--- A voided or refunded order records how the money went back to the customer: handed back in
--- cash from the drawer, or sent by the cafe through GCash by hand. For GCash returns the
--- customer name, number and the transfer reference are kept with the order.
+-- A counter order can be paid partly in cash and partly with GCash. The cashier takes the cash
+-- part first, then the customer pays the rest through GCash. The order is created only once the
+-- GCash part is paid, like any GCash order.
 --
--- The cash drawer now follows the return method instead of the original payment:
---   cash order returned in cash     -> taken out of the drawer (as before)
---   cash order returned by GCash    -> the drawer keeps it
---   GCash order returned in cash    -> taken out of the drawer
--- Orders reversed before this migration have no return method and keep the old rule
--- (cash payments came out of the drawer).
+--   sales_orders.payment_method  = split for these orders
+--   sales_orders.cash_portion    = the cash part (the GCash part is total_amount minus it)
+--   sales_orders.received_amount = cash handed over for the cash part, change_amount its change
+--   payment_checkouts.cash_amount / received_amount keep the cash part while GCash is pending
 --
--- Run in the Supabase SQL editor before deploying the matching cashier and admin app code.
--- Written so it also runs in consoles that split scripts on every semicolon: no semicolons or
--- quote marks inside strings or comments. Safe to run more than once.
+-- Cash drawer and reports: only the cash part counts as cash sales, the rest as online. A split
+-- order can also be returned the way it was paid (return_method split): the cash part from the
+-- drawer and the GCash part sent by hand.
+--
+-- Run in the Supabase SQL editor before deploying the matching cashier, mobile and admin code.
+-- Needs refund-return-migration.sql first. Written so it also runs in consoles that split
+-- scripts on every semicolon: no semicolons or quote marks inside strings or comments. Safe to
+-- run more than once.
 
-ALTER TABLE sales_orders
-  ADD COLUMN IF NOT EXISTS return_method TEXT,
-  ADD COLUMN IF NOT EXISTS return_gcash_name TEXT,
-  ADD COLUMN IF NOT EXISTS return_gcash_number TEXT,
-  ADD COLUMN IF NOT EXISTS return_reference TEXT;
+ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS cash_portion NUMERIC(10, 2);
+
+ALTER TABLE sales_orders DROP CONSTRAINT IF EXISTS sales_orders_cash_portion_check;
+ALTER TABLE sales_orders ADD CONSTRAINT sales_orders_cash_portion_check
+  CHECK (cash_portion IS NULL OR (cash_portion > 0 AND cash_portion < total_amount));
 
 ALTER TABLE sales_orders DROP CONSTRAINT IF EXISTS sales_orders_return_method_check;
 ALTER TABLE sales_orders ADD CONSTRAINT sales_orders_return_method_check
-  CHECK (return_method IS NULL OR return_method IN ('cash', 'gcash'));
+  CHECK (return_method IS NULL OR return_method IN ('cash', 'gcash', 'split'));
 
--- Same view as before with two changes: cash_reversed follows the return method, and a new
--- last column gcash_returned totals what was sent back through GCash.
+ALTER TABLE payment_checkouts
+  ADD COLUMN IF NOT EXISTS cash_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS received_amount NUMERIC(10, 2);
+
+-- Same view as before. Changed: cash_sales and online_sales split a split order into its two
+-- parts, and cash_reversed and gcash_returned understand the split return method.
 CREATE OR REPLACE VIEW shift_summaries WITH (security_invoker = true) AS
  SELECT s.shift_id,
     s.opened_at,
@@ -62,8 +69,8 @@ CREATE OR REPLACE VIEW shift_summaries WITH (security_invoker = true) AS
      LEFT JOIN LATERAL ( SELECT count(*) AS order_count,
             count(*) FILTER (WHERE so.order_source = 'online'::text) AS mobile_order_count,
             sum(so.total_amount) AS gross_sales,
-            sum(so.total_amount) FILTER (WHERE so.payment_method::text = 'cash'::text) AS cash_sales,
-            sum(so.total_amount) FILTER (WHERE so.payment_method::text <> 'cash'::text) AS online_sales
+            sum(CASE so.payment_method::text WHEN 'cash' THEN so.total_amount WHEN 'split' THEN COALESCE(so.cash_portion, 0::numeric) ELSE 0::numeric END) AS cash_sales,
+            sum(CASE so.payment_method::text WHEN 'cash' THEN 0::numeric WHEN 'split' THEN so.total_amount - COALESCE(so.cash_portion, 0::numeric) ELSE so.total_amount END) AS online_sales
            FROM sales_orders so
           WHERE so.shift_id = s.shift_id AND so.is_archived = false) sold ON true
      LEFT JOIN LATERAL ( SELECT sum(soi.quantity) AS items_sold
@@ -73,8 +80,14 @@ CREATE OR REPLACE VIEW shift_summaries WITH (security_invoker = true) AS
      LEFT JOIN LATERAL ( SELECT count(*) FILTER (WHERE so.status::text = ANY (ARRAY['void'::text, 'voided'::text])) AS void_count,
             count(*) FILTER (WHERE so.status::text = ANY (ARRAY['refund'::text, 'refunded'::text])) AS refund_count,
             sum(so.total_amount) AS reversed_amount,
-            sum(so.total_amount) FILTER (WHERE COALESCE(so.return_method, CASE WHEN so.payment_method::text = 'cash'::text THEN 'cash' ELSE 'online' END) = 'cash') AS cash_reversed,
-            sum(so.total_amount) FILTER (WHERE so.return_method = 'gcash') AS gcash_returned
+            sum(CASE COALESCE(so.return_method, CASE WHEN so.payment_method::text = 'cash'::text THEN 'cash' ELSE 'online' END)
+                  WHEN 'cash' THEN so.total_amount
+                  WHEN 'split' THEN COALESCE(so.cash_portion, 0::numeric)
+                  ELSE 0::numeric END) AS cash_reversed,
+            sum(CASE so.return_method
+                  WHEN 'gcash' THEN so.total_amount
+                  WHEN 'split' THEN so.total_amount - COALESCE(so.cash_portion, 0::numeric)
+                  ELSE 0::numeric END) AS gcash_returned
            FROM sales_orders so
           WHERE so.reversed_shift_id = s.shift_id AND so.is_archived = false) reversed ON true
      LEFT JOIN LATERAL ( SELECT sum(line.line_cost) FILTER (WHERE so.shift_id = s.shift_id) AS sold_cost,

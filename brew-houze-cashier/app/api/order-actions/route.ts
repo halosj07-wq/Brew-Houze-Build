@@ -47,16 +47,16 @@ export async function POST(request: Request) {
   if (!Number.isInteger(orderId) || orderId <= 0 || (action !== "void" && action !== "refund")) {
     return NextResponse.json({ error: "A valid order_id and action are required." }, { status: 400 });
   }
-  // How the money goes back to the customer. Both are done by hand: cash from the drawer, or a
-  // GCash transfer from the cafe to the number the customer gives.
+  // How the money goes back to the customer, all by hand: cash from the drawer, a GCash transfer
+  // from the cafe to the number the customer gives, or (split orders) each part the way it was paid.
   const returnMethod = body.return_method;
-  if (returnMethod !== "cash" && returnMethod !== "gcash") {
+  if (returnMethod !== "cash" && returnMethod !== "gcash" && returnMethod !== "split") {
     return NextResponse.json({ error: "Choose how the money is returned: cash or GCash." }, { status: 400 });
   }
   const gcashName = String(body.gcash_name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
   const gcashNumber = normalizeGcashNumber(body.gcash_number);
   const reference = String(body.reference ?? "").trim().slice(0, 60);
-  if (returnMethod === "gcash") {
+  if (returnMethod === "gcash" || returnMethod === "split") {
     if (!gcashName) return NextResponse.json({ error: "Enter the name on the customer's GCash account." }, { status: 400 });
     if (!gcashNumber) return NextResponse.json({ error: "Enter the customer's GCash number, e.g. 0917 123 4567." }, { status: 400 });
   }
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     }
     const shiftId = Number(shiftResult.rows[0].shift_id);
     const orderResult = await client.query(`
-      SELECT order_id, status, queue_status, shift_id
+      SELECT order_id, status, queue_status, shift_id, payment_method
       FROM sales_orders
       WHERE order_id = $1
       FOR UPDATE
@@ -112,6 +112,10 @@ export async function POST(request: Request) {
     if (order.shift_id === null || Number(order.shift_id) !== shiftId) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "This order is from an earlier shift. Only orders from the current shift can be voided or refunded." }, { status: 409 });
+    }
+    if (returnMethod === "split" && order.payment_method !== "split") {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Only orders paid partly in cash and partly with GCash can be returned as paid." }, { status: 400 });
     }
 
     // Restore exactly what checkout deducted, as recorded in the inventory log. Those rows are
@@ -188,7 +192,7 @@ export async function POST(request: Request) {
           return_reference = $8
       WHERE order_id = $1
       RETURNING order_id, status, total_amount, return_method, return_gcash_name, return_gcash_number, return_reference
-    `, [orderId, action, session.adminId, shiftId, returnMethod, returnMethod === "gcash" ? gcashName : null, returnMethod === "gcash" ? gcashNumber : null, reference || null]);
+    `, [orderId, action, session.adminId, shiftId, returnMethod, returnMethod === "cash" ? null : gcashName, returnMethod === "cash" ? null : gcashNumber, reference || null]);
 
     for (const [inventoryId, detail] of restorationDetails) {
       await client.query(`
