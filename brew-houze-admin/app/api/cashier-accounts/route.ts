@@ -220,24 +220,11 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+// Attendance is never archived or deleted: it is the record of hours worked for each shift.
+export async function DELETE() {
   const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") {
-    return NextResponse.json({ error: "Only an admin can clear employee logs." }, { status: 403 });
+    return NextResponse.json({ error: "Only an admin can manage employees." }, { status: 403 });
   }
-  try {
-    const body = await request.json() as { id?: unknown; confirmation?: unknown };
-    const id = Number(body.id);
-    if (!Number.isInteger(id) || id <= 0 || body.confirmation !== "CLEAR_EMPLOYEE_LOGS") {
-      return NextResponse.json({ error: "Explicit employee log confirmation is required." }, { status: 400 });
-    }
-    const result = await pool.query(
-      "UPDATE employee_time_logs SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE admin_id = $1 AND is_archived = FALSE RETURNING time_log_id",
-      [id, session.adminId ?? null]
-    );
-    return NextResponse.json({ data: { deletedCount: result.rowCount ?? 0 } });
-  } catch (error) {
-    console.error("DELETE /api/cashier-accounts failed:", error);
-    return NextResponse.json({ error: "Could not clear employee log history." }, { status: 500 });
-  }
+  return NextResponse.json({ error: "Attendance history is kept permanently and cannot be archived." }, { status: 403 });
 }

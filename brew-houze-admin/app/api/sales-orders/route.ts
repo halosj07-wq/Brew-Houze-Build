@@ -240,63 +240,16 @@ export async function GET(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+// Sales records are never archived or deleted: they back shift reports and counted cash
+// drawers. A wrong sale is corrected with a void or refund in the cashier app, which stays on record.
+const KEPT_FOREVER = { error: "Sales records are kept permanently. Void or refund the order in the cashier app to correct it." };
+
+export async function DELETE() {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-  const client = await pool.connect();
-  try {
-    const body = await request.json();
-    const orderId = Number(body?.order_id);
-    const session = await getSession();
-
-    if (!Number.isInteger(orderId) || orderId <= 0) {
-      return NextResponse.json({ error: "A valid order_id is required." }, { status: 400 });
-    }
-
-    await client.query("BEGIN");
-    const result = await client.query(
-      "UPDATE sales_orders SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $2 WHERE order_id = $1 AND is_archived = FALSE RETURNING order_id",
-      [orderId, session?.adminId ?? null]
-    );
-
-    if (result.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return NextResponse.json({ error: "Sales record not found." }, { status: 404 });
-    }
-
-    await client.query("COMMIT");
-    return NextResponse.json({ data: { order_id: Number(result.rows[0].order_id) } });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("DELETE /api/sales-orders failed:", error);
-    return NextResponse.json({ error: "Could not archive sales record." }, { status: 500 });
-  } finally {
-    client.release();
-  }
+  return NextResponse.json(KEPT_FOREVER, { status: 403 });
 }
 
-export async function PATCH(request: Request) {
+export async function PATCH() {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
-  const client = await pool.connect();
-  try {
-    const body = await request.json();
-    const session = await getSession();
-    if (body?.action !== "clear_all" || body?.confirmation !== "CLEAR_FINANCE_RECORDS") {
-      return NextResponse.json({ error: "Explicit finance records confirmation is required." }, { status: 400 });
-    }
-
-    await client.query("BEGIN");
-    const result = await client.query(
-      "UPDATE sales_orders SET is_archived = TRUE, archived_at = CURRENT_TIMESTAMP, archived_by = $1 WHERE is_archived = FALSE RETURNING order_id",
-      [session?.adminId ?? null]
-    );
-    await client.query("COMMIT");
-
-    return NextResponse.json({ data: { deleted_count: result.rowCount ?? 0 } });
-  } catch (error) {
-    await client.query("ROLLBACK");
-    console.error("PATCH /api/sales-orders failed:", error);
-    return NextResponse.json({ error: "Could not clear finance records." }, { status: 500 });
-  } finally {
-    client.release();
-  }
+  return NextResponse.json(KEPT_FOREVER, { status: 403 });
 }

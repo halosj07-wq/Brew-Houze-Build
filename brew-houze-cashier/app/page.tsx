@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
 type Page = "pos" | "queue" | "reversals" | "accounts";
@@ -292,6 +292,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
   const [savingPassword, setSavingPassword] = useState(false);
   const [devicesMessage, setDevicesMessage] = useState("");
   const [signingOutOthers, setSigningOutOthers] = useState(false);
+  const keypad = useContext(KeypadContext);
 
   const loadDetails = useCallback(async () => {
     try {
@@ -396,6 +397,16 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           </>}
         </AccountSection>
 
+        <AccountSection eyebrow="Settings" title="This tablet">
+          <div className="flex items-center gap-4" style={{ padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p id="keypad-setting-label" style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>On-screen keypad for amounts</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>Payment and cash boxes open a number pad instead of the tablet keyboard. Saved on this device only, for every cashier who uses it.</p>
+            </div>
+            <button type="button" role="switch" aria-checked={keypad.enabled} aria-labelledby="keypad-setting-label" onClick={() => keypad.setEnabled(!keypad.enabled)} className={`setting-switch${keypad.enabled ? " is-on" : ""}`}><span /></button>
+          </div>
+        </AccountSection>
+
         <AccountSection eyebrow="Access" title="What you can do">
           <div className="flex flex-col gap-2">
             {permission("Take orders & checkout", true)}
@@ -442,6 +453,103 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
 
 
 const ADDONS_TAB = "__addons__";
+
+// ─── On-screen keypad ────────────────────────────────────────────────────────
+// Optional, per tablet (My Account → This tablet). When on, money boxes open this keypad instead
+// of the tablet keyboard, which covers half of a landscape screen. Saved on the device only, so
+// it stays on across cashiers and a phone or PC can keep its normal keyboard.
+const KEYPAD_STORAGE_KEY = "brew-houze-cashier-keypad";
+const KeypadContext = createContext<{ enabled: boolean; setEnabled: (enabled: boolean) => void }>({ enabled: false, setEnabled: () => undefined });
+
+function readKeypadSetting(): boolean {
+  try { return window.localStorage.getItem(KEYPAD_STORAGE_KEY) === "on"; } catch { return false; }
+}
+
+function saveKeypadSetting(enabled: boolean) {
+  try { window.localStorage.setItem(KEYPAD_STORAGE_KEY, enabled ? "on" : "off"); } catch { /* storage unavailable: applies until the page reloads */ }
+}
+
+// One key press on a peso amount: at most 2 decimals and 7 whole digits, no leading zeros.
+function pressAmountKey(current: string, key: string): string {
+  if (key === "back") return current.slice(0, -1);
+  if (key === "clear") return "";
+  const [whole, decimals] = current.split(".");
+  if (key === ".") return current.includes(".") ? current : `${current === "" ? "0" : current}.`;
+  if (decimals !== undefined) return decimals.length >= 2 ? current : current + key;
+  if (whole === "0") return key;
+  return whole.length >= 7 ? current : current + key;
+}
+
+const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "back"] as const;
+
+function AmountKeypad({ title, value, onChange, onClose, quickAmounts, summary }: { title: string; value: string; onChange: (value: string) => void; onClose: () => void; quickAmounts?: number[]; summary?: (value: string) => React.ReactNode }) {
+  const valueRef = useRef(value);
+  useEffect(() => { valueRef.current = value; }, [value]);
+  const press = useCallback((key: string) => {
+    const next = pressAmountKey(valueRef.current, key);
+    valueRef.current = next;
+    onChange(next);
+  }, [onChange]);
+
+  // A physical keyboard still works while the keypad is open (handy on a PC).
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (/^[0-9]$/.test(event.key)) press(event.key);
+      else if (event.key === "." || event.key === ",") press(".");
+      else if (event.key === "Backspace") press("back");
+      else if (event.key === "Delete") press("clear");
+      else if (event.key === "Enter") { event.preventDefault(); onClose(); }
+      else return;
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [press, onClose]);
+
+  const amount = Number.parseFloat(value);
+  return <Modal onClose={onClose} label={title} zIndex={95}>
+    <section className="keypad" onClick={(event) => event.stopPropagation()}>
+      <header className="keypad-head">
+        <span>{title}</span>
+        <button type="button" onClick={onClose} aria-label="Close keypad">×</button>
+      </header>
+      <div className={`keypad-display${value ? "" : " is-empty"}`} aria-live="polite">₱{value || "0.00"}</div>
+      {summary && <div className="keypad-summary">{summary(value)}</div>}
+      {quickAmounts && quickAmounts.length > 0 && <div className="keypad-quick">
+        {quickAmounts.map((quick, index) => <button key={quick} type="button" aria-pressed={Number.isFinite(amount) && Math.abs(amount - quick) < 0.005} onClick={() => { valueRef.current = quick.toFixed(2); onChange(quick.toFixed(2)); }}>{index === 0 ? "Exact" : `₱${quick.toLocaleString("en-PH")}`}</button>)}
+      </div>}
+      <div className="keypad-keys">
+        {keypadKeys.map((key) => <button key={key} type="button" className={key === "back" ? "is-back" : undefined} onClick={() => press(key)} aria-label={key === "back" ? "Delete last digit" : key === "." ? "Decimal point" : key}>
+          {key === "back" ? <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z" /><line x1="18" y1="9" x2="12" y2="15" /><line x1="12" y1="9" x2="18" y2="15" /></svg> : key}
+        </button>)}
+      </div>
+      <div className="keypad-actions">
+        <button type="button" className="is-clear" onClick={() => press("clear")}>Clear</button>
+        <button type="button" className="is-done" onClick={onClose} data-autofocus>Done</button>
+      </div>
+    </section>
+  </Modal>;
+}
+
+// A peso amount box. With the keypad on it opens the keypad; otherwise it is a normal number box.
+function MoneyInput({ value, onChange, label, placeholder = "0.00", style, autoFocus, quickAmounts, summary }: { value: string; onChange: (value: string) => void; label: string; placeholder?: string; style?: React.CSSProperties; autoFocus?: boolean; quickAmounts?: number[]; summary?: (value: string) => React.ReactNode }) {
+  const { enabled } = useContext(KeypadContext);
+  const [open, setOpen] = useState(false);
+  if (!enabled) {
+    return <input type="number" min={0} step="0.01" inputMode="decimal" autoFocus={autoFocus} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} aria-label={label} style={style} />;
+  }
+  return <>
+    <input type="text" readOnly inputMode="none" value={value} placeholder={placeholder} aria-label={`${label}, opens the keypad`} aria-haspopup="dialog" className="money-input-keypad"
+      onClick={() => setOpen(true)}
+      onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(true); } }}
+      style={{ ...style, cursor: "pointer", caretColor: "transparent" }} />
+    {open && <AmountKeypad title={label} value={value} onChange={onChange} onClose={() => setOpen(false)} quickAmounts={quickAmounts} summary={summary} />}
+  </>;
+}
+
+function KeypadSummaryRow({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return <div className="keypad-summary-row"><span>{label}</span><strong style={tone ? { color: tone } : undefined}>{value}</strong></div>;
+}
 
 // ─── Windows ─────────────────────────────────────────────────────────────────
 // Every pop-up window uses this frame. It closes with Escape or a tap on the backdrop (unless
@@ -632,6 +740,29 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
   </Modal>;
 }
 
+// A product or size shows "N left" once this few can still be made; cards list up to this many
+// sizes (one row each, temperatures side by side) before falling back to the picker window.
+const POS_LOW_STOCK = 5;
+const POS_MAX_CARD_SIZES = 4;
+
+// Sizes smallest first: "8 oz" before "12 oz"; unnamed (Regular) sizes lead, others keep A to Z.
+function sizeOrder(label: string | null): [number, string] {
+  if (!label) return [-1, ""];
+  const number = Number.parseFloat(label.replace(/[^0-9.]/g, ""));
+  return [Number.isFinite(number) ? number : Number.MAX_SAFE_INTEGER, label.toLowerCase()];
+}
+
+// Cash the customer is likely to hand over: the exact amount, then the next round amounts.
+function quickCashAmounts(total: number): number[] {
+  if (!(total > 0)) return [];
+  const amounts = [total];
+  for (const step of [50, 100, 500, 1000]) {
+    const rounded = Math.ceil(total / step) * step;
+    if (rounded > total && !amounts.includes(rounded)) amounts.push(rounded);
+  }
+  return amounts.slice(0, 4);
+}
+
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
@@ -778,10 +909,10 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     if (isRecipe) setSelectedKey(key);
   }
 
-  // Direct-sale items with a single option (a canned drink) go straight into the cart;
-  // everything else opens the size/temperature picker.
+  // Products with a single option go straight into the cart. Sizes are tapped on the card
+  // itself; the picker window is only for products with many options.
   function selectProduct(product: Product) {
-    const onlyVariant = product.product_type === "stock" && product.variants.length === 1 ? product.variants[0] : null;
+    const onlyVariant = product.variants.length === 1 ? product.variants[0] : null;
     if (onlyVariant && onlyVariant.available !== false && getRemainingQuantity(product, onlyVariant) > 0) {
       addToCart(product, onlyVariant);
       return;
@@ -956,25 +1087,75 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
         )}
         {visibleProducts.length > 0 && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12, marginBottom: visibleAdditions.length > 0 ? 16 : 0 }}>
-            {visibleProducts.map((product) => (
-          <button key={product.product_id} type="button" className="pos-card rounded-2xl" onClick={() => selectProduct(product)} style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 245, padding: 0, textAlign: "left", cursor: "pointer", color: "#3D2B1F" }}>
-            <div className="pos-card-image" style={{ height: 112, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              {product.image_url ? <Image src={product.image_url} alt={product.product_name} width={180} height={98} unoptimized style={{ maxHeight: 98, maxWidth: "82%", width: "auto", objectFit: "contain", position: "relative", zIndex: 1 }} /> : <div style={{ color: "#B9A398", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15 }}>{product.product_name}</div>}
-            </div>
-            <div style={{ padding: "11px 12px 12px", display: "flex", flexDirection: "column", gap: 8, flex: 1 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <div>
-                  <div style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, color: "#3D2B1F", lineHeight: 1.15 }}>{product.product_name}</div>
-                  {product.product_description && <div style={{ marginTop: 4, color: "#9C8278", fontSize: 11, lineHeight: 1.35 }}>{product.product_description}</div>}
-                  <span style={{ display: "inline-block", marginTop: 5, padding: "3px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 9, fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", letterSpacing: "0.03em" }}>{product.product_category ?? "Menu"}</span>
+            {visibleProducts.map((product) => {
+              const options = product.variants.map((variant) => {
+                const remaining = getRemainingQuantity(product, variant);
+                return { variant, remaining, unavailable: variant.available === false || remaining <= 0 };
+              });
+              const soldOut = options.length > 0 && options.every((option) => option.unavailable);
+              const mostLeft = Math.max(0, ...options.filter((option) => !option.unavailable).map((option) => option.remaining));
+              const lowStock = !soldOut && options.length > 0 && mostLeft <= POS_LOW_STOCK;
+              const prices = product.variants.map((variant) => Number(variant.price));
+              const lowestPrice = prices.length ? Math.min(...prices) : 0;
+              const priceLabel = prices.length === 0 ? "" : prices.every((price) => price === lowestPrice) ? formatPeso(lowestPrice) : `from ${formatPeso(lowestPrice)}`;
+              // One row per size, its temperatures as buttons on that row.
+              const sizeRows = Array.from(options.reduce((rows, option) => {
+                const key = option.variant.size_label ?? "";
+                rows.set(key, [...(rows.get(key) ?? []), option]);
+                return rows;
+              }, new Map<string, typeof options>()).entries())
+                .sort(([a], [b]) => { const [na, la] = sizeOrder(a || null); const [nb, lb] = sizeOrder(b || null); return na - nb || la.localeCompare(lb); })
+                .map(([size, list]) => ({ size, list: [...list].sort((a, b) => (a.variant.temperature === "hot" ? 0 : 1) - (b.variant.temperature === "hot" ? 0 : 1)) }));
+              // Every size has one temperature (or none): sizes sit two to a row instead.
+              const oneOptionPerSize = sizeRows.every((row) => row.list.length === 1);
+              const showOptions = options.length > 1 && (oneOptionPerSize ? options.length <= POS_MAX_CARD_SIZES * 2 : sizeRows.length <= POS_MAX_CARD_SIZES);
+              const samePrice = prices.every((price) => price === lowestPrice);
+              const single = options.length === 1 ? options[0] : null;
+              const headDisabled = soldOut || (single !== null && single.unavailable);
+              return <article key={product.product_id} className={`pos-card rounded-2xl${soldOut ? " is-sold-out" : ""}`} style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 200, color: "#3D2B1F" }}>
+                <button type="button" className="pos-card-head" disabled={headDisabled} onClick={() => selectProduct(product)} aria-label={single ? `Add ${product.product_name}` : `Choose ${product.product_name}`}>
+                  <div className="pos-card-image" style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {product.image_url ? <Image src={product.image_url} alt={product.product_name} width={180} height={92} unoptimized style={{ maxHeight: 92, maxWidth: "82%", width: "auto", objectFit: "contain", position: "relative", zIndex: 1 }} /> : <div style={{ color: "#B9A398", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, padding: "0 10px", textAlign: "center" }}>{product.product_name}</div>}
+                    {soldOut ? <span className="pos-badge is-out">Sold out</span> : lowStock ? <span className="pos-badge is-low">{mostLeft} left</span> : null}
+                  </div>
+                  <div style={{ padding: "10px 12px 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, lineHeight: 1.15 }}>{product.product_name}</div>
+                      <span style={{ display: "inline-block", marginTop: 5, padding: "3px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 9, fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", letterSpacing: "0.03em" }}>{product.product_category ?? "Menu"}</span>
+                    </div>
+                    {priceLabel && <span style={{ flexShrink: 0, color: soldOut ? "#B9A398" : "#B45309", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap" }}>{priceLabel}</span>}
+                  </div>
+                </button>
+                <div style={{ padding: "10px 12px 12px", marginTop: "auto" }}>
+                  {showOptions && oneOptionPerSize ? <div className="pos-size-grid">
+                    {sizeRows.map(({ size, list: [{ variant, remaining, unavailable }] }) => {
+                      const temperature = variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Iced" : "";
+                      const detail = unavailable ? "Sold out" : remaining <= POS_LOW_STOCK ? `${remaining} left` : [temperature, samePrice ? "" : `₱${Number(variant.price).toLocaleString("en-PH")}`].filter(Boolean).join(" · ");
+                      return <button key={variant.product_variant_id} type="button" className={`pos-option${unavailable ? " is-out" : remaining <= POS_LOW_STOCK ? " is-low" : ""}`} disabled={unavailable} onClick={() => addToCart(product, variant)} aria-label={`${product.product_name} ${size || "Regular"} ${temperature} ${formatPeso(Number(variant.price))}${unavailable ? ", sold out" : `, ${remaining} left`}`}>
+                        <span className="pos-option-name">{size || "Regular"}</span>
+                        {detail && <span className={`pos-option-price${variant.temperature === "cold" && !unavailable && remaining > POS_LOW_STOCK ? " is-cold" : ""}`}>{detail}</span>}
+                      </button>;
+                    })}
+                  </div> : showOptions ? <div className="pos-size-rows">
+                    {sizeRows.map(({ size, list }) => <div key={size || "regular"} className="pos-size-row">
+                      <span className="pos-size-label">{size || "Regular"}</span>
+                      <div className="pos-size-options">
+                        {list.map(({ variant, remaining, unavailable }) => {
+                          const temperature = variant.temperature === "hot" ? "Hot" : variant.temperature === "cold" ? "Iced" : "Add";
+                          const detail = unavailable ? "Sold out" : remaining <= POS_LOW_STOCK ? `${remaining} left` : samePrice ? "" : `₱${Number(variant.price).toLocaleString("en-PH")}`;
+                          return <button key={variant.product_variant_id} type="button" className={`pos-option${unavailable ? " is-out" : remaining <= POS_LOW_STOCK ? " is-low" : ""}${variant.temperature === "hot" ? " is-hot" : variant.temperature === "cold" ? " is-cold" : ""}`} disabled={unavailable} onClick={() => addToCart(product, variant)} aria-label={`${product.product_name} ${size || "Regular"} ${temperature === "Add" ? "" : temperature} ${formatPeso(Number(variant.price))}${unavailable ? ", sold out" : `, ${remaining} left`}`}>
+                            <span className="pos-option-name">{temperature}</span>
+                            {detail && <span className="pos-option-price">{detail}</span>}
+                          </button>;
+                        })}
+                      </div>
+                    </div>)}
+                  </div> : <button type="button" className="pos-card-action" disabled={headDisabled} onClick={() => selectProduct(product)}>
+                    {soldOut || headDisabled ? "Sold out" : single ? "Tap to add" : options.length > 1 ? `Choose from ${options.length} options` : "Tap to add"}
+                  </button>}
                 </div>
-              </div>
-              <div style={{ marginTop: "auto", padding: "8px 10px", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 700, textAlign: "center" }}>
-                {product.product_type === "stock" ? (product.variants.length > 1 ? "Tap to choose an option" : "Tap to add to cart") : product.variants?.length ? "Tap to choose size and temperature" : "Tap to add to cart"}
-              </div>
-            </div>
-          </button>
-            ))}
+              </article>;
+            })}
           </div>
         )}
         {visibleAdditions.length > 0 && (
@@ -1055,8 +1236,16 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
             {paymentMethod === "cash" ? <>
               <label style={{ display: "flex", flexDirection: "column", gap: 5, color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>
                 <span>Received payment</span>
-                <input type="number" min="0" step="0.01" value={receivedAmount} onChange={(event) => { setReceivedAmount(event.target.value); if (checkoutError) setCheckoutError(""); }} placeholder="0.00" style={{ border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
+                <MoneyInput label="Received payment" value={receivedAmount} onChange={(next) => { setReceivedAmount(next); if (checkoutError) setCheckoutError(""); }} quickAmounts={quickCashAmounts(subtotal)}
+                  summary={(draft) => { const paid = Number.parseFloat(draft); return <><KeypadSummaryRow label="Amount due" value={formatPeso(subtotal)} /><KeypadSummaryRow label={Number.isFinite(paid) && paid < subtotal ? "Still short" : "Change"} value={formatPeso(Number.isFinite(paid) ? Math.abs(paid - subtotal) : 0)} tone={Number.isFinite(paid) && paid < subtotal ? "#B91C1C" : "#0F766E"} /></>; }}
+                  style={{ border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
               </label>
+              {subtotal > 0 && <div className="pos-quick-cash" role="group" aria-label="Quick cash amounts">
+                {quickCashAmounts(subtotal).map((amount, index) => {
+                  const active = Number.isFinite(parsedReceivedAmount) && Math.abs(parsedReceivedAmount - amount) < 0.005;
+                  return <button key={amount} type="button" aria-pressed={active} onClick={() => { setReceivedAmount(amount.toFixed(2)); if (checkoutError) setCheckoutError(""); }}>{index === 0 ? "Exact" : `₱${amount.toLocaleString("en-PH")}`}</button>;
+                })}
+              </div>}
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6B4C3B" }}>
                 <span>Change</span>
                 <strong style={{ color: changeDue > 0 ? "#0F766E" : "#3D2B1F" }}>₱{changeDue.toFixed(2)}</strong>
@@ -1065,11 +1254,15 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                 <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0, color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>
                   <span>Cash part</span>
-                  <input type="number" min="0" step="0.01" inputMode="decimal" value={cashPart} onChange={(event) => { setCashPart(event.target.value); if (checkoutError) setCheckoutError(""); }} placeholder="0.00" style={{ minWidth: 0, border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
+                  <MoneyInput label="Cash part" value={cashPart} onChange={(next) => { setCashPart(next); if (checkoutError) setCheckoutError(""); }}
+                    summary={(draft) => { const cash = Number.parseFloat(draft); return <><KeypadSummaryRow label="Order total" value={formatPeso(subtotal)} /><KeypadSummaryRow label="Then GCash" value={formatPeso(Math.max(0, subtotal - (Number.isFinite(cash) ? cash : 0)))} tone="#0057E4" /></>; }}
+                    style={{ minWidth: 0, width: "100%", border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
                 </label>
                 <label style={{ display: "flex", flexDirection: "column", gap: 5, minWidth: 0, color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>
                   <span>Cash received</span>
-                  <input type="number" min="0" step="0.01" inputMode="decimal" value={receivedAmount} onChange={(event) => { setReceivedAmount(event.target.value); if (checkoutError) setCheckoutError(""); }} placeholder={splitCash > 0 ? splitCash.toFixed(2) : "Exact"} style={{ minWidth: 0, border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
+                  <MoneyInput label="Cash received" value={receivedAmount} onChange={(next) => { setReceivedAmount(next); if (checkoutError) setCheckoutError(""); }} placeholder={splitCash > 0 ? splitCash.toFixed(2) : "Exact"} quickAmounts={quickCashAmounts(splitCash)}
+                    summary={(draft) => { const paid = draft.trim() === "" ? splitCash : Number.parseFloat(draft); return <><KeypadSummaryRow label="Cash part" value={formatPeso(splitCash)} /><KeypadSummaryRow label={Number.isFinite(paid) && paid < splitCash ? "Still short" : "Change"} value={formatPeso(Number.isFinite(paid) ? Math.abs(paid - splitCash) : 0)} tone={Number.isFinite(paid) && paid < splitCash ? "#B91C1C" : "#0F766E"} /></>; }}
+                    style={{ minWidth: 0, width: "100%", border: "1px solid #E8DDD5", borderRadius: 8, background: "#FFFDF9", color: "#3D2B1F", padding: "10px 11px", fontSize: 14 }} />
                 </label>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 3, padding: "8px 10px", borderRadius: 8, background: "#FAF5FF", border: "1px solid #E9D5FF", fontSize: 12.5, color: "#6B4C3B" }}>
@@ -1976,7 +2169,7 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
         Starting cash in the drawer
         <span style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", padding: "0 14px" }}>
           <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, color: "#9C8278" }}>₱</span>
-          <input autoFocus type="number" min={0} step="0.01" inputMode="decimal" value={startingCash} onChange={(event) => setStartingCash(event.target.value)} placeholder="0.00" style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "13px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, color: "#3D2B1F" }} />
+          <MoneyInput label="Starting cash in the drawer" autoFocus value={startingCash} onChange={setStartingCash} style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "13px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, color: "#3D2B1F" }} />
         </span>
       </label>
       <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={userName} invalid={wrongPassword} />
@@ -2105,7 +2298,9 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
               Counted cash in the drawer
               <span style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", padding: "0 14px" }}>
                 <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#9C8278" }}>₱</span>
-                <input autoFocus type="number" min={0} step="0.01" inputMode="decimal" value={countedCash} onChange={(event) => setCountedCash(event.target.value)} placeholder="0.00" style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "11px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#3D2B1F" }} />
+                <MoneyInput label="Counted cash in the drawer" autoFocus value={countedCash} onChange={setCountedCash}
+                  summary={(draft) => { const count = Number.parseFloat(draft); const difference = Number.isFinite(count) ? describeCashDifference(count - summary.expectedCash) : null; return <><KeypadSummaryRow label="Expected in drawer" value={formatPeso(summary.expectedCash)} />{difference && <KeypadSummaryRow label="Difference" value={difference.label} tone={difference.tone} />}</>; }}
+                  style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "11px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#3D2B1F" }} />
               </span>
             </label>
             {liveDifference && <p style={{ margin: "8px 0 0", color: liveDifference.tone, fontSize: 13, fontWeight: 800 }}>{liveDifference.label}</p>}
@@ -2157,6 +2352,12 @@ export default function App() {
   // undefined while loading, null when no shift is open.
   const [shift, setShift] = useState<CurrentShift | null | undefined>(undefined);
   const [closingShift, setClosingShift] = useState(false);
+  const [keypadEnabled, setKeypadEnabled] = useState(false);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setKeypadEnabled(readKeypadSetting()), 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+  const keypadSetting = { enabled: keypadEnabled, setEnabled: (enabled: boolean) => { setKeypadEnabled(enabled); saveKeypadSetting(enabled); } };
 
   // Restore the last punched number after mount (localStorage is browser-only).
   useEffect(() => {
@@ -2216,8 +2417,38 @@ export default function App() {
     };
     const timeout = window.setTimeout(tick, 0);
     const intervalId = window.setInterval(tick, 15_000);
-    return () => { window.clearTimeout(timeout); window.clearInterval(intervalId); };
+    // Coming back to the tab or waking the tablet checks right away, instead of up to 15 s later.
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    return () => {
+      window.clearTimeout(timeout);
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+    };
   }, [user, refreshQueueCounts, refreshShift]);
+
+  // Any request this app makes that comes back "not signed in" (the shift was closed from the
+  // admin app or another tablet, the password was reset, or an admin signed this cashier out)
+  // returns to the login screen at once, rather than leaving screens that fail to load.
+  const signedIn = Boolean(user);
+  useEffect(() => {
+    if (!signedIn) return;
+    const originalFetch = window.fetch;
+    let ended = false;
+    window.fetch = async (...args: Parameters<typeof fetch>) => {
+      const response = await originalFetch(...args);
+      const target = args[0];
+      const url = typeof target === "string" ? target : target instanceof URL ? target.href : target.url;
+      const path = new URL(url, window.location.href);
+      if (response.status === 401 && !ended && path.origin === window.location.origin && path.pathname.startsWith("/api/") && path.pathname !== "/api/auth/login") {
+        ended = true;
+        endLocalSession("You were signed out. The shift was closed, your password was reset, or an admin signed you out. Sign in to continue.");
+      }
+      return response;
+    };
+    return () => { window.fetch = originalFetch; };
+  }, [signedIn, endLocalSession]);
 
   function recordLastOrder(queueNumber: number, shiftId: number) {
     const next = { queueNumber, punchedAt: Date.now(), shiftId };
@@ -2284,5 +2515,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div>;
+  return <KeypadContext.Provider value={keypadSetting}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div></KeypadContext.Provider>;
 }

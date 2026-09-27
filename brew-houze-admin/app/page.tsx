@@ -4737,34 +4737,15 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
 // ─── Orders: every transaction in the range, with detailed filters ────────────
 const ORDERS_PAGE_SIZE = 50;
 
-function FinanceOrderDialog({ order, onClose, onArchived }: { order: FinanceOrder; onClose: () => void; onArchived: (orderId: number) => void }) {
-  const confirmAction = useConfirm();
-  const [archiving, setArchiving] = useState(false);
-  const [error, setError] = useState("");
+function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: () => void }) {
   const status = orderStatusOf(order);
   const channel = orderChannel(order);
   const profit = order.cost === null || order.reversed ? null : order.total - order.cost;
 
-  async function archive() {
-    if (!(await confirmAction({ title: `Archive order #${order.orderId}?`, message: "It is removed from Finance totals and moved to Archives, where it can be restored. Use this only to clean up test sales.", confirmLabel: "Archive order" }))) return;
-    setArchiving(true);
-    setError("");
-    try {
-      const response = await fetch("/api/sales-orders", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_id: order.orderId }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Could not archive the order.");
-      onArchived(order.orderId);
-    } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : "Could not archive the order.");
-    } finally {
-      setArchiving(false);
-    }
-  }
-
   const fact = (label: string, value: React.ReactNode) => <div><span>{label}</span><strong>{value}</strong></div>;
-  return <Modal onClose={onClose} closeDisabled={archiving} label={`Order ${order.orderId}`}>
+  return <Modal onClose={onClose} label={`Order ${order.orderId}`}>
     <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 620, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-      <DialogHeader title={`Order #${order.orderId}${order.queueNumber !== null ? ` · queue #${order.queueNumber}` : ""}`} sub={`${shiftTime(order.createdAt)} · ${order.punchedBy}`} onClose={onClose} disabled={archiving} />
+      <DialogHeader title={`Order #${order.orderId}${order.queueNumber !== null ? ` · queue #${order.queueNumber}` : ""}`} sub={`${shiftTime(order.createdAt)} · ${order.punchedBy}`} onClose={onClose} />
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`fin-status is-${status}`}>{status === "completed" ? "Completed" : status === "voided" ? "Voided" : "Refunded"}</span>
@@ -4798,11 +4779,10 @@ function FinanceOrderDialog({ order, onClose, onArchived }: { order: FinanceOrde
           <div><span>Cost of goods</span><span>{order.cost === null ? "Not recorded" : peso(order.cost)}</span></div>
           <div><span>Gross profit</span><span className={profit !== null && profit < 0 ? "dash-down" : "dash-up"}>{profit === null ? (order.reversed ? "Not counted" : "—") : peso(profit)}</span></div>
         </div>
-        {error && <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
       </div>
       <div className="flex items-center justify-between gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
-        <button type="button" className="inv-mini is-danger" style={{ height: 42 }} onClick={() => void archive()} disabled={archiving}><IconTrash size={13} />{archiving ? "Archiving…" : "Archive test sale"}</button>
-        <button type="button" className="ui-button ui-button-primary" onClick={onClose} disabled={archiving}>Done</button>
+        <p className="inv-hint" style={{ margin: 0 }}>Sales records are kept permanently. {order.reversed ? "This one was already reversed." : "To correct it, void or refund it in the cashier app during its shift."}</p>
+        <button type="button" className="ui-button ui-button-primary" onClick={onClose}>Done</button>
       </div>
     </section>
   </Modal>;
@@ -4855,7 +4835,7 @@ function exportFinanceOrders(orders: FinanceOrder[], label: string, fileStamp: s
   XLSX.writeFile(workbook, `brew-houze-orders-${fileStamp}.xlsx`);
 }
 
-function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; end: string; preset: OrdersPreset; onArchivedAll: () => void }) {
+function FinanceOrders({ start, end, preset }: { start: string; end: string; preset: OrdersPreset }) {
   const [orders, setOrders] = useState<FinanceOrder[]>([]);
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -4872,10 +4852,6 @@ function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; e
   const [moreFilters, setMoreFilters] = useState(Boolean(preset.cashier || preset.category));
   const [visible, setVisible] = useState(ORDERS_PAGE_SIZE);
   const [selected, setSelected] = useState<FinanceOrder | null>(null);
-  const [clearOpen, setClearOpen] = useState(false);
-  const [clearText, setClearText] = useState("");
-  const [clearing, setClearing] = useState(false);
-  const [clearError, setClearError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -4934,24 +4910,6 @@ function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; e
     if (min !== null || max !== null) parts.push(`total ${min ?? 0}–${max ?? "any"}`);
     if (query) parts.push(`search "${search.trim()}"`);
     return parts.join(" · ");
-  }
-
-  async function archiveAll() {
-    if (clearText !== "CLEAR_FINANCE_RECORDS") return;
-    setClearing(true);
-    setClearError("");
-    try {
-      const response = await fetch("/api/sales-orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear_all", confirmation: clearText }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Could not archive the records.");
-      setClearOpen(false);
-      setOrders([]);
-      onArchivedAll();
-    } catch (error) {
-      setClearError(error instanceof Error ? error.message : "Could not archive the records.");
-    } finally {
-      setClearing(false);
-    }
   }
 
   const days: { day: string; orders: FinanceOrder[] }[] = [];
@@ -5039,25 +4997,7 @@ function FinanceOrders({ start, end, preset, onArchivedAll }: { start: string; e
               {truncated && <p className="inv-hint" style={{ textAlign: "center" }}>Only the latest 5,000 orders in this period are loaded. Pick a shorter range to see older ones.</p>}
             </div>}
 
-    <div className="fin-cleanup">
-      <span>Test data from before the café went live? Archive all sales records at once. They can be restored from Archives.</span>
-      <button type="button" className="inv-mini is-danger" onClick={() => { setClearText(""); setClearError(""); setClearOpen(true); }}>Archive all records…</button>
-    </div>
-
-    {selected && <FinanceOrderDialog order={selected} onClose={() => setSelected(null)} onArchived={(orderId) => { setOrders((current) => current.filter((order) => order.orderId !== orderId)); setSelected(null); }} />}
-    {clearOpen && <Modal onClose={() => setClearOpen(false)} closeDisabled={clearing} label="Archive all sales records">
-      <section className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
-        <div className="ui-confirm-icon" data-tone="danger" aria-hidden="true">!</div>
-        <h2>Archive every sales record?</h2>
-        <div className="ui-confirm-message">This moves all sales records, in every period, to Archives. They can be restored or permanently deleted from there. Type <b>CLEAR_FINANCE_RECORDS</b> to continue.</div>
-        <input data-autofocus value={clearText} onChange={(event) => setClearText(event.target.value)} placeholder="CLEAR_FINANCE_RECORDS" style={{ ...packagingInput, marginTop: 14 }} aria-label="Type CLEAR_FINANCE_RECORDS to confirm" />
-        {clearError && <p role="alert" style={{ margin: "10px 0 0", fontSize: 12.5, color: "#B91C1C" }}>{clearError}</p>}
-        <div className="ui-confirm-actions">
-          <button type="button" className="ui-button ui-button-secondary" onClick={() => setClearOpen(false)} disabled={clearing}>Cancel</button>
-          <button type="button" className="ui-button ui-button-danger" onClick={() => void archiveAll()} disabled={clearing || clearText !== "CLEAR_FINANCE_RECORDS"} style={{ opacity: clearText === "CLEAR_FINANCE_RECORDS" ? 1 : 0.5 }}>{clearing ? "Archiving…" : "Archive all records"}</button>
-        </div>
-      </section>
-    </Modal>}
+    {selected && <FinanceOrderDialog order={selected} onClose={() => setSelected(null)} />}
   </div>;
 }
 
@@ -5236,7 +5176,7 @@ function Finance() {
           : loadError ? <div className="inv-empty is-error">{loadError} <button type="button" className="inv-link" onClick={() => setReloadKey((key) => key + 1)}>Try again</button></div>
             : overview ? <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}><FinanceOverview data={overview} today={today} onOpenOrders={openOrders} /></div> : null)
           : tab === "shifts" ? <ShiftReports start={start} end={end} />
-            : <FinanceOrders key={`${start}-${end}-${ordersKey}`} start={start} end={end} preset={ordersPreset} onArchivedAll={() => setReloadKey((key) => key + 1)} />}
+            : <FinanceOrders key={`${start}-${end}-${ordersKey}`} start={start} end={end} preset={ordersPreset} />}
     </div>
     {exportOpen && overview && <FinanceExportDialog data={overview} onClose={() => setExportOpen(false)} />}
   </div>;
@@ -5448,22 +5388,6 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
     if (saved) { onChanged({ ...account, isActive, sessions: isActive ? account.sessions : [], onDutySince: isActive ? account.onDutySince : null }); setNotice(isActive ? "Account reactivated. They can sign in again." : "Account deactivated."); await onReload(); }
   }
 
-  async function archiveLogs() {
-    if (!(await confirmAction({ title: `Archive ${account.fullName}'s attendance history?`, message: "All their time logs move to Archives, where they can be restored or permanently deleted later.", confirmLabel: "Archive history" }))) return;
-    setWorking("logs");
-    setError("");
-    try {
-      const response = await fetch("/api/cashier-accounts", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, confirmation: "CLEAR_EMPLOYEE_LOGS" }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Could not archive the attendance history.");
-      await onReload();
-    } catch (archiveError) {
-      setError(archiveError instanceof Error ? archiveError.message : "Could not archive the attendance history.");
-    } finally {
-      setWorking(null);
-    }
-  }
-
   const statusText = !account.isActive ? "Deactivated" : account.onDutySince ? `On duty since ${clockTime(account.onDutySince)}` : "Off duty";
   return <Modal onClose={onClose} closeDisabled={working !== null} labelledBy="employee-dialog-title">
     <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 680, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
@@ -5568,8 +5492,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
           </div>
           <section className="acc-block">
             <header className="acc-block-head">
-              <div><h3>Time in and out</h3><p>Recorded when they sign in and out of the cashier app. Closing a shift clocks everyone out.</p></div>
-              {account.timeLogs.length > 0 && <button type="button" className="inv-mini is-danger" onClick={() => void archiveLogs()} disabled={working === "logs"}>Archive history</button>}
+              <div><h3>Time in and out</h3><p>Recorded when they sign in and out of the cashier app. Closing a shift clocks everyone out. Kept permanently as the record of hours worked.</p></div>
             </header>
             {account.timeLogs.length === 0 ? <p className="inv-hint">No attendance yet.</p> : <ul className="acc-list">
               {account.timeLogs.map((log) => <li key={log.id}>
@@ -5783,8 +5706,8 @@ const archiveGroups: { id: ArchiveGroup; label: string; restoreNote: string }[] 
   { id: "inventory", label: "Inventory", restoreNote: "Restored items and packages return to Inventory with the stock they had when archived." },
   { id: "addons", label: "Add-ons", restoreNote: "Restored add-ons can be punched at the POS again." },
   { id: "categories", label: "Categories", restoreNote: "Restored categories can be picked when adding products again." },
-  { id: "sales", label: "Sales records", restoreNote: "Restored sales count in Finance again, under their original business date and shift." },
-  { id: "attendance", label: "Attendance", restoreNote: "Restored time logs count in the employee's hours again." },
+  { id: "sales", label: "Sales records", restoreNote: "Sales can no longer be archived. These were archived before that rule: restore them so they count in Finance again, under their original business date and shift." },
+  { id: "attendance", label: "Attendance", restoreNote: "Attendance can no longer be archived. These were archived before that rule: restore them so they count in the employee's hours again." },
 ];
 
 function buildArchiveEntries(data: ArchivesData): ArchiveEntry[] {
@@ -5800,6 +5723,10 @@ function buildArchiveEntries(data: ArchivesData): ArchiveEntry[] {
   for (const log of data.employeeTimeLogs) add({ type: "employee_time_log", id: log.id, group: "attendance", kind: "Attendance", title: log.employeeName, subtitle: `${shiftTime(log.timeIn)} → ${log.timeOut ? shiftTime(log.timeOut) : "no time out"}`, blocked: null, archivedAt: log.archivedAt, archivedBy: log.archivedBy });
   return entries;
 }
+
+// Sales and attendance are kept forever: restore only, never deleted.
+const keptForeverGroups: ArchiveGroup[] = ["sales", "attendance"];
+const canDeleteForever = (entry: ArchiveEntry) => !keptForeverGroups.includes(entry.group);
 
 const archiveKindLabels: Record<RestoreType, string> = { product: "product", product_variant: "size", inventory: "inventory item", packaging: "package", addition: "add-on", category: "category", sales_order: "sales record", employee_time_log: "attendance log" };
 
@@ -5843,6 +5770,7 @@ function Archives() {
     .filter((entry) => (tab === "all" || entry.group === tab) && (archivedBy === "all" || entry.archivedBy === archivedBy) && (!query || entry.search.includes(query)))
     .sort((a, b) => sort === "name" ? a.title.localeCompare(b.title) : sort === "oldest" ? (a.archivedAt ?? "").localeCompare(b.archivedAt ?? "") : (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
   const selectedShown = shown.filter((entry) => selected.has(entry.key));
+  const deletableSelected = selectedShown.filter(canDeleteForever);
   const allShownSelected = shown.length > 0 && selectedShown.length === shown.length;
   const salesTotal = (data?.salesOrders ?? []).reduce((sum, order) => sum + order.totalAmount, 0);
 
@@ -5866,7 +5794,8 @@ function Archives() {
   }
 
   // Runs one action over several records, then reports how many worked and why any did not.
-  async function run(action: "restore" | "delete", targets: ArchiveEntry[]) {
+  async function run(action: "restore" | "delete", requested: ArchiveEntry[]) {
+    const targets = action === "delete" ? requested.filter(canDeleteForever) : requested;
     if (targets.length === 0) return;
     if (action === "delete" && !(await confirmAction({
       title: targets.length === 1 ? `Delete this ${archiveKindLabels[targets[0].type]} forever?` : `Delete ${targets.length} records forever?`,
@@ -5934,6 +5863,15 @@ function Archives() {
         </label>
       </div>
 
+      <details className="arc-rules">
+        <summary>What can be archived or deleted?</summary>
+        <div className="arc-rules-grid">
+          <div><strong>Archive and restore</strong><span>Products, sizes, add-ons, categories, inventory items and packages. Archiving hides them from the apps; restoring brings them back.</span></div>
+          <div><strong>Delete forever</strong><span>The same setup data, once archived. Refused while a past sale or a recipe still uses it.</span></div>
+          <div><strong>Kept forever</strong><span>Sales records, voids and refunds, shifts, attendance and stock history. They are the café’s financial record, so they cannot be archived or deleted. Correct a sale by voiding or refunding it.</span></div>
+        </div>
+      </details>
+
       {tabNote && <p className="inv-hint">{tabNote}</p>}
       {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
       {notice && <div className="acc-notice" role="status">{notice}</div>}
@@ -5953,7 +5891,7 @@ function Archives() {
                 </label>
                 {selectedShown.length > 0 && <div className="arc-bulk-actions">
                   <button type="button" className="arc-restore" onClick={() => void run("restore", selectedShown)} disabled={busy !== null}><IconRotateCcw size={13} />{busy === "bulk" ? "Working…" : "Restore"}</button>
-                  <button type="button" className="inv-mini is-danger" style={{ height: 38 }} onClick={() => void run("delete", selectedShown)} disabled={busy !== null}><IconTrash size={13} />Delete forever</button>
+                  {deletableSelected.length > 0 && <button type="button" className="inv-mini is-danger" style={{ height: 38 }} onClick={() => void run("delete", deletableSelected)} disabled={busy !== null} title={deletableSelected.length < selectedShown.length ? "Sales records and attendance in the selection are kept and skipped" : undefined}><IconTrash size={13} />Delete {deletableSelected.length < selectedShown.length ? `${deletableSelected.length} ` : ""}forever</button>}
                   <button type="button" className="inv-link" onClick={() => setSelected(new Set())}>Clear</button>
                 </div>}
               </div>
@@ -5972,7 +5910,9 @@ function Archives() {
                   </div>
                   <div className="arc-actions">
                     <button type="button" className="arc-restore" onClick={() => void run("restore", [entry])} disabled={busy !== null} title={entry.blocked ?? "Put it back where it came from"}><IconRotateCcw size={13} />{busy === entry.key ? "…" : "Restore"}</button>
-                    <button type="button" className="menu-archive" onClick={() => void run("delete", [entry])} disabled={busy !== null} title="Delete forever" aria-label={`Delete ${entry.title} forever`}><IconTrash size={14} /></button>
+                    {canDeleteForever(entry)
+                      ? <button type="button" className="menu-archive" onClick={() => void run("delete", [entry])} disabled={busy !== null} title="Delete forever" aria-label={`Delete ${entry.title} forever`}><IconTrash size={14} /></button>
+                      : <span className="arc-kept" title="Sales records and attendance are kept permanently">Kept</span>}
                   </div>
                 </li>)}
               </ul>

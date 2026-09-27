@@ -11,6 +11,13 @@ async function requireAdmin() {
 const RESTORE_TYPES = ["product", "product_variant", "inventory", "packaging", "addition", "category", "sales_order", "employee_time_log"] as const;
 type RestoreType = (typeof RESTORE_TYPES)[number];
 
+// What the admin may do with each kind of data:
+//   setup data (menu, add-ons, categories, inventory, packages): archive, restore, delete forever
+//     (deleting is still refused while a past sale or a recipe uses the record)
+//   sales records and attendance: kept forever. They can no longer be archived, and ones archived
+//     before this rule can only be restored.
+const KEPT_FOREVER_TYPES: RestoreType[] = ["sales_order", "employee_time_log"];
+
 type PurgeConfig = {
   table: string;
   pk: string;
@@ -368,6 +375,9 @@ export async function DELETE(request: Request) {
     const type = String(body?.type ?? "") as RestoreType;
     if (!RESTORE_TYPES.includes(type)) {
       return NextResponse.json({ error: "A valid archive type is required." }, { status: 400 });
+    }
+    if (KEPT_FOREVER_TYPES.includes(type)) {
+      return NextResponse.json({ error: `${type === "sales_order" ? "Sales records" : "Attendance logs"} are kept permanently and cannot be deleted. Restore it instead.` }, { status: 403 });
     }
     const config = PURGE_CONFIG[type];
     const clearAll = body?.clear_all === true;

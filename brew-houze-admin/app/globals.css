@@ -1223,3 +1223,12 @@ strong.is-low { color: #B45309 !important; }
   .arc-when { grid-area: when; flex-direction: row; gap: 6px; text-align: left; }
   .arc-actions { grid-area: actions; }
 }
+
+/* Archives: data rules and kept-forever records */
+.arc-rules { border: 1px solid #E8DDD5; border-radius: 14px; background: #FDF9F5; }
+.arc-rules summary { padding: 11px 14px; color: #6B4C3B; font-size: 13px; font-weight: 700; cursor: pointer; }
+.arc-rules-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 10px; padding: 0 14px 14px; }
+.arc-rules-grid div { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: #FFFFFF; border: 1px solid #F0E8E1; }
+.arc-rules-grid strong { color: #3D2B1F; font-size: 13px; }
+.arc-rules-grid span { color: #6B4C3B; font-size: 12px; line-height: 1.5; }
+.arc-kept { display: inline-flex; align-items: center; height: 32px; padding: 0 10px; border-radius: 9px; background: #F3EDE5; color: #9C8278; font-size: 11.5px; font-weight: 800; }

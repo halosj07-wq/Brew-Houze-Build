@@ -32,6 +32,40 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-card-image::after { content: ""; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(217,119,6,0.09), transparent 52%); pointer-events: none; }
 .pos-card-image img { transition: transform 220ms ease; }
 .pos-card:hover .pos-card-image img { transform: scale(1.05); }
+/* Product card: the top taps to add (one option) or open the picker; sizes are buttons below */
+.pos-card-head { display: block; width: 100%; padding: 0; border: none; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.pos-card-head:disabled { cursor: not-allowed; }
+.pos-card-head:focus-visible, .pos-option:focus-visible, .pos-card-action:focus-visible, .pos-quick-cash button:focus-visible { outline: 2px solid #D97706; outline-offset: 2px; }
+.pos-card.is-sold-out { background: #F7F2EC !important; }
+.pos-card.is-sold-out:hover { transform: none; box-shadow: none; border-color: #E8DDD5 !important; }
+.pos-card.is-sold-out .pos-card-image img { filter: grayscale(1); opacity: 0.45; transform: none; }
+.pos-badge { position: absolute; top: 8px; right: 8px; z-index: 2; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+.pos-badge.is-out { background: #3D2B1F; color: #FDF9F5; }
+.pos-badge.is-low { background: #FEF3C7; color: #B45309; border: 1px solid #FCD34D; }
+.pos-size-rows { display: flex; flex-direction: column; gap: 5px; }
+.pos-size-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.pos-option-price.is-cold { color: #0369A1; }
+.pos-size-row { display: flex; align-items: center; gap: 6px; }
+.pos-size-label { width: 46px; flex-shrink: 0; color: #6B4C3B; font-size: 11.5px; font-weight: 800; line-height: 1.1; }
+.pos-size-options { flex: 1; min-width: 0; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 5px; }
+.pos-option { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; min-width: 0; min-height: 38px; padding: 3px 4px; border: 1px solid #E8DDD5; border-radius: 9px; background: #FFFFFF; color: #3D2B1F; cursor: pointer; transition: background 120ms ease, border-color 120ms ease, transform 80ms ease; }
+.pos-option:hover:not(:disabled) { border-color: #D97706; background: #FFF7ED; }
+.pos-option:active:not(:disabled) { transform: scale(0.96); }
+.pos-option-name { font-size: 12px; font-weight: 800; line-height: 1.15; }
+.pos-option-price { font-size: 10.5px; font-weight: 700; line-height: 1.15; color: #B45309; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.pos-option.is-hot .pos-option-name { color: #B45309; }
+.pos-option.is-cold .pos-option-name { color: #0369A1; }
+.pos-option.is-low { border-color: #FCD34D; background: #FFFBEB; }
+.pos-option.is-out { background: #F3EDE5; cursor: not-allowed; }
+.pos-option.is-out .pos-option-name, .pos-option.is-out .pos-option-price { color: #B9A398; }
+.pos-card-action { width: 100%; padding: 9px 10px; border: none; border-radius: 8px; background: #F3EDE5; color: #6B4C3B; font-size: 11.5px; font-weight: 800; cursor: pointer; }
+.pos-card-action:hover:not(:disabled) { background: #EADFD3; }
+.pos-card-action:disabled { cursor: not-allowed; color: #B9A398; }
+/* Quick cash amounts under "Received payment" */
+.pos-quick-cash { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.pos-quick-cash button { height: 38px; padding: 0 4px; border: 1px solid #E8DDD5; border-radius: 8px; background: #FFFDF9; color: #3D2B1F; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.pos-quick-cash button:hover { border-color: #0F766E; background: #F0FDFA; }
+.pos-quick-cash button[aria-pressed="true"] { border-color: #0F766E; background: #0F766E; color: #FFFFFF; }
 .pos-variant-button { transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease; }
 .pos-variant-button:not(:disabled):hover { background: #D97706 !important; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(217,119,6,0.24); }
 @media (max-width: 640px) {
@@ -152,3 +186,34 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .gcash-notice { margin: 10px 0 0; color: #9C8278; font-size: 12px; }
 .gcash-actions { display: flex; justify-content: center; gap: 10px; margin-top: 18px; }
 .gcash-actions .ui-button { min-width: 160px; }
+
+/* ─── On-screen keypad (My Account → This tablet) ─── */
+.money-input-keypad:focus-visible { outline: 2px solid #D97706; outline-offset: 1px; }
+.keypad { width: min(100%, 340px); padding: 16px; border-radius: 22px; background: #FDF9F5; border: 1px solid #E8DDD5; box-shadow: 0 24px 60px rgba(42,29,20,0.3); }
+.keypad-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.keypad-head span { color: #6B4C3B; font-size: 13px; font-weight: 800; }
+.keypad-head button { width: 34px; height: 34px; border: none; border-radius: 10px; background: transparent; color: #9C8278; font-size: 24px; line-height: 1; cursor: pointer; }
+.keypad-display { margin-top: 8px; padding: 12px 14px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E8DDD5; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 34px; font-weight: 800; text-align: right; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.keypad-display.is-empty { color: #C9B8AF; }
+.keypad-summary { display: flex; flex-direction: column; gap: 3px; margin-top: 8px; padding: 8px 12px; border-radius: 12px; background: #F3EDE5; }
+.keypad-summary-row { display: flex; justify-content: space-between; gap: 10px; color: #6B4C3B; font-size: 13px; }
+.keypad-summary-row strong { color: #3D2B1F; }
+.keypad-quick { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 10px; }
+.keypad-quick button { height: 40px; border: 1px solid #E8DDD5; border-radius: 10px; background: #FFFFFF; color: #3D2B1F; font-size: 13px; font-weight: 800; cursor: pointer; }
+.keypad-quick button[aria-pressed="true"] { border-color: #0F766E; background: #0F766E; color: #FFFFFF; }
+.keypad-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.keypad-keys button { height: 60px; display: flex; align-items: center; justify-content: center; border: 1px solid #E8DDD5; border-radius: 14px; background: #FFFFFF; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 26px; font-weight: 800; cursor: pointer; box-shadow: 0 2px 0 #E8DDD5; transition: transform 70ms ease, background 100ms ease; -webkit-tap-highlight-color: transparent; user-select: none; }
+.keypad-keys button:active { transform: translateY(2px); box-shadow: none; background: #FFF7ED; }
+.keypad-keys button.is-back { background: #F3EDE5; color: #6B4C3B; }
+.keypad-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 8px; margin-top: 10px; }
+.keypad-actions button { height: 52px; border-radius: 14px; font-size: 15px; font-weight: 800; cursor: pointer; }
+.keypad-actions .is-clear { border: 1px solid #FECACA; background: #FEF2F2; color: #B91C1C; }
+.keypad-actions .is-done { border: none; background: #3D2B1F; color: #FDF9F5; font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; }
+.keypad-keys button:focus-visible, .keypad-actions button:focus-visible, .keypad-quick button:focus-visible { outline: 2px solid #D97706; outline-offset: 2px; }
+/* Settings switch */
+.setting-switch { position: relative; flex-shrink: 0; width: 52px; height: 30px; border: none; border-radius: 999px; background: #D6CCC4; cursor: pointer; transition: background 160ms ease; }
+.setting-switch span { position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 999px; background: #FFFFFF; box-shadow: 0 1px 4px rgba(0,0,0,0.2); transition: transform 160ms ease; }
+.setting-switch.is-on { background: #15803D; }
+.setting-switch.is-on span { transform: translateX(22px); }
+.setting-switch:focus-visible { outline: 2px solid #D97706; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .setting-switch, .setting-switch span, .keypad-keys button { transition: none; } }
