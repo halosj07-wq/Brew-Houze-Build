@@ -186,10 +186,10 @@ export async function PATCH(request: Request) {
       if (!role) return NextResponse.json({ error: "Choose cashier or barista." }, { status: 400 });
       const result = await pool.query(`
         UPDATE admin_users
-        SET role = $2,
-          can_void_orders = CASE WHEN $2 = 'barista' THEN FALSE ELSE can_void_orders END,
-          can_refund_orders = CASE WHEN $2 = 'barista' THEN FALSE ELSE can_refund_orders END,
-          can_open_shift = CASE WHEN $2 = 'barista' THEN FALSE ELSE can_open_shift END,
+        SET role = $2::text,
+          can_void_orders = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_void_orders END,
+          can_refund_orders = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_refund_orders END,
+          can_open_shift = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_open_shift END,
           updated_at = CURRENT_TIMESTAMP
         WHERE admin_id = $1
         RETURNING role, can_void_orders, can_refund_orders, can_open_shift
