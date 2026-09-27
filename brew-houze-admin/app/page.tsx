@@ -2120,42 +2120,92 @@ function describeInventoryLog(log: InventoryLogEntry): string {
 }
 
 function exportInventoryLogs(logs: InventoryLogEntry[], rangeLabel: string, fileStamp: string) {
-  const workbook = XLSX.utils.book_new();
-  const summaryRows = Object.entries(logs.reduce<Record<string, number>>((counts, log) => {
+  const counts = Object.entries(logs.reduce<Record<string, number>>((all, log) => {
     const label = inventoryChangeLabels[log.change_type] ?? log.change_type;
-    counts[label] = (counts[label] ?? 0) + 1;
-    return counts;
-  }, {})).map(([changeType, count]) => ({ "Change Type": changeType, Occurrences: count }));
-  const summarySheet = XLSX.utils.json_to_sheet([
-    { "Report Range": rangeLabel, Generated: formatFinanceDateTime(new Date().toISOString()), "Total Entries": logs.length },
-    {},
-    ...summaryRows,
-  ]);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
-  const logRows = logs.map((log) => ({
-    Date: formatFinanceDateTime(log.created_at),
-    Item: log.item_name,
-    Category: log.ingredient_category,
-    Unit: log.unit_of_measure,
-    "Change Type": inventoryChangeLabels[log.change_type] ?? log.change_type,
-    "Quantity Before": Number(log.quantity_before),
-    "Quantity After": Number(log.quantity_after),
-    "Quantity Change": Number(log.quantity_delta),
-    Details: describeInventoryLog(log),
-    Packaging: log.packaging_name ?? "",
-    Packs: log.packs_added ?? "",
-    "Price per Pack": toOptionalNumber(log.pack_price) ?? "",
-    "Unit Cost Before": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_before) ?? "Not set" : "",
-    "Unit Cost After": log.change_type === "cost_updated" || log.packaging_name ? toOptionalNumber(log.unit_cost_after) ?? "Not set" : "",
-    "Order ID": log.order_id ?? "",
-    "Performed By": log.admin_name ?? "",
-    Source: sourceAppLabels[log.source_app] ?? log.source_app,
-    Shift: log.shift_id ? `#${log.shift_id}` : "",
-  }));
-  const logSheet = XLSX.utils.json_to_sheet(logRows);
-  if (logRows.length > 0) logSheet["!cols"] = Object.keys(logRows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 36) }));
-  XLSX.utils.book_append_sheet(workbook, logSheet, "Change Log");
-  XLSX.writeFile(workbook, `brew-houze-inventory-history-${fileStamp}.xlsx`);
+    all[label] = (all[label] ?? 0) + 1;
+    return all;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  const showsCost = (log: InventoryLogEntry) => log.change_type === "cost_updated" || Boolean(log.packaging_name);
+  saveWorkbook([
+    ["Summary", excelInfo([
+      ["Brew Houze stock history"],
+      ["Showing", rangeLabel],
+      ["Generated", excelNow()],
+      ["Entries", logs.length],
+      [],
+      ["Change type", "Entries"],
+      ...counts.map(([label, count]) => [label, count] as ExcelInfoRow),
+    ], ["Entries", ...counts.map(([label]) => label)])],
+    ["Stock changes", excelTable(logs, [
+      { header: "Date and time", value: (log) => excelDateTime(log.created_at) },
+      { header: "Item", value: (log) => log.item_name },
+      { header: "Category", value: (log) => log.ingredient_category },
+      { header: "Change", value: (log) => inventoryChangeLabels[log.change_type] ?? log.change_type },
+      { header: "Before", value: (log) => Number(log.quantity_before), kind: "number" },
+      { header: "Change amount", value: (log) => Number(log.quantity_delta), kind: "number" },
+      { header: "After", value: (log) => Number(log.quantity_after), kind: "number" },
+      { header: "Unit", value: (log) => log.unit_of_measure },
+      { header: "Details", value: (log) => describeInventoryLog(log) },
+      { header: "Package", value: (log) => log.packaging_name ?? "" },
+      { header: "Packs", value: (log) => log.packs_added === null || log.packs_added === undefined ? null : Number(log.packs_added), kind: "count" },
+      { header: "Price per pack", value: (log) => toOptionalNumber(log.pack_price), kind: "money" },
+      { header: "Unit cost before", value: (log) => showsCost(log) ? toOptionalNumber(log.unit_cost_before) : null, kind: "cost" },
+      { header: "Unit cost after", value: (log) => showsCost(log) ? toOptionalNumber(log.unit_cost_after) : null, kind: "cost" },
+      { header: "Order #", value: (log) => log.order_id ?? null },
+      { header: "Shift", value: (log) => log.shift_id ? `#${log.shift_id}` : "" },
+      { header: "By", value: (log) => log.admin_name ?? "" },
+      { header: "From", value: (log) => sourceAppLabels[log.source_app] ?? log.source_app },
+    ])],
+  ], `brew-houze-stock-history-${fileStamp}.xlsx`);
+}
+
+// Current stock for a stocktake: what is on hand, what it is worth, and what needs ordering.
+function exportStockList(items: InventoryItem[]) {
+  const stocked = items.filter((item) => !item.derived_from_inventory_id);
+  const portions = items.filter((item) => item.derived_from_inventory_id);
+  const status = (item: InventoryItem) => Number(item.quantity) <= 0 ? "Out of stock" : Number(item.quantity) <= Number(item.low_stock_threshold) ? "Running low" : "OK";
+  const value = (item: InventoryItem) => { const cost = toOptionalNumber(item.effective_unit_cost ?? item.unit_cost); return cost === null ? null : Math.round(cost * Number(item.quantity) * 100) / 100; };
+  const totalValue = stocked.reduce((sum, item) => sum + (value(item) ?? 0), 0);
+  const byName = (a: InventoryItem, b: InventoryItem) => a.ingredient_category.localeCompare(b.ingredient_category) || a.item_name.localeCompare(b.item_name);
+  const stamp = getFinanceDateStamp();
+  saveWorkbook([
+    ["Summary", excelInfo([
+      ["Brew Houze stock list"],
+      ["As of", excelNow()],
+      ["Items", stocked.length],
+      ["Out of stock", stocked.filter((item) => status(item) === "Out of stock").length],
+      ["Running low", stocked.filter((item) => status(item) === "Running low").length],
+      ["Without a cost", stocked.filter((item) => value(item) === null).length],
+      ["Stock value (items with a cost)", totalValue],
+    ], ["Items", "Out of stock", "Running low", "Without a cost"])],
+    ["Stock", excelTable([...stocked].sort(byName), [
+      { header: "Item", value: (item) => item.item_name },
+      { header: "Category", value: (item) => item.ingredient_category },
+      { header: "On hand", value: (item) => Number(item.quantity), kind: "number" },
+      { header: "Unit", value: (item) => item.unit_of_measure },
+      { header: "Alert at", value: (item) => Number(item.low_stock_threshold), kind: "number" },
+      { header: "Status", value: status },
+      { header: "Unit cost", value: (item) => toOptionalNumber(item.effective_unit_cost ?? item.unit_cost), kind: "cost" },
+      { header: "Stock value", value, kind: "money" },
+      { header: "Bought as", value: (item) => (item.packagings ?? []).map((pack) => `${pack.name}${pack.brand ? ` (${pack.brand})` : ""}: ${formatAmount(Number(pack.contentQuantity))} ${item.unit_of_measure}${toOptionalNumber(pack.lastPackPrice) !== null ? ` at ₱${Number(pack.lastPackPrice).toFixed(2)}` : ""}`).join("; ") },
+      { header: "Last restocked", value: (item) => excelDateTime((item.packagings ?? []).map((pack) => pack.lastRestockedAt).filter((when): when is string => Boolean(when)).sort().pop()) },
+      { header: "Used in", value: (item) => [
+        ...(item.recipe_products ?? []),
+        ...(item.direct_sale_products ?? []),
+        ...(item.addition_names ?? []).map((name) => `${name} (add-on)`),
+        ...portions.filter((portion) => portion.derived_from_inventory_id === item.inventory_id).map((portion) => `drinks through the ${portion.item_name} portion`),
+      ].join(", ") },
+    ])],
+    ["Portions", portions.length ? excelTable([...portions].sort(byName), [
+      { header: "Portion", value: (item) => item.item_name },
+      { header: "Category", value: (item) => item.ingredient_category },
+      { header: "Made from", value: (item) => item.derived_from_item_name ?? "" },
+      { header: "Uses per portion", value: (item) => toOptionalNumber(item.derived_ratio), kind: "number" },
+      { header: "Source unit", value: (item) => item.derived_from_unit_of_measure ?? "" },
+      { header: "Portions possible", value: (item) => item.derived_ratio ? Math.floor(Number(item.derived_from_available_quantity ?? 0) / Number(item.derived_ratio)) : null, kind: "count" },
+      { header: "Cost per portion", value: (item) => toOptionalNumber(item.effective_unit_cost), kind: "cost" },
+    ]) : null],
+  ], `brew-houze-stock-list-${stamp}.xlsx`);
 }
 
 const HISTORY_PAGE_SIZE = 60;
@@ -2578,7 +2628,10 @@ function Inventory({
           <button type="button" role="tab" aria-selected={tab === "stock"} onClick={() => setTab("stock")}><IconBox size={15} />Stock</button>
           <button type="button" role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}><IconRotateCcw size={14} />History</button>
         </div>
-        {tab === "stock" && <button type="button" className="inv-primary" onClick={() => { setActionError(""); setAddPreset({}); }}><IconPlus size={15} />Add inventory</button>}
+        {tab === "stock" && <div className="flex items-center gap-2">
+          <button type="button" className="inv-secondary" onClick={() => exportStockList(items)} disabled={items.length === 0}><IconDownload size={14} />Export stock list</button>
+          <button type="button" className="inv-primary" onClick={() => { setActionError(""); setAddPreset({}); }}><IconPlus size={15} />Add inventory</button>
+        </div>}
       </div>
 
       {actionError && <div className="inv-alert" role="alert">
@@ -2760,6 +2813,50 @@ function recipeCost(ingredients: { inventoryId: number; qty: number | string }[]
     total += cost * Number(ingredient.qty || 0);
   }
   return total;
+}
+
+// The menu with the cost and margin of every size, from the current inventory costs.
+function exportMenu(products: Product[], inventory: InventoryItem[]) {
+  type MenuRow = { product: Product; variant: ProductVariant; cost: number | null; available: boolean };
+  const rows: MenuRow[] = [];
+  for (const product of [...products].sort((a, b) => (a.category || "").localeCompare(b.category || "") || a.name.localeCompare(b.name))) {
+    const insight = productInsight(product, inventory);
+    const source = product.variants.length ? product.variants : [{ size: "", price: product.price, temperature: "both" as ProductTemperature, ingredients: product.ingredients }];
+    source.forEach((variant, index) => rows.push({ product, variant, cost: insight.variants[index]?.cost ?? null, available: insight.variants[index]?.available ?? false }));
+  }
+  const margin = (row: MenuRow) => row.cost === null ? null : Math.round((Number(row.variant.price) - row.cost) * 100) / 100;
+  const marginRate = (row: MenuRow) => row.cost === null || Number(row.variant.price) <= 0 ? null : Math.round(((Number(row.variant.price) - row.cost) / Number(row.variant.price)) * 1000) / 10;
+  const itemName = (id: number) => inventory.find((item) => item.inventory_id === id)?.item_name ?? "an item";
+  const itemUnit = (id: number) => inventory.find((item) => item.inventory_id === id)?.unit_of_measure ?? "";
+  saveWorkbook([
+    ["Summary", excelInfo([
+      ["Brew Houze menu and costing"],
+      ["As of", excelNow()],
+      ["Products", products.length],
+      ["Sizes", rows.length],
+      ["Sizes without a cost", rows.filter((row) => row.cost === null).length],
+      ["Sizes that cannot be made now", rows.filter((row) => !row.available).length],
+      [],
+      ["Costs use the current unit cost of each inventory item."],
+    ], ["Products", "Sizes", "Sizes without a cost", "Sizes that cannot be made now"])],
+    ["Menu", excelTable(rows, [
+      { header: "Product", value: (row) => row.product.name },
+      { header: "Category", value: (row) => row.product.category || "Uncategorized" },
+      { header: "Type", value: (row) => row.product.productType === "stock" ? "Direct sale" : "Made to order" },
+      { header: "Size", value: (row) => row.variant.size || "Regular" },
+      { header: "Temperature", value: (row) => row.variant.temperature === "hot" ? "Hot" : row.variant.temperature === "cold" ? "Cold" : "" },
+      { header: "Price", value: (row) => Number(row.variant.price), kind: "money" },
+      { header: "Cost", value: (row) => row.cost, kind: "money" },
+      { header: "Margin", value: margin, kind: "money" },
+      { header: "Margin %", value: marginRate, kind: "number" },
+      { header: "Can be made now", value: (row) => row.available ? "Yes" : "No" },
+      { header: "Recipe", value: (row) => row.variant.ingredients.map((ingredient) => {
+        const unit = itemUnit(ingredient.inventoryId);
+        const name = ingredient.label || itemName(ingredient.inventoryId);
+        return isWholeUnit(unit) ? `${name} ×${formatAmount(Number(ingredient.qty))}` : `${name} ${formatAmount(Number(ingredient.qty))} ${unit === "grams" ? "g" : unit}`;
+      }).join(", ") },
+    ])],
+  ], `brew-houze-menu-${getFinanceDateStamp()}.xlsx`);
 }
 
 function productInsight(product: Product, inventory: InventoryItem[]): ProductInsight {
@@ -3523,6 +3620,7 @@ function ProductManagement({
             <option value="category">By category</option><option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="margin">Lowest margin first</option>
           </select>
         </label>
+        <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>
         <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
       </div>
 
@@ -3664,9 +3762,79 @@ function ProductManagement({
   );
 }
 
-function formatFinanceDateTime(value: string): string {
-  return new Date(value).toLocaleString(undefined, { timeZone: "Asia/Manila" });
+// ─── Excel exports ───────────────────────────────────────────────────────────
+// Every export uses these so the files look the same: a cover sheet first, then tables with a
+// filter on the header row, columns sized to their contents, pesos as #,##0.00, and dates and
+// times written in Philippine time as 2026-09-28 14:05 (the same on every device).
+type ExcelValue = string | number | null | undefined;
+type ExcelKind = "text" | "money" | "cost" | "number" | "count" | "hours";
+type ExcelColumn<T> = { header: string; value: (row: T) => ExcelValue; kind?: ExcelKind };
+type ExcelInfoRow = [label: string, ...values: ExcelValue[]] | [];
+
+const excelFormats: Partial<Record<ExcelKind, string>> = { money: "#,##0.00", cost: "#,##0.00##", number: "#,##0.###", count: "#,##0", hours: "0.00" };
+
+function excelDateTime(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
+
+function excelNow(): string {
+  return excelDateTime(new Date().toISOString());
+}
+
+function excelWidth(value: ExcelValue, kind: ExcelKind = "text"): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === "number") return kind === "money" || kind === "cost" ? value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 4 }).length : String(value).length;
+  return String(value).length;
+}
+
+// A table: header row, one row per record, number formats per column and a filter on the header.
+function excelTable<T>(rows: T[], columns: ExcelColumn<T>[]): XLSX.WorkSheet {
+  const matrix: ExcelValue[][] = [columns.map((column) => column.header), ...rows.map((row) => columns.map((column) => { const value = column.value(row); return value === undefined ? null : value; }))];
+  const sheet = XLSX.utils.aoa_to_sheet(matrix);
+  columns.forEach((column, columnIndex) => {
+    const format = column.kind ? excelFormats[column.kind] : undefined;
+    if (!format) return;
+    for (let rowIndex = 1; rowIndex <= rows.length; rowIndex++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
+      // Whole numbers get no decimal point at all (Excel would show "2,000." otherwise).
+      if (cell && cell.t === "n") cell.z = column.kind === "number" && Number.isInteger(cell.v) ? "#,##0" : format;
+    }
+  });
+  sheet["!cols"] = columns.map((column, columnIndex) => ({ wch: Math.min(50, Math.max(8, column.header.length + 2, ...matrix.slice(1).map((row) => excelWidth(row[columnIndex], column.kind) + 2))) }));
+  if (rows.length > 0) sheet["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length, c: columns.length - 1 } }) };
+  return sheet;
+}
+
+// A cover or summary sheet: a label in column A and its values beside it. Numbers get the
+// money format unless the label is in `plainNumbers` (counts such as orders or items).
+function excelInfo(rows: ExcelInfoRow[], plainNumbers: string[] = []): XLSX.WorkSheet {
+  const sheet = XLSX.utils.aoa_to_sheet(rows.map((row) => row.map((value) => value === undefined ? null : value)));
+  rows.forEach((row, rowIndex) => {
+    if (row.length === 0 || plainNumbers.includes(String(row[0]))) return;
+    for (let columnIndex = 1; columnIndex < row.length; columnIndex++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: columnIndex })];
+      if (cell && cell.t === "n") cell.z = excelFormats.money!;
+    }
+  });
+  const widest = (index: number) => Math.max(0, ...rows.map((row) => excelWidth(row[index] as ExcelValue, index === 0 ? "text" : "money")));
+  sheet["!cols"] = [{ wch: Math.min(48, widest(0) + 2) }, ...Array.from({ length: Math.max(0, ...rows.map((row) => row.length)) - 1 }, (_, index) => ({ wch: Math.min(40, Math.max(14, widest(index + 1) + 2)) }))];
+  return sheet;
+}
+
+function saveWorkbook(sheets: [name: string, sheet: XLSX.WorkSheet | null][], fileName: string) {
+  const workbook = XLSX.utils.book_new();
+  for (const [name, sheet] of sheets) if (sheet) XLSX.utils.book_append_sheet(workbook, sheet, name.slice(0, 31));
+  if (workbook.SheetNames.length === 0) throw new Error("There is nothing to export.");
+  XLSX.writeFile(workbook, fileName);
+}
+
+const excelStatus = (status: string) => status.startsWith("void") ? "Voided" : status.startsWith("refund") ? "Refunded" : status === "completed" ? "Completed" : status.charAt(0).toUpperCase() + status.slice(1);
+const excelPayment = (order: { orderSource: string; paymentMethod: string }) => order.orderSource === "online" ? "Mobile menu (GCash)" : order.paymentMethod === "split" ? "Split (cash + GCash)" : order.paymentMethod === "online" ? "GCash" : "Cash";
+const excelReturnMethod = (method: string | null | undefined) => method === "gcash" ? "GCash" : method === "cash" ? "Cash" : method === "split" ? "As paid (cash + GCash)" : "";
 
 function getFinanceDateStamp(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
@@ -4009,6 +4177,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
             : openShiftId === null
               ? <button type="button" className="dash-open-store" onClick={() => setAction("open")}>Start shift</button>
               : <button type="button" className="dash-shift-link" onClick={() => viewShift(null)}>Go to the open shift <IconChevron size={13} /></button>}
+          <button type="button" className="dash-shift-link" onClick={() => exportShiftReport({ summary: { ...shift, hoursOpen: ((shift.closedAt ? new Date(shift.closedAt).getTime() : now) - new Date(shift.openedAt).getTime()) / HOUR_MS }, orders, attendance: data.attendance })}><IconDownload size={13} />Export shift</button>
           <button type="button" className="dash-shift-link" onClick={() => onNavigate("finance")}>Shift reports <IconChevron size={13} /></button>
         </div>
         <div className="dash-shift-stats shiftm-stats">
@@ -4247,6 +4416,108 @@ function cashDifferenceLabel(difference: number | null): { text: string; color: 
   return difference > 0 ? { text: `+${peso(difference)} over`, color: "#B45309" } : { text: `−${peso(-difference)} short`, color: "#B91C1C" };
 }
 
+const shiftDrawerState = (shift: ShiftReport) => shift.closedAt === null ? "Open" : shift.isHistorical || shift.cashDifference === null ? "Not counted" : Math.abs(shift.cashDifference) < 0.005 ? "Balanced" : shift.cashDifference > 0 ? "Over" : "Short";
+
+function shiftListColumns(): ExcelColumn<ShiftReport>[] {
+  return [
+    { header: "Shift", value: (shift) => `#${shift.shiftId}` },
+    { header: "Business date", value: (shift) => shift.businessDate },
+    { header: "Opened", value: (shift) => excelDateTime(shift.openedAt) },
+    { header: "Opened by", value: (shift) => shift.openedByName ?? "" },
+    { header: "Closed", value: (shift) => shift.closedAt ? excelDateTime(shift.closedAt) : "Still open" },
+    { header: "Closed by", value: (shift) => shift.closedByName ?? "" },
+    { header: "Hours open", value: (shift) => Math.round(shift.hoursOpen * 100) / 100, kind: "hours" },
+    { header: "Orders", value: (shift) => shift.orderCount, kind: "count" },
+    { header: "Gross sales", value: (shift) => shift.grossSales, kind: "money" },
+    { header: "Voids and refunds", value: (shift) => shift.voidCount + shift.refundCount, kind: "count" },
+    { header: "Voided or refunded", value: (shift) => shift.reversedAmount, kind: "money" },
+    { header: "Net sales", value: (shift) => shift.netSales, kind: "money" },
+    { header: "Cash sales", value: (shift) => shift.cashSales, kind: "money" },
+    { header: "GCash and online", value: (shift) => shift.onlineSales, kind: "money" },
+    { header: "Starting cash", value: (shift) => shift.isHistorical ? null : shift.startingCash, kind: "money" },
+    { header: "Expected in drawer", value: (shift) => shift.isHistorical ? null : shift.expectedCash, kind: "money" },
+    { header: "Counted", value: (shift) => shift.countedCash, kind: "money" },
+    { header: "Difference", value: (shift) => shift.cashDifference, kind: "money" },
+    { header: "Drawer", value: shiftDrawerState },
+    { header: "Closing notes", value: (shift) => shift.closingNotes ?? "" },
+  ];
+}
+
+function exportShiftList(shifts: ShiftReport[], label: string, fileStamp: string) {
+  const counted = shifts.filter((shift) => shift.cashDifference !== null && !shift.isHistorical);
+  saveWorkbook([
+    ["Summary", excelInfo([
+      ["Brew Houze shift reports"],
+      ["Showing", label],
+      ["Generated", excelNow()],
+      ["Shifts", shifts.length],
+      ["Net sales", shifts.reduce((sum, shift) => sum + shift.netSales, 0)],
+      ["Cash over or short (counted shifts)", counted.reduce((sum, shift) => sum + (shift.cashDifference ?? 0), 0)],
+      ["Short", counted.filter((shift) => (shift.cashDifference ?? 0) < -0.005).length],
+      ["Over", counted.filter((shift) => (shift.cashDifference ?? 0) > 0.005).length],
+    ], ["Shifts", "Short", "Over"])],
+    ["Shifts", excelTable(shifts, shiftListColumns())],
+  ], `brew-houze-shifts-${fileStamp}.xlsx`);
+}
+
+// One shift in full: totals and cash drawer, every order, and attendance.
+function exportShiftReport(shift: ShiftDetail) {
+  const { summary } = shift;
+  saveWorkbook([
+    ["Summary", excelInfo([
+      [`Brew Houze shift #${summary.shiftId}${summary.isHistorical ? " (recorded before shifts, grouped by calendar day)" : ""}`],
+      ["Business date", summary.businessDate],
+      ["Opened", excelDateTime(summary.openedAt), summary.openedByName ?? ""],
+      ["Closed", summary.closedAt ? excelDateTime(summary.closedAt) : "Still open", summary.closedByName ?? ""],
+      ["Generated", excelNow()],
+      [],
+      ["Sales"],
+      ["Orders", summary.orderCount],
+      ["Items sold", summary.itemsSold],
+      ["Gross sales", summary.grossSales],
+      ["Voids", summary.voidCount],
+      ["Refunds", summary.refundCount],
+      ["Voided or refunded amount", summary.reversedAmount],
+      ["Net sales", summary.netSales],
+      ["Cost of goods", summary.costOfGoods],
+      ["Items sold without a cost", summary.uncostedItems],
+      ["Gross profit", summary.uncostedItems > 0 ? "Incomplete: some items have no cost" : summary.netSales - summary.costOfGoods],
+      [],
+      ["Cash drawer"],
+      ...(summary.isHistorical ? [["Not tracked for this day"] as ExcelInfoRow] : [
+        ["Starting cash", summary.startingCash] as ExcelInfoRow,
+        ["Cash sales", summary.cashSales] as ExcelInfoRow,
+        ["Cash given back", summary.cashReversed] as ExcelInfoRow,
+        ["Returned through GCash (not from the drawer)", summary.gcashReturned ?? 0] as ExcelInfoRow,
+        ["Expected in drawer", summary.expectedCash] as ExcelInfoRow,
+        ["Counted", summary.countedCash ?? "Not counted"] as ExcelInfoRow,
+        ["Difference", summary.cashDifference ?? "Not counted"] as ExcelInfoRow,
+      ]),
+      ["GCash and online", summary.onlineSales],
+      ["Closing notes", summary.closingNotes ?? ""],
+    ], ["Orders", "Items sold", "Voids", "Refunds", "Items sold without a cost"])],
+    ["Orders", shift.orders.length ? excelTable(shift.orders, [
+      { header: "Queue #", value: (order) => order.queueNumber ?? null },
+      { header: "Order #", value: (order) => order.orderId },
+      { header: "Time", value: (order) => excelDateTime(order.createdAt) },
+      { header: "Items", value: (order) => order.items },
+      { header: "Total", value: (order) => order.total, kind: "money" },
+      { header: "Payment", value: (order) => excelPayment(order) },
+      { header: "Punched by", value: (order) => order.punchedBy },
+      { header: "Status", value: (order) => excelStatus(order.status) },
+      { header: "In this shift", value: (order) => order.soldInShift && order.reversedInShift ? "Sold and reversed" : order.soldInShift ? "Sold" : "Reversed (sold in an earlier shift)" },
+      { header: "Reversed at", value: (order) => excelDateTime(order.reversedAt) },
+    ]) : null],
+    ["Attendance", shift.attendance.length ? excelTable(shift.attendance, [
+      { header: "Employee", value: (log) => log.name },
+      { header: "Role", value: (log) => log.role.charAt(0).toUpperCase() + log.role.slice(1) },
+      { header: "Time in", value: (log) => excelDateTime(log.timeIn) },
+      { header: "Time out", value: (log) => log.timeOut ? excelDateTime(log.timeOut) : "Still on duty" },
+      { header: "Hours", value: (log) => Math.round(((log.timeOut ? new Date(log.timeOut).getTime() : Date.now()) - new Date(log.timeIn).getTime()) / 36_000) / 100, kind: "hours" },
+    ]) : null],
+  ], `brew-houze-shift-${summary.shiftId}-${summary.businessDate}.xlsx`);
+}
+
 function ShiftReports({ start, end }: { start: string; end: string }) {
   const [shifts, setShifts] = useState<ShiftReport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4286,61 +4557,6 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
     }
   }
 
-  function exportShift(shift: ShiftDetail) {
-    const { summary } = shift;
-    const workbook = XLSX.utils.book_new();
-    const summaryRows = [
-      ["Shift", `#${summary.shiftId}${summary.isHistorical ? " (historical, grouped by calendar day)" : ""}`],
-      ["Business date", shiftBusinessDate(summary.businessDate)],
-      ["Opened", `${shiftTime(summary.openedAt)}${summary.openedByName ? ` by ${summary.openedByName}` : ""}`],
-      ["Closed", summary.closedAt ? `${shiftTime(summary.closedAt)}${summary.closedByName ? ` by ${summary.closedByName}` : ""}` : "Still open"],
-      [],
-      ["Orders", summary.orderCount],
-      ["Items sold", summary.itemsSold],
-      ["Gross sales", summary.grossSales],
-      ["Voids", summary.voidCount],
-      ["Refunds", summary.refundCount],
-      ["Voided/refunded amount", summary.reversedAmount],
-      ["Net sales", summary.netSales],
-      ["Cost of goods", summary.uncostedItems > 0 ? `${summary.costOfGoods} (${summary.uncostedItems} items without cost)` : summary.costOfGoods],
-      ["Gross profit", summary.uncostedItems > 0 ? "Incomplete" : summary.netSales - summary.costOfGoods],
-      [],
-      ["Starting cash", summary.startingCash],
-      ["Cash sales", summary.cashSales],
-      ["Cash given back", summary.cashReversed],
-      ["Returned through GCash (not from the drawer)", summary.gcashReturned ?? 0],
-      ["Expected cash", summary.expectedCash],
-      ["Counted cash", summary.countedCash ?? "Not counted"],
-      ["Difference", summary.cashDifference ?? "—"],
-      ["Paid online", summary.onlineSales],
-      ["Closing notes", summary.closingNotes ?? ""],
-    ];
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(summaryRows), "Summary");
-    if (shift.orders.length > 0) {
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(shift.orders.map((order) => ({
-        "Queue #": order.queueNumber ?? "",
-        "Order Ref": order.orderId,
-        Time: shiftTime(order.createdAt),
-        Items: order.items,
-        Total: order.total,
-        Payment: order.paymentMethod === "online" ? "Online" : "Cash",
-        Source: order.orderSource === "online" ? "Mobile" : "Counter",
-        "Punched By": order.punchedBy,
-        Status: order.status,
-        "In This Shift": order.soldInShift && order.reversedInShift ? "Sold and reversed" : order.soldInShift ? "Sold" : "Reversed (sold in an earlier shift)",
-      }))), "Orders");
-    }
-    if (shift.attendance.length > 0) {
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(shift.attendance.map((log) => ({
-        Employee: log.name,
-        Role: log.role,
-        "Time In": shiftTime(log.timeIn),
-        "Time Out": log.timeOut ? shiftTime(log.timeOut) : "Still signed in",
-      }))), "Attendance");
-    }
-    XLSX.writeFile(workbook, `brew-houze-shift-${summary.shiftId}-${summary.businessDate}.xlsx`);
-  }
-
   const [drawerFilter, setDrawerFilter] = useState<"all" | "open" | "balanced" | "short" | "over" | "uncounted">("all");
   const [staffFilter, setStaffFilter] = useState("all");
   const drawerState = (shift: ShiftReport) => shift.closedAt === null ? "open" as const : shift.isHistorical || shift.cashDifference === null ? "uncounted" as const : Math.abs(shift.cashDifference) < 0.005 ? "balanced" as const : shift.cashDifference > 0 ? "over" as const : "short" as const;
@@ -4370,6 +4586,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
         </select>
       </label>
     </div>
+    {shownShifts.length > 0 && <div className="flex justify-end"><button type="button" className="inv-secondary" onClick={() => exportShiftList(shownShifts, `${start === end ? start : `${start} to ${end}`}${drawerFilter !== "all" ? ` · ${drawerFilter}` : ""}${staffFilter !== "all" ? ` · ${staffFilter}` : ""}`, start === end ? start : `${start}-to-${end}`)}><IconDownload size={14} />Export {shownShifts.length} shift{shownShifts.length === 1 ? "" : "s"}</button></div>}
     <p className="inv-hint">Each shift is one business day, opened and closed from the cashier app, even past midnight. Voids and refunds count in the shift they happened in. Tap a shift for its full report and Excel export.</p>
     {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
     {loading && shifts.length === 0 ? <div className="inv-empty">Loading shifts…</div>
@@ -4403,7 +4620,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
               <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12 }}>{shiftTime(summary.openedAt)}{summary.openedByName ? ` (${summary.openedByName})` : ""} → {summary.closedAt ? `${shiftTime(summary.closedAt)}${summary.closedByName ? ` (${summary.closedByName})` : ""}` : "still open"}</p>
             </div>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => exportShift(detail)} className="flex items-center gap-2" style={{ border: "1px solid #E8DDD5", background: "#FFFFFF", color: "#3D2B1F", borderRadius: 9, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}><IconDownload size={13} />Export .xlsx</button>
+              <button type="button" onClick={() => exportShiftReport(detail)} className="flex items-center gap-2" style={{ border: "1px solid #E8DDD5", background: "#FFFFFF", color: "#3D2B1F", borderRadius: 9, padding: "8px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}><IconDownload size={13} />Export .xlsx</button>
               <button type="button" onClick={() => setDetail(null)} aria-label="Close shift report" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 26, lineHeight: 1, cursor: "pointer" }}>×</button>
             </div>
           </div>
@@ -4788,51 +5005,70 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
   </Modal>;
 }
 
+function financeOrderColumns(): ExcelColumn<FinanceOrder>[] {
+  return [
+    { header: "Order #", value: (order) => order.orderId },
+    { header: "Queue #", value: (order) => order.queueNumber ?? null },
+    { header: "Business date", value: (order) => order.businessDate },
+    { header: "Time", value: (order) => excelDateTime(order.createdAt) },
+    { header: "Shift", value: (order) => order.shiftId ? `#${order.shiftId}` : "" },
+    { header: "Punched by", value: (order) => order.punchedBy },
+    { header: "Payment", value: (order) => excelPayment(order) },
+    { header: "Status", value: (order) => excelStatus(orderStatusOf(order)) },
+    { header: "Items", value: (order) => describeItems(order.items) },
+    { header: "Total", value: (order) => order.total, kind: "money" },
+    { header: "Cash part", value: (order) => order.paymentMethod === "split" ? order.cashPortion ?? null : order.paymentMethod === "cash" ? order.total : null, kind: "money" },
+    { header: "Cash received", value: (order) => order.paymentMethod === "cash" || order.paymentMethod === "split" ? order.received : null, kind: "money" },
+    { header: "Change", value: (order) => order.paymentMethod === "cash" || order.paymentMethod === "split" ? order.change : null, kind: "money" },
+    { header: "Cost of goods", value: (order) => order.cost, kind: "money" },
+    { header: "Gross profit", value: (order) => order.cost === null || order.reversed ? null : order.total - order.cost, kind: "money" },
+    { header: "Reversed at", value: (order) => excelDateTime(order.reversedAt) },
+    { header: "Reversed by", value: (order) => order.reversedBy ?? "" },
+    { header: "Returned via", value: (order) => excelReturnMethod(order.returnMethod) },
+    { header: "Return GCash name", value: (order) => order.returnGcashName ?? "" },
+    { header: "Return GCash number", value: (order) => order.returnGcashNumber ?? "" },
+    { header: "Return reference", value: (order) => order.returnReference ?? "" },
+  ];
+}
+
+type FinanceOrderLine = { order: FinanceOrder; item: FinanceOrderItem };
+function financeItemColumns(): ExcelColumn<FinanceOrderLine>[] {
+  const addonsTotal = (line: FinanceOrderLine) => line.item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0);
+  return [
+    { header: "Order #", value: (line) => line.order.orderId },
+    { header: "Business date", value: (line) => line.order.businessDate },
+    { header: "Status", value: (line) => excelStatus(orderStatusOf(line.order)) },
+    { header: "Product", value: (line) => line.item.productName },
+    { header: "Category", value: (line) => line.item.category },
+    { header: "Size", value: (line) => line.item.size ?? "" },
+    { header: "Temperature", value: (line) => line.item.temperature === "hot" ? "Hot" : line.item.temperature === "cold" ? "Cold" : "" },
+    { header: "Quantity", value: (line) => line.item.quantity, kind: "count" },
+    { header: "Unit price", value: (line) => line.item.unitPrice, kind: "money" },
+    { header: "Add-ons", value: (line) => line.item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", ") },
+    { header: "Add-ons total", value: addonsTotal, kind: "money" },
+    { header: "Line total", value: (line) => line.item.quantity * line.item.unitPrice + addonsTotal(line), kind: "money" },
+  ];
+}
+
+const financeOrderLines = (orders: FinanceOrder[]): FinanceOrderLine[] => orders.flatMap((order) => order.items.map((item) => ({ order, item })));
+
 function exportFinanceOrders(orders: FinanceOrder[], label: string, fileStamp: string) {
-  const workbook = XLSX.utils.book_new();
-  const append = (name: string, rows: Record<string, unknown>[]) => {
-    if (!rows.length) return;
-    const sheet = XLSX.utils.json_to_sheet(rows);
-    sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 12), 40) }));
-    XLSX.utils.book_append_sheet(workbook, sheet, name);
-  };
-  append("Orders", orders.map((order) => ({
-    "Order #": order.orderId,
-    "Queue #": order.queueNumber ?? "",
-    "Business Date": order.businessDate,
-    Time: formatFinanceDateTime(order.createdAt),
-    Shift: order.shiftId ? `#${order.shiftId}` : "",
-    "Punched By": order.punchedBy,
-    Channel: channelLabels[orderChannel(order)],
-    Status: orderStatusOf(order),
-    Items: describeItems(order.items),
-    Total: order.total,
-    "Cost of Goods": order.cost ?? "",
-    "Gross Profit": order.cost === null || order.reversed ? "" : order.total - order.cost,
-    "Reversed At": order.reversedAt ? formatFinanceDateTime(order.reversedAt) : "",
-    "Reversed By": order.reversedBy ?? "",
-    "Returned Via": order.returnMethod === "gcash" ? "GCash" : order.returnMethod === "cash" ? "Cash" : "",
-    "Return GCash Name": order.returnGcashName ?? "",
-    "Return GCash Number": order.returnGcashNumber ?? "",
-    "Return Reference": order.returnReference ?? "",
-  })));
-  append("Order Items", orders.flatMap((order) => order.items.map((item) => ({
-    "Order #": order.orderId,
-    "Business Date": order.businessDate,
-    Status: orderStatusOf(order),
-    Product: item.productName,
-    Category: item.category,
-    Size: item.size ?? "",
-    Temperature: item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Cold" : "",
-    Quantity: item.quantity,
-    "Unit Price": item.unitPrice,
-    "Add-ons": item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", "),
-    "Add-ons Total": item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0),
-    "Line Total": item.quantity * item.unitPrice + item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0),
-  }))));
-  const info = XLSX.utils.aoa_to_sheet([["Brew Houze orders"], ["Filters", label], ["Generated", formatFinanceDateTime(new Date().toISOString())], ["Orders", orders.length]]);
-  XLSX.utils.book_append_sheet(workbook, info, "About");
-  XLSX.writeFile(workbook, `brew-houze-orders-${fileStamp}.xlsx`);
+  const paid = orders.filter((order) => !order.reversed);
+  const reversed = orders.filter((order) => order.reversed);
+  saveWorkbook([
+    ["Summary", excelInfo([
+      ["Brew Houze orders"],
+      ["Showing", label],
+      ["Generated", excelNow()],
+      ["Orders", orders.length],
+      ["Completed", paid.length],
+      ["Paid total", paid.reduce((sum, order) => sum + order.total, 0)],
+      ["Voided or refunded", reversed.length],
+      ["Voided or refunded amount", reversed.reduce((sum, order) => sum + order.total, 0)],
+    ], ["Orders", "Completed", "Voided or refunded"])],
+    ["Orders", excelTable(orders, financeOrderColumns())],
+    ["Order items", excelTable(financeOrderLines(orders), financeItemColumns())],
+  ], `brew-houze-orders-${fileStamp}.xlsx`);
 }
 
 function FinanceOrders({ start, end, preset }: { start: string; end: string; preset: OrdersPreset }) {
@@ -5002,10 +5238,10 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
 }
 
 // ─── Export: one workbook for the chosen range ────────────────────────────────
-type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; orders: boolean };
+type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; shifts: boolean; orders: boolean };
 
 function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onClose: () => void }) {
-  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, orders: true });
+  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, shifts: true, orders: true });
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const { start, end } = data.range;
@@ -5016,6 +5252,7 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
     categories: ["Categories", "Sales per category"],
     addons: ["Add-ons", "Quantity and sales per add-on"],
     staff: ["Staff", "Orders and sales per person"],
+    shifts: ["Shifts", "Each shift with its cash drawer count"],
     orders: ["Orders and items", "Every order in the range, with its items"],
   };
 
@@ -5024,52 +5261,85 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
     setExporting(true);
     setError("");
     try {
-      const workbook = XLSX.utils.book_new();
-      const append = (name: string, rows: Record<string, unknown>[]) => {
-        if (!rows.length) return;
-        const sheet = XLSX.utils.json_to_sheet(rows);
-        sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 12), 40) }));
-        XLSX.utils.book_append_sheet(workbook, sheet, name);
-      };
       const { current, previous } = data;
+      const change = (now: number, before: number) => before === 0 ? null : Math.round(((now - before) / Math.abs(before)) * 1000) / 10;
+      const summaryRow = (label: string, now: number, before: number): ExcelInfoRow => [label, now, before, change(now, before) === null ? "" : `${change(now, before)! > 0 ? "+" : ""}${change(now, before)}%`];
+      const sheets: [string, XLSX.WorkSheet | null][] = [];
       if (sections.summary) {
-        XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+        sheets.push(["Summary", excelInfo([
           ["Brew Houze finance report"],
-          ["Period", formatRange(start, end), "Compared with", formatRange(data.previousRange.start, data.previousRange.end)],
-          ["Generated", formatFinanceDateTime(new Date().toISOString())],
+          ["Period", formatRange(start, end)],
+          ["Compared with", formatRange(data.previousRange.start, data.previousRange.end)],
+          ["Generated", excelNow()],
           [],
-          ["", "This period", "Period before"],
-          ["Net sales", current.netSales, previous.netSales],
-          ["Gross sales (before voids and refunds)", current.grossSales, previous.grossSales],
-          ["Voided or refunded amount", current.reversedAmount, previous.reversedAmount],
-          ["Voids", current.voids, previous.voids],
-          ["Refunds", current.refunds, previous.refunds],
-          ["Orders", current.orders, previous.orders],
-          ["Items sold", current.itemsSold, previous.itemsSold],
-          ["Average order", current.orders ? current.netSales / current.orders : 0, previous.orders ? previous.netSales / previous.orders : 0],
-          ["Cost of goods", current.costOfGoods, previous.costOfGoods],
-          ["Gross profit", current.grossProfit, previous.grossProfit],
-          ["Items sold without a cost (not in profit)", current.uncostedItems, previous.uncostedItems],
-          ["Cash at the counter", current.cashSales, previous.cashSales],
-          ["Online at the counter", current.counterOnlineSales, previous.counterOnlineSales],
-          ["Mobile menu", current.mobileSales, previous.mobileSales],
-        ]), "Summary");
+          ["", "This period", "Period before", "Change"],
+          summaryRow("Net sales", current.netSales, previous.netSales),
+          summaryRow("Gross sales (before voids and refunds)", current.grossSales, previous.grossSales),
+          summaryRow("Voided or refunded amount", current.reversedAmount, previous.reversedAmount),
+          summaryRow("Voids", current.voids, previous.voids),
+          summaryRow("Refunds", current.refunds, previous.refunds),
+          summaryRow("Orders", current.orders, previous.orders),
+          summaryRow("Items sold", current.itemsSold, previous.itemsSold),
+          summaryRow("Average order", current.orders ? current.netSales / current.orders : 0, previous.orders ? previous.netSales / previous.orders : 0),
+          summaryRow("Cost of goods", current.costOfGoods, previous.costOfGoods),
+          summaryRow("Gross profit", current.grossProfit, previous.grossProfit),
+          summaryRow("Items sold without a cost (not in profit)", current.uncostedItems, previous.uncostedItems),
+          [],
+          ["Payments", "This period", "Period before", "Change"],
+          summaryRow("Cash at the counter", current.cashSales, previous.cashSales),
+          summaryRow("GCash at the counter", current.counterOnlineSales, previous.counterOnlineSales),
+          summaryRow("Mobile menu", current.mobileSales, previous.mobileSales),
+        ], ["Voids", "Refunds", "Orders", "Items sold", "Items sold without a cost (not in profit)"])]);
       }
-      if (sections.daily) append("Sales by Day", data.daily.map((day) => ({ "Business Date": day.day, Orders: day.orders, "Net Sales": day.netSales, "Voided or Refunded": day.reversedAmount })));
-      if (sections.products) append("Products", data.products.map((product) => ({ Product: product.name, Category: product.category, Sold: product.quantity, Sales: product.revenue, "Cost of Goods": product.cost ?? "", "Gross Profit": product.cost === null ? "" : product.revenue - product.cost })));
-      if (sections.categories) append("Categories", data.categories.map((category) => ({ Category: category.name, Sold: category.quantity, Sales: category.revenue })));
-      if (sections.addons) append("Add-ons", data.addons.map((addon) => ({ "Add-on": addon.name, Sold: addon.quantity, Sales: addon.revenue })));
-      if (sections.staff) append("Staff", data.staff.map((person) => ({ "Punched By": person.name, Orders: person.orders, "Net Sales": person.revenue, "Voided or Refunded Orders": person.reversedOrders, "Voided or Refunded Amount": person.reversedAmount })));
+      if (sections.daily) sheets.push(["Sales by day", data.daily.length ? excelTable(data.daily, [
+        { header: "Business date", value: (day) => day.day },
+        { header: "Orders", value: (day) => day.orders, kind: "count" },
+        { header: "Net sales", value: (day) => day.netSales, kind: "money" },
+        { header: "Voided or refunded", value: (day) => day.reversedAmount, kind: "money" },
+      ]) : null]);
+      if (sections.products) sheets.push(["Products", data.products.length ? excelTable(data.products, [
+        { header: "Product", value: (product) => product.name },
+        { header: "Category", value: (product) => product.category },
+        { header: "Sold", value: (product) => product.quantity, kind: "count" },
+        { header: "Sales", value: (product) => product.revenue, kind: "money" },
+        { header: "Cost of goods", value: (product) => product.cost, kind: "money" },
+        { header: "Gross profit", value: (product) => product.cost === null ? null : product.revenue - product.cost, kind: "money" },
+        { header: "Margin %", value: (product) => product.cost === null || product.revenue <= 0 ? null : Math.round(((product.revenue - product.cost) / product.revenue) * 1000) / 10, kind: "number" },
+      ]) : null]);
+      if (sections.categories) sheets.push(["Categories", data.categories.length ? excelTable(data.categories, [
+        { header: "Category", value: (category) => category.name },
+        { header: "Sold", value: (category) => category.quantity, kind: "count" },
+        { header: "Sales", value: (category) => category.revenue, kind: "money" },
+      ]) : null]);
+      if (sections.addons) sheets.push(["Add-ons", data.addons.length ? excelTable(data.addons, [
+        { header: "Add-on", value: (addon) => addon.name },
+        { header: "Sold", value: (addon) => addon.quantity, kind: "count" },
+        { header: "Sales", value: (addon) => addon.revenue, kind: "money" },
+      ]) : null]);
+      if (sections.staff) sheets.push(["Staff", data.staff.length ? excelTable(data.staff, [
+        { header: "Punched by", value: (person) => person.name },
+        { header: "Orders", value: (person) => person.orders, kind: "count" },
+        { header: "Net sales", value: (person) => person.revenue, kind: "money" },
+        { header: "Voided or refunded orders", value: (person) => person.reversedOrders, kind: "count" },
+        { header: "Voided or refunded amount", value: (person) => person.reversedAmount, kind: "money" },
+      ]) : null]);
+      if (sections.shifts) {
+        const response = await fetch(`/api/shifts?start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the shifts.");
+        const shifts: ShiftReport[] = payload.data ?? [];
+        sheets.push(["Shifts", shifts.length ? excelTable(shifts, shiftListColumns()) : null]);
+      }
       if (sections.orders) {
         const response = await fetch(`/api/finance?start=${start}&end=${end}&view=orders`, { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || "Could not load the orders.");
         const orders: FinanceOrder[] = payload.data ?? [];
-        append("Orders", orders.map((order) => ({ "Order #": order.orderId, "Queue #": order.queueNumber ?? "", "Business Date": order.businessDate, Time: formatFinanceDateTime(order.createdAt), Shift: order.shiftId ? `#${order.shiftId}` : "", "Punched By": order.punchedBy, Channel: channelLabels[orderChannel(order)], Status: orderStatusOf(order), Items: describeItems(order.items), Total: order.total, "Cost of Goods": order.cost ?? "" })));
-        append("Order Items", orders.flatMap((order) => order.items.map((item) => ({ "Order #": order.orderId, "Business Date": order.businessDate, Status: orderStatusOf(order), Product: item.productName, Category: item.category, Size: item.size ?? "", Quantity: item.quantity, "Unit Price": item.unitPrice, "Add-ons": item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", ") }))));
+        sheets.push(["Orders", orders.length ? excelTable(orders, financeOrderColumns()) : null]);
+        sheets.push(["Order items", orders.length ? excelTable(financeOrderLines(orders), financeItemColumns()) : null]);
       }
-      if (workbook.SheetNames.length === 0) throw new Error("There is nothing to export for this period.");
-      XLSX.writeFile(workbook, `brew-houze-finance-${start === end ? start : `${start}-to-${end}`}.xlsx`);
+      if (sheets.every(([, sheet]) => sheet === null)) throw new Error("There is nothing to export for this period.");
+      saveWorkbook(sheets, `brew-houze-finance-${start === end ? start : `${start}-to-${end}`}.xlsx`);
       onClose();
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Could not create the report.");
@@ -5196,6 +5466,15 @@ type CashierAccount = {
 type MyActivity = { fullName: string; email: string; timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[]; archives: ArchivingLogEntry[] };
 
 type AccountDevice = { id: number; app: string; device: string; signedInAt: string; lastSeenAt: string };
+
+function attendanceColumns(): ExcelColumn<EmployeeTimeLog>[] {
+  return [
+    { header: "Shift", value: (log) => log.shiftId ? `#${log.shiftId}` : "" },
+    { header: "Time in", value: (log) => excelDateTime(log.timeIn) },
+    { header: "Time out", value: (log) => log.timeOut ? excelDateTime(log.timeOut) : "Still on duty" },
+    { header: "Hours", value: (log) => Math.round(logDuration(log, Date.now()) * 100) / 100, kind: "hours" },
+  ];
+}
 
 function formatHours(hours: number): string {
   if (hours <= 0) return "0h";
@@ -5562,37 +5841,88 @@ function Accounts() {
     setExportingAccountId(account.id);
     setError("");
     try {
-      const workbook = XLSX.utils.book_new();
-      const appendSheet = (name: string, rows: Record<string, unknown>[]) => {
-        if (!rows.length) return;
-        const sheet = XLSX.utils.json_to_sheet(rows);
-        sheet["!cols"] = Object.keys(rows[0]).map((key) => ({ wch: Math.min(Math.max(key.length + 2, 14), 32) }));
-        XLSX.utils.book_append_sheet(workbook, sheet, name);
-      };
-      appendSheet("Employee Summary", [{
-        Employee: account.fullName,
-        Email: account.email,
-        Status: account.isActive ? "Active" : "Deactivated",
-        "Can Open the Store": account.canOpenShift ? "Yes" : "No",
-        "Can Void Orders": account.canVoidOrders ? "Yes" : "No",
-        "Can Refund Orders": account.canRefundOrders ? "Yes" : "No",
-        "Hours This Week": Number(account.stats.hoursThisWeek.toFixed(2)),
-        "Hours, Last 30 Days": Number(account.stats.hours30d.toFixed(2)),
-        "Shifts, Last 30 Days": account.stats.shifts30d,
-        "Orders, Last 30 Days": account.stats.orders30d,
-        "Sales, Last 30 Days": account.stats.sales30d,
-        "Voids and Refunds Done, Last 30 Days": account.stats.reversals30d,
-        Generated: formatFinanceDateTime(new Date().toISOString()),
-      }]);
-      appendSheet("Orders", account.transactions.map((transaction) => ({ "Order #": transaction.id, "Queue #": transaction.queueNumber ?? "", Shift: transaction.shiftId ? `#${transaction.shiftId}` : "", "Order Date": formatFinanceDateTime(transaction.createdAt), Amount: transaction.amount, Status: transaction.status, "Reversed At": transaction.reversedAt ? formatFinanceDateTime(transaction.reversedAt) : "" })));
-      appendSheet("Voids and Refunds Done", account.reversals.map((reversal) => ({ "Order #": reversal.id, "Reversed At": reversal.reversedAt ? formatFinanceDateTime(reversal.reversedAt) : "Unknown", Amount: reversal.amount, Status: reversal.status })));
-      appendSheet("Attendance", account.timeLogs.map((log) => ({ Shift: log.shiftId ? `#${log.shiftId}` : "", "Time In": formatFinanceDateTime(log.timeIn), "Time Out": log.timeOut ? formatFinanceDateTime(log.timeOut) : "Still on duty", Hours: Number(logDuration(log, Date.now()).toFixed(2)) })));
       const fileNameSafeName = account.fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
-      XLSX.writeFile(workbook, `brew-houze-employee-${fileNameSafeName}-${getFinanceDateStamp()}.xlsx`);
+      saveWorkbook([
+        ["Summary", excelInfo([
+          [`Brew Houze employee report: ${account.fullName}`],
+          ["Email", account.email],
+          ["Status", account.isActive ? "Active" : "Deactivated"],
+          ["Generated", excelNow()],
+          [],
+          ["Permissions"],
+          ["Can open the store", account.canOpenShift ? "Yes" : "No"],
+          ["Can void orders", account.canVoidOrders ? "Yes" : "No"],
+          ["Can refund orders", account.canRefundOrders ? "Yes" : "No"],
+          [],
+          ["Work"],
+          ["Hours this week", account.stats.hoursThisWeek],
+          ["Hours, last 30 days", account.stats.hours30d],
+          ["Shifts, last 30 days", account.stats.shifts30d],
+          ["Orders, last 30 days", account.stats.orders30d],
+          ["Sales, last 30 days", account.stats.sales30d],
+          ["Voids and refunds done, last 30 days", account.stats.reversals30d],
+        ], ["Hours this week", "Hours, last 30 days", "Shifts, last 30 days", "Orders, last 30 days", "Voids and refunds done, last 30 days"])],
+        ["Attendance", account.timeLogs.length ? excelTable(account.timeLogs, attendanceColumns()) : null],
+        ["Orders", account.transactions.length ? excelTable(account.transactions, [
+          { header: "Order #", value: (order) => order.id },
+          { header: "Queue #", value: (order) => order.queueNumber ?? null },
+          { header: "Shift", value: (order) => order.shiftId ? `#${order.shiftId}` : "" },
+          { header: "Time", value: (order) => excelDateTime(order.createdAt) },
+          { header: "Amount", value: (order) => order.amount, kind: "money" },
+          { header: "Status", value: (order) => excelStatus(order.status) },
+          { header: "Reversed at", value: (order) => excelDateTime(order.reversedAt) },
+        ]) : null],
+        ["Voids and refunds done", account.reversals.length ? excelTable(account.reversals, [
+          { header: "Order #", value: (reversal) => reversal.id },
+          { header: "Reversed at", value: (reversal) => excelDateTime(reversal.reversedAt) || "Unknown" },
+          { header: "Amount", value: (reversal) => reversal.amount, kind: "money" },
+          { header: "Status", value: (reversal) => excelStatus(reversal.status) },
+        ]) : null],
+      ], `brew-houze-employee-${fileNameSafeName}-${getFinanceDateStamp()}.xlsx`);
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Failed to export the employee report.");
     } finally {
       setExportingAccountId(null);
+    }
+  }
+
+  // Everyone at once: hours and sales per person, and all attendance, for payroll.
+  function exportAllEmployees() {
+    setError("");
+    try {
+      const people = [...accounts].sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.fullName.localeCompare(b.fullName));
+      const logs = people.flatMap((account) => account.timeLogs.map((log) => ({ account, log }))).sort((a, b) => b.log.timeIn.localeCompare(a.log.timeIn));
+      saveWorkbook([
+        ["Summary", excelInfo([
+          ["Brew Houze employees"],
+          ["Generated", excelNow()],
+          ["Employees", people.length],
+          ["Active", people.filter((account) => account.isActive).length],
+          ["Hours this week, everyone", people.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0)],
+          ["Hours, last 30 days, everyone", people.reduce((sum, account) => sum + account.stats.hours30d, 0)],
+        ], ["Employees", "Active", "Hours this week, everyone", "Hours, last 30 days, everyone"])],
+        ["Employees", excelTable(people, [
+          { header: "Employee", value: (account) => account.fullName },
+          { header: "Email", value: (account) => account.email },
+          { header: "Status", value: (account) => account.isActive ? "Active" : "Deactivated" },
+          { header: "Can open the store", value: (account) => account.canOpenShift ? "Yes" : "No" },
+          { header: "Can void", value: (account) => account.canVoidOrders ? "Yes" : "No" },
+          { header: "Can refund", value: (account) => account.canRefundOrders ? "Yes" : "No" },
+          { header: "Hours this week", value: (account) => Math.round(account.stats.hoursThisWeek * 100) / 100, kind: "hours" },
+          { header: "Hours, 30 days", value: (account) => Math.round(account.stats.hours30d * 100) / 100, kind: "hours" },
+          { header: "Shifts, 30 days", value: (account) => account.stats.shifts30d, kind: "count" },
+          { header: "Orders, 30 days", value: (account) => account.stats.orders30d, kind: "count" },
+          { header: "Sales, 30 days", value: (account) => account.stats.sales30d, kind: "money" },
+          { header: "Voids and refunds, 30 days", value: (account) => account.stats.reversals30d, kind: "count" },
+          { header: "Last active", value: (account) => excelDateTime(account.onDutySince ?? account.lastSeenAt) },
+        ])],
+        ["Attendance", logs.length ? excelTable(logs, [
+          { header: "Employee", value: (entry) => entry.account.fullName },
+          ...attendanceColumns().map((column) => ({ ...column, value: (entry: { log: EmployeeTimeLog }) => column.value(entry.log) })),
+        ]) : null],
+      ], `brew-houze-employees-${getFinanceDateStamp()}.xlsx`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Failed to export the employees.");
     }
   }
 
@@ -5625,6 +5955,7 @@ function Accounts() {
         <div className="inv-range" role="group" aria-label="Show">
           {([["active", "Active"], ["duty", "On duty"], ["inactive", "Deactivated"], ["all", "All"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={statusFilter === id} onClick={() => setStatusFilter(id)}>{label}</button>)}
         </div>
+        <button type="button" className="inv-secondary" onClick={exportAllEmployees} disabled={accounts.length === 0}><IconDownload size={14} />Export all</button>
         <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add employee</button>
       </div>
 

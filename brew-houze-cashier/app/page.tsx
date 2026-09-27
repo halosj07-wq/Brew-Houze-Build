@@ -106,6 +106,21 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
   </aside>;
 }
 
+// Phones (portrait): the sidebar is hidden and these tabs sit at the bottom of the screen.
+const mobileTabLabels: Record<Page, string> = { pos: "POS", queue: "Queue", reversals: "Void & Refund", accounts: "Account" };
+
+function MobileTabBar({ current, queueWaiting, canManageReversals, onChange }: { current: Page; queueWaiting: number; canManageReversals: boolean; onChange: (page: Page) => void }) {
+  return <nav className="mobile-tabbar" aria-label="Cashier sections">
+    {navItems.filter((item) => item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
+      const active = current === id;
+      return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className={`mobile-tab${active ? " is-active" : ""}`}>
+        <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}</span>
+        <span>{mobileTabLabels[id]}</span>
+      </button>;
+    })}
+  </nav>;
+}
+
 // Initials on a colour picked from the name, so each cashier is recognisable at a glance.
 const avatarColors = ["#B45309", "#9A3412", "#6B4C3B", "#0F766E", "#7E22CE", "#1D4ED8", "#BE185D"];
 
@@ -780,6 +795,8 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash" | "split">("cash");
   // Split ticket: the part the customer pays in cash; GCash covers the rest.
   const [cashPart, setCashPart] = useState("");
+  // Phones only: the cart opens as a full-height sheet over the products (see .pos-cart in CSS).
+  const [cartOpen, setCartOpen] = useState(false);
   // GCash through PayMongo, when the server has PayMongo keys.
   const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
   const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
@@ -974,6 +991,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     setCart([]);
     setReceivedAmount("");
     setCashPart("");
+    setCartOpen(false);
     onQueueAssigned(queueNumber, shiftId);
     const refresh = await fetch("/api/products", { cache: "no-store" });
     if (refresh.ok) {
@@ -1191,9 +1209,17 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       </nav>
     </section>
 
-    <aside className="pos-cart" style={{ width: 360, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 12 }}>
+    {cart.length > 0 && !cartOpen && <button type="button" className="pos-cart-bar" onClick={() => setCartOpen(true)}>
+      <span className="pos-cart-bar-count">{cart.reduce((sum, item) => sum + item.qty, 0)}</span>
+      <span className="pos-cart-bar-text"><strong>{formatPeso(subtotal)}</strong><em>{cart.reduce((sum, item) => sum + item.qty, 0) === 1 ? "1 item" : `${cart.reduce((sum, item) => sum + item.qty, 0)} items`} in the order</em></span>
+      <span className="pos-cart-bar-go">View order ›</span>
+    </button>}
+    <aside className={`pos-cart${cartOpen ? " is-open" : ""}`} aria-label="Current order" style={{ width: 360, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="rounded-2xl" style={{ flex: 1, minHeight: 0, background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-        <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif" }}>Cart</h3>
+        <div className="flex items-center justify-between gap-3">
+          <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif" }}>Cart</h3>
+          <button type="button" className="pos-cart-close" onClick={() => setCartOpen(false)}>‹ Add more</button>
+        </div>
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {
@@ -1665,7 +1691,7 @@ function ReversalsPage({ user }: { user: Session }) {
           const status = reversalStatusStyles[order.status ?? "completed"] ?? reversalStatusStyles.completed;
           const reversible = order.status === "completed";
           const isOnlineOrder = order.order_source === "online";
-          return <article key={order.order_id} style={{ display: "flex", alignItems: "stretch", gap: 14, padding: "14px 16px", background: reversible ? "#FDF9F5" : "#FAF7F4", border: "1px solid #E8DDD5", borderLeft: `5px solid ${status.color}`, borderRadius: 14 }}>
+          return <article key={order.order_id} className="rev-card" style={{ display: "flex", alignItems: "stretch", gap: 14, padding: "14px 16px", background: reversible ? "#FDF9F5" : "#FAF7F4", border: "1px solid #E8DDD5", borderLeft: `5px solid ${status.color}`, borderRadius: 14 }}>
             <div style={{ minWidth: 76, display: "flex", flexDirection: "column", justifyContent: "center" }}>
               <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, lineHeight: 1, color: reversible ? "#3D2B1F" : "#9C8278" }}>#{order.queue_number}</strong>
               <span style={{ marginTop: 5, fontSize: 11.5, color: "#9C8278" }}>{formatOrderTime(order.created_at)}</span>
@@ -2515,5 +2541,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div>{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} onChange={setPage} />{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div></KeypadContext.Provider>;
 }

@@ -68,20 +68,70 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-quick-cash button[aria-pressed="true"] { border-color: #0F766E; background: #0F766E; color: #FFFFFF; }
 .pos-variant-button { transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease; }
 .pos-variant-button:not(:disabled):hover { background: #D97706 !important; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(217,119,6,0.24); }
+/* Phone-only pieces are hidden on tablets */
+.mobile-tabbar, .pos-cart-bar, .pos-cart-close { display: none; }
+
+/* ─── Phones (portrait) ──────────────────────────────────────────────────────
+   The tablet layout is untouched. On a phone the sidebar becomes a bottom tab bar, products use
+   the whole screen with categories on top, and the cart opens as a sheet from a bar above the tabs. */
 @media (max-width: 640px) {
-  .app-sidebar.is-collapsed { width: 52px !important; }
-  .app-sidebar.is-expanded { width: 240px !important; }
-  .app-topbar { min-height: 52px; padding: .5rem .65rem; }
+  :root { --tabbar-height: calc(62px + env(safe-area-inset-bottom)); }
+  .app-sidebar { display: none !important; }
+  .app-shell { height: 100dvh !important; }
+  .app-content { padding-bottom: var(--tabbar-height); }
+  .app-topbar { min-height: 56px; padding: .5rem .75rem; gap: 8px !important; }
   .topbar-title, .topbar-profile-text, .topbar-switch-label, .connection-label { display: none !important; }
-  .topbar-profile, .topbar-switch { padding: 0 8px !important; }
-  .app-shell { height: auto !important; min-height: 100vh; overflow: visible !important; }
-  .pos-layout { flex-direction: column; height: auto !important; }
-  .pos-product-area { max-height: 60vh; }
-  .queue-board { flex-direction: column; height: auto !important; }
-  .queue-board > aside { width: 100% !important; max-height: 50vh; }
-  .pos-layout > section, .pos-layout > aside { width: 100% !important; }
+  .topbar-profile, .topbar-switch { height: 40px !important; padding: 0 8px !important; }
+
+  .mobile-tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; gap: 2px; height: var(--tabbar-height); padding: 6px 8px env(safe-area-inset-bottom); background: rgba(253,249,245,0.97); border-top: 1px solid #E8DDD5; box-shadow: 0 -6px 20px rgba(61,43,31,0.08); backdrop-filter: blur(8px); }
+  .mobile-tab { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border: none; border-radius: 12px; background: transparent; color: #9C8278; font-size: 11px; font-weight: 700; cursor: pointer; }
+  .mobile-tab.is-active { background: #FFF7ED; color: #B45309; }
+  .mobile-tab-icon { position: relative; display: inline-flex; }
+  .mobile-tab-icon b { position: absolute; top: -6px; right: -12px; min-width: 18px; height: 18px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; background: #D97706; color: #FFFFFF; font-size: 10px; font-weight: 800; box-shadow: 0 0 0 2px #FDF9F5; }
+  .mobile-tab:focus-visible { outline: 2px solid #D97706; outline-offset: -2px; }
+
+  /* POS: search, then categories, then products filling the screen */
+  .pos-layout { flex-direction: column; padding: 10px 12px 12px !important; gap: 10px !important; }
+  .pos-menu { gap: 10px !important; }
   .pos-search { min-width: 0 !important; width: 100%; }
+  .pos-category-bar { order: -1; gap: 6px !important; padding-bottom: 2px !important; }
+  .pos-category-bar > * { order: 0; }
+  .pos-menu > div:first-child { order: -2; }
+  .pos-category-bar button { min-width: 0 !important; height: 38px !important; padding: 0 14px !important; font-size: 13px !important; border-radius: 10px !important; box-shadow: none !important; }
+  .pos-product-area { padding-bottom: 84px; }
+  .pos-product-area > div { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px !important; }
+  .pos-card { min-height: 0 !important; }
+  .pos-card:hover { transform: none; }
+  .pos-card-image { height: 72px !important; }
+  .pos-card-image img { max-height: 62px !important; }
+  .pos-size-label { width: 38px; font-size: 10.5px; }
+  .pos-option { min-height: 36px; }
+
+  /* The order bar above the tabs, and the cart as a sheet */
+  .pos-cart-bar { position: fixed; left: 10px; right: 10px; bottom: calc(var(--tabbar-height) + 8px); z-index: 25; display: flex; align-items: center; gap: 10px; height: 58px; padding: 0 14px 0 8px; border: none; border-radius: 16px; background: #3D2B1F; color: #FDF9F5; box-shadow: 0 12px 28px rgba(61,43,31,0.35); cursor: pointer; text-align: left; }
+  .pos-cart-bar-count { min-width: 40px; height: 40px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; border-radius: 12px; background: #D97706; font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; font-weight: 800; }
+  .pos-cart-bar-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.2; }
+  .pos-cart-bar-text strong { font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; font-weight: 800; }
+  .pos-cart-bar-text em { font-style: normal; font-size: 11.5px; color: rgba(253,249,245,0.7); }
+  .pos-cart-bar-go { font-size: 13.5px; font-weight: 800; color: #FCD34D; white-space: nowrap; }
+  .pos-cart { position: fixed; top: 0; left: 0; right: 0; bottom: var(--tabbar-height); z-index: 28; width: auto !important; padding: 10px 12px; background: #F8F9FA; transform: translateY(105%); visibility: hidden; transition: transform 220ms ease, visibility 0s linear 220ms; }
+  .pos-cart.is-open { transform: none; visibility: visible; transition: transform 220ms ease; }
+  .pos-cart > div { min-height: 0; }
+  .pos-cart-close { display: inline-flex; align-items: center; height: 36px; padding: 0 12px; border: 1px solid #E8DDD5; border-radius: 10px; background: #FFFFFF; color: #6B4C3B; font-size: 13px; font-weight: 800; cursor: pointer; }
+
+  /* Queue: waiting and ready stack */
+  .queue-board { flex-direction: column; height: auto !important; padding: 12px !important; }
+  .queue-board > aside { width: 100% !important; max-height: none; }
+
+  /* Void & Refund: order details, then the amount and buttons underneath */
+  .rev-card { flex-wrap: wrap; gap: 10px !important; padding: 12px !important; }
+  .rev-card > div:first-child { min-width: 56px !important; }
+  .rev-card > div:nth-child(2) { flex: 1 1 60% !important; }
+  .rev-card > div:last-child { flex: 1 1 100% !important; flex-direction: row !important; align-items: center !important; justify-content: space-between !important; padding-top: 8px; border-top: 1px solid #F0E8E2; }
+  .rev-card > div:last-child button { height: 42px; min-width: 88px; }
+  main.p-6 { padding: 14px !important; }
 }
+@media (max-width: 640px) and (prefers-reduced-motion: reduce) { .pos-cart, .pos-cart.is-open { transition: none; } }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-thumb { background: #E8DDD5; border-radius: 2px; }
 
