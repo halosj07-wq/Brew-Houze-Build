@@ -38,7 +38,7 @@ export async function GET() {
         COALESCE((SELECT SUM(so.total_amount) FROM sales_orders so WHERE so.cashier_admin_id = u.admin_id AND so.is_archived = FALSE AND so.status = 'completed' AND so.created_at >= (CURRENT_TIMESTAMP - INTERVAL '30 days') AT TIME ZONE 'UTC'), 0) AS sales_30d,
         (SELECT COUNT(*) FROM sales_orders so WHERE so.reversed_by_admin_id = u.admin_id AND so.is_archived = FALSE AND so.reversed_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::int AS reversals_30d
       FROM admin_users u
-      WHERE LOWER(u.role) = 'cashier'
+      WHERE LOWER(u.role) IN ('cashier', 'barista')
       ORDER BY u.is_active DESC, u.full_name ASC
     `);
     const ids = result.rows.map((account) => Number(account.admin_id));
@@ -50,7 +50,7 @@ export async function GET() {
             ROW_NUMBER() OVER (PARTITION BY t.admin_id ORDER BY t.time_in DESC) AS rank
           FROM employee_time_logs t
           WHERE t.admin_id = ANY($1::int[]) AND t.is_archived = FALSE
-        ) ranked WHERE rank <= 100 ORDER BY time_in DESC
+        ) ranked WHERE rank <= 400 ORDER BY time_in DESC
       `, [ids]),
       pool.query(`
         SELECT * FROM (
@@ -60,7 +60,7 @@ export async function GET() {
             ROW_NUMBER() OVER (PARTITION BY cashier_admin_id ORDER BY created_at DESC, order_id DESC) AS rank
           FROM sales_orders
           WHERE cashier_admin_id = ANY($1::int[]) AND is_archived = FALSE
-        ) ranked WHERE rank <= 50 ORDER BY created_at DESC
+        ) ranked WHERE rank <= 400 ORDER BY created_at DESC
       `, [ids]),
       pool.query(`
         SELECT * FROM (
@@ -68,7 +68,7 @@ export async function GET() {
             ROW_NUMBER() OVER (PARTITION BY reversed_by_admin_id ORDER BY reversed_at DESC, order_id DESC) AS rank
           FROM sales_orders
           WHERE reversed_by_admin_id = ANY($1::int[]) AND is_archived = FALSE
-        ) ranked WHERE rank <= 50 ORDER BY reversed_at DESC
+        ) ranked WHERE rank <= 200 ORDER BY reversed_at DESC
       `, [ids]),
       // Devices each person is signed in on right now (both apps).
       pool.query(`
@@ -125,13 +125,22 @@ export async function GET() {
   }
 }
 
-// Adds a cashier account. The admin gives them a temporary password to change from the cashier
-// app (My Account) after signing in.
+// Staff roles an admin can give. A barista only sees and manages the queue in the staff app, so
+// the cashier permissions are always off for them.
+const STAFF_ROLES = ["cashier", "barista"] as const;
+type StaffRole = (typeof STAFF_ROLES)[number];
+function staffRole(value: unknown): StaffRole | null {
+  const role = String(value ?? "cashier").toLowerCase();
+  return (STAFF_ROLES as readonly string[]).includes(role) ? role as StaffRole : null;
+}
+
+// Adds a staff account. The admin gives them a temporary password to change from the staff app
+// (My Account) after signing in.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
-    const body = await request.json() as { fullName?: unknown; email?: unknown; password?: unknown; canOpenShift?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
+    const body = await request.json() as { fullName?: unknown; email?: unknown; password?: unknown; role?: unknown; canOpenShift?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
     const fullName = String(body.fullName ?? "").trim().slice(0, 120);
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
@@ -139,12 +148,15 @@ export async function POST(request: Request) {
     if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Enter a valid email address. It is used to sign in and to reset the password." }, { status: 400 });
     const problem = passwordProblem(password);
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    const role = staffRole(body.role);
+    if (!role) return NextResponse.json({ error: "Choose cashier or barista." }, { status: 400 });
+    const cashier = role === "cashier";
 
     const result = await pool.query(`
       INSERT INTO admin_users (full_name, email, password_hash, role, is_active, can_void_orders, can_refund_orders, can_open_shift)
-      VALUES ($1, $2, crypt($3, gen_salt('bf')), 'cashier', TRUE, $4, $5, $6)
+      VALUES ($1, $2, crypt($3, gen_salt('bf')), $7, TRUE, $4, $5, $6)
       RETURNING admin_id
-    `, [fullName, email, password, body.canVoidOrders === true, body.canRefundOrders === true, body.canOpenShift === true]);
+    `, [fullName, email, password, cashier && body.canVoidOrders === true, cashier && body.canRefundOrders === true, cashier && body.canOpenShift === true, role]);
     return NextResponse.json({ data: { id: Number(result.rows[0].admin_id) } }, { status: 201 });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: "Another account already uses this email." }, { status: 409 });
@@ -160,11 +172,31 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const body = await request.json() as { id?: unknown; action?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
+    const body = await request.json() as { id?: unknown; action?: unknown; role?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid cashier account is required." }, { status: 400 });
-    const exists = await pool.query("SELECT 1 FROM admin_users WHERE admin_id = $1 AND LOWER(role) = 'cashier'", [id]);
-    if (exists.rowCount === 0) return NextResponse.json({ error: "Cashier account not found." }, { status: 404 });
+    const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista')", [id]);
+    if (exists.rowCount === 0) return NextResponse.json({ error: "Employee account not found." }, { status: 404 });
+    const currentRole = String(exists.rows[0].role) as StaffRole;
+
+    // Cashier <-> barista. Becoming a barista turns every cashier permission off; the change
+    // applies on their next request, since the staff app reads the role fresh each time.
+    if (body.action === "set_role") {
+      const role = staffRole(body.role);
+      if (!role) return NextResponse.json({ error: "Choose cashier or barista." }, { status: 400 });
+      const result = await pool.query(`
+        UPDATE admin_users
+        SET role = $2,
+          can_void_orders = CASE WHEN $2 = 'barista' THEN FALSE ELSE can_void_orders END,
+          can_refund_orders = CASE WHEN $2 = 'barista' THEN FALSE ELSE can_refund_orders END,
+          can_open_shift = CASE WHEN $2 = 'barista' THEN FALSE ELSE can_open_shift END,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE admin_id = $1
+        RETURNING role, can_void_orders, can_refund_orders, can_open_shift
+      `, [id, role]);
+      const row = result.rows[0];
+      return NextResponse.json({ data: { role: String(row.role), canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift) } });
+    }
 
     // Ends every signed-in device of the account (e.g. a lost phone or an employee leaving).
     // Their attendance ends too, since they are no longer signed in anywhere.
@@ -200,7 +232,8 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ data: { isActive, signedOutDevices: ended } });
     }
 
-    // Permissions: only the ones sent are changed.
+    // Permissions: only the ones sent are changed. Baristas have none to change.
+    if (currentRole === "barista") return NextResponse.json({ error: "Baristas only manage the queue. Make them a cashier first to give permissions." }, { status: 400 });
     const flag = (value: unknown) => (typeof value === "boolean" ? value : null);
     const result = await pool.query(`
       UPDATE admin_users

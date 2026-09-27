@@ -3,7 +3,7 @@ import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { reconcilePendingCheckouts } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
-import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
+import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
 
 // A shift is the café's business day, and it may run past midnight. Admins open it (or a cashier
 // an admin allowed to), and any cashier can close it at the end of the night. Totals come from the shift_summaries view (see shift-migration.sql).
@@ -81,6 +81,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
   let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown; password?: unknown };
   try {

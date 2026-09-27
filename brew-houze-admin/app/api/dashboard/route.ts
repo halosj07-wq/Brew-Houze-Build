@@ -126,11 +126,19 @@ export async function GET() {
         WHERE queue_status IN ('waiting', 'served') AND is_archived = FALSE
       `),
       pool.query(`
-        SELECT au.full_name, au.role, ${isoText("t.time_in")} AS time_in
+        -- Who is signed in now, with their FIRST clock-in of this shift and the time actually
+        -- worked in it (signed-out gaps are not counted), not just the latest sign-in.
+        SELECT au.full_name, au.role, ${isoText("t.time_in")} AS time_in, ${isoText("span.first_in")} AS first_in, span.worked_seconds
         FROM employee_time_logs t
         JOIN admin_users au ON au.admin_id = t.admin_id
+        LEFT JOIN LATERAL (
+          SELECT MIN(x.time_in) AS first_in, SUM(EXTRACT(EPOCH FROM COALESCE(x.time_out, CURRENT_TIMESTAMP) - x.time_in)) AS worked_seconds
+          FROM employee_time_logs x
+          WHERE x.admin_id = t.admin_id AND x.is_archived = FALSE
+            AND (x.shift_id = t.shift_id OR (t.shift_id IS NULL AND x.time_log_id = t.time_log_id))
+        ) span ON TRUE
         WHERE t.time_out IS NULL AND t.is_archived = FALSE
-        ORDER BY t.time_in ASC
+        ORDER BY span.first_in ASC
       `),
       pool.query(`
         SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source,
@@ -164,7 +172,7 @@ export async function GET() {
         topProducts: topProducts.rows.map((row) => ({ name: row.product_name as string, category: row.category as string, quantity: Number(row.quantity), revenue: Number(row.revenue) })),
         hourly: hourly.rows.map((row) => ({ hour: Number(row.hour), orders: Number(row.orders), revenue: Number(row.revenue) })),
         queue: { waiting: Number(queue.rows[0]?.waiting ?? 0), ready: Number(queue.rows[0]?.ready ?? 0) },
-        staffOnDuty: staff.rows.map((row) => ({ name: row.full_name as string, role: row.role as string, timeIn: row.time_in as string })),
+        staffOnDuty: staff.rows.map((row) => ({ name: row.full_name as string, role: row.role as string, timeIn: row.time_in as string, firstIn: (row.first_in as string | null) ?? (row.time_in as string), workedHours: Number(row.worked_seconds ?? 0) / 3600 })),
         recentOrders: recentOrders.rows.map((row) => ({
           orderId: Number(row.order_id),
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),

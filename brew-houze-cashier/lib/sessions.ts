@@ -9,8 +9,8 @@ import { SESSION_COOKIE, SESSION_MAX_AGE, verifySessionToken } from "@/lib/auth"
 // so sign-outs, shift closes, password resets and admins can end it.
 
 const APP = "cashier";
-// Roles allowed to use this app.
-const ALLOWED_ROLES = ["cashier", "admin"];
+// Roles allowed to use this app. Baristas only see and manage the queue (see isQueueOnly).
+const ALLOWED_ROLES = ["cashier", "barista", "admin"];
 // last_seen_at is refreshed at most this often, so checks stay read-only most of the time.
 const LAST_SEEN_REFRESH_MINUTES = 5;
 
@@ -68,15 +68,17 @@ export async function getSession() {
   const row = result.rows[0];
   if (row.stale) await pool.query("UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE session_id = $1", [row.session_id]);
   const isAdmin = String(row.role).toLowerCase() === "admin";
+  // A barista never has cashier permissions, even if the flags were left on from an earlier role.
+  const isBarista = String(row.role).toLowerCase() === "barista";
   return {
     adminId: Number(row.admin_id),
     fullName: String(row.full_name),
     email: String(row.email),
     role: String(row.role),
-    canVoidOrders: isAdmin || Boolean(row.can_void_orders),
-    canRefundOrders: isAdmin || Boolean(row.can_refund_orders),
+    canVoidOrders: isAdmin || (!isBarista && Boolean(row.can_void_orders)),
+    canRefundOrders: isAdmin || (!isBarista && Boolean(row.can_refund_orders)),
     // Opening the store is an admin decision unless an admin grants it to this cashier.
-    canOpenShift: isAdmin || Boolean(row.can_open_shift),
+    canOpenShift: isAdmin || (!isBarista && Boolean(row.can_open_shift)),
     sid: token.sid,
     exp: token.exp,
   };
@@ -92,6 +94,14 @@ export async function confirmPassword(adminId: number, password: unknown): Promi
     [adminId, password]
   );
   return result.rowCount !== 0;
+}
+
+// Baristas can only view and manage the queue. Every other staff-app action (taking orders and
+// payments, voids and refunds, the cash drawer, opening or closing the shift, products and
+// receipts) refuses them on the server, not just in the screens.
+export const QUEUE_ONLY = { error: "Your account can only view and manage the queue.", code: "queue_only" };
+export function isQueueOnly(session: { role: string } | null | undefined): boolean {
+  return String(session?.role ?? "").toLowerCase() === "barista";
 }
 
 // Ends the session of this browser (sign out). Returns the account it belonged to.

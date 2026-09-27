@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { cancelCheckout, refreshCheckout } from "@/lib/payment-checkouts";
-import { getSession } from "@/lib/sessions";
+import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Where a counter GCash payment stands. Asking also creates the order once it is paid.
 export async function GET(_request: Request, context: { params: Promise<{ token: string }> }) {
-  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   const { token } = await context.params;
   try {
     const view = await refreshCheckout(token);
@@ -18,7 +20,9 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
 
 // { action: "cancel" }: the cashier stops waiting. If it was already paid, the order is created.
 export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
-  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   const { token } = await context.params;
   const body = await request.json().catch(() => ({})) as { action?: unknown };
   if (body.action !== "cancel") return NextResponse.json({ error: "Unknown action." }, { status: 400 });

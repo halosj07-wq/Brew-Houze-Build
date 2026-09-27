@@ -18,17 +18,18 @@ export async function POST(request: Request) {
       WHERE LOWER(email) = $1
         AND password_hash = crypt($2, password_hash)
         AND is_active = TRUE
-        AND LOWER(role) IN ('cashier', 'admin')
+        AND LOWER(role) IN ('cashier', 'barista', 'admin')
       LIMIT 1
     `, [email, password]);
     if (result.rowCount === 0) return NextResponse.json({ error: "Invalid cashier email or password." }, { status: 401 });
     const admin = result.rows[0];
     const isAdmin = String(admin.role).toLowerCase() === "admin";
+    const isBarista = String(admin.role).toLowerCase() === "barista";
     const session = {
       adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role,
-      canVoidOrders: isAdmin ? true : Boolean(admin.can_void_orders),
-      canRefundOrders: isAdmin ? true : Boolean(admin.can_refund_orders),
-      canOpenShift: isAdmin ? true : Boolean(admin.can_open_shift),
+      canVoidOrders: isAdmin ? true : !isBarista && Boolean(admin.can_void_orders),
+      canRefundOrders: isAdmin ? true : !isBarista && Boolean(admin.can_refund_orders),
+      canOpenShift: isAdmin ? true : !isBarista && Boolean(admin.can_open_shift),
     };
     await pool.query(`
       INSERT INTO employee_time_logs (admin_id)

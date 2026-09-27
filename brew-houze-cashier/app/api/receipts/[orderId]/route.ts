@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { getSession } from "@/lib/sessions";
+import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Everything a printed receipt shows, read back from the saved order, so a first print and a
 // reprint are identical and always match the record. Add-on quantities are stored per line (all
 // cups of the line together).
 export async function GET(_request: Request, context: { params: Promise<{ orderId: string }> }) {
-  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   const { orderId: rawId } = await context.params;
   const orderId = Number(rawId);
   if (!Number.isInteger(orderId) || orderId <= 0) return NextResponse.json({ error: "A valid order is required." }, { status: 400 });

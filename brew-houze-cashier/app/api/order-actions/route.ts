@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
+import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
 
 // Same redirection checkout uses: a bound item's quantity is moved onto its source item,
 // scaled by its ratio, since bound items never carry stock of their own.
@@ -33,6 +33,7 @@ function normalizeGcashNumber(value: unknown): string | null {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
   type Body = { order_id?: unknown; action?: unknown; password?: unknown; return_method?: unknown; gcash_name?: unknown; gcash_number?: unknown; reference?: unknown };
   let body: Body;

@@ -552,6 +552,12 @@ function MoreSheet({ current, user, onChange, onAccount, onRequestLogout, onClos
 type MyDevice = { id: number; app: string; device: string; signedInAt: string; lastSeenAt: string; isCurrent: boolean };
 type AdminAccountDetails = { createdAt: string | null; shift: { shiftId: number; openedAt: string; openedByName: string | null; orders: number; netSales: number; reversals: number } | null; devices: MyDevice[] };
 
+// 63 -> "1h 3m", 15 -> "15m"
+function workedLabel(minutes: number): string {
+  const whole = Math.max(0, Math.floor(minutes));
+  return whole >= 60 ? `${Math.floor(whole / 60)}h ${whole % 60}m` : `${whole}m`;
+}
+
 function formatElapsed(fromIso: string, now: number): string {
   const minutes = Math.max(0, Math.floor((now - new Date(fromIso).getTime()) / 60_000));
   const hours = Math.floor(minutes / 60);
@@ -731,7 +737,8 @@ type DashboardData = {
   topProducts: { name: string; category: string; quantity: number; revenue: number }[];
   hourly: { hour: number; orders: number; revenue: number }[];
   queue: { waiting: number; ready: number };
-  staffOnDuty: { name: string; role: string; timeIn: string }[];
+  // firstIn: first clock-in of the shift; timeIn: the current sign-in; workedHours: gaps excluded.
+  staffOnDuty: { name: string; role: string; timeIn: string; firstIn: string; workedHours: number }[];
   recentOrders: DashboardOrder[];
   generatedAt: string;
 };
@@ -1230,9 +1237,9 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
               note={data.staffOnDuty.length === 0
                 ? <span>Nobody is clocked in</span>
                 : <div className="dash-staff">
-                  {data.staffOnDuty.slice(0, 3).map((person) => <span key={`${person.name}-${person.timeIn}`} className="dash-staff-person" title={`${person.name} · in since ${clockTime(person.timeIn)}`}>
+                  {data.staffOnDuty.slice(0, 3).map((person) => <span key={`${person.name}-${person.timeIn}`} className="dash-staff-person" title={`${person.name} · first in ${clockTime(person.firstIn)} · ${workedLabel(person.workedHours * 60)} worked${person.firstIn !== person.timeIn ? ` · back since ${clockTime(person.timeIn)}` : ""}`}>
                     <UserAvatar name={person.name} size={22} />
-                    <span>{person.name.split(/\s+/)[0]}<em> · {clockTime(person.timeIn)}</em></span>
+                    <span>{person.name.split(/\s+/)[0]}<em> · since {clockTime(person.firstIn)}</em></span>
                   </span>)}
                   {data.staffOnDuty.length > 3 && <span className="dash-staff-more">+{data.staffOnDuty.length - 3} more</span>}
                 </div>}
@@ -4323,11 +4330,16 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
                 ? <p>{shift.isOpen ? "Nobody is clocked in." : "No clock-ins recorded."}</p>
                 : <ul className="shiftm-people">
                   {(shift.isOpen ? onDuty : staff.filter((entry) => entry.logs.length > 0)).map((entry) => {
+                    // First clock-in of the shift and the time actually worked (signed-out gaps excluded).
                     const first = entry.logs[0];
                     const open = entry.logs.find((log) => !log.timeOut);
+                    const workedMinutes = entry.logs.reduce((sum, log) => sum + Math.max(0, ((log.timeOut ? new Date(log.timeOut).getTime() : now) - new Date(log.timeIn).getTime()) / 60_000), 0);
+                    const detail = !first ? ""
+                      : open ? `First in ${clockTime(first.timeIn)} · ${workedLabel(workedMinutes)} worked${open !== first ? ` · back since ${clockTime(open.timeIn)}` : ""}`
+                        : `${clockTime(first.timeIn)} – ${clockTime(entry.logs[entry.logs.length - 1].timeOut ?? first.timeIn)} · ${workedLabel(workedMinutes)} worked`;
                     return <li key={entry.name}>
                       <UserAvatar name={entry.name} size={28} />
-                      <div><strong>{entry.name}</strong><span>{open ? `In since ${clockTime(open.timeIn)} · ${formatElapsed(open.timeIn, now)}` : first ? `${clockTime(first.timeIn)} – ${clockTime(entry.logs[entry.logs.length - 1].timeOut ?? first.timeIn)}` : ""}</span></div>
+                      <div><strong>{entry.name}</strong><span>{detail}</span>{entry.logs.length > 1 && <span>{entry.logs.length} sign-ins this shift</span>}</div>
                     </li>;
                   })}
                 </ul>}
@@ -5576,6 +5588,15 @@ function attendanceColumns(): ExcelColumn<EmployeeTimeLog>[] {
   ];
 }
 
+type EmployeePeriod = "today" | "week" | "7" | "30" | "all";
+const employeePeriodLabels: Record<EmployeePeriod, string> = { today: "Today", week: "This week", "7": "7 days", "30": "30 days", all: "All" };
+
+function EmployeePeriodPicker({ value, onChange, options }: { value: EmployeePeriod; onChange: (value: EmployeePeriod) => void; options: EmployeePeriod[] }) {
+  return <div className="inv-range" role="group" aria-label="Period">
+    {options.map((option) => <button key={option} type="button" aria-pressed={value === option} onClick={() => onChange(option)}>{employeePeriodLabels[option]}</button>)}
+  </div>;
+}
+
 function formatHours(hours: number): string {
   if (hours <= 0) return "0h";
   if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;
@@ -5600,6 +5621,23 @@ function PermissionSwitch({ checked, title, description, onChange, disabled = fa
     <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
     <span className="acc-switch-track" aria-hidden="true"><span /></span>
   </label>;
+}
+
+// Cashiers run the register; baristas only see and manage the queue in the staff app.
+type StaffRole = "cashier" | "barista";
+const STAFF_ROLE_OPTIONS: { id: StaffRole; title: string; description: string }[] = [
+  { id: "cashier", title: "Cashier", description: "Takes orders and payments, and manages the queue." },
+  { id: "barista", title: "Barista", description: "Only sees and manages the queue. No register, cash or refunds." },
+];
+function staffRoleOf(role: string): StaffRole {
+  return role.toLowerCase() === "barista" ? "barista" : "cashier";
+}
+function RolePicker({ value, disabled = false, onChange }: { value: StaffRole; disabled?: boolean; onChange: (role: StaffRole) => void }) {
+  return <div className="acc-role-picker" role="radiogroup" aria-label="Role">
+    {STAFF_ROLE_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={value === option.id} disabled={disabled} onClick={() => onChange(option.id)}>
+      <strong>{option.title}</strong><em>{option.description}</em>
+    </button>)}
+  </div>;
 }
 
 // Devices the employee is signed in on right now, with a way to end all of them (lost phone,
@@ -5644,7 +5682,7 @@ function AccountDevicesPanel({ account, onSignedOut }: { account: CashierAccount
 }
 
 function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [draft, setDraft] = useState({ fullName: "", email: "", password: "", canOpenShift: false, canVoidOrders: false, canRefundOrders: false });
+  const [draft, setDraft] = useState({ fullName: "", email: "", password: "", role: "cashier" as StaffRole, canOpenShift: false, canVoidOrders: false, canRefundOrders: false });
   const [showPassword, setShowPassword] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -5657,7 +5695,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim() }) });
+      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim(), ...(draft.role === "barista" ? { canOpenShift: false, canVoidOrders: false, canRefundOrders: false } : {}) }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not add the employee.");
       setCreated({ name: draft.fullName.trim(), email: draft.email.trim().toLowerCase(), password: draft.password });
@@ -5673,7 +5711,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     <section className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
       <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: "#DCFCE7", color: "#15803D" }}>✓</div>
       <h2>{created.name} can now sign in</h2>
-      <div className="ui-confirm-message">Give them these details for the cashier app. They can change the password in My Account after signing in.</div>
+      <div className="ui-confirm-message">Give them these details for the staff app. They can change the password in My Account after signing in.</div>
       <div className="acc-credentials">
         <div><span>Email</span><strong>{created.email}</strong></div>
         <div><span>Temporary password</span><strong className="is-mono">{created.password}</strong></div>
@@ -5684,7 +5722,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
 
   return <Modal onClose={onClose} closeDisabled={saving} label="Add employee">
     <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-      <DialogHeader title="Add an employee" sub="A cashier account for the counter tablet." onClose={onClose} disabled={saving} />
+      <DialogHeader title="Add an employee" sub="An account for the staff app on the counter tablet." onClose={onClose} disabled={saving} />
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         <div className="inv-step-grid">
           <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" /></WizardField>
@@ -5697,11 +5735,12 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
             <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => { setDraft((current) => ({ ...current, password: generateTemporaryPassword() })); setShowPassword(true); }}>Generate</button>
           </div>
         </WizardField>
-        <div className="acc-switches">
+        <WizardField label="Role"><RolePicker value={draft.role} onChange={(role) => setDraft((current) => ({ ...current, role }))} /></WizardField>
+        {draft.role === "cashier" && <div className="acc-switches">
           <PermissionSwitch checked={draft.canOpenShift} title="Open the store" description="Start the shift and enter the starting cash. Otherwise an admin opens it." onChange={(checked) => setDraft((current) => ({ ...current, canOpenShift: checked }))} />
           <PermissionSwitch checked={draft.canVoidOrders} title="Void orders" description="Cancel an order and return its stock." onChange={(checked) => setDraft((current) => ({ ...current, canVoidOrders: checked }))} />
           <PermissionSwitch checked={draft.canRefundOrders} title="Refund orders" description="Give money back for a completed order." onChange={(checked) => setDraft((current) => ({ ...current, canRefundOrders: checked }))} />
-        </div>
+        </div>}
         {error && <p role="alert" className="acc-error">{error}</p>}
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
@@ -5716,6 +5755,35 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
 function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload, onExport }: { account: CashierAccount; now: number; exporting: boolean; onClose: () => void; onChanged: (account: CashierAccount) => void; onReload: () => Promise<void>; onExport: () => void }) {
   const confirmAction = useConfirm();
   const [tab, setTab] = useState<"access" | "activity" | "attendance">("access");
+  // Filters for the Sales activity and Attendance tabs (on the records loaded for this person).
+  const [salesPeriod, setSalesPeriod] = useState<EmployeePeriod>("30");
+  const [salesStatus, setSalesStatus] = useState<"all" | "completed" | "voided" | "refunded">("all");
+  const [salesShift, setSalesShift] = useState("all");
+  const [salesSearch, setSalesSearch] = useState("");
+  const [attendancePeriod, setAttendancePeriod] = useState<EmployeePeriod>("30");
+  const [attendanceShift, setAttendanceShift] = useState("all");
+  const today = getFinanceDateStamp();
+  const inPeriod = (value: string | null, period: EmployeePeriod) => {
+    if (!value) return period === "all";
+    const day = manilaDay(value);
+    if (period === "all") return true;
+    if (period === "today") return day === today;
+    if (period === "week") return day >= addDays(today, -((new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7));
+    return day >= addDays(today, 1 - Number(period));
+  };
+  const salesQuery = salesSearch.trim().replace(/^#/, "");
+  const shownTransactions = account.transactions.filter((transaction) => inPeriod(transaction.createdAt, salesPeriod)
+    && (salesStatus === "all" || orderStatusOf(transaction) === salesStatus)
+    && (salesShift === "all" || String(transaction.shiftId ?? "") === salesShift)
+    && (!salesQuery || String(transaction.id) === salesQuery || String(transaction.queueNumber ?? "") === salesQuery));
+  const shownReversals = account.reversals.filter((reversal) => inPeriod(reversal.reversedAt, salesPeriod) && (!salesQuery || String(reversal.id) === salesQuery));
+  const shownPaid = shownTransactions.filter((transaction) => orderStatusOf(transaction) === "completed");
+  const salesShifts = Array.from(new Set(account.transactions.map((transaction) => transaction.shiftId).filter((id): id is number => id !== null && id !== undefined))).sort((a, b) => b - a);
+  const shownLogs = account.timeLogs.filter((log) => inPeriod(log.timeIn, attendancePeriod) && (attendanceShift === "all" || String(log.shiftId ?? "") === attendanceShift));
+  const attendanceShifts = Array.from(new Set(account.timeLogs.map((log) => log.shiftId).filter((id): id is number => id !== null && id !== undefined))).sort((a, b) => b - a);
+  const shownHours = shownLogs.reduce((sum, log) => sum + logDuration(log, now), 0);
+  const salesFiltered = salesPeriod !== "all" || salesStatus !== "all" || salesShift !== "all" || salesQuery !== "";
+  const attendanceFiltered = attendancePeriod !== "all" || attendanceShift !== "all";
   const [profile, setProfile] = useState({ fullName: account.fullName, email: account.email });
   const [password, setPassword] = useState("");
   const [working, setWorking] = useState<string | null>(null);
@@ -5747,6 +5815,13 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
     if (!saved) onChanged(previous);
   }
 
+  async function setRole(role: StaffRole) {
+    if (role === staffRoleOf(account.role)) return;
+    if (role === "barista" && !(await confirmAction({ title: `Make ${account.fullName} a barista?`, message: "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: "Make barista", tone: "default" }))) return;
+    const saved = await patch({ action: "set_role", role }, "role", "Could not change the role.");
+    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : "Now a cashier. Turn on any permissions they need."); }
+  }
+
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!profileChanged) return;
@@ -5775,6 +5850,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 id="employee-dialog-title">{account.fullName}</h2>
           <p>{account.email}</p>
+          <span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier"}</span>{" "}
           <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{statusText}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -5791,13 +5867,18 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
 
         {tab === "access" && <>
           <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Role</h3><p>Changes apply right away, even on a signed-in tablet.</p></div></header>
+            <RolePicker value={staffRoleOf(account.role)} disabled={working === "role" || !account.isActive} onChange={(role) => void setRole(role)} />
+          </section>
+
+          {staffRoleOf(account.role) === "cashier" && <section className="acc-block">
             <header className="acc-block-head"><div><h3>Permissions</h3><p>Changes apply right away, even on a signed-in tablet.</p></div></header>
             <div className="acc-switches">
               <PermissionSwitch checked={account.canOpenShift} disabled={working === "canOpenShift" || !account.isActive} title="Open the store" description="Start the shift and enter the starting cash. Without this, an admin opens the store. Any cashier can close it." onChange={(checked) => void setPermission("canOpenShift", checked)} />
               <PermissionSwitch checked={account.canVoidOrders} disabled={working === "canVoidOrders" || !account.isActive} title="Void orders" description="Cancel an order and return its stock." onChange={(checked) => void setPermission("canVoidOrders", checked)} />
               <PermissionSwitch checked={account.canRefundOrders} disabled={working === "canRefundOrders" || !account.isActive} title="Refund orders" description="Give money back for a completed order." onChange={(checked) => void setPermission("canRefundOrders", checked)} />
             </div>
-          </section>
+          </section>}
 
           <form className="acc-block" onSubmit={saveProfile}>
             <header className="acc-block-head"><div><h3>Details</h3><p>The email is used to sign in and to reset a forgotten password.</p></div></header>
@@ -5839,10 +5920,23 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
             <div><span>Average order</span><strong>{account.stats.orders30d ? peso(account.stats.sales30d / account.stats.orders30d) : "—"}</strong></div>
             <div><span>Voids & refunds done</span><strong className={account.stats.reversals30d ? "dash-down" : ""}>{account.stats.reversals30d}</strong></div>
           </div>
+          <div className="acc-filters">
+            <EmployeePeriodPicker value={salesPeriod} onChange={setSalesPeriod} options={["today", "7", "30", "all"]} />
+            <div className="inv-range" role="group" aria-label="Status">
+              {([["all", "Any status"], ["completed", "Completed"], ["voided", "Voided"], ["refunded", "Refunded"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={salesStatus === id} onClick={() => setSalesStatus(id)}>{label}</button>)}
+            </div>
+            {salesShifts.length > 1 && <label className="inv-filter"><span>Shift</span><select value={salesShift} onChange={(event) => setSalesShift(event.target.value)} className={`inv-select${salesShift !== "all" ? " is-active" : ""}`}><option value="all">Any shift</option>{salesShifts.map((id) => <option key={id} value={String(id)}>Shift #{id}</option>)}</select></label>}
+            <div className="inv-search" style={{ flex: "1 1 160px" }}>
+              <IconSearch size={14} />
+              <input value={salesSearch} onChange={(event) => setSalesSearch(event.target.value)} placeholder="Order or queue #" aria-label="Find an order or queue number" inputMode="numeric" />
+              {salesSearch && <button type="button" onClick={() => setSalesSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+          </div>
           <section className="acc-block">
-            <header className="acc-block-head"><div><h3>Orders punched in</h3><p>The latest {account.transactions.length} orders.</p></div></header>
-            {account.transactions.length === 0 ? <p className="inv-hint">No orders yet.</p> : <ul className="acc-list">
-              {account.transactions.map((transaction) => {
+            <header className="acc-block-head"><div><h3>Orders punched in</h3><p>{shownTransactions.length} order{shownTransactions.length === 1 ? "" : "s"} shown · {peso(shownPaid.reduce((sum, transaction) => sum + transaction.amount, 0))} completed{shownTransactions.length !== shownPaid.length ? ` · ${shownTransactions.length - shownPaid.length} voided or refunded` : ""}</p></div>
+              {salesFiltered && <button type="button" className="inv-link" onClick={() => { setSalesPeriod("all"); setSalesStatus("all"); setSalesShift("all"); setSalesSearch(""); }}>Clear filters</button>}</header>
+            {shownTransactions.length === 0 ? <p className="inv-hint">{account.transactions.length === 0 ? "No orders yet." : "No orders match these filters."}</p> : <ul className="acc-list">
+              {shownTransactions.map((transaction) => {
                 const status = orderStatusOf(transaction);
                 return <li key={transaction.id}>
                   <span><strong>Order {transaction.id}{transaction.queueNumber ? ` · #${transaction.queueNumber}` : ""}</strong><em>{shiftTime(transaction.createdAt)}{transaction.shiftId ? ` · Shift #${transaction.shiftId}` : ""}</em></span>
@@ -5852,9 +5946,9 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
             </ul>}
           </section>
           <section className="acc-block">
-            <header className="acc-block-head"><div><h3>Voids & refunds they did</h3><p>Orders this person voided or refunded, whoever sold them.</p></div></header>
-            {account.reversals.length === 0 ? <p className="inv-hint">None yet.</p> : <ul className="acc-list">
-              {account.reversals.map((reversal) => <li key={reversal.id}>
+            <header className="acc-block-head"><div><h3>Voids & refunds they did</h3><p>Orders this person voided or refunded, whoever sold them{salesPeriod !== "all" ? " (in the period above)" : ""}.</p></div></header>
+            {shownReversals.length === 0 ? <p className="inv-hint">{account.reversals.length === 0 ? "None yet." : "None in this period."}</p> : <ul className="acc-list">
+              {shownReversals.map((reversal) => <li key={reversal.id}>
                 <span><strong>Order {reversal.id}</strong><em>{reversal.reversedAt ? shiftTime(reversal.reversedAt) : "Unknown time"}</em></span>
                 <span className="acc-list-end"><span className="fin-status is-voided" style={{ textTransform: "capitalize" }}>{reversal.status}</span><strong>{peso(reversal.amount)}</strong></span>
               </li>)}
@@ -5869,16 +5963,22 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
             <div><span>Shifts · 30 days</span><strong>{account.stats.shifts30d}</strong></div>
             <div><span>Status</span><strong className={account.onDutySince ? "dash-up" : ""}>{account.onDutySince ? "On duty" : "Off duty"}</strong></div>
           </div>
+          <div className="acc-filters">
+            <EmployeePeriodPicker value={attendancePeriod} onChange={setAttendancePeriod} options={["week", "7", "30", "all"]} />
+            {attendanceShifts.length > 1 && <label className="inv-filter"><span>Shift</span><select value={attendanceShift} onChange={(event) => setAttendanceShift(event.target.value)} className={`inv-select${attendanceShift !== "all" ? " is-active" : ""}`}><option value="all">Any shift</option>{attendanceShifts.map((id) => <option key={id} value={String(id)}>Shift #{id}</option>)}</select></label>}
+          </div>
           <section className="acc-block">
             <header className="acc-block-head">
-              <div><h3>Time in and out</h3><p>Recorded when they sign in and out of the cashier app. Closing a shift clocks everyone out. Kept permanently as the record of hours worked.</p></div>
+              <div><h3>Time in and out</h3><p>{shownLogs.length} sign-in{shownLogs.length === 1 ? "" : "s"} · {workedLabel(shownHours * 60)} worked · {new Set(shownLogs.map((log) => log.shiftId).filter(Boolean)).size} shift{new Set(shownLogs.map((log) => log.shiftId).filter(Boolean)).size === 1 ? "" : "s"}</p></div>
+              {attendanceFiltered && <button type="button" className="inv-link" onClick={() => { setAttendancePeriod("all"); setAttendanceShift("all"); }}>Clear filters</button>}
             </header>
-            {account.timeLogs.length === 0 ? <p className="inv-hint">No attendance yet.</p> : <ul className="acc-list">
-              {account.timeLogs.map((log) => <li key={log.id}>
+            {shownLogs.length === 0 ? <p className="inv-hint">{account.timeLogs.length === 0 ? "No attendance yet." : "No sign-ins in this period."}</p> : <ul className="acc-list">
+              {shownLogs.map((log) => <li key={log.id}>
                 <span><strong>{new Date(log.timeIn).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric" })}</strong><em>{clockTime(log.timeIn)} → {log.timeOut ? clockTime(log.timeOut) : "now"}{log.shiftId ? ` · Shift #${log.shiftId}` : ""}</em></span>
                 <span className="acc-list-end">{log.timeOut ? <strong>{formatHours(logDuration(log, now))}</strong> : <span className="fin-status is-completed">On duty · {formatHours(logDuration(log, now))}</span>}</span>
               </li>)}
             </ul>}
+            <p className="inv-hint" style={{ marginTop: 10 }}>Recorded when they sign in and out of the cashier app. Closing a shift clocks everyone out. Kept permanently as the record of hours worked.</p>
           </section>
         </>}
       </div>
@@ -5946,6 +6046,7 @@ function Accounts() {
         ["Summary", excelInfo([
           [`Brew Houze employee report: ${account.fullName}`],
           ["Email", account.email],
+          ["Role", staffRoleOf(account.role) === "barista" ? "Barista (queue only)" : "Cashier"],
           ["Status", account.isActive ? "Active" : "Deactivated"],
           ["Generated", excelNow()],
           [],
@@ -6004,6 +6105,7 @@ function Accounts() {
         ["Employees", excelTable(people, [
           { header: "Employee", value: (account) => account.fullName },
           { header: "Email", value: (account) => account.email },
+          { header: "Role", value: (account) => staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier" },
           { header: "Status", value: (account) => account.isActive ? "Active" : "Deactivated" },
           { header: "Can open the store", value: (account) => account.canOpenShift ? "Yes" : "No" },
           { header: "Can void", value: (account) => account.canVoidOrders ? "Yes" : "No" },
@@ -6040,7 +6142,7 @@ function Accounts() {
   return <div className="inv-wrap">
     <div className="inv">
       <div className="inv-summary">
-        <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active cashiers</span><strong>{active.length}</strong><em>{accounts.length - active.length} deactivated</em></button>
+        <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active staff</span><strong>{active.length}</strong><em>{accounts.length - active.length} deactivated</em></button>
         <button type="button" className="inv-stat" aria-pressed={statusFilter === "duty"} onClick={() => setStatusFilter(statusFilter === "duty" ? "active" : "duty")}><span>On duty now</span><strong style={{ color: onDuty.length ? "#15803D" : undefined }}>{onDuty.length}</strong><em>{onDuty.length ? onDuty.map((account) => account.fullName.split(/\s+/)[0]).join(", ") : "Nobody is clocked in"}</em></button>
         <div className="inv-stat is-static"><span>Hours this week</span><strong>{formatHours(active.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0))}</strong><em>all cashiers, since Monday</em></div>
         <div className="inv-stat is-static"><span>Can open the store</span><strong>{active.filter((account) => account.canOpenShift).length}</strong><em>plus every admin</em></div>
@@ -6073,11 +6175,11 @@ function Accounts() {
               {shown.map((account) => <button key={account.id} type="button" className={`acc-card${account.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(account.id)}>
                 <span className="acc-card-top">
                   <UserAvatar name={account.fullName} size={44} />
-                  <span className="acc-card-name"><strong>{account.fullName}</strong><em>{account.email}</em></span>
+                  <span className="acc-card-name"><strong>{account.fullName}</strong><em>{account.email}</em><span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier"}</span></span>
                   <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{!account.isActive ? "Deactivated" : account.onDutySince ? `On duty · ${clockTime(account.onDutySince)}` : "Off duty"}</span>
                 </span>
                 <span className="acc-perms">
-                  {([["Open store", account.canOpenShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
+                  {staffRoleOf(account.role) === "barista" ? <span className="acc-perm is-on">✓ Queue only</span> : ([["Open store", account.canOpenShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
                 </span>
                 <span className="acc-card-stats">
                   <span><em>This week</em><strong>{formatHours(account.stats.hoursThisWeek)}</strong></span>

@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { parseOrderItems, placeOrder } from "@/lib/orders";
-import { getSession } from "@/lib/sessions";
+import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Cash and manual "online" payments at the counter. GCash through PayMongo goes through
 // /api/payments instead, where the order is only created once the payment is confirmed.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
   const client = await pool.connect();
   try {

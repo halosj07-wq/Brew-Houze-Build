@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { getSession } from "@/lib/sessions";
+import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 export async function GET() {
   try {
@@ -8,6 +8,7 @@ export async function GET() {
     if (!session) {
       return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
     }
+    if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
     const result = await pool.query(`
       SELECT

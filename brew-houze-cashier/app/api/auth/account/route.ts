@@ -75,7 +75,7 @@ export async function PATCH(request: Request) {
       SET password_hash = crypt($2, gen_salt('bf'))
       WHERE admin_id = $1
         AND password_hash = crypt($3, password_hash)
-        AND LOWER(role) IN ('cashier', 'admin')
+        AND LOWER(role) IN ('cashier', 'barista', 'admin')
         AND is_active = TRUE
       RETURNING admin_id
     `, [session.adminId, newPassword, currentPassword]);

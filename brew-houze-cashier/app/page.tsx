@@ -5,6 +5,16 @@ import Image from "next/image";
 
 type Page = "pos" | "queue" | "reversals" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean };
+
+// Baristas only see and manage the queue (the server refuses them everything else too).
+const QUEUE_ONLY_PAGES: Page[] = ["queue", "accounts"];
+function isQueueOnlyRole(role: string): boolean {
+  return role.toLowerCase() === "barista";
+}
+function roleLabel(role: string): string {
+  const value = role.toLowerCase();
+  return value === "admin" ? "Admin" : value === "barista" ? "Barista" : "Cashier";
+}
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
 type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
@@ -66,8 +76,8 @@ function formatTimeAgo(timestamp: number, now: number): string {
   return `${Math.floor(minutes / 60)} h ago`;
 }
 
-function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, canManageReversals, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; now: number; shiftOpen: boolean; canManageReversals: boolean; onChange: (page: Page) => void; onToggle: () => void }) {
-  const visibleNavItems = navItems.filter((item) => item.id !== "reversals" || canManageReversals);
+function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, canManageReversals, queueOnly, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; now: number; shiftOpen: boolean; canManageReversals: boolean; queueOnly: boolean; onChange: (page: Page) => void; onToggle: () => void }) {
+  const visibleNavItems = navItems.filter((item) => queueOnly ? QUEUE_ONLY_PAGES.includes(item.id) : item.id !== "reversals" || canManageReversals);
   const waiting = queueCounts?.waiting ?? 0;
   return <aside className={`app-sidebar ${collapsed ? "is-collapsed" : "is-expanded"} flex flex-col`} style={{ background: "#3D2B1F", minHeight: "100vh", width: collapsed ? 52 : 240, flexShrink: 0 }}>
     <div className="flex items-center gap-3 px-6 py-7 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
@@ -85,7 +95,7 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
         </button>;
       })}
     </nav>
-    <button type="button" onClick={() => onChange("queue")} title="Open the queue" className="mx-3 mb-5 rounded-xl" style={{ background: "rgba(217,119,6,0.14)", border: "1px solid rgba(217,119,6,0.35)", padding: collapsed ? "10px 2px" : "13px 14px", textAlign: collapsed ? "center" : "left", cursor: "pointer", color: "#FDF9F5" }}>
+    {!queueOnly && <button type="button" onClick={() => onChange("queue")} title="Open the queue" className="mx-3 mb-5 rounded-xl" style={{ background: "rgba(217,119,6,0.14)", border: "1px solid rgba(217,119,6,0.35)", padding: collapsed ? "10px 2px" : "13px 14px", textAlign: collapsed ? "center" : "left", cursor: "pointer", color: "#FDF9F5" }}>
       {collapsed ? (
         <span style={{ display: "block", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, lineHeight: 1 }}>{lastOrder ? `#${lastOrder.queueNumber}` : "—"}</span>
       ) : <>
@@ -101,7 +111,7 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
           <span style={{ flex: 1, padding: "5px 0", borderRadius: 8, background: "rgba(255,255,255,0.07)", textAlign: "center", fontSize: 11, color: "rgba(255,255,255,0.75)" }}><strong style={{ display: "block", fontSize: 16, color: "#FBBF24" }}>{queueCounts ? queueCounts.ready : "–"}</strong>ready</span>
         </span>
       </>}
-    </button>
+    </button>}
     <div className="px-6 py-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}><p style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "rgba(255,255,255,0.35)" }}>CASHIER PORTAL</p></div>
   </aside>;
 }
@@ -109,9 +119,9 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
 // Phones (portrait): the sidebar is hidden and these tabs sit at the bottom of the screen.
 const mobileTabLabels: Record<Page, string> = { pos: "POS", queue: "Queue", reversals: "Void & Refund", accounts: "Account" };
 
-function MobileTabBar({ current, queueWaiting, canManageReversals, onChange }: { current: Page; queueWaiting: number; canManageReversals: boolean; onChange: (page: Page) => void }) {
+function MobileTabBar({ current, queueWaiting, canManageReversals, queueOnly, onChange }: { current: Page; queueWaiting: number; canManageReversals: boolean; queueOnly: boolean; onChange: (page: Page) => void }) {
   return <nav className="mobile-tabbar" aria-label="Cashier sections">
-    {navItems.filter((item) => item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
+    {navItems.filter((item) => queueOnly ? QUEUE_ONLY_PAGES.includes(item.id) : item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
       const active = current === id;
       return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className={`mobile-tab${active ? " is-active" : ""}`}>
         <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}</span>
@@ -258,7 +268,7 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, on
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
       <span className="topbar-title" style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F", whiteSpace: "nowrap" }}>{title}</span>
-      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
+      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} readOnly={isQueueOnlyRole(user.role)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
     </div>
     <div className="flex items-center gap-2.5">
       <ConnectionIndicator />
@@ -266,12 +276,12 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, on
         <UserAvatar name={user.fullName} size={34} />
         <span className="topbar-profile-text flex flex-col" style={{ lineHeight: 1.2 }}>
           <strong style={{ fontSize: 13, color: "#3D2B1F", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{user.fullName}</strong>
-          <span style={{ alignSelf: "flex-start", marginTop: 3, padding: "1px 7px", borderRadius: 999, background: isAdmin ? "#3D2B1F" : "#FFF7ED", color: isAdmin ? "#FDF9F5" : "#C2410C", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>{isAdmin ? "Admin" : "Cashier"}</span>
+          <span style={{ alignSelf: "flex-start", marginTop: 3, padding: "1px 7px", borderRadius: 999, background: isAdmin ? "#3D2B1F" : "#FFF7ED", color: isAdmin ? "#FDF9F5" : "#C2410C", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" }}>{roleLabel(user.role)}</span>
         </span>
       </button>
       <button type="button" onClick={onRequestLogout} title="Sign out so another cashier can sign in" className="topbar-switch" style={{ display: "flex", alignItems: "center", gap: 8, height: 46, padding: "0 14px", borderRadius: 13, border: "none", background: "#3D2B1F", color: "#FDF9F5", fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 6px 14px rgba(61,43,31,0.18)" }}>
         <IconSwitchUser size={18} />
-        <span className="topbar-switch-label">Switch cashier</span>
+        <span className="topbar-switch-label">{isQueueOnlyRole(user.role) ? "Switch user" : "Switch cashier"}</span>
       </button>
     </div>
   </header>;
@@ -394,12 +404,12 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="flex items-center gap-2 flex-wrap">
           <h1 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26 }}>{user.fullName}</h1>
-          <span style={{ padding: "2px 9px", borderRadius: 999, background: isAdmin ? "#FDF9F5" : "#D97706", color: isAdmin ? "#3D2B1F" : "#FFFFFF", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase" }}>{isAdmin ? "Admin" : "Cashier"}</span>
+          <span style={{ padding: "2px 9px", borderRadius: 999, background: isAdmin ? "#FDF9F5" : "#D97706", color: isAdmin ? "#3D2B1F" : "#FFFFFF", fontSize: 11, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase" }}>{roleLabel(user.role)}</span>
         </div>
         <p style={{ margin: "5px 0 0", color: "rgba(253,249,245,0.75)", fontSize: 13.5 }}>{user.email}</p>
         <p style={{ margin: "3px 0 0", color: "rgba(253,249,245,0.55)", fontSize: 12 }}>{currentDevice ? `Signed in on this device (${currentDevice.device}) since ${new Date(currentDevice.signedInAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}` : "Loading…"}</p>
       </div>
-      <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconSwitchUser size={17} />Switch cashier</button>
+      <button type="button" onClick={onSignOut} className="account-hero-switch flex items-center justify-center gap-2" style={{ height: 44, padding: "0 16px", borderRadius: 12, border: "1px solid rgba(253,249,245,0.25)", background: "rgba(253,249,245,0.08)", color: "#FDF9F5", fontWeight: 700, fontSize: 13, cursor: "pointer" }}><IconSwitchUser size={17} />{isQueueOnlyRole(user.role) ? "Switch user" : "Switch cashier"}</button>
     </section>
 
     {loadError && <p style={{ margin: "14px 0 0", padding: "10px 14px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{loadError}</p>}
@@ -410,14 +420,14 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           {!details ? <p style={{ margin: 0, color: "#9C8278", fontSize: 13 }}>Loading…</p> : <>
             <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(110px, 100%), 1fr))" }}>
               {stat("Clocked in", details.clockedInAt ? new Date(details.clockedInAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" }) : "—", details.clockedInAt ? `for ${formatDuration(details.clockedInAt, now)}` : "Not clocked in")}
-              {stat("Orders you punched", details.shift ? String(details.shift.orders) : "—", details.shift ? `₱${details.shift.sales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in sales` : "No shift open")}
-              {stat("Voids & refunds", details.shift ? String(details.shift.reversals) : "—", details.shift ? "made by you this shift" : undefined)}
+              {!isQueueOnlyRole(user.role) && stat("Orders you punched", details.shift ? String(details.shift.orders) : "—", details.shift ? `₱${details.shift.sales.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} in sales` : "No shift open")}
+              {!isQueueOnlyRole(user.role) && stat("Voids & refunds", details.shift ? String(details.shift.reversals) : "—", details.shift ? "made by you this shift" : undefined)}
             </div>
-            {!details.shift && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>No shift is open. Totals appear once a shift is opened.</p>}
+            {!details.shift && !isQueueOnlyRole(user.role) && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>No shift is open. Totals appear once a shift is opened.</p>}
           </>}
         </AccountSection>
 
-        <AccountSection eyebrow="Settings" title="This tablet">
+        {!isQueueOnlyRole(user.role) && <AccountSection eyebrow="Settings" title="This tablet">
           <div className="flex items-center gap-4" style={{ padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p id="keypad-setting-label" style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>On-screen keypad for amounts</p>
@@ -450,11 +460,12 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
             </div>
             <button type="button" role="switch" aria-checked={receipts.settings.autoPrint} aria-labelledby="autoprint-setting-label" onClick={() => receipts.setSettings({ ...receipts.settings, autoPrint: !receipts.settings.autoPrint })} className={`setting-switch${receipts.settings.autoPrint ? " is-on" : ""}`}><span /></button>
           </div>
-        </AccountSection>
+        </AccountSection>}
 
         <AccountSection eyebrow="Access" title="What you can do">
           <div className="flex flex-col gap-2">
-            {permission("Take orders & checkout", true)}
+            {isQueueOnlyRole(user.role) ? permission("View and manage the queue", true) : permission("Take orders & checkout", true)}
+            {isQueueOnlyRole(user.role) && permission("Take orders & checkout", false)}
             {permission("Void orders", Boolean(user.canVoidOrders))}
             {permission("Refund orders", Boolean(user.canRefundOrders))}
             {permission("Open the store", Boolean(user.canOpenShift))}
@@ -2367,7 +2378,7 @@ function formatClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 }
 
-function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift, onCashDrawer }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void }) {
+function ShiftChip({ shift, canOpenShift, readOnly = false, onOpenShift, onCloseShift, onCashDrawer }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; readOnly?: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void }) {
   if (shift === undefined) return null;
   const chipButton: React.CSSProperties = { border: "none", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" };
   if (shift === null) {
@@ -2381,12 +2392,12 @@ function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift, onCashDrawe
   return <div className="flex items-center gap-2 rounded-xl" title={longShift ? "This shift has been open unusually long. Close it at the end of the business day." : undefined} style={{ padding: "5px 6px 5px 12px", background: longShift ? "#FEF3C7" : "#F0FDF4", border: `1px solid ${longShift ? "#FCD34D" : "#BBF7D0"}`, color: longShift ? "#B45309" : "#15803D", fontSize: 12.5, fontWeight: 700 }}>
     <span style={{ width: 8, height: 8, borderRadius: "50%", background: longShift ? "#F59E0B" : "#22C55E" }} />
     <span className="shift-chip-text">Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
-    <button type="button" onClick={onCashDrawer} title="Cash in, cash out or cash drop" style={{ ...chipButton, background: "#FFFFFF", color: "#3D2B1F", border: "1px solid #E8DDD5" }}>Drawer</button>
-    <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>
+    {!readOnly && <button type="button" onClick={onCashDrawer} title="Cash in, cash out or cash drop" style={{ ...chipButton, background: "#FFFFFF", color: "#3D2B1F", border: "1px solid #E8DDD5" }}>Drawer</button>}
+    {!readOnly && <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>}
   </div>;
 }
 
-function WaitingForShiftPanel({ userName, onCheckAgain, onSwitchCashier }: { userName: string; onCheckAgain: () => Promise<void>; onSwitchCashier: () => void }) {
+function WaitingForShiftPanel({ userName, queueOnly = false, onCheckAgain, onSwitchCashier }: { userName: string; queueOnly?: boolean; onCheckAgain: () => Promise<void>; onSwitchCashier: () => void }) {
   const [checking, setChecking] = useState(false);
   // The POS opens by itself once the shift is open (the app checks every 15 seconds), and this
   // also notices when an admin grants this cashier permission to open the store.
@@ -2405,9 +2416,9 @@ function WaitingForShiftPanel({ userName, onCheckAgain, onSwitchCashier }: { use
       <div style={{ width: 56, height: 56, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 18, background: "#FEF3C7", color: "#B45309", fontSize: 26 }} aria-hidden="true">☕</div>
       <p style={{ margin: "16px 0 0", color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>Store closed</p>
       <h2 style={{ margin: "6px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, color: "#3D2B1F" }}>Waiting for the store to open</h2>
-      <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.6 }}>An admin opens the shift from the admin app. The register opens here by itself as soon as they do. Your attendance is already recorded.</p>
+      <p style={{ margin: "10px 0 0", color: "#6B4C3B", fontSize: 13, lineHeight: 1.6 }}>{queueOnly ? "An admin or cashier opens the shift. The queue opens here by itself as soon as they do." : "An admin opens the shift from the admin app. The register opens here by itself as soon as they do."} Your attendance is already recorded.</p>
       <button type="button" onClick={() => void checkNow()} disabled={checking} style={{ width: "100%", height: 48, marginTop: 20, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", color: "#3D2B1F", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: checking ? "default" : "pointer" }}>{checking ? "Checking…" : "Check again"}</button>
-      <p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12.5 }}>Signed in as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch cashier</button></p>
+      <p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12.5 }}>Signed in as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>{queueOnly ? "Switch user" : "Switch cashier"}</button></p>
     </section>
   </main>;
 }
@@ -2980,10 +2991,11 @@ export default function App() {
   if (authLoading) return <div className="min-h-screen" style={{ background: "#F8F9FA" }} />;
   if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); setUser(session); }} notice={loginNotice} />;
   const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
-  const visiblePage = page === "reversals" && !canManageReversals ? "pos" : page;
+  const queueOnly = isQueueOnlyRole(user.role);
+  const visiblePage: Page = queueOnly ? (QUEUE_ONLY_PAGES.includes(page) ? page : "queue") : page === "reversals" && !canManageReversals ? "pos" : page;
   async function confirmSignOut() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }

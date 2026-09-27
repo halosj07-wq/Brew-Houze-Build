@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
+import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
 
 // Cash put into or taken out of the drawer during the open shift for reasons other than a sale:
 // change fund added (cash_in), something paid for from the drawer (cash_out), or large bills moved
@@ -31,7 +31,9 @@ function mapMovement(row: Record<string, unknown>) {
 }
 
 export async function GET() {
-  if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   try {
     const result = await pool.query(`${listSql} WHERE cm.shift_id = (SELECT shift_id FROM shifts WHERE closed_at IS NULL LIMIT 1) ORDER BY cm.created_at DESC, cm.movement_id DESC`);
     return NextResponse.json({ data: result.rows.map(mapMovement) }, { headers: { "Cache-Control": "no-store" } });
@@ -44,6 +46,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
   let body: { kind?: unknown; amount?: unknown; reason?: unknown; note?: unknown; password?: unknown };
   try {
