@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <meta name="color-scheme" content="light" />
+  <title>Brew Houze · System Portal</title>
+  <meta name="description" content="Every Brew Houze app in one place: admin, cashier, mobile menu, queue screen and the counter GCash sign." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23D97706'/%3E%3Cpath d='M18 26h24v12a10 10 0 0 1-10 10h-4a10 10 0 0 1-10-10z' fill='none' stroke='white' stroke-width='4' stroke-linejoin='round'/%3E%3Cpath d='M42 29h3a5 5 0 0 1 0 10h-3' fill='none' stroke='white' stroke-width='4'/%3E%3Cpath d='M25 14v6M31 14v6M37 14v6' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --espresso: #3D2B1F; --espresso-deep: #2A1D14; --roast: #6B4C3B; --latte: #9C8278;
+      --foam: #FDF9F5; --cream: #F3EDE5; --line: #E8DDD5; --amber: #D97706; --amber-soft: #FFF7ED;
+      --green: #15803D; --red: #B91C1C; --gcash: #0057E4; --page: #F8F5F1;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body { min-height: 100vh; background: var(--page); color: var(--espresso); font-family: Inter, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; }
+    button { font: inherit; }
+    .wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 20px; }
+
+    /* Header */
+    .hero { position: relative; overflow: hidden; color: var(--foam); background: linear-gradient(150deg, var(--espresso) 0%, var(--espresso-deep) 100%); }
+    .hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 88% -10%, rgba(217,119,6,0.45), transparent 45%), radial-gradient(rgba(253,249,245,0.06) 1px, transparent 1px); background-size: auto, 22px 22px; }
+    .hero .wrap { position: relative; padding-top: 28px; padding-bottom: 40px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-mark { width: 46px; height: 46px; flex-shrink: 0; display: grid; place-items: center; border-radius: 14px; background: var(--amber); box-shadow: 0 8px 22px rgba(217,119,6,0.35); }
+    .brand-name { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 19px; }
+    .brand-sub { margin: 1px 0 0; color: #FCD34D; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; }
+    .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .clock { text-align: right; }
+    .clock strong { display: block; font-family: 'Hanken Grotesk', sans-serif; font-size: 22px; font-weight: 800; }
+    .clock span { color: rgba(253,249,245,0.65); font-size: 12.5px; }
+    .hero h1 { margin: 34px 0 0; max-width: 720px; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: clamp(30px, 5vw, 46px); line-height: 1.08; letter-spacing: -0.02em; }
+    .hero p.lead { margin: 12px 0 0; max-width: 620px; color: rgba(253,249,245,0.75); font-size: 15.5px; line-height: 1.6; }
+    .status-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .status-pill { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px; background: rgba(253,249,245,0.08); border: 1px solid rgba(253,249,245,0.12); color: rgba(253,249,245,0.85); font-size: 12.5px; font-weight: 600; }
+
+    /* Status dots (shared) */
+    .dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 999px; background: #A8A29E; }
+    .dot.is-up { background: #22C55E; box-shadow: 0 0 0 3px rgba(34,197,94,0.18); }
+    .dot.is-down { background: #EF4444; box-shadow: 0 0 0 3px rgba(239,68,68,0.18); }
+    .dot.is-checking { animation: pulse 1.2s ease-in-out infinite; }
+    .dot.is-unset { background: #D6D3D1; }
+    @keyframes pulse { 50% { opacity: 0.35; } }
+
+    main { padding: 32px 0 56px; }
+    .section { margin-top: 34px; }
+    .section:first-child { margin-top: 0; }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .eyebrow { margin: 0; color: var(--amber); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; }
+    .section h2 { margin: 4px 0 0; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 22px; }
+    .section-note { margin: 4px 0 0; color: var(--latte); font-size: 13px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 16px; }
+    .card { display: flex; flex-direction: column; min-width: 0; padding: 20px; border-radius: 20px; background: var(--foam); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(61,43,31,0.05); transition: box-shadow 160ms ease, transform 160ms ease; }
+    .card:hover { box-shadow: 0 12px 30px rgba(61,43,31,0.1); transform: translateY(-2px); }
+    .card.is-featured { background: linear-gradient(160deg, #FFFFFF 0%, var(--foam) 100%); }
+    .card-top { display: flex; align-items: flex-start; gap: 14px; }
+    .icon { width: 48px; height: 48px; flex-shrink: 0; display: grid; place-items: center; border-radius: 14px; background: var(--cream); color: var(--espresso); }
+    .icon.is-amber { background: var(--amber-soft); color: var(--amber); }
+    .icon.is-teal { background: #CCFBF1; color: #0F766E; }
+    .icon.is-purple { background: #F3E8FF; color: #7E22CE; }
+    .icon.is-gcash { background: #DBEAFE; color: var(--gcash); }
+    .card-title { min-width: 0; flex: 1; }
+    .card h3 { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 18px; }
+    .who { margin: 3px 0 0; color: var(--latte); font-size: 12.5px; }
+    .state { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; margin-top: 3px; color: var(--latte); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .card p.desc { margin: 14px 0 0; color: var(--roast); font-size: 13.5px; line-height: 1.55; }
+    .uses { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+    .uses li { padding: 3px 9px; border-radius: 999px; background: var(--cream); color: var(--roast); font-size: 11.5px; font-weight: 600; }
+    .address { margin: 14px 0 0; padding: 8px 10px; border-radius: 10px; background: #FFFFFF; border: 1px dashed var(--line); color: var(--latte); font-family: 'JetBrains Mono', monospace; font-size: 11.5px; overflow-wrap: anywhere; }
+    .actions { display: flex; gap: 8px; margin-top: auto; padding-top: 16px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line); background: #FFFFFF; color: var(--roast); font-size: 13.5px; font-weight: 700; text-decoration: none; cursor: pointer; white-space: nowrap; transition: background 140ms ease, border-color 140ms ease, color 140ms ease; }
+    .btn:hover { border-color: var(--amber); background: var(--amber-soft); color: #B45309; }
+    .btn:focus-visible { outline: 3px solid rgba(217,119,6,0.4); outline-offset: 2px; }
+    .btn.is-primary { flex: 1; border-color: var(--espresso); background: var(--espresso); color: var(--foam); }
+    .btn.is-primary:hover { background: var(--roast); border-color: var(--roast); color: #FFFFFF; }
+    .btn.is-gcash { border-color: var(--gcash); background: var(--gcash); color: #FFFFFF; }
+    .btn.is-gcash:hover { background: #0046B8; color: #FFFFFF; }
+    .btn.is-icon { width: 44px; padding: 0; }
+    .btn[aria-disabled="true"] { pointer-events: none; opacity: 0.45; }
+    .unset-note { margin: 12px 0 0; padding: 9px 11px; border-radius: 10px; background: #FEF3C7; color: #92400E; font-size: 12px; line-height: 1.5; }
+
+    /* Device guide */
+    .guide { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 12px; }
+    .guide-item { display: flex; gap: 12px; padding: 16px; border-radius: 16px; background: #FFFFFF; border: 1px solid var(--line); }
+    .guide-item svg { flex-shrink: 0; color: var(--amber); }
+    .guide-item strong { display: block; font-size: 14px; }
+    .guide-item span { display: block; margin-top: 3px; color: var(--roast); font-size: 12.5px; line-height: 1.5; }
+
+    .tips { margin: 0; padding: 18px 20px 18px 38px; border-radius: 18px; background: var(--cream); color: var(--roast); font-size: 13.5px; line-height: 1.7; }
+    .tips b { color: var(--espresso); }
+
+    footer { padding: 22px 0 36px; border-top: 1px solid var(--line); color: var(--latte); font-size: 12px; }
+    footer .wrap { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+    /* QR window */
+    .modal { position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center; padding: 16px; background: rgba(42,29,20,0.55); backdrop-filter: blur(3px); }
+    .modal.is-open { display: flex; }
+    .sheet { width: min(100%, 400px); max-height: 92vh; overflow-y: auto; padding: 24px; border-radius: 22px; background: var(--foam); text-align: center; box-shadow: 0 24px 60px rgba(42,29,20,0.35); }
+    .sheet h3 { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 22px; }
+    .sheet p { margin: 6px 0 0; color: var(--roast); font-size: 13px; line-height: 1.5; }
+    .qr { width: 260px; height: 260px; margin: 18px auto 0; padding: 12px; border-radius: 18px; background: #FFFFFF; border: 1px solid var(--line); display: grid; place-items: center; }
+    .qr img, .qr svg { width: 100%; height: 100%; image-rendering: pixelated; }
+    .sheet .address { text-align: left; }
+    .sheet .actions { justify-content: center; }
+    .toast { position: fixed; left: 50%; bottom: 24px; z-index: 60; transform: translate(-50%, 20px); padding: 10px 16px; border-radius: 12px; background: var(--espresso); color: var(--foam); font-size: 13px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 180ms ease, transform 180ms ease; }
+    .toast.is-shown { opacity: 1; transform: translate(-50%, 0); }
+
+    @media (max-width: 560px) {
+      .wrap { padding: 0 16px; }
+      .hero .wrap { padding-top: 20px; padding-bottom: 30px; }
+      .clock { text-align: left; }
+      .card { padding: 16px; border-radius: 18px; }
+      .state span.label { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) { .dot.is-checking { animation: none; } .card, .card:hover { transition: none; transform: none; } }
+    @media print {
+      .hero::before, .actions, .status-strip, footer, .modal { display: none !important; }
+      .hero { background: none; color: var(--espresso); }
+      .card { break-inside: avoid; box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap">
+      <div class="hero-top">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1" /><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" /><line x1="6" y1="2" x2="6" y2="4" /><line x1="10" y1="2" x2="10" y2="4" /><line x1="14" y1="2" x2="14" y2="4" /></svg>
+          </div>
+          <div>
+            <p class="brand-name">Brew Houze</p>
+            <p class="brand-sub">System portal</p>
+          </div>
+        </div>
+        <div class="clock" aria-live="off">
+          <strong id="clock-time">—</strong>
+          <span id="clock-date">Philippine time</span>
+        </div>
+      </div>
+      <h1>Every Brew Houze app, in one place.</h1>
+      <p class="lead">Open the right app for each device, share the customer links, and print the QR codes for the counter and tables. Bookmark this page on every device the café uses.</p>
+      <div class="status-strip" id="status-strip" aria-label="App status"></div>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <section class="section" aria-labelledby="staff-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">For the team</p>
+            <h2 id="staff-title">Staff apps</h2>
+            <p class="section-note">Sign in with your Brew Houze account.</p>
+          </div>
+        </div>
+        <div class="grid" id="staff-grid"></div>
+      </section>
+
+      <section class="section" aria-labelledby="customer-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">For customers</p>
+            <h2 id="customer-title">Customer screens &amp; links</h2>
+            <p class="section-note">No sign-in needed. Share or display these for customers.</p>
+          </div>
+        </div>
+        <div class="grid" id="customer-grid"></div>
+      </section>
+
+      <section class="section" aria-labelledby="print-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Print once, keep out</p>
+            <h2 id="print-title">Printables for the counter &amp; tables</h2>
+            <p class="section-note">These never change, so they only need printing once.</p>
+          </div>
+        </div>
+        <div class="grid" id="print-grid"></div>
+      </section>
+
+      <section class="section" aria-labelledby="guide-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Setup guide</p>
+            <h2 id="guide-title">Which device opens what</h2>
+          </div>
+        </div>
+        <div class="guide">
+          <div class="guide-item">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /></svg>
+            <div><strong>Counter tablet</strong><span>Cashier POS. Keep it signed in during the shift and switch cashiers from the top bar.</span></div>
+          </div>
+          <div class="guide-item">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></svg>
+            <div><strong>Owner’s tablet &amp; phone</strong><span>Admin Portal. Start or end the shift, check sales, stock and employees from anywhere.</span></div>
+          </div>
+          <div class="guide-item">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2" /><path d="M8 21h8M12 17v4" /></svg>
+            <div><strong>TV or monitor</strong><span>Queue Screen, in full screen (F11 on a PC). It updates by itself.</span></div>
+          </div>
+          <div class="guide-item">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" /><rect x="7" y="7" width="10" height="10" rx="1" /></svg>
+            <div><strong>Customers’ phones</strong><span>Mobile Menu via the table QR, and the GCash sign at the counter.</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="tips-title">
+        <div class="section-head"><div><p class="eyebrow">Good to know</p><h2 id="tips-title">Quick tips</h2></div></div>
+        <ul class="tips">
+          <li><b>The store opens when a shift starts.</b> Until then the cashier waits and the mobile menu shows the café as closed.</li>
+          <li><b>Ending the shift</b> clocks everyone out, signs out the cashier app and clears the queue screen.</li>
+          <li><b>Voids and refunds</b> only work for orders in the current shift, and need the cashier’s password.</li>
+          <li><b>Status dots</b> at the top check that each app is reachable from this device. Red means that app or this device’s internet is down.</li>
+          <li><b>Add this page to the home screen</b> of each tablet and phone (Share → Add to Home Screen) so it opens like an app.</li>
+        </ul>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>Brew Houze café management system</span>
+      <span id="footer-year"></span>
+    </div>
+  </footer>
+
+  <div class="modal" id="qr-modal" role="dialog" aria-modal="true" aria-labelledby="qr-title">
+    <div class="sheet">
+      <h3 id="qr-title">QR code</h3>
+      <p id="qr-note"></p>
+      <div class="qr" id="qr-box"></div>
+      <div class="address" id="qr-address"></div>
+      <div class="actions">
+        <button type="button" class="btn" id="qr-copy">Copy link</button>
+        <button type="button" class="btn" id="qr-download">Save image</button>
+        <button type="button" class="btn is-primary" id="qr-close">Done</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script>
+    // ── Addresses of each app ──────────────────────────────────────────────────
+    // Edit these if an app moves (for example to a custom domain). Leave one empty ("") to show
+    // it as "not set up yet" instead of a broken link.
+    const APPS = {
+      admin: "https://brew-houze-build-admin.vercel.app",
+      cashier: "https://brew-houze-build-cashier.vercel.app",
+      mobile: "https://brew-houze-build.vercel.app",
+      queue: "https://brew-houze-build-queuescreen.vercel.app",
+    };
+
+    const icons = {
+      admin: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
+      cashier: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="6" y1="15" x2="10" y2="15"/></svg>',
+      mobile: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M9 7h6M9 11h6M9 15h3"/></svg>',
+      queue: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8h2v4H7zM11 8h2M11 12h2M15 8h2v4h-2z"/></svg>',
+      gcash: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>',
+      table: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1"/><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/></svg>',
+      open: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+      copy: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>',
+      qr: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3M21 21h-4v-4"/></svg>',
+      print: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+    };
+
+    const join = (base, path) => (base ? base.replace(/\/$/, "") + path : "");
+
+    // Each card: which app it checks for status, its link, and what it is for.
+    const cards = {
+      "staff-grid": [
+        { app: "admin", icon: "admin", tone: "is-amber", featured: true, title: "Admin Portal", who: "Owner & managers · tablet or phone",
+          desc: "Run the café: start and end the shift, watch sales live, and manage inventory, the menu, finance, employees and archives.",
+          uses: ["Dashboard", "Shift", "Inventory", "Menu", "Finance", "Employees"], url: APPS.admin, qr: true },
+        { app: "cashier", icon: "cashier", tone: "", featured: true, title: "Cashier POS", who: "Counter tablet · cashiers",
+          desc: "Take orders and payments (cash or GCash), manage the queue, and void or refund orders in the current shift.",
+          uses: ["Point of Sale", "Queue", "Void & Refund", "Attendance"], url: APPS.cashier, qr: true },
+      ],
+      "customer-grid": [
+        { app: "mobile", icon: "mobile", tone: "is-teal", title: "Mobile Menu", who: "Customers’ phones",
+          desc: "Customers browse the menu, order and pay with GCash from their own phone, then wait for their queue number.",
+          uses: ["Browse menu", "Order ahead", "GCash"], url: APPS.mobile, qr: true, qrNote: "Print this for the tables so customers can order from their phones." },
+        { app: "queue", icon: "queue", tone: "is-purple", title: "Queue Screen", who: "TV or monitor facing customers",
+          desc: "Shows which orders are being prepared and which are ready for pickup. Open it in full screen and leave it running.",
+          uses: ["Preparing", "Ready for pickup"], url: APPS.queue },
+      ],
+      "print-grid": [
+        { app: "cashier", icon: "gcash", tone: "is-gcash", title: "Counter GCash sign", who: "Print and place at the counter",
+          desc: "One QR for every GCash payment. Customers scan it after the cashier picks GCash, and their total appears on their phone.",
+          url: join(APPS.cashier, "/pay/sign"), action: "Open & print", actionIcon: "print", primaryClass: "is-gcash" },
+        { app: "mobile", icon: "table", tone: "is-teal", title: "Table QR for the Mobile Menu", who: "Print for each table",
+          desc: "A QR code that opens the Mobile Menu. Save the image and print it on table tents or stickers.",
+          url: APPS.mobile, action: "Show QR code", actionIcon: "qr", opensQr: true, qrNote: "Print this for the tables so customers can order from their phones." },
+      ],
+    };
+
+    const escape = (text) => String(text).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const shortUrl = (url) => url.replace(/^https?:\/\//, "");
+
+    function renderCard(card) {
+      const unset = !card.url;
+      const primaryLabel = card.action ?? `Open ${card.title}`;
+      const primaryIcon = icons[card.actionIcon ?? "open"];
+      const primary = card.opensQr
+        ? `<button type="button" class="btn is-primary ${card.primaryClass ?? ""}" data-qr="${escape(card.url)}" data-title="${escape(card.title)}" data-note="${escape(card.qrNote ?? "")}" ${unset ? 'aria-disabled="true"' : ""}>${primaryIcon}${escape(primaryLabel)}</button>`
+        : `<a class="btn is-primary ${card.primaryClass ?? ""}" href="${unset ? "#" : escape(card.url)}" target="_blank" rel="noopener" ${unset ? 'aria-disabled="true" tabindex="-1"' : ""}>${escape(primaryLabel)}${primaryIcon}</a>`;
+      return `<article class="card${card.featured ? " is-featured" : ""}">
+        <div class="card-top">
+          <div class="icon ${card.tone}" aria-hidden="true">${icons[card.icon]}</div>
+          <div class="card-title"><h3>${escape(card.title)}</h3><p class="who">${escape(card.who)}</p></div>
+          <span class="state" data-status="${card.app}"><span class="dot ${unset ? "is-unset" : "is-checking"}"></span><span class="label">${unset ? "Not set up" : "Checking"}</span></span>
+        </div>
+        <p class="desc">${escape(card.desc)}</p>
+        ${card.uses ? `<ul class="uses">${card.uses.map((use) => `<li>${escape(use)}</li>`).join("")}</ul>` : ""}
+        ${unset ? '<p class="unset-note">This link has not been added yet. Ask the developer to set its address.</p>' : `<div class="address">${escape(shortUrl(card.url))}</div>`}
+        <div class="actions">
+          ${primary}
+          <button type="button" class="btn is-icon" data-copy="${escape(card.url)}" title="Copy link" aria-label="Copy the ${escape(card.title)} link" ${unset ? 'aria-disabled="true"' : ""}>${icons.copy}</button>
+          ${card.qr ? `<button type="button" class="btn is-icon" data-qr="${escape(card.url)}" data-title="${escape(card.title)}" data-note="${escape(card.qrNote ?? "Scan to open it on another device.")}" title="Show QR code" aria-label="Show a QR code for ${escape(card.title)}" ${unset ? 'aria-disabled="true"' : ""}>${icons.qr}</button>` : ""}
+        </div>
+      </article>`;
+    }
+
+    for (const [gridId, list] of Object.entries(cards)) {
+      document.getElementById(gridId).innerHTML = list.map(renderCard).join("");
+    }
+
+    // ── Status: can this device reach each app? ────────────────────────────────
+    const statusNames = { admin: "Admin Portal", cashier: "Cashier POS", mobile: "Mobile Menu", queue: "Queue Screen" };
+    const strip = document.getElementById("status-strip");
+    strip.innerHTML = Object.keys(statusNames).map((app) => `<span class="status-pill" data-status="${app}"><span class="dot ${APPS[app] ? "is-checking" : "is-unset"}"></span><span class="label">${statusNames[app]}</span></span>`).join("");
+
+    function setStatus(app, state) {
+      const text = { up: "Online", down: "Unreachable", unset: "Not set up" }[state];
+      document.querySelectorAll(`[data-status="${app}"]`).forEach((el) => {
+        const dot = el.querySelector(".dot");
+        dot.className = `dot is-${state}`;
+        if (el.classList.contains("state")) el.querySelector(".label").textContent = text;
+        el.title = `${statusNames[app]}: ${text}`;
+      });
+    }
+
+    async function checkApp(app) {
+      const url = APPS[app];
+      if (!url) { setStatus(app, "unset"); return; }
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      try {
+        // no-cors: the response is opaque, but it only resolves if the app answered at all.
+        await fetch(url + "/favicon.ico?check=" + Date.now(), { mode: "no-cors", cache: "no-store", signal: controller.signal });
+        setStatus(app, "up");
+      } catch {
+        setStatus(app, "down");
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    const checkAll = () => Object.keys(statusNames).forEach(checkApp);
+    checkAll();
+    setInterval(() => { if (document.visibilityState === "visible") checkAll(); }, 60000);
+
+    // ── Copy, QR and toast ─────────────────────────────────────────────────────
+    const toast = document.getElementById("toast");
+    let toastTimer;
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("is-shown");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove("is-shown"), 2200);
+    }
+    async function copyLink(url) {
+      try { await navigator.clipboard.writeText(url); showToast("Link copied"); }
+      catch { window.prompt("Copy this link:", url); }
+    }
+
+    const modal = document.getElementById("qr-modal");
+    let modalUrl = "";
+    let modalTitle = "";
+    let lastFocus = null;
+    function openQr(url, title, note) {
+      modalUrl = url;
+      modalTitle = title;
+      lastFocus = document.activeElement;
+      document.getElementById("qr-title").textContent = title;
+      document.getElementById("qr-note").textContent = note || "Scan with a phone camera to open it.";
+      document.getElementById("qr-address").textContent = shortUrl(url);
+      const box = document.getElementById("qr-box");
+      if (typeof qrcode === "function") {
+        const code = qrcode(0, "M");
+        code.addData(url);
+        code.make();
+        box.innerHTML = code.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
+      } else {
+        box.textContent = "The QR code could not load. Check the internet connection.";
+      }
+      modal.classList.add("is-open");
+      document.getElementById("qr-close").focus();
+    }
+    function closeQr() {
+      modal.classList.remove("is-open");
+      if (lastFocus) lastFocus.focus();
+    }
+    function downloadQr() {
+      if (typeof qrcode !== "function") return;
+      const code = qrcode(0, "M");
+      code.addData(modalUrl);
+      code.make();
+      const size = 1024, count = code.getModuleCount(), margin = 4;
+      const cell = Math.floor(size / (count + margin * 2));
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = cell * (count + margin * 2);
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#1F140D";
+      for (let r = 0; r < count; r++) for (let c = 0; c < count; c++) if (code.isDark(r, c)) ctx.fillRect((c + margin) * cell, (r + margin) * cell, cell, cell);
+      const link = document.createElement("a");
+      link.download = `brew-houze-${modalTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-qr.png`;
+      link.href = canvas.toDataURL("image/png");
+      link.click();
+    }
+
+    document.addEventListener("click", (event) => {
+      const copyButton = event.target.closest("[data-copy]");
+      if (copyButton && copyButton.dataset.copy) { copyLink(copyButton.dataset.copy); return; }
+      const qrButton = event.target.closest("[data-qr]");
+      if (qrButton && qrButton.dataset.qr) { openQr(qrButton.dataset.qr, qrButton.dataset.title, qrButton.dataset.note); return; }
+      if (event.target === modal) closeQr();
+    });
+    document.getElementById("qr-close").addEventListener("click", closeQr);
+    document.getElementById("qr-copy").addEventListener("click", () => copyLink(modalUrl));
+    document.getElementById("qr-download").addEventListener("click", downloadQr);
+    document.addEventListener("keydown", (event) => { if (event.key === "Escape" && modal.classList.contains("is-open")) closeQr(); });
+
+    // ── Philippine time ────────────────────────────────────────────────────────
+    function tick() {
+      const now = new Date();
+      document.getElementById("clock-time").textContent = now.toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
+      document.getElementById("clock-date").textContent = now.toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    }
+    tick();
+    setInterval(tick, 15000);
+    document.getElementById("footer-year").textContent = `© ${new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric" })} Brew Houze`;
+  </script>
+</body>
+</html>
