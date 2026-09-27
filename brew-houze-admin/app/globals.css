@@ -469,6 +469,7 @@ body {
 .shiftm-event.is-staff .shiftm-dot { background: #0F766E; }
 .shiftm-event.is-stock .shiftm-dot { background: #1D4ED8; }
 .shiftm-event.is-payment .shiftm-dot { background: #7E22CE; }
+.shiftm-event.is-drawer .shiftm-dot { background: #0F766E; }
 .shiftm-event.is-shift .shiftm-dot { width: 14px; height: 14px; margin: 2px 0 0; background: #22C55E; }
 .shiftm-event-main { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .shiftm-event-main strong { color: #3D2B1F; font-size: 13.5px; }

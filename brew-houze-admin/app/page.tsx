@@ -939,6 +939,78 @@ function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardS
   </Modal>;
 }
 
+// Records cash put into or taken out of the drawer from the admin app, for the open shift.
+const adminDrawerReasons: Record<DrawerKind, string[]> = {
+  cash_in: ["Change fund", "Owner added cash"],
+  cash_out: ["Supplies", "Ice", "Delivery", "Staff meal"],
+  cash_drop: ["Moved to the safe", "Bank deposit"],
+};
+
+function AdminCashDrawerDialog({ expectedCash, onClose, onSaved }: { expectedCash: number; onClose: () => void; onSaved: () => void }) {
+  const [kind, setKind] = useState<DrawerKind>("cash_in");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState(adminDrawerReasons.cash_in[0]);
+  const [otherReason, setOtherReason] = useState("");
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const value = Number(amount);
+  const finalReason = reason === "__other__" ? otherReason.trim() : reason;
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!(value > 0)) { setError("Enter the amount."); return; }
+    if (!finalReason) { setError("Choose or type a reason."); return; }
+    if (!password) { setError("Enter your password to record this."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/cash-movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, amount: value, reason: finalReason, note, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not save the entry.");
+      onSaved();
+      onClose();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the entry.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Cash in or out">
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
+      <h2>Cash in / cash out</h2>
+      <div className="ui-confirm-message">Money added to or taken out of the drawer for reasons other than a sale. The drawer should have <b>{peso(expectedCash)}</b> right now. Entries cannot be deleted; fix a mistake with the opposite entry.</div>
+      <div className="inv-range" role="group" aria-label="Kind" style={{ marginTop: 14, display: "flex" }}>
+        {(Object.keys(adminDrawerReasons) as DrawerKind[]).map((key) => <button key={key} type="button" aria-pressed={kind === key} onClick={() => { setKind(key); setReason(adminDrawerReasons[key][0]); setError(""); }} style={{ flex: 1 }}>{drawerKindLabels[key]}</button>)}
+      </div>
+      <label className="acc-money">
+        <span>Amount</span>
+        <span className="acc-money-field"><b>₱</b><input data-autofocus type="number" min={0} step="0.01" inputMode="decimal" value={amount} onChange={(event) => { setAmount(event.target.value); setError(""); }} placeholder="0.00" /></span>
+      </label>
+      <div className="menu-chips" role="group" aria-label="Reason" style={{ marginTop: 12 }}>
+        {[...adminDrawerReasons[kind], "__other__"].map((option) => <button key={option} type="button" aria-pressed={reason === option} onClick={() => { setReason(option); setError(""); }}>{option === "__other__" ? "Other…" : option}</button>)}
+      </div>
+      {reason === "__other__" && <input value={otherReason} onChange={(event) => setOtherReason(event.target.value)} maxLength={60} placeholder="Type the reason" aria-label="Reason" style={{ ...packagingInput, marginTop: 8 }} />}
+      <label className="acc-money">
+        <span>Note <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+        <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={200} placeholder="e.g. receipt number" style={packagingInput} />
+      </label>
+      <label className="acc-money">
+        <span>Your password</span>
+        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} />
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="ui-button ui-button-primary" disabled={saving}>{saving ? "Saving…" : `Record ${drawerKindLabels[kind].toLowerCase()}`}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
 function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenStore, onCloseShift }: { shift: DashboardShift | null; previousShift: DashboardShift | null; now: number; onOpenReports: () => void; onOpenStore: () => void; onCloseShift: () => void }) {
   if (shift) {
     const paid = shift.cashSales + shift.onlineSales;
@@ -3861,9 +3933,10 @@ type ShiftActivityData = {
   stock: ShiftStockLog[];
   products: { name: string; category: string; quantity: number; revenue: number }[];
   payments: ShiftPayment[];
+  movements?: DrawerMovement[];
   generatedAt: string;
 };
-type ShiftEventKind = "shift" | "order" | "reversal" | "staff" | "stock" | "payment";
+type ShiftEventKind = "shift" | "order" | "reversal" | "staff" | "stock" | "payment" | "drawer";
 type ShiftEvent = { key: string; at: string; kind: ShiftEventKind; title: string; detail: string; amount?: { text: string; tone: "plus" | "minus" | "muted" } };
 type ShiftTab = "activity" | "orders" | "staff" | "stock";
 
@@ -3876,6 +3949,7 @@ const shiftFeedFilters: { id: "all" | ShiftEventKind; label: string }[] = [
   { id: "staff", label: "Staff" },
   { id: "stock", label: "Stock" },
   { id: "payment", label: "GCash" },
+  { id: "drawer", label: "Cash drawer" },
 ];
 
 function formatGcashNumber(value: string): string {
@@ -3949,6 +4023,9 @@ function buildShiftEvents(data: ShiftActivityData, now: number): ShiftEvent[] {
     const title = payment.status === "awaiting_payment" ? "GCash payment waiting" : payment.status === "needs_attention" ? "GCash payment needs attention" : "GCash payment failed";
     events.push({ key: `pay-${payment.checkoutId}`, at: payment.createdAt, kind: "payment", title, detail: `${payment.sourceApp === "mobile" ? "Mobile menu" : "Cashier"}${payment.error ? ` · ${payment.error}` : ""}`, amount: { text: peso(payment.amount), tone: "muted" } });
   }
+  for (const entry of data.movements ?? []) {
+    events.push({ key: `drawer-${entry.id}`, at: entry.createdAt, kind: "drawer", title: `${drawerKindLabels[entry.kind] ?? entry.kind}: ${entry.reason}`, detail: `${entry.by ? `By ${entry.by}` : ""}${entry.source === "admin" ? " (admin app)" : ""}${entry.note ? ` · ${entry.note}` : ""}`, amount: { text: `${entry.kind === "cash_in" ? "+" : "−"}${peso(entry.amount)}`, tone: entry.kind === "cash_in" ? "plus" : "minus" } });
+  }
   return events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime() || a.key.localeCompare(b.key));
 }
 
@@ -3959,7 +4036,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [switching, setSwitching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const [action, setAction] = useState<"open" | "close" | null>(null);
+  const [action, setAction] = useState<"open" | "close" | "drawer" | null>(null);
   const [tab, setTab] = useState<ShiftTab>("activity");
   const [feedFilter, setFeedFilter] = useState<"all" | ShiftEventKind>("all");
   const [feedLimit, setFeedLimit] = useState(60);
@@ -4173,11 +4250,11 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </div>
         <div className="shiftm-hero-actions">
           {shift.isOpen
-            ? <button type="button" className="shiftm-end" onClick={() => setAction("close")}>End shift</button>
+            ? <><button type="button" className="shiftm-end" onClick={() => setAction("close")}>End shift</button><button type="button" className="dash-shift-link" onClick={() => setAction("drawer")}>Cash in / out</button></>
             : openShiftId === null
               ? <button type="button" className="dash-open-store" onClick={() => setAction("open")}>Start shift</button>
               : <button type="button" className="dash-shift-link" onClick={() => viewShift(null)}>Go to the open shift <IconChevron size={13} /></button>}
-          <button type="button" className="dash-shift-link" onClick={() => exportShiftReport({ summary: { ...shift, hoursOpen: ((shift.closedAt ? new Date(shift.closedAt).getTime() : now) - new Date(shift.openedAt).getTime()) / HOUR_MS }, orders, attendance: data.attendance })}><IconDownload size={13} />Export shift</button>
+          <button type="button" className="dash-shift-link" onClick={() => exportShiftReport({ summary: { ...shift, hoursOpen: ((shift.closedAt ? new Date(shift.closedAt).getTime() : now) - new Date(shift.openedAt).getTime()) / HOUR_MS }, orders, attendance: data.attendance, movements: data.movements })}><IconDownload size={13} />Export shift</button>
           <button type="button" className="dash-shift-link" onClick={() => onNavigate("finance")}>Shift reports <IconChevron size={13} /></button>
         </div>
         <div className="dash-shift-stats shiftm-stats">
@@ -4194,7 +4271,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
             <div className="dash-drawer-legend">
               <span><i className="is-cash" />Cash {peso(shift.cashSales)}</span>
               <span><i className="is-online" />Online {peso(shift.onlineSales)}</span>
-              <span>Started with {peso(shift.startingCash)}{shift.cashReversed > 0 ? ` · −${peso(shift.cashReversed)} given back` : ""}{(shift.gcashReturned ?? 0) > 0 ? ` · ${peso(shift.gcashReturned ?? 0)} returned by GCash` : ""}</span>
+              <span>Started with {peso(shift.startingCash)}{shift.cashReversed > 0 ? ` · −${peso(shift.cashReversed)} given back` : ""}{(shift.cashAdded ?? 0) > 0 ? ` · +${peso(shift.cashAdded ?? 0)} added` : ""}{(shift.cashRemoved ?? 0) > 0 ? ` · −${peso(shift.cashRemoved ?? 0)} taken out` : ""}{(shift.gcashReturned ?? 0) > 0 ? ` · ${peso(shift.gcashReturned ?? 0)} returned by GCash` : ""}</span>
             </div>
           </>}
           {shift.closingNotes && <p className="dash-shift-meta">“{shift.closingNotes}”</p>}
@@ -4355,6 +4432,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       {action === "open" && <AdminOpenShiftDialog onClose={() => setAction(null)} onOpened={() => { setAction(null); if (selectedId === null) void load(); else viewShift(null); }} />}
       {action === "close" && shift?.isOpen && <AdminCloseShiftDialog shift={shift} onClose={() => setAction(null)} onClosed={() => { setAction(null); void load(); }} />}
+      {action === "drawer" && shift?.isOpen && <AdminCashDrawerDialog expectedCash={shift.expectedCash} onClose={() => setAction(null)} onSaved={() => void load()} />}
     </div>
   </div>;
 }
@@ -4387,13 +4465,20 @@ type ShiftReport = {
   reversedAmount: number;
   cashReversed: number;
   gcashReturned?: number;
+  cashAdded?: number;
+  cashRemoved?: number;
   netSales: number;
   costOfGoods: number;
   uncostedItems: number;
 };
+// Cash put into or taken out of the drawer during a shift (see cash-movements-migration.sql).
+type DrawerKind = "cash_in" | "cash_out" | "cash_drop";
+type DrawerMovement = { id: number; kind: string; amount: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string };
+const drawerKindLabels: Record<string, string> = { cash_in: "Cash in", cash_out: "Cash out", cash_drop: "Cash drop" };
+const drawerSigned = (entry: DrawerMovement) => entry.kind === "cash_in" ? entry.amount : -entry.amount;
 type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; paymentMethod: string; orderSource: string; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
 type ShiftAttendance = { id: number; name: string; role: string; timeIn: string; timeOut: string | null };
-type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[] };
+type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[]; movements?: DrawerMovement[] };
 
 const LONG_OPEN_SHIFT_HOURS = 16;
 
@@ -4435,6 +4520,8 @@ function shiftListColumns(): ExcelColumn<ShiftReport>[] {
     { header: "Cash sales", value: (shift) => shift.cashSales, kind: "money" },
     { header: "GCash and online", value: (shift) => shift.onlineSales, kind: "money" },
     { header: "Starting cash", value: (shift) => shift.isHistorical ? null : shift.startingCash, kind: "money" },
+    { header: "Cash added", value: (shift) => shift.cashAdded ?? 0, kind: "money" },
+    { header: "Cash taken out", value: (shift) => shift.cashRemoved ?? 0, kind: "money" },
     { header: "Expected in drawer", value: (shift) => shift.isHistorical ? null : shift.expectedCash, kind: "money" },
     { header: "Counted", value: (shift) => shift.countedCash, kind: "money" },
     { header: "Difference", value: (shift) => shift.cashDifference, kind: "money" },
@@ -4489,6 +4576,8 @@ function exportShiftReport(shift: ShiftDetail) {
         ["Cash sales", summary.cashSales] as ExcelInfoRow,
         ["Cash given back", summary.cashReversed] as ExcelInfoRow,
         ["Returned through GCash (not from the drawer)", summary.gcashReturned ?? 0] as ExcelInfoRow,
+        ["Cash added (cash in)", summary.cashAdded ?? 0] as ExcelInfoRow,
+        ["Cash taken out (cash out and drops)", summary.cashRemoved ?? 0] as ExcelInfoRow,
         ["Expected in drawer", summary.expectedCash] as ExcelInfoRow,
         ["Counted", summary.countedCash ?? "Not counted"] as ExcelInfoRow,
         ["Difference", summary.cashDifference ?? "Not counted"] as ExcelInfoRow,
@@ -4507,6 +4596,15 @@ function exportShiftReport(shift: ShiftDetail) {
       { header: "Status", value: (order) => excelStatus(order.status) },
       { header: "In this shift", value: (order) => order.soldInShift && order.reversedInShift ? "Sold and reversed" : order.soldInShift ? "Sold" : "Reversed (sold in an earlier shift)" },
       { header: "Reversed at", value: (order) => excelDateTime(order.reversedAt) },
+    ]) : null],
+    ["Cash drawer", (shift.movements ?? []).length ? excelTable(shift.movements ?? [], [
+      { header: "Time", value: (entry) => excelDateTime(entry.createdAt) },
+      { header: "Entry", value: (entry) => drawerKindLabels[entry.kind] ?? entry.kind },
+      { header: "Reason", value: (entry) => entry.reason },
+      { header: "Amount", value: drawerSigned, kind: "money" },
+      { header: "By", value: (entry) => entry.by ?? "" },
+      { header: "From", value: (entry) => entry.source === "admin" ? "Admin app" : "Cashier app" },
+      { header: "Note", value: (entry) => entry.note ?? "" },
     ]) : null],
     ["Attendance", shift.attendance.length ? excelTable(shift.attendance, [
       { header: "Employee", value: (log) => log.name },
@@ -4642,6 +4740,8 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
                 {row("+ Cash sales", peso(summary.cashSales))}
                 {row("− Cash given back", peso(summary.cashReversed))}
                 {(summary.gcashReturned ?? 0) > 0 && row("Returned through GCash (not from the drawer)", peso(summary.gcashReturned ?? 0))}
+                {(summary.cashAdded ?? 0) > 0 && row("+ Cash added (cash in)", peso(summary.cashAdded ?? 0))}
+                {(summary.cashRemoved ?? 0) > 0 && row("− Cash taken out (cash out and drops)", peso(summary.cashRemoved ?? 0))}
                 <div style={{ borderTop: "1px solid #E8DDD5" }}>{row("Expected in drawer", peso(summary.expectedCash), true)}</div>
                 {row("Counted", summary.countedCash === null ? "Not counted yet" : peso(summary.countedCash))}
                 {row("Difference", summary.closedAt ? difference.text : "—", true, difference.color)}

@@ -34,6 +34,8 @@ function mapSummary(row: SummaryRow) {
     reversedAmount: toNumber(row.reversed_amount),
     cashReversed: toNumber(row.cash_reversed),
     gcashReturned: toNumber(row.gcash_returned),
+    cashAdded: toNumber(row.cash_added),
+    cashRemoved: toNumber(row.cash_removed),
     netSales: toNumber(row.net_sales),
     expectedCash: toNumber(row.expected_cash),
     cashDifference: row.cash_difference === null || row.cash_difference === undefined ? null : toNumber(row.cash_difference),

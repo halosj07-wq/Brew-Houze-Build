@@ -50,6 +50,17 @@ export async function startSession(adminId: number, userAgent: string | null): P
 
 // The signed-in account for this request, or null. Name, role and permissions are read fresh,
 // so changes made by an admin apply immediately.
+// Re-checks the signed-in account's password before money moves in or out of the cash drawer.
+export const WRONG_PASSWORD = { error: "That password is incorrect.", code: "wrong_password" };
+export async function confirmPassword(adminId: number, password: unknown): Promise<boolean> {
+  if (typeof password !== "string" || password.length === 0 || password.length > 200) return false;
+  const result = await pool.query(
+    "SELECT 1 FROM admin_users WHERE admin_id = $1 AND is_active = TRUE AND password_hash = crypt($2, password_hash)",
+    [adminId, password]
+  );
+  return result.rowCount !== 0;
+}
+
 export async function getSession() {
   const token = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   if (!token?.sid) return null;

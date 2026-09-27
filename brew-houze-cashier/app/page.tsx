@@ -252,13 +252,13 @@ function ConnectionIndicator() {
   </div>;
 }
 
-function TopBar({ page, user, shift, onOpenShift, onCloseShift, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onAccount: () => void; onRequestLogout: () => void }) {
+function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onAccount: () => void; onRequestLogout: () => void }) {
   const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : "My Account";
   const isAdmin = user.role.toLowerCase() === "admin";
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
       <span className="topbar-title" style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F", whiteSpace: "nowrap" }}>{title}</span>
-      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} />
+      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
     </div>
     <div className="flex items-center gap-2.5">
       <ConnectionIndicator />
@@ -2339,6 +2339,8 @@ type CurrentShift = {
   reversedAmount: number;
   cashReversed: number;
   gcashReturned?: number;
+  cashAdded?: number;
+  cashRemoved?: number;
   netSales: number;
   expectedCash: number;
   cashDifference: number | null;
@@ -2365,7 +2367,7 @@ function formatClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 }
 
-function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; onOpenShift: () => void; onCloseShift: () => void }) {
+function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift, onCashDrawer }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void }) {
   if (shift === undefined) return null;
   const chipButton: React.CSSProperties = { border: "none", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" };
   if (shift === null) {
@@ -2379,6 +2381,7 @@ function ShiftChip({ shift, canOpenShift, onOpenShift, onCloseShift }: { shift: 
   return <div className="flex items-center gap-2 rounded-xl" title={longShift ? "This shift has been open unusually long. Close it at the end of the business day." : undefined} style={{ padding: "5px 6px 5px 12px", background: longShift ? "#FEF3C7" : "#F0FDF4", border: `1px solid ${longShift ? "#FCD34D" : "#BBF7D0"}`, color: longShift ? "#B45309" : "#15803D", fontSize: 12.5, fontWeight: 700 }}>
     <span style={{ width: 8, height: 8, borderRadius: "50%", background: longShift ? "#F59E0B" : "#22C55E" }} />
     <span className="shift-chip-text">Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
+    <button type="button" onClick={onCashDrawer} title="Cash in, cash out or cash drop" style={{ ...chipButton, background: "#FFFFFF", color: "#3D2B1F", border: "1px solid #E8DDD5" }}>Drawer</button>
     <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>
   </div>;
 }
@@ -2459,6 +2462,154 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
       <p style={{ margin: "14px 0 0", textAlign: "center", color: "#9C8278", fontSize: 12.5 }}>Opening as <strong style={{ color: "#3D2B1F" }}>{userName}</strong>. Not you? <button type="button" onClick={onSwitchCashier} style={{ border: "none", background: "transparent", padding: 0, color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Switch cashier</button></p>
     </form>
   </main>;
+}
+
+// ─── Cash drawer ─────────────────────────────────────────────────────────────
+// Cash put into or taken out of the drawer for reasons other than a sale. Every entry is kept (a
+// mistake is fixed with an opposite entry) and expected cash counts them, so the drawer count at
+// closing stays honest.
+type DrawerKind = "cash_in" | "cash_out" | "cash_drop";
+type DrawerMovement = { id: number; kind: DrawerKind; amount: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string };
+const drawerKinds: Record<DrawerKind, { label: string; hint: string; reasons: string[]; tone: string; sign: "+" | "−" }> = {
+  cash_in: { label: "Cash in", hint: "Money added to the drawer", reasons: ["Change fund", "Owner added cash"], tone: "#15803D", sign: "+" },
+  cash_out: { label: "Cash out", hint: "Something paid for from the drawer", reasons: ["Supplies", "Ice", "Delivery", "Staff meal"], tone: "#B91C1C", sign: "−" },
+  cash_drop: { label: "Cash drop", hint: "Large bills moved to the safe", reasons: ["Moved to the safe"], tone: "#1D4ED8", sign: "−" },
+};
+
+function CashDrawerDialog({ userName, onClose }: { userName: string; onClose: () => void }) {
+  const [summary, setSummary] = useState<CurrentShift | null>(null);
+  const [movements, setMovements] = useState<DrawerMovement[]>([]);
+  const [kind, setKind] = useState<DrawerKind>("cash_in");
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState(drawerKinds.cash_in.reasons[0]);
+  const [otherReason, setOtherReason] = useState("");
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [wrongPassword, setWrongPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const [shiftResponse, movementsResponse] = await Promise.all([fetch("/api/shift", { cache: "no-store" }), fetch("/api/cash-movements", { cache: "no-store" })]);
+      const shiftPayload = await shiftResponse.json();
+      const movementsPayload = await movementsResponse.json();
+      if (!shiftResponse.ok) throw new Error(shiftPayload?.error || "Could not load the shift.");
+      if (!movementsResponse.ok) throw new Error(movementsPayload?.error || "Could not load the cash drawer entries.");
+      setSummary(shiftPayload.data ?? null);
+      setMovements(movementsPayload.data ?? []);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the cash drawer.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  function chooseKind(next: DrawerKind) {
+    setKind(next);
+    setReason(drawerKinds[next].reasons[0]);
+    setError("");
+  }
+
+  const value = Number.parseFloat(amount);
+  const finalReason = reason === "__other__" ? otherReason.trim() : reason;
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!Number.isFinite(value) || value <= 0) { setError("Enter the amount."); return; }
+    if (!finalReason) { setError("Choose or type a reason."); return; }
+    if (!password) { setError("Enter your password to record this."); setWrongPassword(true); return; }
+    setSaving(true);
+    setError("");
+    setNotice("");
+    setWrongPassword(false);
+    try {
+      const response = await fetch("/api/cash-movements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, amount: value, reason: finalReason, note, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") { setPassword(""); setWrongPassword(true); }
+      if (!response.ok) throw new Error(payload?.error || "Could not save the entry.");
+      setNotice(`${drawerKinds[kind].label} of ${formatPeso(value)} recorded (${finalReason}).`);
+      setAmount("");
+      setNote("");
+      setOtherReason("");
+      setPassword("");
+      await load();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the entry.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const meta = drawerKinds[kind];
+  const sectionLabel: React.CSSProperties = { margin: "16px 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase" };
+  return <Modal onClose={onClose} closeDisabled={saving} labelledBy="cash-drawer-title" zIndex={70}>
+    <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 520px)", maxHeight: "92vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
+      <div className="flex items-start justify-between gap-3" style={{ padding: "18px 22px", background: "#F3EDE5", borderBottom: "1px solid #E8DDD5" }}>
+        <div>
+          <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>This shift</p>
+          <h2 id="cash-drawer-title" style={{ margin: "5px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, color: "#3D2B1F" }}>Cash drawer</h2>
+          <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12 }}>Record money added to or taken out of the drawer, so the count at closing matches.</p>
+        </div>
+        <button type="button" onClick={onClose} disabled={saving} aria-label="Close the cash drawer" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 26, lineHeight: 1, cursor: saving ? "default" : "pointer" }}>×</button>
+      </div>
+      <div style={{ padding: "4px 22px 22px" }}>
+        {summary && <>
+          <p style={sectionLabel}>Should be in the drawer now</p>
+          <div className="drawer-expected"><strong>{formatPeso(summary.expectedCash)}</strong></div>
+          <ShiftSummaryRow label="Starting cash" value={formatPeso(summary.startingCash)} />
+          <ShiftSummaryRow label="+ Cash sales" value={formatPeso(summary.cashSales)} />
+          {summary.cashReversed > 0 && <ShiftSummaryRow label="− Cash given back (voids/refunds)" value={formatPeso(summary.cashReversed)} />}
+          {(summary.cashAdded ?? 0) > 0 && <ShiftSummaryRow label="+ Cash added" value={formatPeso(summary.cashAdded ?? 0)} tone="#15803D" />}
+          {(summary.cashRemoved ?? 0) > 0 && <ShiftSummaryRow label="− Cash taken out" value={formatPeso(summary.cashRemoved ?? 0)} tone="#B91C1C" />}
+        </>}
+
+        <form onSubmit={save}>
+          <p style={sectionLabel}>New entry</p>
+          <div className="drawer-kinds" role="group" aria-label="Kind of entry">
+            {(Object.keys(drawerKinds) as DrawerKind[]).map((key) => <button key={key} type="button" aria-pressed={kind === key} onClick={() => chooseKind(key)} style={kind === key ? { borderColor: drawerKinds[key].tone, background: drawerKinds[key].tone, color: "#FFFFFF" } : { color: drawerKinds[key].tone }}>
+              <strong>{drawerKinds[key].label}</strong><span>{drawerKinds[key].hint}</span>
+            </button>)}
+          </div>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
+            Amount
+            <span style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", padding: "0 14px" }}>
+              <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#9C8278" }}>₱</span>
+              <MoneyInput label={`${meta.label} amount`} value={amount} onChange={(next) => { setAmount(next); setError(""); }} style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "11px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#3D2B1F" }} />
+            </span>
+          </label>
+          <p style={{ margin: "12px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Reason</p>
+          <div className="drawer-reasons" role="group" aria-label="Reason">
+            {[...meta.reasons, "__other__"].map((option) => <button key={option} type="button" aria-pressed={reason === option} onClick={() => { setReason(option); setError(""); }}>{option === "__other__" ? "Other…" : option}</button>)}
+          </div>
+          {reason === "__other__" && <input value={otherReason} onChange={(event) => { setOtherReason(event.target.value); setError(""); }} maxLength={60} placeholder="Type the reason" aria-label="Reason" style={{ width: "100%", marginTop: 8, border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 14, color: "#3D2B1F", outline: "none" }} />}
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
+            <span>Note <span style={{ fontWeight: 400, color: "#9C8278" }}>(optional, e.g. receipt number or who took it)</span></span>
+            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={200} style={{ border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 14, color: "#3D2B1F", outline: "none" }} />
+          </label>
+          <ConfirmPasswordField value={password} onChange={(next) => { setPassword(next); setWrongPassword(false); }} userName={userName} invalid={wrongPassword} />
+          {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
+          {notice && <p role="status" style={{ margin: "10px 0 0", color: "#15803D", fontSize: 12.5, fontWeight: 700 }}>{notice}</p>}
+          <button type="submit" disabled={saving} className="drawer-save" style={{ background: saving ? "#C9B8AF" : meta.tone }}>
+            {saving ? "Saving…" : `Record ${meta.label.toLowerCase()}${Number.isFinite(value) && value > 0 ? ` of ${formatPeso(value)}` : ""}`}
+          </button>
+        </form>
+
+        <p style={sectionLabel}>Entries this shift ({movements.length})</p>
+        {movements.length === 0 ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12.5 }}>None yet.</p> : <ul className="drawer-list">
+          {movements.map((entry) => <li key={entry.id}>
+            <span className="drawer-list-main"><strong>{drawerKinds[entry.kind]?.label ?? entry.kind} · {entry.reason}</strong><em>{formatClock(entry.createdAt)}{entry.by ? ` · ${entry.by}` : ""}{entry.source === "admin" ? " (admin app)" : ""}{entry.note ? ` · ${entry.note}` : ""}</em></span>
+            <strong style={{ color: drawerKinds[entry.kind]?.tone ?? "#3D2B1F" }}>{drawerKinds[entry.kind]?.sign ?? ""}{formatPeso(entry.amount)}</strong>
+          </li>)}
+        </ul>}
+        <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>Entries cannot be deleted. To fix a mistake, record the opposite entry (for example, a cash in for money taken out by mistake).</p>
+      </div>
+    </section>
+  </Modal>;
 }
 
 function ShiftSummaryRow({ label, value, strong = false, tone }: { label: string; value: string; strong?: boolean; tone?: string }) {
@@ -2573,6 +2724,8 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
             <ShiftSummaryRow label="+ Cash sales" value={formatPeso(summary.cashSales)} />
             <ShiftSummaryRow label="− Cash given back (voids/refunds)" value={formatPeso(summary.cashReversed)} />
             {(summary.gcashReturned ?? 0) > 0 && <ShiftSummaryRow label="Returned through GCash (not from the drawer)" value={formatPeso(summary.gcashReturned ?? 0)} tone="#1E40AF" />}
+            {(summary.cashAdded ?? 0) > 0 && <ShiftSummaryRow label="+ Cash added (cash in)" value={formatPeso(summary.cashAdded ?? 0)} tone="#15803D" />}
+            {(summary.cashRemoved ?? 0) > 0 && <ShiftSummaryRow label="− Cash taken out (cash out and drops)" value={formatPeso(summary.cashRemoved ?? 0)} tone="#B91C1C" />}
             <div style={{ borderTop: "1px solid #E8DDD5" }}><ShiftSummaryRow label="Expected in drawer" value={formatPeso(summary.expectedCash)} strong /></div>
 
             <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
@@ -2633,6 +2786,7 @@ export default function App() {
   // undefined while loading, null when no shift is open.
   const [shift, setShift] = useState<CurrentShift | null | undefined>(undefined);
   const [closingShift, setClosingShift] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [keypadEnabled, setKeypadEnabled] = useState(false);
   useEffect(() => {
     const timeout = window.setTimeout(() => setKeypadEnabled(readKeypadSetting()), 0);
@@ -2831,5 +2985,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} onChange={setPage} />{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? <QueuePage /> : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }

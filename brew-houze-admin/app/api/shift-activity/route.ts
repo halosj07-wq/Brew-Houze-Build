@@ -57,7 +57,7 @@ export async function GET(request: Request) {
     if (!row) return NextResponse.json({ error: "Shift not found." }, { status: 404 });
     const isOpen = row.closed_at_text === null;
 
-    const [orders, attendance, stock, products, checkouts] = await Promise.all([
+    const [orders, attendance, stock, products, checkouts, movements] = await Promise.all([
       pool.query(`
         SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source,
           so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, so.cash_portion,
@@ -123,6 +123,15 @@ export async function GET(request: Request) {
           LIMIT 50
         `, [shiftId])
         : { rows: [] as Record<string, unknown>[] }),
+      // Cash put into or taken out of the drawer during the shift.
+      pool.query(`
+        SELECT cm.movement_id, cm.kind, cm.amount, cm.reason, cm.note, cm.source_app, au.full_name,
+          ${isoText("cm.created_at")} AS created_at
+        FROM cash_movements cm
+        LEFT JOIN admin_users au ON au.admin_id = cm.admin_id
+        WHERE cm.shift_id = $1
+        ORDER BY cm.created_at DESC, cm.movement_id DESC
+      `, [shiftId]),
     ]);
 
     return NextResponse.json({
@@ -155,6 +164,8 @@ export async function GET(request: Request) {
           reversedAmount: Number(row.reversed_amount ?? 0),
           cashReversed: Number(row.cash_reversed ?? 0),
           gcashReturned: Number(row.gcash_returned ?? 0),
+          cashAdded: Number(row.cash_added ?? 0),
+          cashRemoved: Number(row.cash_removed ?? 0),
           netSales: Number(row.net_sales ?? 0),
           costOfGoods: Number(row.cost_of_goods ?? 0),
           uncostedItems: Number(row.uncosted_items ?? 0),
@@ -210,6 +221,16 @@ export async function GET(request: Request) {
           amount: Number(checkout.amount),
           error: (checkout.error as string | null) ?? null,
           createdAt: checkout.created_at as string,
+        })),
+        movements: movements.rows.map((row) => ({
+          id: Number(row.movement_id),
+          kind: String(row.kind),
+          amount: Number(row.amount),
+          reason: String(row.reason),
+          note: (row.note as string | null) ?? null,
+          by: (row.full_name as string | null) ?? null,
+          source: String(row.source_app),
+          createdAt: String(row.created_at),
         })),
         generatedAt: new Date().toISOString(),
       },

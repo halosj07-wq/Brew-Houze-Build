@@ -36,6 +36,8 @@ function mapSummary(row: SummaryRow) {
     reversedAmount: Number(row.reversed_amount ?? 0),
     cashReversed: Number(row.cash_reversed ?? 0),
     gcashReturned: Number(row.gcash_returned ?? 0),
+    cashAdded: Number(row.cash_added ?? 0),
+    cashRemoved: Number(row.cash_removed ?? 0),
     netSales: Number(row.net_sales ?? 0),
     costOfGoods: Number(row.cost_of_goods ?? 0),
     uncostedItems: Number(row.uncosted_items ?? 0),
@@ -94,6 +96,14 @@ export async function GET(request: Request) {
         ORDER BY t.time_in ASC
       `, [shiftId]);
 
+      const movementsResult = await pool.query(`
+        SELECT cm.movement_id, cm.kind, cm.amount, cm.reason, cm.note, cm.source_app, au.full_name,
+          TO_CHAR(cm.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
+        FROM cash_movements cm
+        LEFT JOIN admin_users au ON au.admin_id = cm.admin_id
+        WHERE cm.shift_id = $1
+        ORDER BY cm.created_at ASC, cm.movement_id ASC
+      `, [shiftId]);
       return NextResponse.json({
         data: {
           summary: mapSummary(summaryResult.rows[0]),
@@ -110,6 +120,16 @@ export async function GET(request: Request) {
             reversedAt: row.reversed_at,
             punchedBy: row.punched_by,
             items: row.items,
+          })),
+          movements: movementsResult.rows.map((row) => ({
+            id: Number(row.movement_id),
+            kind: String(row.kind),
+            amount: Number(row.amount),
+            reason: String(row.reason),
+            note: row.note ?? null,
+            by: row.full_name ?? null,
+            source: String(row.source_app),
+            createdAt: String(row.created_at),
           })),
           attendance: attendanceResult.rows.map((row) => ({
             id: Number(row.time_log_id),
