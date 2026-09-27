@@ -427,8 +427,17 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           </div>
           <div className="flex items-center gap-4" style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Receipts</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>Print on the thermal printer, or download a PDF instead (for checking, or when there is no printer).</p>
+            </div>
+            <div className="setting-choice" role="group" aria-label="Receipt output">
+              {([["print", "Print"], ["pdf", "PDF"]] as const).map(([output, label]) => <button key={output} type="button" aria-pressed={receipts.settings.output === output} onClick={() => receipts.setSettings({ ...receipts.settings, output })}>{label}</button>)}
+            </div>
+          </div>
+          <div className="flex items-center gap-4" style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <p style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Receipt paper</p>
-              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>The width of the thermal printer roll. Most small printers use 58 mm.</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>The width of the thermal printer roll. Most small printers use 58 mm. PDFs use the same width.</p>
             </div>
             <div className="setting-choice" role="group" aria-label="Receipt paper width">
               {([58, 80] as const).map((width) => <button key={width} type="button" aria-pressed={receipts.settings.paperWidth === width} onClick={() => receipts.setSettings({ ...receipts.settings, paperWidth: width })}>{width} mm</button>)}
@@ -436,8 +445,8 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           </div>
           <div className="flex items-center gap-4" style={{ marginTop: 10, padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p id="autoprint-setting-label" style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Print a receipt after every order</p>
-              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>Opens the print window as soon as an order is placed. When off, tap Receipt on the order confirmation instead.</p>
+              <p id="autoprint-setting-label" style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Make a receipt after every order</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>{receipts.settings.output === "pdf" ? "Downloads the receipt PDF" : "Opens the print window"} as soon as an order is placed. When off, tap Receipt on the order confirmation instead.</p>
             </div>
             <button type="button" role="switch" aria-checked={receipts.settings.autoPrint} aria-labelledby="autoprint-setting-label" onClick={() => receipts.setSettings({ ...receipts.settings, autoPrint: !receipts.settings.autoPrint })} className={`setting-switch${receipts.settings.autoPrint ? " is-on" : ""}`}><span /></button>
           </div>
@@ -502,13 +511,14 @@ const ADDONS_TAB = "__addons__";
 const RECEIPT_BUSINESS = { name: "Brew Houze", lines: ["fb.com/BrewHouzeCafe"] as string[] };
 const RECEIPT_STORAGE_KEY = "brew-houze-cashier-receipt";
 
-type ReceiptSettings = { paperWidth: 58 | 80; autoPrint: boolean };
-const defaultReceiptSettings: ReceiptSettings = { paperWidth: 58, autoPrint: false };
+// output: send the slip to the printer, or download it as a PDF (no printer needed).
+type ReceiptSettings = { paperWidth: 58 | 80; autoPrint: boolean; output: "print" | "pdf" };
+const defaultReceiptSettings: ReceiptSettings = { paperWidth: 58, autoPrint: false, output: "print" };
 
 function readReceiptSettings(): ReceiptSettings {
   try {
     const saved = JSON.parse(window.localStorage.getItem(RECEIPT_STORAGE_KEY) ?? "{}") as Partial<ReceiptSettings>;
-    return { paperWidth: saved.paperWidth === 80 ? 80 : 58, autoPrint: saved.autoPrint === true };
+    return { paperWidth: saved.paperWidth === 80 ? 80 : 58, autoPrint: saved.autoPrint === true, output: saved.output === "pdf" ? "pdf" : "print" };
   } catch {
     return defaultReceiptSettings;
   }
@@ -537,6 +547,115 @@ function receiptMoney(value: number): string {
 function receiptTime(value: string | null): string {
   if (!value) return "";
   return new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// The receipt as a PDF the width of the thermal roll and as long as the receipt, with the same
+// content as the printed slip. Built with jsPDF (loaded only when needed). Its built-in fonts have
+// no peso sign, so amounts read "PHP 345.00".
+async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperWidth: 58 | 80) {
+  const { jsPDF } = await import("jspdf");
+  const margin = 4;
+  const inner = paperWidth - margin * 2;
+  const base = paperWidth === 80 ? 9.5 : 8.5;
+  const lineHeight = (size: number) => size * 0.3528 * 1.3;
+  type Op =
+    | { kind: "text"; lines: string[]; size: number; bold: boolean; y: number }
+    | { kind: "row"; lines: string[]; right: string; size: number; bold: boolean; indent: number; y: number }
+    | { kind: "rule"; y: number }
+    | { kind: "box"; y: number; height: number };
+  const measure = new jsPDF({ unit: "mm", format: [paperWidth, 100] });
+  const ops: Op[] = [];
+  let y = margin;
+  const font = (doc: InstanceType<typeof jsPDF>, size: number, bold: boolean) => { doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(size); };
+  const text = (value: string, size = base, bold = false) => {
+    font(measure, size, bold);
+    const lines = measure.splitTextToSize(value, inner) as string[];
+    ops.push({ kind: "text", lines, size, bold, y });
+    y += lines.length * lineHeight(size);
+  };
+  const row = (left: string, right = "", options: { size?: number; bold?: boolean; indent?: number } = {}) => {
+    const size = options.size ?? base;
+    const bold = options.bold ?? false;
+    const indent = options.indent ?? 0;
+    font(measure, size, bold);
+    const rightWidth = right ? measure.getTextWidth(right) + 2 : 0;
+    const lines = measure.splitTextToSize(left, inner - indent - rightWidth) as string[];
+    ops.push({ kind: "row", lines, right, size, bold, indent, y });
+    y += lines.length * lineHeight(size);
+  };
+  const rule = () => { y += 1; ops.push({ kind: "rule", y }); y += 1.8; };
+  const money = (value: number) => receiptMoney(value);
+
+  text(RECEIPT_BUSINESS.name, base * 1.7, true);
+  RECEIPT_BUSINESS.lines.forEach((line) => text(line, base * 0.85));
+  text(`ORDER SLIP${reprint ? " - REPRINT" : ""}`, base, true);
+  if (receipt.queueNumber !== null) {
+    y += 1.5;
+    const boxTop = y;
+    y += 1;
+    text("QUEUE NUMBER", base * 0.85, true);
+    text(`#${receipt.queueNumber}`, base * 2.8, true);
+    y -= lineHeight(base * 2.8) * 0.22;
+    ops.push({ kind: "box", y: boxTop, height: y - boxTop });
+    y += 1;
+  }
+  const status = receipt.status.startsWith("void") ? "VOIDED" : receipt.status.startsWith("refund") ? "REFUNDED" : null;
+  if (status) text(`*** ${status}${receipt.reversedAt ? ` ${receiptTime(receipt.reversedAt)}` : ""} ***`, base, true);
+  rule();
+  row("Date", receiptTime(receipt.createdAt));
+  row("Order", `#${receipt.orderId}${receipt.shiftId ? ` - shift ${receipt.shiftId}` : ""}`);
+  row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "-");
+  rule();
+  for (const item of receipt.items) {
+    row(`${item.quantity} x ${item.name}`, money(item.quantity * item.unitPrice));
+    const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${money(item.unitPrice)}` : ""].filter(Boolean).join(" - ");
+    if (details) row(details, "", { size: base * 0.9, indent: 3 });
+    for (const addition of item.additions) row(`+ ${addition.name}${addition.quantity !== 1 ? ` x${addition.quantity}` : ""}`, money(addition.quantity * addition.unitPrice), { size: base * 0.9, indent: 3 });
+    y += 0.8;
+  }
+  rule();
+  row("TOTAL", `PHP ${money(receipt.total)}`, { size: base * 1.25, bold: true });
+  const isGcash = receipt.paymentProvider === "paymongo_gcash" || receipt.paymentMethod === "online";
+  if (receipt.paymentMethod === "split" && receipt.cashPortion !== null) {
+    row("Cash", money(receipt.cashPortion));
+    if (receipt.received !== null) row("Cash received", money(receipt.received), { indent: 3 });
+    if (receipt.change !== null) row("Change", money(receipt.change), { indent: 3 });
+    row("GCash", money(receipt.total - receipt.cashPortion));
+  } else if (isGcash) {
+    row("Paid with GCash", money(receipt.total));
+  } else {
+    if (receipt.received !== null) row("Cash received", money(receipt.received));
+    if (receipt.change !== null) row("Change", money(receipt.change));
+  }
+  if (isGcash && receipt.paymentReference) row(`Payment ref ${receipt.paymentReference}`, "", { size: base * 0.85 });
+  rule();
+  text(`Thank you!${receipt.queueNumber !== null ? " Please wait for your number." : ""}`);
+  text("THIS IS NOT AN OFFICIAL RECEIPT", base * 0.85, true);
+  if (reprint) text(`Reprinted ${receiptTime(new Date().toISOString())}`, base * 0.85);
+
+  const doc = new jsPDF({ unit: "mm", format: [paperWidth, Math.max(y + margin, 40)] });
+  doc.setProperties({ title: `Brew Houze order ${receipt.orderId}`, creator: "Brew Houze cashier" });
+  doc.setDrawColor(0);
+  doc.setTextColor(0);
+  for (const op of ops) {
+    if (op.kind === "text") {
+      font(doc, op.size, op.bold);
+      doc.text(op.lines, paperWidth / 2, op.y, { align: "center", baseline: "top", lineHeightFactor: 1.3 });
+    } else if (op.kind === "row") {
+      font(doc, op.size, op.bold);
+      doc.text(op.lines, margin + op.indent, op.y, { baseline: "top", lineHeightFactor: 1.3 });
+      if (op.right) doc.text([op.right], paperWidth - margin, op.y, { align: "right", baseline: "top", lineHeightFactor: 1.3 });
+    } else if (op.kind === "rule") {
+      doc.setLineWidth(0.2);
+      doc.setLineDashPattern([0.8, 0.6], 0);
+      doc.line(margin, op.y, paperWidth - margin, op.y);
+      doc.setLineDashPattern([], 0);
+    } else {
+      doc.setLineWidth(0.35);
+      doc.roundedRect(margin, op.y, inner, op.height, 1, 1);
+    }
+  }
+  doc.save(`brew-houze-receipt-${receipt.orderId}${reprint ? "-reprint" : ""}.pdf`);
 }
 
 function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; reprint: boolean; paperWidth: 58 | 80 }) {
@@ -919,9 +1038,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     return () => window.clearTimeout(timer);
   }, [lastPlaced]);
   async function printPlacedReceipt(orderId: number, queueNumber: number) {
-    setLastPlaced({ orderId, queueNumber, note: "Opening the print window…" });
+    setLastPlaced({ orderId, queueNumber, note: receipts.settings.output === "pdf" ? "Downloading the receipt PDF…" : "Opening the print window…" });
     const problem = await receipts.printReceipt(orderId);
-    setLastPlaced((current) => current && current.orderId === orderId ? { ...current, note: problem ?? "" } : current);
+    setLastPlaced((current) => current && current.orderId === orderId ? { ...current, note: problem ?? (receipts.settings.output === "pdf" ? "Receipt PDF downloaded" : "") } : current);
   }
   // GCash through PayMongo, when the server has PayMongo keys.
   const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
@@ -1441,7 +1560,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     {lastPlaced && <div className="pos-placed" role="status">
       <span className="pos-placed-number">#{lastPlaced.queueNumber}</span>
       <span className="pos-placed-text"><strong>Order sent to the queue</strong>{lastPlaced.note && <em>{lastPlaced.note}</em>}</span>
-      <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />Receipt</button>
+      <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />{receipts.settings.output === "pdf" ? "Receipt PDF" : "Receipt"}</button>
       <button type="button" className="pos-placed-close" onClick={() => setLastPlaced(null)} aria-label="Dismiss">×</button>
     </div>}
     {selectionProduct && (
@@ -2524,6 +2643,8 @@ export default function App() {
   // Receipts: settings saved on this tablet, and the slip being printed right now.
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings>(defaultReceiptSettings);
   const [receiptJob, setReceiptJob] = useState<{ receipt: ReceiptData; reprint: boolean } | null>(null);
+  const receiptSettingsRef = useRef(receiptSettings);
+  useEffect(() => { receiptSettingsRef.current = receiptSettings; }, [receiptSettings]);
   useEffect(() => {
     const timeout = window.setTimeout(() => setReceiptSettings(readReceiptSettings()), 0);
     return () => window.clearTimeout(timeout);
@@ -2533,6 +2654,10 @@ export default function App() {
       const response = await fetch(`/api/receipts/${orderId}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not load the receipt.");
+      if (receiptSettingsRef.current.output === "pdf") {
+        await downloadReceiptPdf(payload.data as ReceiptData, Boolean(options?.reprint), receiptSettingsRef.current.paperWidth);
+        return null;
+      }
       setReceiptJob({ receipt: payload.data as ReceiptData, reprint: Boolean(options?.reprint) });
       return null;
     } catch (error) {
