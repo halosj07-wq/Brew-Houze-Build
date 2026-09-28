@@ -13,7 +13,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Syncopate:wght@700&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@700&text=onelkgivwhpas%E2%80%99&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100,800;125,900&text=ONELKGIVWHPAS%E2%80%99%27-&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&text=%EC%B9%B4%EB%A6%AC%EB%82%98%EC%A7%80%EC%A0%A4%EC%9C%88%ED%84%B0%EB%8B%9D&display=swap" rel="stylesheet" />
   <script>
     // Applies the secret theme before the page paints, so a reload does not flash the café colors.
@@ -316,15 +316,24 @@
     @keyframes ae-sound-pulse { 50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.45); } }
     @media (prefers-reduced-motion: reduce) { .ae-sound.is-on .ae-sound-bars i, .ae-sound.is-waiting { animation: none; } .ae-sound.is-on .ae-sound-bars i { height: 10px; } }
     @media print { .ae-sound { display: none !important; } }
-    /* Entering the theme: "one look give em' whiplash", one word per screen, red and light grey,
-       then the silver whip-crack. */
-    .ae-intro { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #FD3939; color: #0A0A0A; font-family: 'Poppins', 'Hanken Grotesk', sans-serif; font-weight: 700; font-size: clamp(46px, 9vw, 140px); line-height: 1; letter-spacing: -0.01em; }
-    .ae-intro.is-light { background: #EAEAEA; }
-    .ae-intro span { display: block; white-space: nowrap; }
-    .ae-intro.is-jolt span { animation: ae-jolt 80ms steps(2) 4; }
-    @keyframes ae-jolt { 50% { transform: translate(-7px, 3px) skewX(-8deg); } }
+    /* Entering the theme: "one look give em' whiplash" as hard-cut black and white cards, after the
+       Whiplash teaser. The words build up from a fixed left point with black strobe frames between
+       them, WHIPLASH punches in on a spotlit black card, a member flashes in negative, and a tiny
+       tracked WHIP-WHIPLASH closes it. */
+    .ae-intro { position: fixed; inset: 0; z-index: 200; overflow: hidden; background: #FFFFFF; color: #0A0A0A; font-family: 'Archivo', 'Hanken Grotesk', 'Arial Black', sans-serif; }
+    .ae-intro.is-black { background: #000000; }
+    .ae-intro.is-spot { background: radial-gradient(ellipse clamp(170px, 36vw, 480px) clamp(120px, 23vw, 260px) at 50% 50%, #4B4B4B 0%, #232323 52%, #000000 100%); color: #FFFFFF; }
+    .ae-intro span { position: absolute; white-space: nowrap; }
+    .ae-intro.is-black span, .ae-intro.is-photo span { display: none; }
+    .ae-intro.is-build span { left: max(20px, 21vw); top: 50%; transform: translateY(-50%); font-weight: 800; font-stretch: 100%; font-size: clamp(24px, 3.3vw, 54px); letter-spacing: 0.01em; }
+    .ae-intro.is-wide span { left: 50%; top: 50%; transform: translate(-50%, -50%); font-weight: 900; font-stretch: 125%; font-size: clamp(38px, 9.5vw, 160px); letter-spacing: 0.02em; animation: ae-punch 340ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+    @keyframes ae-punch { from { transform: translate(-50%, -50%) scale(1.22); filter: blur(6px); } 40% { filter: blur(0); } to { transform: translate(-50%, -50%) scale(1); } }
+    .ae-intro.is-tiny span { left: 50%; top: 50%; transform: translate(-50%, -50%); padding-left: 0.62em; font-weight: 800; font-stretch: 100%; font-size: clamp(10px, 0.95vw, 14px); letter-spacing: 0.62em; }
+    .ae-intro img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; transform: scale(1.06); display: none; filter: grayscale(1) invert(1) contrast(2.4) brightness(1.15); }
+    .ae-intro.is-photo { background: #000000; }
+    .ae-intro.is-photo img { display: block; }
     .ae-intro.is-out { animation: ae-intro-out 200ms ease-in forwards; }
-    @keyframes ae-intro-out { to { opacity: 0; transform: scale(1.08); } }
+    @keyframes ae-intro-out { to { opacity: 0; } }
     /* The switch itself: a silver whip-crack across the page. */
     .ae-flash { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: linear-gradient(104deg, transparent 38%, rgba(255, 255, 255, 0.9) 49%, rgba(220, 230, 242, 0.6) 51%, transparent 62%); background-size: 320% 100%; animation: ae-sweep 650ms cubic-bezier(0.7, 0, 0.2, 1) forwards; mix-blend-mode: screen; }
     @keyframes ae-sweep { from { background-position: 100% 0; opacity: 1; } to { background-position: 0% 0; opacity: 0; } }
@@ -779,34 +788,43 @@
       else if (document.visibilityState === "visible" && resumeOnReturn) { resumeOnReturn = false; if (document.documentElement.dataset.theme === "aespa") void loopAudio.play().catch(() => showSoundState("waiting")); }
     });
 
-    // "one look give em' whiplash": each word on its beat of whiplash-intro.mp3 (in ms from its
-    // start). The words follow the audio's own clock, so they stay in time even if it starts late;
+    // "one look give em' whiplash": each card on its beat of whiplash-intro.mp3 (in ms from its
+    // start). The cards follow the audio's own clock, so they stay in time even if it starts late;
     // without sound they follow the page clock instead.
-    const INTRO = [[0, "one", "red"], [420, "look", "light"], [630, "give em’", "red"], [1100, "whiplash", "light"]];
+    //   build  the words so far, left-aligned on white      black  a strobe frame
+    //   wide   WHIPLASH on a spotlit black card             photo  a member in negative
+    //   tiny   the small tracked WHIP-WHIPLASH on white
+    const INTRO = [
+      [0, "build", "ONE"], [360, "black"], [420, "build", "ONE LOOK"], [580, "black"], [630, "build", "ONE LOOK GIVE’EM"],
+      [1010, "black"], [1100, "spot wide", "WHIPLASH"], [1420, "photo"], [1500, "tiny", "WHIP-WHIPLASH"],
+    ];
     const INTRO_END = 1880;
     function playIntro(withSound) {
       return new Promise((done) => {
         const box = document.createElement("div");
-        box.className = "ae-intro";
         box.setAttribute("aria-hidden", "true");
         const word = document.createElement("span");
-        box.appendChild(word);
+        // A member for the negative flash, loaded now (skipped if it is not ready in time).
+        const photo = new Image();
+        photo.alt = "";
+        photo.src = `aespa/${memberOrder[Math.floor(Math.random() * memberOrder.length)]}.webp`;
+        box.append(photo, word);
         document.body.appendChild(box);
-        // "one" shows at once; the rest follow the sound as it plays.
-        word.textContent = INTRO[0][1];
+        const show = (step) => {
+          const [, scene, text = ""] = INTRO[step];
+          const ready = scene !== "photo" || (photo.complete && photo.naturalWidth > 0);
+          box.className = `ae-intro ${(ready ? scene : "black").split(" ").map((name) => `is-${name}`).join(" ")}`;
+          word.textContent = text;
+        };
+        // "ONE" shows at once; the rest follow the sound as it plays.
+        show(0);
         let shown = 0;
         let clock = null;
         const frame = () => {
           const t = clock();
-          let step = -1;
+          let step = 0;
           INTRO.forEach(([at], index) => { if (t >= at) step = index; });
-          if (step !== shown && step >= 0) {
-            shown = step;
-            const [, text, tone] = INTRO[step];
-            word.textContent = text;
-            box.classList.toggle("is-light", tone === "light");
-            box.classList.toggle("is-jolt", step === INTRO.length - 1);
-          }
+          if (step !== shown) { shown = step; show(step); }
           if (t >= INTRO_END) {
             box.classList.add("is-out");
             setTimeout(() => box.remove(), 220);
