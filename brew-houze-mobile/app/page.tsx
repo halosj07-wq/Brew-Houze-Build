@@ -522,7 +522,7 @@ export default function MenuPage() {
   return <main className="menu-shell">
     <div className="menu-container">
       <header className="menu-header">
-        <div className="brand-mark"><IconCoffee /></div>
+        <div className="brand-mark"><Image src="/brand/badge.png" alt="" width={46} height={46} unoptimized priority /></div>
         <div className="brand-copy"><strong>Brew Houze</strong><span>Online Menu</span></div>
         <div className="header-actions">
           {!customer.loading && <AccountButton state={customer} onOpen={() => setAccountOpen(true)} />}

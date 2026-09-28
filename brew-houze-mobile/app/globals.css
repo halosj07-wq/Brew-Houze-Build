@@ -10,7 +10,8 @@ button { cursor: pointer; }
 .menu-shell { min-height: 100vh; padding: 24px 16px 42px; background: radial-gradient(circle at 50% -10%, #fffaf4 0, #efe7dc 55%); }
 .menu-container { width: min(100%, 1040px); margin: auto; }
 .menu-header { display: flex; align-items: center; gap: 11px; padding: 4px 2px 28px; }
-.brand-mark { display: grid; place-items: center; width: 42px; height: 42px; color: var(--paper); background: var(--ink); border-radius: 14px; }
+.brand-mark { display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; border-radius: 50%; box-shadow: 0 6px 16px rgba(44,24,16,.18); }
+.brand-mark img { width: 100%; height: 100%; border-radius: 50%; }
 .brand-copy { display: flex; flex-direction: column; line-height: 1.05; }
 .brand-copy strong { font-family: 'Playfair Display', serif; font-size: 20px; }
 .brand-copy span { margin-top: 5px; color: var(--muted); font-size: 10px; letter-spacing: .14em; text-transform: uppercase; }

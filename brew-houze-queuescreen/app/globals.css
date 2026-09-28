@@ -8,7 +8,8 @@ body { color: var(--ink); background: #efe7dc; font-family: 'DM Sans', sans-seri
 .queue-screen { display: flex; flex-direction: column; min-height: 100vh; padding: clamp(24px, 4vw, 58px); background: radial-gradient(circle at 50% -12%, #fffaf4 0, #efe7dc 58%); }
 .screen-header { display: flex; align-items: center; justify-content: space-between; gap: 24px; width: min(100%, 1440px); margin: 0 auto clamp(32px, 6vh, 72px); }
 .brand { display: flex; align-items: center; gap: 14px; }
-.brand-mark { display: grid; place-items: center; width: 58px; height: 58px; color: var(--paper); background: var(--ink); border-radius: 18px; }
+.brand-mark { display: grid; place-items: center; width: 58px; height: 58px; flex-shrink: 0; border-radius: 50%; box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+.brand-mark img { width: 100%; height: 100%; border-radius: 50%; }
 .brand strong { display: block; font: 700 30px/1 'Playfair Display', serif; }
 .brand div > span { display: block; margin-top: 7px; color: var(--muted); font-size: 12px; letter-spacing: .18em; text-transform: uppercase; }
 .date-block { display: flex; flex-direction: column; align-items: end; gap: 6px; color: var(--muted); font-size: 13px; }

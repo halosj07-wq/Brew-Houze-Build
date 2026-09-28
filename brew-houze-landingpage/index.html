@@ -7,7 +7,9 @@
   <meta name="color-scheme" content="light" />
   <title>Brew Houze · System Portal</title>
   <meta name="description" content="Every Brew Houze app in one place: admin, staff, mobile menu, queue screen and the counter GCash sign." />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%23D97706'/%3E%3Cpath d='M18 26h24v12a10 10 0 0 1-10 10h-4a10 10 0 0 1-10-10z' fill='none' stroke='white' stroke-width='4' stroke-linejoin='round'/%3E%3Cpath d='M42 29h3a5 5 0 0 1 0 10h-3' fill='none' stroke='white' stroke-width='4'/%3E%3Cpath d='M25 14v6M31 14v6M37 14v6' stroke='white' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
@@ -29,7 +31,7 @@
     .hero::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(circle at 88% -10%, rgba(217,119,6,0.45), transparent 45%), radial-gradient(rgba(253,249,245,0.06) 1px, transparent 1px); background-size: auto, 22px 22px; }
     .hero .wrap { position: relative; padding-top: 28px; padding-bottom: 40px; }
     .brand { display: flex; align-items: center; gap: 12px; }
-    .brand-mark { width: 46px; height: 46px; flex-shrink: 0; display: grid; place-items: center; border-radius: 14px; background: var(--amber); box-shadow: 0 8px 22px rgba(217,119,6,0.35); }
+    .brand-mark { width: 50px; height: 50px; flex-shrink: 0; display: block; border-radius: 50%; box-shadow: 0 8px 22px rgba(0,0,0,0.3); }
     .brand-name { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 19px; }
     .brand-sub { margin: 1px 0 0; color: #FCD34D; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; }
     .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
@@ -133,9 +135,7 @@
     <div class="wrap">
       <div class="hero-top">
         <div class="brand">
-          <div class="brand-mark" aria-hidden="true">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 8h1a4 4 0 1 1 0 8h-1" /><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z" /><line x1="6" y1="2" x2="6" y2="4" /><line x1="10" y1="2" x2="10" y2="4" /><line x1="14" y1="2" x2="14" y2="4" /></svg>
-          </div>
+          <img class="brand-mark" src="brand-badge.png" alt="" width="50" height="50" />
           <div>
             <p class="brand-name">Brew Houze</p>
             <p class="brand-sub">System portal</p>

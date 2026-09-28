@@ -449,7 +449,7 @@ function ConnectionIndicator() {
 function Sidebar({ current, collapsed, user, onChange, onToggle, onAccount }: { current: Page; collapsed: boolean; user: AdminSession; onChange: (page: Page) => void; onToggle: () => void; onAccount: () => void }) {
   return <aside className={`admin-sidebar ${collapsed ? "is-collapsed" : ""}`}>
     <div className="admin-sidebar-brand">
-      <div className="flex items-center justify-center rounded-xl" style={{ width: 40, height: 40, flexShrink: 0, background: "#D97706", color: "#FDF9F5", boxShadow: "0 8px 18px rgba(217,119,6,0.3)" }}><IconCoffee size={21} /></div>
+      <Image src="/brand/badge.png" alt="" width={40} height={40} unoptimized style={{ flexShrink: 0, borderRadius: "50%", boxShadow: "0 6px 16px rgba(0,0,0,0.25)" }} />
       <div className="admin-sidebar-text"><p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, color: "#FDF9F5", lineHeight: 1.15 }}>Brew Houze</p><p style={{ margin: "2px 0 0", fontFamily: "JetBrains Mono, monospace", fontSize: 9.5, color: "#F59E0B", letterSpacing: "0.1em" }}>ADMIN PORTAL</p></div>
       <button type="button" onClick={onToggle} className="admin-sidebar-toggle" title={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} style={{ transform: collapsed ? "rotate(180deg)" : "none" }}><IconChevron size={14} /></button>
     </div>
@@ -598,7 +598,7 @@ function NotificationBell({ onNavigate }: { onNavigate: (page: Page) => void }) 
 function TopBar({ title, page, user, onAccount, onNavigate, onRequestLogout }: { title: string; page: Page; user: AdminSession; onAccount: () => void; onNavigate: (page: Page) => void; onRequestLogout: () => void }) {
   return <header className="admin-topbar">
     <div className="flex items-center gap-3 min-w-0">
-      <div className="admin-topbar-logo flex items-center justify-center rounded-xl" style={{ width: 36, height: 36, flexShrink: 0, background: "#D97706", color: "#FDF9F5" }}><IconCoffee size={19} /></div>
+      <div className="admin-topbar-logo flex items-center justify-center" style={{ width: 36, height: 36, flexShrink: 0 }}><Image src="/brand/badge.png" alt="" width={36} height={36} unoptimized style={{ flexShrink: 0, borderRadius: "50%" }} /></div>
       <h1 className="admin-topbar-title">{title}</h1>
     </div>
     <div className="flex items-center gap-2.5">
@@ -7887,7 +7887,7 @@ function PortalAuthLayout({ children }: { children: React.ReactNode }) {
       <div className="login-brand-glow" />
       <div className="login-brand-inner">
         <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center rounded-2xl" style={{ width: 48, height: 48, background: "#D97706", color: "#FDF9F5", boxShadow: "0 10px 24px rgba(217,119,6,0.35)" }}><IconCoffee size={24} /></div>
+          <Image src="/brand/badge.png" alt="" width={52} height={52} unoptimized style={{ flexShrink: 0, borderRadius: "50%", boxShadow: "0 10px 24px rgba(0,0,0,0.3)" }} />
           <div>
             <p style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 20, color: "#FDF9F5", lineHeight: 1.1 }}>Brew Houze</p>
             <p style={{ margin: "3px 0 0", fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#F59E0B", letterSpacing: "0.12em" }}>ADMIN PORTAL</p>

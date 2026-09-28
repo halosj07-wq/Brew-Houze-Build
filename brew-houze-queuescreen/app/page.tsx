@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 
 type QueueOrder = {
   order_id: number;
@@ -89,7 +90,7 @@ export default function QueueScreen() {
 
   return <main className="queue-screen">
     <header className="screen-header">
-      <div className="brand"><span className="brand-mark"><IconCoffee /></span><div><strong>Brew Houze</strong><span>Customer Queue</span></div></div>
+      <div className="brand"><span className="brand-mark"><Image src="/brand/badge.png" alt="" width={58} height={58} unoptimized priority /></span><div><strong>Brew Houze</strong><span>Customer Queue</span></div></div>
     </header>
     {error && <div className="screen-error">{error}</div>}
     <section className="queue-grid">
