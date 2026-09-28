@@ -16,6 +16,8 @@ export async function GET() {
         (p.image_data IS NOT NULL) AS has_image_data,
         p.xmin::text AS image_version,
         p.product_type,
+        -- Barista Featured Specials (see featured-products-migration.sql).
+        p.is_featured, p.badge_label, p.featured_order,
         -- Any active addition can be attached to a recipe item. Direct-sale (stock) products
         -- such as canned drinks take no additions.
         COALESCE((
@@ -115,6 +117,9 @@ export async function GET() {
       category: row.product_category || "Menu",
       price: Number(row.price),
       productType: row.product_type === "stock" ? "stock" : "recipe",
+      featured: Boolean(row.is_featured),
+      featuredOrder: Number(row.featured_order ?? 0),
+      badge: (row.badge_label as string | null) || undefined,
       image: row.has_image_data ? `/api/products/${row.product_id}/image?v=${row.image_version}` : row.image_url || "",
       additions: row.additions ?? [],
       variants: row.variants,

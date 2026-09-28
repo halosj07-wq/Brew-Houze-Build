@@ -14,7 +14,10 @@ type Product = {
   productType?: "recipe" | "stock";
   image: string;
   additions?: Addition[];
+  // Barista Featured Specials (Admin, Menu, Featured) and their badge.
   badge?: string;
+  featured?: boolean;
+  featuredOrder?: number;
   variants?: Variant[];
 };
 type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number };
@@ -34,6 +37,8 @@ type PaymentCheck = { token: string; state: "checking" | "slow" | "failed"; mess
 type IdDiscountOption = IdDiscountRule;
 type SentCart = { token: string; code: string; expiresAt: string; discountName: string; status: "waiting" | "expired" | "cancelled" };
 const sentCartStorageKey = "brew-houze-sent-cart";
+// The Favorites chip (not a category name).
+const FAVORITES = "__favorites";
 // An ID photo the café is checking (or approved), so a reload keeps following it.
 const idCheckStorageKey = "brew-houze-id-check";
 
@@ -64,6 +69,32 @@ function IconCoffee() {
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8Z" /><path d="M6 1v3M10 1v3M14 1v3" /></svg>;
 }
 
+const iconProps = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+function IconBell() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>;
+}
+function IconBag() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M6 7h12l1 14H5L6 7Z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>;
+}
+function IconFilter() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" {...iconProps}><path d="M4 6h16M7 12h10M10 18h4" /></svg>;
+}
+function IconSliders() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" {...iconProps}><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>;
+}
+function IconSparkle() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2l1.6 4.9L15.5 8.5l-4.9 1.6L9 15l-1.6-4.9L2.5 8.5l4.9-1.6L9 2Z" /><path d="M18 13l.9 2.6 2.6.9-2.6.9L18 20l-.9-2.6-2.6-.9 2.6-.9L18 13Z" opacity=".7" /></svg>;
+}
+function IconDineIn() {
+  return <svg width="28" height="28" viewBox="0 0 24 24" {...iconProps}><path d="M4 11h13v3a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5v-3Z" /><path d="M17 12h1.5a2.5 2.5 0 0 1 0 5H16" /><path d="M8 3c-.6.8-.6 1.7 0 2.5s.6 1.7 0 2.5M12 3c-.6.8-.6 1.7 0 2.5s.6 1.7 0 2.5" /></svg>;
+}
+function IconDelivery() {
+  return <svg width="28" height="28" viewBox="0 0 24 24" {...iconProps}><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
+}
+function IconTakeOut() {
+  return <svg width="28" height="28" viewBox="0 0 24 24" {...iconProps}><rect x="4" y="5" width="16" height="15" rx="3" /><path d="M9 9a3 3 0 0 0 6 0" /></svg>;
+}
+
 function IconCart() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" /><circle cx="10" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></svg>;
 }
@@ -74,8 +105,15 @@ export default function MenuPage() {
   // False when no shift is open at the café: the menu can be browsed but orders can't be sent.
   const [storeOpen, setStoreOpen] = useState(true);
   const [error, setError] = useState("");
+  // Chips: all (null), a category, or FAVORITES (what this customer orders most).
   const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [tempFilter, setTempFilter] = useState<"any" | "hot" | "cold">("any");
+  const [sortBy, setSortBy] = useState<"menu" | "low" | "high">("menu");
+  const [availableOnly, setAvailableOnly] = useState(false);
+  // "Added Kape · 12oz" after Add to Cart, for a few seconds.
+  const [addedNote, setAddedNote] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
@@ -397,23 +435,40 @@ export default function MenuPage() {
   }, []);
 
   const categories = useMemo(() => Array.from(new Set(products.map((product) => product.category).filter(Boolean))), [products]);
-  const categoryCards = useMemo(() => categories.map((item) => ({
-    name: item,
-    count: products.filter((product) => product.category === item && (!search.trim() || `${product.name} ${product.description}`.toLowerCase().includes(search.trim().toLowerCase()))).length,
-  })).filter((item) => !search.trim() || item.count > 0), [categories, products, search]);
-  const visibleProducts = useMemo(() => products.filter((product) => {
-    const matchesCategory = category === null || product.category === category;
+  const favoriteIds = useMemo(() => customer.account?.favorites ?? [], [customer.account]);
+  const lowestPrice = (product: Product) => { const prices = (product.variants ?? []).map((variant) => variant.price); return prices.length ? Math.min(...prices) : product.price; };
+  // What the list shows: the chip, the search, and the filter sheet (temperature, sort, available only).
+  const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return matchesCategory && (!query || `${product.name} ${product.description}`.toLowerCase().includes(query));
-  }), [category, products, search]);
+    const list = products.filter((product) => {
+      if (category === FAVORITES ? !favoriteIds.includes(product.id) : category !== null && product.category !== category) return false;
+      if (query && !`${product.name} ${product.description} ${product.category}`.toLowerCase().includes(query)) return false;
+      if (tempFilter !== "any" && !(product.variants ?? []).some((variant) => variant.temperature === tempFilter || variant.temperature === "both")) return false;
+      if (availableOnly && product.variants?.length && !product.variants.some((variant) => variant.available)) return false;
+      return true;
+    });
+    if (category === FAVORITES && sortBy === "menu") return list.sort((a, b) => favoriteIds.indexOf(a.id) - favoriteIds.indexOf(b.id));
+    if (sortBy !== "menu") return list.sort((a, b) => (lowestPrice(a) - lowestPrice(b)) * (sortBy === "low" ? 1 : -1));
+    return list;
+  }, [availableOnly, category, favoriteIds, products, search, sortBy, tempFilter]);
+  // Grouped by category on "All" in menu order; one plain list otherwise.
   const groupedProducts = useMemo(() => {
+    if (category !== null || sortBy !== "menu") return [["", visibleProducts]] as [string, Product[]][];
     const groups = new Map<string, Product[]>();
     visibleProducts.forEach((product) => {
       const group = product.category || "Other";
       groups.set(group, [...(groups.get(group) ?? []), product]);
     });
     return Array.from(groups);
-  }, [visibleProducts]);
+  }, [category, sortBy, visibleProducts]);
+  const featuredProducts = useMemo(() => products.filter((product) => product.featured).sort((a, b) => (a.featuredOrder ?? 0) - (b.featuredOrder ?? 0)), [products]);
+  const filtersOn = tempFilter !== "any" || sortBy !== "menu" || availableOnly;
+  const showFeatured = category === null && !search.trim() && !filtersOn && featuredProducts.length > 0;
+  useEffect(() => {
+    if (!addedNote) return;
+    const timer = window.setTimeout(() => setAddedNote(""), 2600);
+    return () => window.clearTimeout(timer);
+  }, [addedNote]);
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
   // The items in the cart; cartTotal (what the customer pays, after a reward discount) comes after the discount below.
   const cartItemsTotal = cart.reduce((total, item) => total + (item.price + item.additions.reduce((additionTotal, addition) => additionTotal + addition.price, 0)) * item.quantity, 0);
@@ -451,6 +506,17 @@ export default function MenuPage() {
       additions: [...selectedAdditions, addition],
     };
     return getCartLimit(candidate, currentCart, "") >= quantity;
+  }
+
+  // Add to Cart on a card: the first available size, no add-ons. Customize opens the full sheet.
+  function quickAdd(product: Product) {
+    const variant = sortVariants(product.variants ?? []).find((option) => option.available && getCartLimit({ ingredients: option.ingredients, additions: [] }, cart, `${product.id}-${option.id}-`) >= 1);
+    if (!variant) { openProduct(product); return; }
+    const key = `${product.id}-${variant.id}-`;
+    setCart((current) => current.some((item) => item.key === key)
+      ? current.map((item) => item.key === key ? { ...item, quantity: item.quantity + 1 } : item)
+      : [...current, { key, product, variantId: variant.id, variantName: variant.size ?? "Regular", price: variant.price, quantity: 1, ingredients: variant.ingredients, additions: [] }]);
+    setAddedNote(`Added ${product.name}${variant.size ? ` · ${variant.size}` : ""}${variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Iced" : ""}`);
   }
 
   function openProduct(product: Product) {
@@ -739,61 +805,89 @@ export default function MenuPage() {
     return () => { active = false; window.clearInterval(intervalId); };
   }, [activeOrder, activeOrders]);
 
-  return <main className="menu-shell">
-    <div className="menu-container">
-      <header className="menu-header">
-        <div className="brand-mark"><Image src="/brand/badge.png" alt="" width={46} height={46} unoptimized priority /></div>
-        <div className="brand-copy"><strong>Brew Houze</strong><span>Online Menu</span></div>
-        <div className="header-actions">
-          {!customer.loading && <AccountButton state={customer} onOpen={() => setAccountOpen(true)} />}
-          <button className="header-action cart-logo-button" onClick={() => setCartOpen(true)} aria-label={cartCount > 0 ? `Open cart with ${cartCount} items` : "Open empty cart"}><IconCart />{cartCount > 0 && <span className="header-count">{cartCount}</span>}</button>
-          {activeOrder && <button className="header-action queue-action" onClick={() => setOrderPlaced(true)} aria-label="View active orders" title="View order status"><span className="queue-action-label">{activeOrders.length === 1 ? `#${activeOrders[0].queueNumber ?? "—"}` : activeOrders.length}</span><span className="queue-action-caption">ORDER</span></button>}
-          <div className="table-pill"><span className="status-dot" />Table QR</div>
+  const priceText = (product: Product) => { const prices = (product.variants ?? []).map((variant) => variant.price); const low = lowestPrice(product); return prices.length > 1 && prices.some((price) => price !== low) ? `from ₱${low.toFixed(2)}` : `₱${low.toFixed(2)}`; };
+  const soldOut = (product: Product) => Boolean(product.variants?.length && !product.variants.some((variant) => variant.available));
+  const productCard = (product: Product, featured = false) => <article className={featured ? "mm-feature" : "mm-item"} key={`${featured ? "f" : "p"}-${product.id}`}>
+    <div className="mm-photo">
+      {product.image ? <Image src={product.image} alt="" fill unoptimized sizes={featured ? "(max-width: 640px) 100vw, 480px" : "120px"} style={{ objectFit: "cover" }} /> : <div className="image-placeholder"><IconCoffee /></div>}
+      {featured && product.badge && <span className="mm-badge">★ {product.badge}</span>}
+    </div>
+    <div className="mm-info">
+      <h3>{product.name}</h3>
+      {!featured && product.badge && <span className="mm-badge is-inline">★ {product.badge}</span>}
+      {product.description && <p>{product.description}</p>}
+      <div className="mm-foot">
+        <strong>{soldOut(product) ? "Sold out" : priceText(product)}</strong>
+        <div className="mm-actions">
+          <button type="button" className="mm-customize" disabled={soldOut(product)} onClick={() => openProduct(product)} aria-label={`Customize ${product.name}`}><IconSliders />{featured ? "Customize" : ""}</button>
+          <button type="button" className="mm-add" disabled={soldOut(product)} onClick={() => quickAdd(product)} aria-label={`Add ${product.name} to cart`}><span aria-hidden="true">+</span>{featured ? "Add to Cart" : "Add"}</button>
         </div>
-      </header>
-      {!storeOpen && <div role="status" style={{ margin: "12px 16px 0", padding: "12px 14px", borderRadius: 14, background: "#3D2B1F", color: "#FDF9F5", fontSize: 13, lineHeight: 1.45 }}><strong style={{ display: "block", fontSize: 14 }}>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
+      </div>
+    </div>
+  </article>;
 
-      <section className="welcome">
-        <p className="eyebrow">WELCOME TO BREW HOUZE</p>
-        <h1>Your next favorite cup<br /><em>starts here.</em></h1>
-        <p className="welcome-copy">Browse our menu and discover something made for your moment.</p>
+  return <main className="menu-shell mm-shell">
+    <header className="mm-header">
+      <div className="mm-brand"><Image src="/brand/badge.png" alt="" width={42} height={42} unoptimized priority /><span>Brew Houze Cafe</span></div>
+      <div className="mm-header-actions">
+        <button type="button" className="mm-icon-button" onClick={() => setOrderPlaced(true)} aria-label={activeOrder ? `Your orders: ${activeOrders.length} in progress` : "Your orders"} title="Your orders"><IconBell />{activeOrder && <span className="mm-dot">{activeOrders.length}</span>}</button>
+        <button type="button" className="mm-icon-button" onClick={() => setCartOpen(true)} aria-label={cartCount > 0 ? `Open cart with ${cartCount} items` : "Open empty cart"}><IconBag />{cartCount > 0 && <span className="mm-dot">{cartCount}</span>}</button>
+        {!customer.loading && <AccountButton state={customer} onOpen={() => setAccountOpen(true)} />}
+      </div>
+    </header>
+    <div className="menu-container mm-container">
+      {!storeOpen && <div role="status" className="mm-closed"><strong>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
+
+      <section className="mm-welcome">
+        <h1>Welcome to Brew Houze Cafe</h1>
+        <p>Browse our menu and discover something made for your moment.</p>
       </section>
 
-      <label className="search-box">
-        <IconSearch />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />
-      </label>
+      <section className="mm-dining" aria-labelledby="dining-title">
+        <h2 id="dining-title">Dining Experience</h2>
+        <div className="mm-dining-options" role="radiogroup" aria-label="Dining experience">
+          <button type="button" role="radio" aria-checked={serviceType === "dine_in"} onClick={() => setServiceType("dine_in")}><IconDineIn /><span>Dine in</span></button>
+          <button type="button" role="radio" aria-checked={false} aria-disabled="true" className="is-soon" title="Delivery is coming soon"><IconDelivery /><span>Delivery<small>Soon</small></span></button>
+          <button type="button" role="radio" aria-checked={serviceType === "take_out"} onClick={() => setServiceType("take_out")}><IconTakeOut /><span>Take Out</span></button>
+        </div>
+      </section>
 
-      <section className="menu-section">
+      <div className="mm-search-row">
+        <label className="mm-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search Products" aria-label="Search products" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
+        <button type="button" className={`mm-filter-button${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} onClick={() => setFilterOpen((open) => !open)}><IconFilter />Filter{filtersOn ? " •" : ""}</button>
+      </div>
+      {filterOpen && <div className="mm-filters">
+        <div><span>Temperature</span><div className="mm-segment">{([["any", "Any"], ["hot", "Hot"], ["cold", "Iced"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tempFilter === value} onClick={() => setTempFilter(value)}>{label}</button>)}</div></div>
+        <div><span>Sort</span><div className="mm-segment">{([["menu", "Menu"], ["low", "Price ↑"], ["high", "Price ↓"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={sortBy === value} onClick={() => setSortBy(value)}>{label}</button>)}</div></div>
+        <label className="mm-check"><input type="checkbox" checked={availableOnly} onChange={(event) => setAvailableOnly(event.target.checked)} />Available only</label>
+        {filtersOn && <button type="button" className="mm-reset" onClick={() => { setTempFilter("any"); setSortBy("menu"); setAvailableOnly(false); }}>Reset</button>}
+      </div>}
+
+      <nav className="mm-chips" aria-label="Menu categories">
+        <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}><i aria-hidden="true" />All</button>
+        {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}><i aria-hidden="true" />{name}</button>)}
+        {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}><i aria-hidden="true" />Favorites</button>}
+      </nav>
+
+      <section className="menu-section mm-menu">
         {loading && <div className="empty-state">Loading the current menu...</div>}
         {error && <div className="empty-state error-state">{error}</div>}
-        {!loading && !error && category === null && <div className="category-landing">
-          <div className="section-heading"><div><p className="eyebrow">EXPLORE OUR MENU</p><h2>Choose a category</h2></div><span>{categories.length} categories</span></div>
-          <div className="category-card-grid">
-            {categoryCards.map((item) => <button key={item.name} className="category-card" onClick={() => { setCategory(item.name); setSearch(""); }}>
-              <span className="category-card-icon"><IconCoffee /></span><span className="category-card-name">{item.name}</span><span className="category-card-count">{item.count} drink{item.count === 1 ? "" : "s"}</span><span className="category-card-arrow">→</span>
-            </button>)}
-          </div>
-          {categoryCards.length === 0 && <div className="empty-state">No drink categories are available yet.</div>}
-        </div>}
-        {!loading && !error && category !== null && <div className="category-results-shell">
-          <div className="menu-breadcrumb"><button type="button" onClick={() => setCategory(null)} aria-label="Return to all categories"><span aria-hidden="true">←</span> All categories</button></div>
-          <div className="category-groups">
-            <div className="section-heading"><div><h2>{category}</h2></div><span>{visibleProducts.length} items</span></div>
-            {groupedProducts.map(([group, groupProducts]) => <section className="category-group" key={group}>
-              <div className="product-grid">
-                {groupProducts.map((product) => <article className="product-card" key={product.id}>
-                <div className="product-image">{product.image ? <Image src={product.image} alt="" fill unoptimized sizes="(max-width: 640px) 50vw, 320px" style={{ objectFit: "cover" }} /> : <div className="image-placeholder"><IconCoffee /></div>}<div className="image-shade" />{product.badge && <span className="product-badge">{product.badge}</span>}</div>
-                <div className="product-info"><div className="product-category">{product.category}</div><h3>{product.name}</h3>{product.description && <p>{product.description}</p>}<div className="product-footer"><strong>₱{product.variants?.[0]?.price?.toFixed(2) ?? product.price.toFixed(2)}</strong><button disabled={Boolean(product.variants?.length && !product.variants.some((variant) => variant.available))} onClick={() => openProduct(product)} aria-label={`Add ${product.name} to order`}>{product.variants?.length && !product.variants.some((variant) => variant.available) ? "Unavailable" : "Add to order"}</button></div></div>
-                </article>)}
-              </div>
-            </section>)}
-          </div>
-        </div>}
-        {!loading && !error && visibleProducts.length === 0 && <div className="empty-state">No menu items match your search.</div>}
+        {!loading && !error && <>
+          {showFeatured && <section className="mm-featured" aria-labelledby="featured-title">
+            <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
+            <div className="mm-featured-list">{featuredProducts.map((product) => productCard(product, true))}</div>
+          </section>}
+          {category === FAVORITES && <p className="mm-note">What you order most, most first.</p>}
+          {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="mm-group" key={group || "all"}>
+            {group && <h2 className="mm-group-title">{group}</h2>}
+            <div className="mm-list">{groupProducts.map((product) => productCard(product))}</div>
+          </section>)}
+          {visibleProducts.length === 0 && <div className="empty-state">{category === FAVORITES ? "Your favorites appear here after you order." : "No menu items match your search or filters."}</div>}
+        </>}
       </section>
 
-      {cartCount > 0 && <button className="cart-bar" onClick={() => setCartOpen(true)}><span><strong>{cartCount}</strong> item{cartCount === 1 ? "" : "s"} in your order</span><strong>View order · ₱{cartTotal.toFixed(2)}</strong></button>}
+      {cartCount > 0 && <button className="cart-bar" onClick={() => setCartOpen(true)}><span><strong>{cartCount}</strong> item{cartCount === 1 ? "" : "s"} · {serviceType === "take_out" ? "Take Out" : "Dine in"}</span><strong>View order · ₱{cartTotal.toFixed(2)}</strong></button>}
+      {addedNote && !cartOpen && <div className="mm-added" role="status">{addedNote}</div>}
       <footer className="menu-footer"><IconCoffee /><span>Made with care at Brew Houze</span></footer>
     </div>
     {selectedProduct && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setSelectedProduct(null); }}>
@@ -818,7 +912,7 @@ export default function MenuPage() {
         {starsSection}
         {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
         <div className="service-choice" role="radiogroup" aria-label="Dine in or take out">
-          {([["dine_in", "Dine in", "Enjoy it here"], ["take_out", "Take out", "To go"]] as const).map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} onClick={() => setServiceType(value)}><strong>{label}</strong><span>{hint}</span></button>)}
+          {([["dine_in", "Dine in", "Enjoy it here"], ["take_out", "Take Out", "To go"]] as const).map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} onClick={() => setServiceType(value)}><strong>{label}</strong><span>{hint}</span></button>)}
         </div>
         {idDiscountOptions.length > 0 && <div className={`cart-id-claim${claiming ? " is-on" : ""}`}>
           <label className="cart-id-toggle">

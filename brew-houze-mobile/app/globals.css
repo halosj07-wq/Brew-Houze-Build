@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;0,700;1,600;1,700&family=Gloock&family=Outfit:wght@400;500;600;700&display=swap');
 @import 'tailwindcss';
 
 :root { --ink: #2c1810; --muted: #806d62; --cream: #fbf3e9; --paper: #fffaf4; --line: #eadfd4; --teal: #0d9488; --orange: #d97706; }
@@ -264,3 +264,102 @@ button { cursor: pointer; }
 .id-status .id-sheet-summary { margin: 14px 0 0; }
 .id-status .add-order-button { justify-content: center; gap: 10px; }
 .id-status-link { display: block; width: 100%; margin-top: 10px; padding: 8px; color: var(--muted); background: transparent; border: 0; font-size: 13px; font-weight: 700; text-decoration: underline; }
+
+/* ── New layout (from the team's design) ─────────────────────────────────────
+   Cream page, serif titles (Gloock), rounded sans text (Outfit), espresso-brown actions, teal
+   welcome, amber "featured". The cart, product sheet and other windows share these colors. */
+:root { --ink: #231510; --muted: #7A675C; --cream: #FBF3E6; --paper: #FFFBF4; --line: #DDD1C2; --teal: #1F7A5C; --orange: #E39A3B; --brown: #5B2A16; --brown-soft: #F3E3D6; }
+body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
+.mm-shell { padding: 0 0 110px; background: #FFFFFF; }
+.mm-container { width: min(100%, 560px); padding: 0 18px; }
+.add-order-button { background: var(--brown); }
+.add-order-button span { color: #F8D9B8; }
+.item-modal h2, .cart-modal h2, .confirmation-modal h2 { font-family: 'Gloock', 'Playfair Display', serif; font-weight: 400; }
+
+.mm-header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; background: rgba(253, 248, 240, 0.96); border-bottom: 1px solid #1f1a17; backdrop-filter: blur(8px); }
+.mm-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.mm-brand img { flex-shrink: 0; border-radius: 50%; }
+.mm-brand span { overflow: hidden; color: var(--ink); font-family: 'Gloock', serif; font-size: 20px; white-space: nowrap; text-overflow: ellipsis; }
+.mm-header-actions { display: flex; align-items: center; gap: 6px; }
+.mm-icon-button { position: relative; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; color: var(--ink); background: transparent; border: 0; border-radius: 12px; }
+.mm-icon-button:active { background: var(--cream); }
+.mm-dot { position: absolute; top: 3px; right: 2px; display: grid; place-items: center; min-width: 17px; height: 17px; padding: 0 4px; color: #FFFFFF; background: var(--orange); border-radius: 999px; font-size: 10px; font-weight: 700; }
+.mm-header .acct-header-button { width: 40px; height: 40px; padding: 0; justify-content: center; border-radius: 50%; background: var(--cream); border: 1px solid var(--line); }
+.mm-header .acct-header-label { display: none; }
+.mm-header .acct-avatar.is-small { width: 34px; height: 34px; font-size: 13px; }
+
+.mm-closed { margin: 16px 0 0; padding: 12px 14px; color: #FDF9F5; background: var(--brown); border-radius: 14px; font-size: 13px; line-height: 1.45; }
+.mm-closed strong { display: block; font-size: 14px; }
+.mm-welcome { padding: 24px 0 4px; }
+.mm-welcome h1 { margin: 0; color: var(--teal); font-family: 'Gloock', serif; font-weight: 400; font-size: 24px; line-height: 1.2; }
+.mm-welcome p { margin: 8px 0 0; color: var(--ink); font-size: 15px; line-height: 1.5; }
+
+.mm-dining h2, .mm-featured h2 { margin: 20px 0 10px; color: var(--ink); font-size: 16.5px; font-weight: 700; }
+.mm-dining-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.mm-dining-options button { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 62px; padding: 8px; color: var(--ink); background: #FFFBF4; border: 1px solid #CFC4B6; border-radius: 10px; box-shadow: 0 2px 6px rgba(35, 21, 16, 0.08); font-size: 15px; }
+.mm-dining-options button span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.mm-dining-options button small { margin-top: 2px; color: var(--orange); font-size: 10.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.mm-dining-options button[aria-checked="true"] { color: #FFFFFF; background: var(--brown); border-color: var(--brown); }
+.mm-dining-options button.is-soon { opacity: 0.55; cursor: not-allowed; }
+
+.mm-search-row { display: flex; align-items: center; gap: 12px; margin-top: 22px; }
+.mm-search { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; height: 50px; padding: 0 14px; color: #A99C91; background: #FFF8EC; border: 1px solid #CFC4B6; border-radius: 10px; }
+.mm-search input { flex: 1; min-width: 0; color: var(--ink); background: transparent; border: 0; outline: 0; font-size: 15px; }
+.mm-search button { color: var(--muted); background: none; border: 0; font-size: 20px; }
+.mm-filter-button { display: flex; align-items: center; gap: 6px; height: 50px; padding: 0 4px; color: var(--ink); background: none; border: 0; font-size: 15.5px; }
+.mm-filter-button.is-on { color: var(--brown); font-weight: 700; }
+.mm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-top: 10px; padding: 12px 14px; background: #FFF8EC; border: 1px solid var(--line); border-radius: 12px; }
+.mm-filters > div { display: flex; flex-direction: column; gap: 5px; }
+.mm-filters > div > span { color: var(--muted); font-size: 12px; font-weight: 600; }
+.mm-segment { display: inline-flex; padding: 3px; background: #FFFFFF; border: 1px solid var(--line); border-radius: 999px; }
+.mm-segment button { padding: 5px 11px; color: var(--ink); background: transparent; border: 0; border-radius: 999px; font-size: 13px; }
+.mm-segment button[aria-pressed="true"] { color: #FFFFFF; background: var(--brown); }
+.mm-check { display: flex; align-items: center; gap: 7px; font-size: 13.5px; }
+.mm-check input { width: 17px; height: 17px; accent-color: var(--brown); }
+.mm-reset { margin-left: auto; padding: 6px 10px; color: var(--brown); background: none; border: 0; font-size: 13px; font-weight: 700; text-decoration: underline; }
+
+.mm-chips { display: flex; gap: 10px; margin: 20px -18px 0; padding: 2px 18px 4px; overflow-x: auto; scrollbar-width: none; }
+.mm-chips::-webkit-scrollbar { display: none; }
+.mm-chips button { display: flex; align-items: center; justify-content: center; gap: 8px; flex-shrink: 0; min-width: 104px; height: 38px; padding: 0 16px; color: var(--ink); background: #FFFBF4; border: 1px solid #9E9083; border-radius: 12px; font-size: 15px; white-space: nowrap; }
+.mm-chips button i { display: none; width: 9px; height: 9px; border-radius: 50%; background: #7DD3FC; }
+.mm-chips button[aria-pressed="true"] { color: #FFFFFF; background: var(--brown); border-color: var(--brown); }
+.mm-chips button[aria-pressed="true"] i { display: block; }
+
+.mm-menu { margin-top: 6px; }
+.mm-featured h2 { display: flex; align-items: center; gap: 8px; color: var(--orange); font-size: 17px; }
+.mm-featured-list { display: grid; gap: 22px; }
+.mm-feature { padding: 13px; background: #FFF8EE; border: 1px solid #9E9083; border-radius: 10px; }
+.mm-feature .mm-photo { position: relative; height: 172px; overflow: hidden; border-radius: 16px; background: var(--cream); }
+.mm-feature .mm-info h3 { margin: 12px 0 0; font-size: 17px; font-weight: 700; }
+.mm-feature .mm-info p { margin: 6px 0 0; color: var(--muted); font-size: 14.5px; line-height: 1.45; }
+.mm-badge { position: absolute; top: 12px; left: 12px; max-width: 70%; padding: 4px 12px; overflow: hidden; color: #FFFFFF; background: var(--teal); border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; text-overflow: ellipsis; }
+.mm-badge.is-inline { position: static; display: inline-block; margin-top: 4px; padding: 2px 9px; font-size: 11px; }
+.mm-foot { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-top: 12px; }
+.mm-foot strong { font-size: 16.5px; font-weight: 700; white-space: nowrap; }
+.mm-actions { display: flex; gap: 8px; }
+.mm-customize { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; color: var(--ink); background: #FFFFFF; border: 1px solid #B9ADA0; border-radius: 6px; font-size: 14px; }
+.mm-add { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; color: #FFFFFF; background: var(--brown); border: 0; border-radius: 6px; font-size: 14.5px; font-weight: 700; }
+.mm-add span { display: grid; place-items: center; width: 18px; height: 18px; color: #FFFFFF; background: var(--orange); border-radius: 50%; font-size: 15px; line-height: 1; }
+.mm-customize:disabled, .mm-add:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.mm-group-title { margin: 26px 0 10px; color: var(--ink); font-family: 'Gloock', serif; font-weight: 400; font-size: 20px; }
+.mm-note { margin: 16px 0 0; color: var(--muted); font-size: 13.5px; }
+.mm-list { display: grid; gap: 12px; }
+.mm-item { display: flex; gap: 12px; padding: 10px; background: #FFFBF4; border: 1px solid var(--line); border-radius: 12px; }
+.mm-item .mm-photo { position: relative; flex-shrink: 0; width: 96px; height: 96px; overflow: hidden; border-radius: 10px; background: var(--cream); }
+.mm-item .mm-info { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.mm-item h3 { margin: 2px 0 0; font-size: 15.5px; font-weight: 700; }
+.mm-item p { display: -webkit-box; margin: 3px 0 0; overflow: hidden; color: var(--muted); font-size: 13px; line-height: 1.35; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.mm-item .mm-foot { margin-top: auto; padding-top: 8px; }
+.mm-item .mm-foot strong { font-size: 14.5px; }
+.mm-item .mm-customize { width: 36px; justify-content: center; padding: 0; }
+.mm-item .mm-add { padding: 0 10px; font-size: 13.5px; }
+
+.mm-added { position: fixed; left: 50%; bottom: 92px; z-index: 40; transform: translateX(-50%); max-width: calc(100% - 36px); padding: 10px 16px; color: #FFFFFF; background: var(--ink); border-radius: 999px; box-shadow: 0 8px 22px rgba(35, 21, 16, 0.3); font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mm-shell .cart-bar { background: var(--brown); }
+@media (max-width: 380px) { .mm-dining-options button { flex-direction: column; gap: 4px; font-size: 13.5px; } .mm-dining-options button span { align-items: center; } .mm-brand span { font-size: 17px; } }
+.mm-dining-options button { gap: 6px; font-size: 14.5px; white-space: nowrap; }
+.mm-dining-options button svg { width: 24px; height: 24px; flex-shrink: 0; }
+.mm-customize, .mm-add { white-space: nowrap; flex-shrink: 0; }
+.mm-feature .mm-foot { flex-wrap: wrap; }
+.mm-feature .mm-actions { margin-left: auto; }

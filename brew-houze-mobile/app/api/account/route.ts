@@ -47,6 +47,12 @@ export async function GET() {
     } catch (loyaltyError) {
       console.error("GET /api/account: could not read loyalty stars:", loyaltyError);
     }
+    // Favorites: what this customer orders most (completed orders), for the Favorites chip.
+    const favorites = await pool.query(`
+      SELECT soi.product_id FROM sales_orders so JOIN sales_order_items soi ON soi.order_id = so.order_id
+      WHERE so.customer_id = $1 AND so.status = 'completed'
+      GROUP BY soi.product_id ORDER BY SUM(soi.quantity) DESC, MAX(so.created_at) DESC LIMIT 8
+    `, [session.customerId]).catch(() => ({ rows: [] as { product_id: number }[] }));
     // A senior, PWD or other ID the café checked and the customer asked to remember (no photo is kept).
     const savedId = await savedIdDiscount(session.customerId).catch(() => null);
     return NextResponse.json({
@@ -57,6 +63,7 @@ export async function GET() {
         birthday: session.birthday,
         orderCount: Number(totals.rows[0]?.orders ?? 0),
         loyalty,
+        favorites: favorites.rows.map((row) => Number(row.product_id)),
         savedId: savedId ? { typeId: savedId.typeId, typeName: savedId.typeName, holderName: savedId.holderName, idEnding: savedId.idNumber ? savedId.idNumber.slice(-4) : null } : null,
         orders: orders.rows.map((row) => ({
           id: Number(row.order_id),

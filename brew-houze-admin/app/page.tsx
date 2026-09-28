@@ -3530,6 +3530,99 @@ function CategoryPicker({ value, names, onChange, onCreated, inputStyle }: { val
   </select>;
 }
 
+// Barista Featured Specials: the products the mobile menu opens with, in order, each with an
+// optional badge ("Customer Favorites", "Houze Favorites"…).
+type FeaturedEntry = { id: number; name: string; category: string; isFeatured: boolean; badgeLabel: string; order: number };
+const BADGE_SUGGESTIONS = ["Customer Favorites", "Houze Favorites", "Best Seller", "New", "Seasonal"];
+
+function FeaturedDialog({ onClose }: { onClose: () => void }) {
+  const [all, setAll] = useState<FeaturedEntry[] | null>(null);
+  const [picked, setPicked] = useState<{ id: number; badgeLabel: string }[]>([]);
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/products/featured", { cache: "no-store" })
+      .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload?.error || "Could not load the products."); return payload.data as FeaturedEntry[]; })
+      .then((list) => { if (!active) return; setAll(list); setPicked(list.filter((entry) => entry.isFeatured).sort((a, b) => a.order - b.order).map((entry) => ({ id: entry.id, badgeLabel: entry.badgeLabel }))); })
+      .catch((loadError) => { if (active) { setAll([]); setError(loadError instanceof Error ? loadError.message : "Could not load the products."); } });
+    return () => { active = false; };
+  }, []);
+
+  const byId = new Map((all ?? []).map((entry) => [entry.id, entry]));
+  const query = search.trim().toLowerCase();
+  const available = (all ?? []).filter((entry) => !picked.some((item) => item.id === entry.id) && (!query || `${entry.name} ${entry.category}`.toLowerCase().includes(query)));
+  const move = (index: number, delta: number) => setPicked((current) => {
+    const next = [...current];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return current;
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/products/featured", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ featured: picked }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save.");
+      setSaved(picked.length ? `Saved. The mobile menu now features ${picked.length} product${picked.length === 1 ? "" : "s"}.` : "Saved. Nothing is featured on the mobile menu.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Featured on the mobile menu">
+    <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 640, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title="Barista Featured Specials" sub="The products the mobile menu opens with, in this order. A badge is optional." onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        {all === null ? <div className="inv-empty">Loading products…</div> : <>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Featured <span>({picked.length})</span></h3><p>Shown as large cards at the top of the mobile menu.</p></div></header>
+            {picked.length === 0 ? <p className="inv-hint" style={{ margin: 0 }}>Nothing featured yet. Add products from the list below.</p> : <ul className="feat-list">
+              {picked.map((item, index) => {
+                const product = byId.get(item.id);
+                return <li key={item.id}>
+                  <span className="feat-order">{index + 1}</span>
+                  <span className="feat-name"><strong>{product?.name ?? "Product"}</strong><em>{product?.category ?? ""}</em></span>
+                  <input list="feat-badges" value={item.badgeLabel} maxLength={30} placeholder="Badge (optional)" aria-label={`Badge for ${product?.name ?? "product"}`} onChange={(event) => setPicked((current) => current.map((entry) => entry.id === item.id ? { ...entry, badgeLabel: event.target.value } : entry))} style={{ ...packagingInput, width: 170 }} />
+                  <button type="button" className="inv-mini" disabled={index === 0} onClick={() => move(index, -1)} aria-label="Move up">↑</button>
+                  <button type="button" className="inv-mini" disabled={index === picked.length - 1} onClick={() => move(index, 1)} aria-label="Move down">↓</button>
+                  <button type="button" className="inv-mini" onClick={() => setPicked((current) => current.filter((entry) => entry.id !== item.id))} aria-label={`Remove ${product?.name ?? "product"}`}><IconX size={12} /></button>
+                </li>;
+              })}
+            </ul>}
+            <datalist id="feat-badges">{BADGE_SUGGESTIONS.map((badge) => <option key={badge} value={badge} />)}</datalist>
+          </section>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Add products</h3></div></header>
+            <div className="inv-search is-wide" style={{ marginBottom: 8 }}><IconSearch size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search products" /></div>
+            <ul className="feat-list is-pick">
+              {available.slice(0, 40).map((entry) => <li key={entry.id}>
+                <span className="feat-name"><strong>{entry.name}</strong><em>{entry.category}</em></span>
+                <button type="button" className="inv-mini" disabled={picked.length >= 30} onClick={() => { setPicked((current) => [...current, { id: entry.id, badgeLabel: entry.badgeLabel }]); setSaved(""); }}><IconPlus size={12} />Feature</button>
+              </li>)}
+              {available.length === 0 && <li className="inv-hint">No other products match.</li>}
+            </ul>
+          </section>
+        </>}
+        {error && <p role="alert" className="acc-error">{error}</p>}
+        {saved && <div className="acc-notice" role="status">{saved}</div>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-wrap" style={{ borderColor: "#E8DDD5" }}>
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Close</button>
+        <button type="button" onClick={() => void save()} disabled={saving || all === null} className="ui-button ui-button-primary">{saving ? "Saving…" : "Save featured"}</button>
+      </div>
+    </div>
+  </Modal>;
+}
+
 function ProductManagement({
   products,
   inventory,
@@ -3551,6 +3644,8 @@ function ProductManagement({
   onCategoryFilterChange: (category: string) => void;
   onCategoryCreated: (category: ProductCategory) => void;
 }) {
+  // The window choosing Barista Featured Specials for the mobile menu.
+  const [featuredOpen, setFeaturedOpen] = useState(false);
   const confirmAction = useConfirm();
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -3860,6 +3955,7 @@ function ProductManagement({
             <option value="category">By category</option><option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="margin">Lowest margin first</option>
           </select>
         </label>
+        <button type="button" className="inv-secondary" onClick={() => setFeaturedOpen(true)} disabled={products.length === 0} title="Barista Featured Specials on the mobile menu"><IconStar size={14} />Featured</button>
         <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>
         <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
       </div>
@@ -3998,6 +4094,7 @@ function ProductManagement({
           </div>
         </Modal>
       )}
+      {featuredOpen && <FeaturedDialog onClose={() => setFeaturedOpen(false)} />}
     </div>
   );
 }

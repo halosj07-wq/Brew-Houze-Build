@@ -52,6 +52,8 @@ export function rewardMismatch(reward: LoyaltyReward, item: { productId: number;
   return null;
 }
 export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[]; loyalty?: CustomerLoyalty | null;
+  // The products this customer orders most, most first (the Favorites chip).
+  favorites?: number[];
   // A senior, PWD or other ID the café checked and the customer asked to remember (see ./id-discount.tsx).
   savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null } | null };
 
