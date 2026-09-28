@@ -318,7 +318,7 @@
     @media print { .ae-sound { display: none !important; } }
     /* Entering the theme: "one look give em' whiplash" as hard-cut black and white cards, after the
        Whiplash teaser. The words build up from a fixed left point with black strobe frames between
-       them, WHIPLASH punches in on a spotlit black card, a member flashes in negative, and a tiny
+       them, WHIPLASH punches in on a spotlit black card, the four members strobe past in negative, and a tiny
        tracked WHIP-WHIPLASH closes it. */
     .ae-intro { position: fixed; inset: 0; z-index: 200; overflow: hidden; background: #FFFFFF; color: #0A0A0A; font-family: 'Archivo', 'Hanken Grotesk', 'Arial Black', sans-serif; }
     .ae-intro.is-black { background: #000000; }
@@ -331,7 +331,7 @@
     .ae-intro.is-tiny span { left: 50%; top: 50%; transform: translate(-50%, -50%); padding-left: 0.62em; font-weight: 800; font-stretch: 100%; font-size: clamp(10px, 0.95vw, 14px); letter-spacing: 0.62em; }
     .ae-intro img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 22%; transform: scale(1.06); display: none; filter: grayscale(1) invert(1) contrast(2.4) brightness(1.15); }
     .ae-intro.is-photo { background: #000000; }
-    .ae-intro.is-photo img { display: block; }
+    .ae-intro.is-photo img.is-current { display: block; }
     .ae-intro.is-out { animation: ae-intro-out 200ms ease-in forwards; }
     @keyframes ae-intro-out { to { opacity: 0; } }
     /* The switch itself: a silver whip-crack across the page. */
@@ -792,11 +792,12 @@
     // start). The cards follow the audio's own clock, so they stay in time even if it starts late;
     // without sound they follow the page clock instead.
     //   build  the words so far, left-aligned on white      black  a strobe frame
-    //   wide   WHIPLASH on a spotlit black card             photo  a member in negative
+    //   wide   WHIPLASH on a spotlit black card             photo  each member in negative, in order
     //   tiny   the small tracked WHIP-WHIPLASH on white
     const INTRO = [
       [0, "build", "ONE"], [360, "black"], [420, "build", "ONE LOOK"], [580, "black"], [630, "build", "ONE LOOK GIVE’EM"],
-      [1010, "black"], [1100, "spot wide", "WHIPLASH"], [1420, "photo"], [1500, "tiny", "WHIP-WHIPLASH"],
+      [1010, "black"], [1100, "spot wide", "WHIPLASH"],
+      [1340, "photo", 0], [1390, "photo", 1], [1440, "photo", 2], [1490, "photo", 3], [1540, "tiny", "WHIP-WHIPLASH"],
     ];
     const INTRO_END = 1880;
     function playIntro(withSound) {
@@ -804,17 +805,17 @@
         const box = document.createElement("div");
         box.setAttribute("aria-hidden", "true");
         const word = document.createElement("span");
-        // A member for the negative flash, loaded now (skipped if it is not ready in time).
-        const photo = new Image();
-        photo.alt = "";
-        photo.src = `aespa/${memberOrder[Math.floor(Math.random() * memberOrder.length)]}.webp`;
-        box.append(photo, word);
+        // The members for the negative strobe, loaded now (one not ready in time stays black).
+        const photos = memberOrder.map((key) => { const img = new Image(); img.alt = ""; img.src = `aespa/${key}.webp`; return img; });
+        box.append(...photos, word);
         document.body.appendChild(box);
         const show = (step) => {
-          const [, scene, text = ""] = INTRO[step];
-          const ready = scene !== "photo" || (photo.complete && photo.naturalWidth > 0);
+          const [, scene, value = ""] = INTRO[step];
+          const photo = scene === "photo" ? photos[value] : null;
+          const ready = !photo || (photo.complete && photo.naturalWidth > 0);
+          photos.forEach((img) => img.classList.toggle("is-current", img === photo));
           box.className = `ae-intro ${(ready ? scene : "black").split(" ").map((name) => `is-${name}`).join(" ")}`;
-          word.textContent = text;
+          word.textContent = photo ? "" : value;
         };
         // "ONE" shows at once; the rest follow the sound as it plays.
         show(0);
