@@ -12,7 +12,11 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Syncopate:wght@700&display=swap" rel="stylesheet" />
+  <script>
+    // Applies the secret theme before the page paints, so a reload does not flash the café colors.
+    try { if (localStorage.getItem("brew-houze-theme") === "aespa") document.documentElement.dataset.theme = "aespa"; } catch { /* storage blocked: default theme */ }
+  </script>
   <style>
     :root {
       --espresso: #3D2B1F; --espresso-deep: #2A1D14; --roast: #6B4C3B; --latte: #9C8278;
@@ -128,6 +132,85 @@
       .hero { background: none; color: var(--espresso); }
       .card { break-inside: avoid; box-shadow: none; }
     }
+
+    /* ── Secret: aespa theme ─────────────────────────────────────────────────────
+       Click the "© Brew Houze" line in the footer to switch; click it again to switch back. The
+       choice is remembered on this device. QR codes stay black on white so they still scan. */
+    #footer-year { cursor: default; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+    #footer-year:focus-visible { outline: 2px solid var(--amber); outline-offset: 3px; border-radius: 4px; }
+    html[data-theme="aespa"] {
+      --espresso: #F4F1FF; --espresso-deep: #05040B; --roast: #CBC5E8; --latte: #8F89B8;
+      --foam: rgba(20, 16, 42, 0.72); --cream: rgba(255, 255, 255, 0.06); --line: rgba(190, 170, 255, 0.2);
+      --amber: #C38BFF; --amber-soft: rgba(195, 139, 255, 0.14); --page: #07060F;
+      --ae-pink: #FF7AD9; --ae-lilac: #B69CFF; --ae-cyan: #7FF0FF;
+      --ae-chrome: linear-gradient(100deg, #FFFFFF 0%, #B9B6D3 20%, #F7F5FF 38%, #8D89B0 56%, #EDEBFF 74%, #A7A3C8 100%);
+      --ae-holo: linear-gradient(100deg, var(--ae-pink), var(--ae-lilac) 45%, var(--ae-cyan));
+      color-scheme: dark;
+    }
+    html[data-theme="aespa"] body {
+      background: radial-gradient(1100px 600px at 88% -8%, rgba(182, 156, 255, 0.24), transparent 60%), radial-gradient(900px 520px at -12% 32%, rgba(127, 240, 255, 0.13), transparent 60%),
+        radial-gradient(900px 620px at 55% 112%, rgba(255, 122, 217, 0.16), transparent 60%), #07060F;
+      background-attachment: fixed;
+    }
+    html[data-theme="aespa"] body::before {
+      content: ""; position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: 0.55;
+      background-image: radial-gradient(1.2px 1.2px at 12% 18%, #fff, transparent), radial-gradient(1px 1px at 72% 12%, #fff, transparent), radial-gradient(1.4px 1.4px at 38% 62%, #fff, transparent),
+        radial-gradient(1px 1px at 86% 48%, #fff, transparent), radial-gradient(1.2px 1.2px at 22% 84%, #fff, transparent), radial-gradient(1px 1px at 58% 34%, #fff, transparent), radial-gradient(1.3px 1.3px at 94% 88%, #fff, transparent);
+      background-size: 420px 420px; animation: ae-twinkle 5s ease-in-out infinite alternate;
+    }
+    @keyframes ae-twinkle { from { opacity: 0.25; } to { opacity: 0.7; } }
+    html[data-theme="aespa"] .hero, html[data-theme="aespa"] main, html[data-theme="aespa"] footer { position: relative; z-index: 1; }
+    html[data-theme="aespa"] .hero { background: linear-gradient(160deg, rgba(14, 11, 34, 0.92) 0%, rgba(5, 4, 11, 0.94) 100%); border-bottom: 1px solid var(--line); color: #F4F1FF; }
+    html[data-theme="aespa"] .hero::before {
+      background: radial-gradient(circle at 86% -12%, rgba(255, 122, 217, 0.38), transparent 42%), radial-gradient(circle at 8% 120%, rgba(127, 240, 255, 0.22), transparent 45%),
+        linear-gradient(rgba(182, 156, 255, 0.09) 1px, transparent 1px), linear-gradient(90deg, rgba(182, 156, 255, 0.09) 1px, transparent 1px);
+      background-size: auto, auto, 44px 44px, 44px 44px;
+    }
+    html[data-theme="aespa"] .hero::after {
+      content: "æ"; position: absolute; right: 3%; bottom: -44px; pointer-events: none; font-family: 'Syncopate', sans-serif; font-weight: 700; font-size: clamp(140px, 22vw, 260px); line-height: 1;
+      background: var(--ae-chrome); -webkit-background-clip: text; background-clip: text; color: transparent; opacity: 0.13;
+    }
+    html[data-theme="aespa"] .brand-mark { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7), 0 0 26px rgba(182, 156, 255, 0.85), 0 0 60px rgba(255, 122, 217, 0.35); }
+    html[data-theme="aespa"] .brand-sub { color: var(--ae-cyan); }
+    html[data-theme="aespa"] .hero h1, html[data-theme="aespa"] .section h2, html[data-theme="aespa"] .sheet h3 {
+      font-family: 'Syncopate', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.01em;
+      background: var(--ae-chrome); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 0 18px rgba(182, 156, 255, 0.35));
+    }
+    html[data-theme="aespa"] .hero h1 { font-size: clamp(24px, 4.2vw, 40px); line-height: 1.2; }
+    html[data-theme="aespa"] .section h2 { font-size: 18px; }
+    html[data-theme="aespa"] .hero p.lead, html[data-theme="aespa"] .clock span { color: rgba(236, 232, 255, 0.72); }
+    html[data-theme="aespa"] .status-pill { background: rgba(255, 255, 255, 0.05); border-color: var(--line); color: #E9E5FF; backdrop-filter: blur(6px); }
+    html[data-theme="aespa"] .eyebrow { background: var(--ae-holo); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    html[data-theme="aespa"] .card, html[data-theme="aespa"] .guide-item, html[data-theme="aespa"] .tips {
+      background: var(--foam); border: 1px solid var(--line); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 30px rgba(0, 0, 0, 0.35); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    }
+    html[data-theme="aespa"] .card.is-featured { background: linear-gradient(160deg, rgba(40, 30, 78, 0.8) 0%, var(--foam) 100%); }
+    html[data-theme="aespa"] .card:hover { border-color: rgba(182, 156, 255, 0.55); box-shadow: 0 0 0 1px rgba(182, 156, 255, 0.3), 0 18px 44px rgba(127, 240, 255, 0.12), 0 0 40px rgba(255, 122, 217, 0.12); }
+    html[data-theme="aespa"] .icon { background: rgba(255, 255, 255, 0.07); color: var(--ae-cyan); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
+    html[data-theme="aespa"] .icon.is-amber { background: rgba(255, 122, 217, 0.14); color: var(--ae-pink); }
+    html[data-theme="aespa"] .icon.is-teal { background: rgba(127, 240, 255, 0.12); color: var(--ae-cyan); }
+    html[data-theme="aespa"] .icon.is-purple { background: rgba(182, 156, 255, 0.16); color: var(--ae-lilac); }
+    html[data-theme="aespa"] .icon.is-gcash { background: rgba(96, 140, 255, 0.16); color: #8FB3FF; }
+    html[data-theme="aespa"] .uses li { background: rgba(255, 255, 255, 0.06); color: #DCD6FF; box-shadow: inset 0 0 0 1px rgba(182, 156, 255, 0.18); }
+    html[data-theme="aespa"] .address { background: rgba(0, 0, 0, 0.35); border-color: var(--line); color: var(--latte); }
+    html[data-theme="aespa"] .btn { background: rgba(255, 255, 255, 0.06); border-color: var(--line); color: #EDE9FF; }
+    html[data-theme="aespa"] .btn:hover { border-color: var(--ae-pink); background: rgba(255, 122, 217, 0.14); color: #FFFFFF; }
+    html[data-theme="aespa"] .btn.is-primary { border: none; background: var(--ae-chrome); color: #0B0920; box-shadow: 0 0 22px rgba(182, 156, 255, 0.35); }
+    html[data-theme="aespa"] .btn.is-primary:hover { background: var(--ae-holo); color: #0B0920; box-shadow: 0 0 30px rgba(255, 122, 217, 0.5); }
+    html[data-theme="aespa"] .btn.is-gcash { background: linear-gradient(100deg, #5B86FF, var(--ae-cyan)); color: #05040B; }
+    html[data-theme="aespa"] .guide-item svg { color: var(--ae-pink); }
+    html[data-theme="aespa"] .tips b { color: #FFFFFF; }
+    html[data-theme="aespa"] footer { border-top-color: var(--line); }
+    html[data-theme="aespa"] #footer-year { background: var(--ae-holo); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 700; }
+    html[data-theme="aespa"] .modal { background: rgba(5, 4, 11, 0.7); }
+    html[data-theme="aespa"] .sheet { background: #120F26; border: 1px solid var(--line); box-shadow: 0 0 60px rgba(182, 156, 255, 0.25); }
+    html[data-theme="aespa"] .qr { background: #FFFFFF; border-color: #FFFFFF; }
+    html[data-theme="aespa"] .toast { background: var(--ae-holo); color: #0B0920; font-weight: 800; }
+    /* The switch itself: a holographic sweep across the page. */
+    .ae-flash { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: linear-gradient(115deg, transparent 20%, rgba(255, 122, 217, 0.55) 38%, rgba(182, 156, 255, 0.6) 50%, rgba(127, 240, 255, 0.55) 62%, transparent 80%); background-size: 300% 100%; animation: ae-sweep 900ms ease-out forwards; mix-blend-mode: screen; }
+    @keyframes ae-sweep { from { background-position: 100% 0; opacity: 1; } to { background-position: 0% 0; opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) { html[data-theme="aespa"] body::before { animation: none; } .ae-flash { display: none; } }
+    @media print { html[data-theme="aespa"] body { background: #FFFFFF; } html[data-theme="aespa"] body::before, html[data-theme="aespa"] .hero::after { display: none; } }
   </style>
 </head>
 <body>
@@ -138,7 +221,7 @@
           <img class="brand-mark" src="brand-badge.png" alt="" width="50" height="50" />
           <div>
             <p class="brand-name">Brew Houze</p>
-            <p class="brand-sub">System portal</p>
+            <p class="brand-sub" data-aespa="System portal · æ">System portal</p>
           </div>
         </div>
         <div class="clock" aria-live="off">
@@ -146,7 +229,7 @@
           <span id="clock-date">Philippine time</span>
         </div>
       </div>
-      <h1>Every Brew Houze app, in one place.</h1>
+      <h1 data-aespa="Every Brew Houze app, on the Next Level.">Every Brew Houze app, in one place.</h1>
       <p class="lead">Open the right app for each device, share the customer links, and print the QR codes for the counter and tables. Bookmark this page on every device the café uses.</p>
       <div class="status-strip" id="status-strip" aria-label="App status"></div>
     </div>
@@ -229,8 +312,8 @@
 
   <footer>
     <div class="wrap">
-      <span>Brew Houze café management system</span>
-      <span id="footer-year"></span>
+      <span data-aespa="Brew Houze café management system · Welcome to KWANGYA">Brew Houze café management system</span>
+      <span id="footer-year" role="button" tabindex="0" aria-pressed="false"></span>
     </div>
   </footer>
 
@@ -453,7 +536,34 @@
     }
     tick();
     setInterval(tick, 15000);
-    document.getElementById("footer-year").textContent = `© ${new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric" })} Brew Houze`;
+    const footerYear = document.getElementById("footer-year");
+    const yearText = `© ${new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric" })} Brew Houze`;
+
+    // ── Secret theme (see the CSS): the © line switches the page between the café and aespa ──
+    const swapped = Array.from(document.querySelectorAll("[data-aespa]")).map((el) => ({ el, cafe: el.textContent, aespa: el.dataset.aespa }));
+    function applyTheme(aespa) {
+      if (aespa) document.documentElement.dataset.theme = "aespa";
+      else delete document.documentElement.dataset.theme;
+      swapped.forEach(({ el, cafe, aespa: text }) => { el.textContent = aespa ? text : cafe; });
+      footerYear.textContent = aespa ? `${yearText} × æ` : yearText;
+      footerYear.setAttribute("aria-pressed", String(aespa));
+      document.querySelector('meta[name="color-scheme"]').setAttribute("content", aespa ? "dark" : "light");
+    }
+    function toggleTheme() {
+      const aespa = document.documentElement.dataset.theme !== "aespa";
+      applyTheme(aespa);
+      try { localStorage.setItem("brew-houze-theme", aespa ? "aespa" : "cafe"); } catch { /* storage blocked: lasts until reload */ }
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        const flash = document.createElement("div");
+        flash.className = "ae-flash";
+        document.body.appendChild(flash);
+        flash.addEventListener("animationend", () => flash.remove());
+      }
+      showToast(aespa ? "æ Welcome to KWANGYA" : "☕ Back to the café");
+    }
+    applyTheme(document.documentElement.dataset.theme === "aespa");
+    footerYear.addEventListener("click", toggleTheme);
+    footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleTheme(); } });
   </script>
 </body>
 </html>
