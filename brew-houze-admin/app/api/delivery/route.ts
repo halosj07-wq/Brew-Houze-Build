@@ -3,7 +3,9 @@ import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 
 // Admin, Delivery (see delivery-setup-migration.sql): the delivery rules and the zones.
-//   GET                                 rules and every zone (with how many addresses use it)
+//   GET                                 rules, every zone (with how many addresses use it), and the
+//                                       deliveries that are open now (in progress, failed and not
+//                                       voided, or cash on delivery still with a rider)
 //   PATCH { action: "settings", ... }   save the rules
 //   POST / PATCH { id, ... }            add or edit a zone
 //   DELETE ?id=                         delete a zone no address uses (otherwise switch it off)
@@ -28,13 +30,25 @@ export async function GET() {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
-    const [settings, zones] = await Promise.all([
+    const [settings, zones, live] = await Promise.all([
       pool.query("SELECT setting_key, setting_value FROM store_settings WHERE setting_key = ANY($1::text[])", [RULE_KEYS]),
       pool.query(`
         SELECT z.zone_id, z.name, z.description, z.fee, z.min_order, z.is_active, z.sort_order,
           (SELECT COUNT(*)::int FROM customer_addresses a WHERE a.zone_id = z.zone_id) AS addresses
         FROM delivery_zones z ORDER BY z.sort_order, z.name, z.zone_id
       `),
+      pool.query(`
+        SELECT d.delivery_id, d.order_id, so.queue_number, d.status, d.payment, d.zone_name, d.recipient_name, so.total_amount, d.cod_collected, d.failure_reason,
+          rider.full_name AS rider_name,
+          TO_CHAR(COALESCE(d.failed_at, d.delivered_at, d.picked_up_at, d.ready_at, d.created_at) AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS since
+        FROM deliveries d
+        JOIN sales_orders so ON so.order_id = d.order_id
+        LEFT JOIN admin_users rider ON rider.admin_id = d.rider_admin_id
+        WHERE (d.status IN ('preparing', 'ready', 'out') AND so.status = 'completed')
+          OR (d.status = 'failed' AND so.status = 'completed')
+          OR (d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL)
+        ORDER BY d.created_at ASC LIMIT 100
+      `).catch(() => ({ rows: [] as Record<string, unknown>[] })),
     ]);
     const value = new Map(settings.rows.map((row) => [String(row.setting_key), String(row.setting_value)]));
     return NextResponse.json({
@@ -44,6 +58,12 @@ export async function GET() {
           maxActive: value.get("delivery_max_active") ?? "", freeAbove: value.get("delivery_free_above") ?? "",
           codEnabled: value.get("cod_enabled") === "true", codMaxAmount: value.get("cod_max_amount") ?? "", codMinOrders: value.get("cod_min_orders") ?? "0",
         },
+        live: live.rows.map((row) => ({
+          id: Number(row.delivery_id), orderId: Number(row.order_id), queueNumber: row.queue_number === null ? null : Number(row.queue_number),
+          status: String(row.status), payment: String(row.payment), zone: String(row.zone_name), recipient: String(row.recipient_name), total: Number(row.total_amount),
+          codCollected: row.cod_collected === null ? null : Number(row.cod_collected), failureReason: (row.failure_reason as string | null) ?? null,
+          rider: (row.rider_name as string | null) ?? null, since: String(row.since),
+        })),
         zones: zones.rows.map((row) => ({ id: Number(row.zone_id), name: String(row.name), description: (row.description as string | null) ?? "", fee: Number(row.fee), minOrder: row.min_order === null ? null : Number(row.min_order), isActive: Boolean(row.is_active), addresses: Number(row.addresses) })),
       },
     }, { headers: { "Cache-Control": "no-store" } });

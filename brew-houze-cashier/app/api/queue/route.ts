@@ -17,7 +17,17 @@ export async function GET(request: Request) {
       WHERE (queue_status = 'waiting' OR (queue_status = 'served' AND service_type IS DISTINCT FROM 'delivery'))
     `);
     if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
-      return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
+      // For the Deliveries badge: packed orders waiting for a rider, failed deliveries to void, and
+      // cash on delivery not handed in (mine_cash: what this rider still has to hand in).
+      const deliveries = await pool.query(`
+        SELECT COUNT(*) FILTER (WHERE d.status = 'ready' AND so.status = 'completed')::int AS ready,
+          COUNT(*) FILTER (WHERE d.status = 'failed' AND so.status = 'completed')::int AS failed,
+          COUNT(*) FILTER (WHERE d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL)::int AS cash,
+          COUNT(*) FILTER (WHERE d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL AND d.rider_admin_id = $1)::int AS mine_cash
+        FROM deliveries d JOIN sales_orders so ON so.order_id = d.order_id
+        WHERE d.status IN ('ready', 'failed') OR (d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL)
+      `, [session.adminId]).then((result) => result.rows[0]).catch(() => null);
+      return NextResponse.json({ signature: signatureResult.rows[0], deliveries }, { headers: { "Cache-Control": "no-store" } });
     }
     const result = await pool.query(`
       SELECT

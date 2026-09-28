@@ -479,10 +479,10 @@ function Sidebar({ current, collapsed, user, onChange, onToggle, onAccount }: { 
 
 // ─── Notification bell ──────────────────────────────────────────────────────────────────────────
 // Alerts worked out by /api/notifications from existing records (stock, GCash problems, voids and
-// refunds, drawer short or over, new customer sign-ups). Which ones were seen is remembered per
+// refunds, drawer short or over, delivery problems, new customer sign-ups). Which ones were seen is remembered per
 // device in the browser; keys of alerts that are gone are dropped, so an item that runs low
 // again after a restock shows up as new.
-type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
+type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount" | "delivery"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
 const SEEN_NOTIFICATIONS_KEY = "brew-houze-admin-seen-notifications";
 const NOTIFICATION_REFRESH_MS = 60_000;
 
@@ -569,7 +569,7 @@ function NotificationBell({ onNavigate }: { onNavigate: (page: Page) => void }) 
   const list = items ?? [];
   const unread = list.filter((item) => !seen.has(item.key));
   const urgent = unread.some((item) => item.tone === "danger");
-  const kindIcon = (kind: AdminNotification["kind"]) => kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "discount" ? <IconTag size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
+  const kindIcon = (kind: AdminNotification["kind"]) => kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "discount" ? <IconTag size={15} /> : kind === "delivery" ? <IconTruck size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
 
   return <div className="notif" ref={wrapRef}>
     <button type="button" className={`notif-bell${open ? " is-open" : ""}`} onClick={() => { setOpen((value) => !value); setNow(Date.now()); }} aria-label={unread.length ? `Notifications, ${unread.length} new` : "Notifications"} aria-expanded={open} title="Notifications">
@@ -583,7 +583,7 @@ function NotificationBell({ onNavigate }: { onNavigate: (page: Page) => void }) 
       </header>
       {failed && <p className="notif-error">Could not refresh. Showing the last loaded alerts.</p>}
       {items === null ? <p className="notif-empty">Loading…</p>
-        : list.length === 0 ? <p className="notif-empty">Nothing needs your attention. Stock, GCash problems, voids and refunds, drawer differences and new customers show up here.</p>
+        : list.length === 0 ? <p className="notif-empty">Nothing needs your attention. Stock, GCash problems, voids and refunds, drawer differences, delivery problems and new customers show up here.</p>
           : <ul className="notif-list">
             {list.map((item) => <li key={item.key}>
               <button type="button" className={`notif-item is-${item.tone}${seen.has(item.key) ? "" : " is-unread"}`} onClick={() => { markSeen([item.key]); setOpen(false); onNavigate(item.page); }}>
@@ -850,7 +850,7 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
 type DashboardShift = {
   shiftId: number; openedAt: string; closedAt: string | null; openedByName: string | null; closedByName: string | null;
   orderCount: number; mobileOrderCount: number; itemsSold: number; grossSales: number; cashSales: number; onlineSales: number;
-  voidCount: number; refundCount: number; reversedAmount: number; netSales: number;
+  voidCount: number; refundCount: number; reversedAmount: number; netSales: number; codReceived?: number;
   startingCash: number; expectedCash: number; countedCash: number | null; cashDifference: number | null; costOfGoods: number; uncostedItems: number;
 };
 type DashboardOrder = { orderId: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; orderSource: string; createdAt: string; punchedBy: string; items: string };
@@ -1145,8 +1145,9 @@ function AdminCashDrawerDialog({ expectedCash, onClose, onSaved }: { expectedCas
 
 function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenStore, onCloseShift }: { shift: DashboardShift | null; previousShift: DashboardShift | null; now: number; onOpenReports: () => void; onOpenStore: () => void; onCloseShift: () => void }) {
   if (shift) {
-    const paid = shift.cashSales + shift.onlineSales;
-    const cashShare = paid > 0 ? (shift.cashSales / paid) * 100 : 0;
+    const cashIn = shift.cashSales + (shift.codReceived ?? 0);
+    const paid = cashIn + shift.onlineSales;
+    const cashShare = paid > 0 ? (cashIn / paid) * 100 : 0;
     const reversals = shift.voidCount + shift.refundCount;
     const longOpen = (now - new Date(shift.openedAt).getTime()) / HOUR_MS > LONG_OPEN_SHIFT_HOURS;
     return <section className="dash-shift">
@@ -1171,6 +1172,7 @@ function DashboardShiftCard({ shift, previousShift, now, onOpenReports, onOpenSt
         <div className="dash-drawer-legend">
           <span><i className="is-cash" />Cash {peso(shift.cashSales)}</span>
           <span><i className="is-online" />Online {peso(shift.onlineSales)}</span>
+          {(shift.codReceived ?? 0) > 0 && <span><i className="is-cash" />Delivery cash {peso(shift.codReceived ?? 0)}</span>}
           <span>Started with {peso(shift.startingCash)}</span>
         </div>
       </div>
@@ -4171,7 +4173,7 @@ function saveWorkbook(sheets: [name: string, sheet: XLSX.WorkSheet | null][], fi
 }
 
 const excelStatus = (status: string) => status.startsWith("void") ? "Voided" : status.startsWith("refund") ? "Refunded" : status === "completed" ? "Completed" : status.charAt(0).toUpperCase() + status.slice(1);
-const excelPayment = (order: { orderSource: string; paymentMethod: string }) => order.orderSource === "online" ? "Mobile menu (GCash)" : order.paymentMethod === "split" ? "Split (cash + GCash)" : order.paymentMethod === "online" ? "GCash" : "Cash";
+const excelPayment = (order: { orderSource: string; paymentMethod: string }) => order.paymentMethod === "cod" ? "Cash on delivery" : order.orderSource === "online" ? "Mobile menu (GCash)" : order.paymentMethod === "split" ? "Split (cash + GCash)" : order.paymentMethod === "online" ? "GCash" : "Cash";
 const excelReturnMethod = (method: string | null | undefined) => method === "gcash" ? "GCash" : method === "cash" ? "Cash" : method === "split" ? "As paid (cash + GCash)" : "";
 
 function getFinanceDateStamp(): string {
@@ -4200,9 +4202,10 @@ type ShiftActivityData = {
   products: { name: string; category: string; quantity: number; revenue: number }[];
   payments: ShiftPayment[];
   movements?: DrawerMovement[];
+  deliveries?: ShiftDelivery[];
   generatedAt: string;
 };
-type ShiftEventKind = "shift" | "order" | "reversal" | "staff" | "stock" | "payment" | "drawer";
+type ShiftEventKind = "shift" | "order" | "reversal" | "staff" | "stock" | "payment" | "drawer" | "delivery";
 type ShiftEvent = { key: string; at: string; kind: ShiftEventKind; title: string; detail: string; amount?: { text: string; tone: "plus" | "minus" | "muted" } };
 type ShiftTab = "activity" | "orders" | "staff" | "stock";
 
@@ -4215,6 +4218,7 @@ const shiftFeedFilters: { id: "all" | ShiftEventKind; label: string }[] = [
   { id: "staff", label: "Staff" },
   { id: "stock", label: "Stock" },
   { id: "payment", label: "GCash" },
+  { id: "delivery", label: "Deliveries" },
   { id: "drawer", label: "Cash drawer" },
 ];
 
@@ -4288,6 +4292,14 @@ function buildShiftEvents(data: ShiftActivityData, now: number): ShiftEvent[] {
   for (const payment of data.payments) {
     const title = payment.status === "awaiting_payment" ? "GCash payment waiting" : payment.status === "needs_attention" ? "GCash payment needs attention" : "GCash payment failed";
     events.push({ key: `pay-${payment.checkoutId}`, at: payment.createdAt, kind: "payment", title, detail: `${payment.sourceApp === "mobile" ? "Mobile menu" : "Staff app"}${payment.error ? ` · ${payment.error}` : ""}`, amount: { text: peso(payment.amount), tone: "muted" } });
+  }
+  for (const delivery of data.deliveries ?? []) {
+    const queue = `Order #${delivery.queueNumber ?? delivery.orderId}`;
+    if (delivery.soldInShift && delivery.pickedUpAt) events.push({ key: `dlv-out-${delivery.id}`, at: delivery.pickedUpAt, kind: "delivery", title: `${queue} on the way`, detail: `${delivery.rider ?? "Rider"} · ${delivery.zone}` });
+    if (delivery.soldInShift && delivery.deliveredAt) events.push({ key: `dlv-done-${delivery.id}`, at: delivery.deliveredAt, kind: "delivery", title: `${queue} delivered`, detail: `${delivery.rider ?? "Rider"} · ${delivery.zone}${delivery.codCollected !== null ? ` · collected ${peso(delivery.codCollected)} cash` : ""}` });
+    if (delivery.soldInShift && delivery.failedAt) events.push({ key: `dlv-fail-${delivery.id}`, at: delivery.failedAt, kind: "delivery", title: `${queue} not delivered`, detail: `${delivery.failureReason ?? "No reason given"}${delivery.rider ? ` · ${delivery.rider}` : ""}` });
+    // The rider's cash goes into this shift's drawer when the cashier receives it.
+    if (delivery.remittedInShift && delivery.remittedAt && delivery.codCollected !== null) events.push({ key: `dlv-cash-${delivery.id}`, at: delivery.remittedAt, kind: "drawer", title: `Cash on delivery handed in: ${queue}`, detail: `${delivery.rider ? `From ${delivery.rider}` : "From the rider"}${delivery.remittedTo ? ` to ${delivery.remittedTo}` : ""}`, amount: { text: `+${peso(delivery.codCollected)}`, tone: "plus" } });
   }
   for (const entry of data.movements ?? []) {
     events.push({ key: `drawer-${entry.id}`, at: entry.createdAt, kind: "drawer", title: `${drawerKindLabels[entry.kind] ?? entry.kind}: ${entry.reason}`, detail: `${entry.by ? `By ${entry.by}` : ""}${entry.source === "admin" ? " (admin app)" : ""}${entry.note ? ` · ${entry.note}` : ""}`, amount: { text: `${entry.kind === "cash_in" ? "+" : "−"}${peso(entry.amount)}`, tone: entry.kind === "cash_in" ? "plus" : "minus" } });
@@ -4458,8 +4470,10 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
     </div></div>;
   }
 
-  const paid = shift ? shift.cashSales + shift.onlineSales : 0;
-  const cashShare = shift && paid > 0 ? (shift.cashSales / paid) * 100 : 0;
+  const codReceived = shift?.delivery?.codReceived ?? 0;
+  const paid = shift ? shift.cashSales + codReceived + shift.onlineSales : 0;
+  const cashShare = shift && paid > 0 ? ((shift.cashSales + codReceived) / paid) * 100 : 0;
+  const riders = shiftRiders(data.deliveries ?? []);
   const reversals = shift ? shift.voidCount + shift.refundCount : 0;
   const longOpen = shift?.isOpen && (now - new Date(shift.openedAt).getTime()) / HOUR_MS > LONG_OPEN_SHIFT_HOURS;
   const counted = shift ? cashDifferenceLabel(shift.cashDifference) : null;
@@ -4520,7 +4534,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
             : openShiftId === null
               ? <button type="button" className="dash-open-store" onClick={() => setAction("open")}>Start shift</button>
               : <button type="button" className="dash-shift-link" onClick={() => viewShift(null)}>Go to the open shift <IconChevron size={13} /></button>}
-          <button type="button" className="dash-shift-link" onClick={() => exportShiftReport({ summary: { ...shift, hoursOpen: ((shift.closedAt ? new Date(shift.closedAt).getTime() : now) - new Date(shift.openedAt).getTime()) / HOUR_MS }, orders, attendance: data.attendance, movements: data.movements })}><IconDownload size={13} />Export shift</button>
+          <button type="button" className="dash-shift-link" onClick={() => exportShiftReport({ summary: { ...shift, hoursOpen: ((shift.closedAt ? new Date(shift.closedAt).getTime() : now) - new Date(shift.openedAt).getTime()) / HOUR_MS }, orders, attendance: data.attendance, movements: data.movements, deliveries: data.deliveries })}><IconDownload size={13} />Export shift</button>
           <button type="button" className="dash-shift-link" onClick={() => onNavigate("finance")}>Shift reports <IconChevron size={13} /></button>
         </div>
         <div className="dash-shift-stats shiftm-stats">
@@ -4534,6 +4548,10 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
           {[shift.discounts.scPwd > 0 ? `Senior & PWD ${peso(shift.discounts.scPwd)} (${shift.discounts.scPwdCount})` : "", shift.discounts.vatExempt > 0 ? `VAT exempted ${peso(shift.discounts.vatExempt)}` : "", shift.discounts.otherId > 0 ? `Other ID ${peso(shift.discounts.otherId)}` : "", shift.discounts.rewards > 0 ? `Rewards ${peso(shift.discounts.rewards)}` : ""].filter(Boolean).join(" · ")}
           <em>already off the sales</em>
         </p>}
+        {shift.delivery && (shift.delivery.orders > 0 || shift.delivery.failed > 0) && <p className="shiftm-discounts is-delivery">
+          <strong>🛵 Deliveries this shift</strong>
+          {[`${shift.delivery.orders} order${shift.delivery.orders === 1 ? "" : "s"}`, `${shift.delivery.delivered} delivered`, shift.delivery.failed ? `${shift.delivery.failed} not delivered` : "", shift.delivery.fees > 0 ? `${peso(shift.delivery.fees)} in fees` : "", shift.delivery.codSales > 0 ? `COD ${peso(shift.delivery.codSales)}` : "", shift.delivery.codWithRiders > 0 ? `${peso(shift.delivery.codWithRiders)} still with riders` : ""].filter(Boolean).join(" · ")}
+        </p>}
         <div className="dash-drawer shiftm-drawer">
           {shift.isHistorical ? <p className="dash-shift-meta" style={{ margin: 0 }}>Cash drawer not tracked: this day was recorded before shifts and cash counts were introduced.</p> : <>
             <div className="dash-drawer-row"><span>{shift.isOpen ? "Expected in cash drawer" : "Expected in drawer"}</span><strong>{peso(shift.expectedCash)}</strong></div>
@@ -4542,6 +4560,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
             <div className="dash-drawer-legend">
               <span><i className="is-cash" />Cash {peso(shift.cashSales)}</span>
               <span><i className="is-online" />Online {peso(shift.onlineSales)}</span>
+              {codReceived > 0 && <span><i className="is-cash" />Delivery cash {peso(codReceived)}</span>}
               <span>Started with {peso(shift.startingCash)}{shift.cashReversed > 0 ? ` · −${peso(shift.cashReversed)} given back` : ""}{(shift.cashAdded ?? 0) > 0 ? ` · +${peso(shift.cashAdded ?? 0)} added` : ""}{(shift.cashRemoved ?? 0) > 0 ? ` · −${peso(shift.cashRemoved ?? 0)} taken out` : ""}{(shift.gcashReturned ?? 0) > 0 ? ` · ${peso(shift.gcashReturned ?? 0)} returned by GCash` : ""}</span>
             </div>
           </>}
@@ -4587,6 +4606,16 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
                 <div className={queueWaiting ? "is-busy" : ""}><strong>{queueWaiting}</strong><span>preparing</span></div>
                 <div><strong>{queueReady}</strong><span>ready for pickup</span></div>
               </div>
+            </div>}
+            {riders.length > 0 && <div className="shiftm-panel">
+              <h3>Riders</h3>
+              <p>{shift.delivery ? `${shift.delivery.delivered} of ${shift.delivery.orders} delivered${shift.delivery.codWithRiders > 0 ? ` · ${peso(shift.delivery.codWithRiders)} cash not handed in` : ""}` : ""}</p>
+              <ul className="shiftm-people">
+                {riders.map((rider) => <li key={rider.name}>
+                  <UserAvatar name={rider.name} size={28} />
+                  <div><strong>{rider.name}</strong><span>{rider.delivered} delivered{rider.failed ? ` · ${rider.failed} failed` : ""}{rider.active ? ` · ${rider.active} on the way` : ""}</span>{rider.collected > rider.handedIn && <span style={{ color: "#B45309" }}>{peso(rider.collected - rider.handedIn)} cash to hand in</span>}</div>
+                </li>)}
+              </ul>
             </div>}
             <div className="shiftm-panel">
               <h3>{shift.isOpen ? "On duty" : "Worked this shift"}</h3>
@@ -4637,7 +4666,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
                 <span className="dash-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
                 <div className="dash-order-main">
                   <strong>{order.items || "Order"}</strong>
-                  <span>{timeWithDay(order.createdAt)} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b>{order.discountLabel && (order.discountTotal ?? 0) > 0 && <b className="order-discount-tag" title={order.discountLabel}>−{peso(order.discountTotal ?? 0)} {shortDiscountLabel(order.discountLabel)}</b>} · ref {order.orderId}{reversed && order.reversedAt ? ` · ${order.status.startsWith("void") ? "voided" : "refunded"} ${timeWithDay(order.reversedAt)}${order.reversedBy ? ` by ${order.reversedBy}` : ""}` : ""}</span>
+                  <span>{timeWithDay(order.createdAt)} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b>{order.serviceType === "delivery" && <b className="order-discount-tag is-delivery">🛵 {order.paymentMethod === "cod" ? "Delivery · COD" : "Delivery"}</b>}{order.discountLabel && (order.discountTotal ?? 0) > 0 && <b className="order-discount-tag" title={order.discountLabel}>−{peso(order.discountTotal ?? 0)} {shortDiscountLabel(order.discountLabel)}</b>} · ref {order.orderId}{reversed && order.reversedAt ? ` · ${order.status.startsWith("void") ? "voided" : "refunded"} ${timeWithDay(order.reversedAt)}${order.reversedBy ? ` by ${order.reversedBy}` : ""}` : ""}</span>
                   {reversed && describeReturn(order) && <span className={order.returnMethod === "gcash" ? "shiftm-return is-gcash" : "shiftm-return"}>{describeReturn(order)}</span>}
                 </div>
                 <div className="dash-order-total">
@@ -4748,7 +4777,39 @@ type ShiftReport = {
   uncostedItems: number;
   // Discounts in the shift's sales, already taken off the sales figures above.
   discounts?: ShiftDiscounts;
+  // Delivery orders sold in the shift. codReceived: riders' cash handed in during the shift
+  // (already in the expected cash); codWithRiders: collected but not handed in yet.
+  delivery?: ShiftDeliveryTotals;
 };
+type ShiftDeliveryTotals = { orders: number; fees: number; codSales: number; codReceived: number; codWithRiders: number; delivered: number; failed: number };
+// A delivery of a shift: sold in it, or its cash on delivery handed in during it.
+type ShiftDelivery = {
+  id: number; orderId: number; queueNumber: number | null; status: string; payment: string; fee: number; zone: string; codAmount: number | null; codCollected: number | null;
+  failureReason: string | null; soldInShift: boolean; orderStatus: string; remittedInShift: boolean; rider: string | null; remittedTo: string | null;
+  pickedUpAt: string | null; deliveredAt: string | null; failedAt: string | null; remittedAt: string | null;
+};
+const deliveryStatusLabels: Record<string, string> = { preparing: "Being prepared", ready: "Packed, waiting for a rider", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled (voided)" };
+function minutesLabel(minutes: number | null): string {
+  if (minutes === null) return "—";
+  return minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+// Each rider's deliveries in a shift: delivered, failed, still going, cash collected and handed in.
+function shiftRiders(deliveries: ShiftDelivery[]) {
+  const riders = new Map<string, { name: string; delivered: number; failed: number; active: number; fees: number; collected: number; handedIn: number }>();
+  for (const delivery of deliveries) {
+    if (!delivery.soldInShift || !delivery.rider) continue;
+    const entry = riders.get(delivery.rider) ?? { name: delivery.rider, delivered: 0, failed: 0, active: 0, fees: 0, collected: 0, handedIn: 0 };
+    if (delivery.status === "delivered") { entry.delivered += 1; entry.fees += delivery.fee; }
+    else if (delivery.status === "failed") entry.failed += 1;
+    else if (delivery.status === "out" || delivery.status === "ready") entry.active += 1;
+    entry.collected += delivery.codCollected ?? 0;
+    if (delivery.remittedAt) entry.handedIn += delivery.codCollected ?? 0;
+    riders.set(delivery.rider, entry);
+  }
+  return Array.from(riders.values()).sort((a, b) => b.delivered - a.delivered || a.name.localeCompare(b.name));
+}
+// How an order was paid, short: for order rows.
+const paymentShort = (order: { paymentMethod: string }) => order.paymentMethod === "cod" ? "COD" : order.paymentMethod === "split" ? "Split" : order.paymentMethod === "online" ? "Online" : "Cash";
 type ShiftDiscounts = { scPwd: number; scPwdCount: number; vatExempt: number; otherId: number; rewards: number };
 const shiftDiscountTotal = (discounts?: ShiftDiscounts) => discounts ? discounts.scPwd + discounts.vatExempt + discounts.otherId + discounts.rewards : 0;
 // "Senior Citizen (Juan Dela Cruz)" → "Senior Citizen" for small tags (the full label is the tooltip).
@@ -4758,9 +4819,9 @@ type DrawerKind = "cash_in" | "cash_out" | "cash_drop";
 type DrawerMovement = { id: number; kind: string; amount: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string };
 const drawerKindLabels: Record<string, string> = { cash_in: "Cash in", cash_out: "Cash out", cash_drop: "Cash drop" };
 const drawerSigned = (entry: DrawerMovement) => entry.kind === "cash_in" ? entry.amount : -entry.amount;
-type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; orderSource: string; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
+type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; orderSource: string; serviceType?: string | null; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
 type ShiftAttendance = { id: number; name: string; role: string; timeIn: string; timeOut: string | null };
-type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[]; movements?: DrawerMovement[] };
+type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[]; movements?: DrawerMovement[]; deliveries?: ShiftDelivery[] };
 
 const LONG_OPEN_SHIFT_HOURS = 16;
 
@@ -4808,6 +4869,10 @@ function shiftListColumns(): ExcelColumn<ShiftReport>[] {
     { header: "Loyalty rewards", value: (shift) => shift.discounts?.rewards || null, kind: "money" },
     { header: "Cash sales", value: (shift) => shift.cashSales, kind: "money" },
     { header: "GCash and online", value: (shift) => shift.onlineSales, kind: "money" },
+    { header: "Delivery orders", value: (shift) => shift.delivery?.orders || null, kind: "count" },
+    { header: "Delivery fees", value: (shift) => shift.delivery?.fees || null, kind: "money" },
+    { header: "Failed deliveries", value: (shift) => shift.delivery?.failed || null, kind: "count" },
+    { header: "Cash on delivery received", value: (shift) => shift.delivery?.codReceived || null, kind: "money" },
     { header: "Starting cash", value: (shift) => shift.isHistorical ? null : shift.startingCash, kind: "money" },
     { header: "Cash added", value: (shift) => shift.cashAdded ?? 0, kind: "money" },
     { header: "Cash taken out", value: (shift) => shift.cashRemoved ?? 0, kind: "money" },
@@ -4870,6 +4935,7 @@ function exportShiftReport(shift: ShiftDetail) {
       ...(summary.isHistorical ? [["Not tracked for this day"] as ExcelInfoRow] : [
         ["Starting cash", summary.startingCash] as ExcelInfoRow,
         ["Cash sales", summary.cashSales] as ExcelInfoRow,
+        ...((summary.delivery?.codReceived ?? 0) > 0 ? [["Cash on delivery received from riders", summary.delivery?.codReceived ?? 0] as ExcelInfoRow] : []),
         ["Cash given back", summary.cashReversed] as ExcelInfoRow,
         ["Returned through GCash (not from the drawer)", summary.gcashReturned ?? 0] as ExcelInfoRow,
         ["Cash added (cash in)", summary.cashAdded ?? 0] as ExcelInfoRow,
@@ -4880,7 +4946,18 @@ function exportShiftReport(shift: ShiftDetail) {
       ]),
       ["GCash and online", summary.onlineSales],
       ["Closing notes", summary.closingNotes ?? ""],
-    ], ["Orders", "Items sold", "Voids", "Refunds", "Items sold without a cost"])],
+      ...(summary.delivery && (summary.delivery.orders > 0 || summary.delivery.failed > 0) ? [
+        [] as ExcelInfoRow,
+        ["Deliveries"] as ExcelInfoRow,
+        ["Delivery orders", summary.delivery.orders] as ExcelInfoRow,
+        ["Delivered", summary.delivery.delivered] as ExcelInfoRow,
+        ["Could not be delivered", summary.delivery.failed] as ExcelInfoRow,
+        ["Delivery fees", summary.delivery.fees] as ExcelInfoRow,
+        ["Cash on delivery sales", summary.delivery.codSales] as ExcelInfoRow,
+        ["Cash on delivery received from riders", summary.delivery.codReceived] as ExcelInfoRow,
+        ["Cash on delivery still with riders", summary.delivery.codWithRiders] as ExcelInfoRow,
+      ] : []),
+    ], ["Orders", "Items sold", "Voids", "Refunds", "Items sold without a cost", "Delivery orders", "Delivered", "Could not be delivered"])],
     ["Orders", shift.orders.length ? excelTable(shift.orders, [
       { header: "Queue #", value: (order) => order.queueNumber ?? null },
       { header: "Order #", value: (order) => order.orderId },
@@ -4890,6 +4967,7 @@ function exportShiftReport(shift: ShiftDetail) {
       { header: "Discount for", value: (order) => order.discountLabel ?? "" },
       { header: "Total", value: (order) => order.total, kind: "money" },
       { header: "Payment", value: (order) => excelPayment(order) },
+      { header: "Order type", value: (order) => order.serviceType ? serviceTypeLabels[order.serviceType] ?? order.serviceType : "" },
       { header: "Punched by", value: (order) => order.punchedBy },
       { header: "Status", value: (order) => excelStatus(order.status) },
       { header: "In this shift", value: (order) => order.soldInShift && order.reversedInShift ? "Sold and reversed" : order.soldInShift ? "Sold" : "Reversed (sold in an earlier shift)" },
@@ -4903,6 +4981,22 @@ function exportShiftReport(shift: ShiftDetail) {
       { header: "By", value: (entry) => entry.by ?? "" },
       { header: "From", value: (entry) => entry.source === "admin" ? "Admin app" : "Staff app" },
       { header: "Note", value: (entry) => entry.note ?? "" },
+    ]) : null],
+    ["Deliveries", (shift.deliveries ?? []).length ? excelTable(shift.deliveries ?? [], [
+      { header: "Queue #", value: (delivery) => delivery.queueNumber ?? null },
+      { header: "Order #", value: (delivery) => delivery.orderId },
+      { header: "Zone", value: (delivery) => delivery.zone },
+      { header: "Rider", value: (delivery) => delivery.rider ?? "" },
+      { header: "Status", value: (delivery) => deliveryStatusLabels[delivery.status] ?? delivery.status },
+      { header: "Payment", value: (delivery) => delivery.payment === "cod" ? "Cash on delivery" : "GCash" },
+      { header: "Delivery fee", value: (delivery) => delivery.fee, kind: "money" },
+      { header: "Picked up", value: (delivery) => excelDateTime(delivery.pickedUpAt) },
+      { header: "Delivered", value: (delivery) => excelDateTime(delivery.deliveredAt) },
+      { header: "Cash collected", value: (delivery) => delivery.codCollected, kind: "money" },
+      { header: "Cash handed in", value: (delivery) => excelDateTime(delivery.remittedAt) },
+      { header: "Received by", value: (delivery) => delivery.remittedTo ?? "" },
+      { header: "Not delivered because", value: (delivery) => delivery.failureReason ?? "" },
+      { header: "In this shift", value: (delivery) => delivery.soldInShift ? "Sold" : "Cash handed in (sold in an earlier shift)" },
     ]) : null],
     ["Attendance", shift.attendance.length ? excelTable(shift.attendance, [
       { header: "Employee", value: (log) => log.name },
@@ -5043,6 +5137,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
               {summary.isHistorical ? <p style={{ color: "#9C8278", fontSize: 12.5 }}>Not tracked: this day was recorded before shifts and cash counts were introduced.</p> : <>
                 {row("Starting cash", peso(summary.startingCash))}
                 {row("+ Cash sales", peso(summary.cashSales))}
+                {(summary.delivery?.codReceived ?? 0) > 0 && row("+ Cash on delivery from riders", peso(summary.delivery?.codReceived ?? 0))}
                 {row("− Cash given back", peso(summary.cashReversed))}
                 {(summary.gcashReturned ?? 0) > 0 && row("Returned through GCash (not from the drawer)", peso(summary.gcashReturned ?? 0))}
                 {(summary.cashAdded ?? 0) > 0 && row("+ Cash added (cash in)", peso(summary.cashAdded ?? 0))}
@@ -5064,13 +5159,26 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
                   <strong style={{ minWidth: 42, color: reversed ? "#9C8278" : "#D97706" }}>#{order.queueNumber ?? "—"}</strong>
                   <span style={{ minWidth: 70, color: "#9C8278" }}>{new Date(order.createdAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</span>
                   <span style={{ flex: 1, minWidth: 0, color: reversed ? "#9C8278" : "#3D2B1F", textDecoration: reversed ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.items}</span>
-                  <span style={{ color: "#9C8278", fontSize: 11 }}>{order.paymentMethod === "online" ? "Online" : "Cash"} · {order.punchedBy}{order.discountLabel && (order.discountTotal ?? 0) > 0 ? ` · −${peso(order.discountTotal ?? 0)} ${shortDiscountLabel(order.discountLabel)}` : ""}</span>
+                  <span style={{ color: "#9C8278", fontSize: 11 }}>{order.serviceType === "delivery" ? "🛵 " : ""}{paymentShort(order)} · {order.punchedBy}{order.discountLabel && (order.discountTotal ?? 0) > 0 ? ` · −${peso(order.discountTotal ?? 0)} ${shortDiscountLabel(order.discountLabel)}` : ""}</span>
                   {reversed && <span style={{ padding: "1px 7px", borderRadius: 999, background: "#FEE2E2", color: "#B91C1C", fontSize: 10.5, fontWeight: 800, textTransform: "capitalize" }}>{order.status}{order.reversedInShift && !order.soldInShift ? " (earlier sale)" : ""}</span>}
                   <strong style={{ minWidth: 72, textAlign: "right", color: reversed ? "#9C8278" : "#3D2B1F" }}>{peso(order.total)}</strong>
                 </div>;
               })}
             </div>}
           </div>
+          {summary.delivery && (summary.delivery.orders > 0 || summary.delivery.failed > 0 || (detail.deliveries ?? []).length > 0) && <div style={{ padding: "0 22px 16px" }}>
+            <p style={{ margin: "0 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Deliveries ({summary.delivery.orders})</p>
+            <div className="acc-stats fin-dlv-stats">
+              <div><span>Delivered</span><strong>{summary.delivery.delivered}</strong><em className="fin-loy-sub">{summary.delivery.failed ? `${summary.delivery.failed} not delivered` : "none failed"}</em></div>
+              <div><span>Delivery fees</span><strong>{peso(summary.delivery.fees)}</strong></div>
+              <div><span>Cash on delivery</span><strong>{peso(summary.delivery.codSales)}</strong><em className="fin-loy-sub">{peso(summary.delivery.codReceived)} handed in</em></div>
+              <div><span>Still with riders</span><strong style={{ color: summary.delivery.codWithRiders > 0 ? "#B45309" : undefined }}>{peso(summary.delivery.codWithRiders)}</strong></div>
+            </div>
+            {shiftRiders(detail.deliveries ?? []).length > 0 && <ul className="fin-simple-list" style={{ marginTop: 8 }}>
+              {shiftRiders(detail.deliveries ?? []).map((rider) => <li key={rider.name}><span><strong>🛵 {rider.name}</strong><em>{rider.delivered} delivered{rider.failed ? ` · ${rider.failed} not delivered` : ""}{rider.active ? ` · ${rider.active} still going` : ""}{rider.collected ? ` · collected ${peso(rider.collected)}, handed in ${peso(rider.handedIn)}` : ""}</em></span><strong>{peso(rider.fees)} fees</strong></li>)}
+            </ul>}
+            {(detail.deliveries ?? []).filter((delivery) => delivery.status === "failed").map((delivery) => <p key={delivery.id} style={{ margin: "6px 0 0", padding: "6px 10px", borderRadius: 8, background: "#FEF2F2", color: "#991B1B", fontSize: 12 }}>#{delivery.queueNumber ?? delivery.orderId} not delivered{delivery.rider ? ` by ${delivery.rider}` : ""}: {delivery.failureReason ?? "no reason given"}{delivery.orderStatus === "completed" ? " · not voided yet" : " · voided"}</p>)}
+          </div>}
           <div style={{ padding: "0 22px 22px" }}>
             <p style={{ margin: "0 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Attendance ({detail.attendance.length})</p>
             {detail.attendance.length === 0 ? <p style={{ color: "#9C8278", fontSize: 12.5 }}>No employee logins recorded in this shift.</p> : <div className="flex flex-wrap gap-2">
@@ -5111,6 +5219,15 @@ type FinanceOverviewData = {
   loyalty?: FinanceLoyalty | null;
   // Dine in vs take out ("unknown": orders from before it was recorded).
   serviceTypes?: { type: string; orders: number; sales: number }[];
+  // Deliveries in the range (null when they could not be read).
+  deliveries?: FinanceDeliveries | null;
+};
+type FinanceDeliveries = {
+  orders: number; sales: number; fees: number; freeDeliveries: number; codOrders: number; codSales: number; codCollected: number; codReceived: number; codWithRiders: number;
+  delivered: number; failed: number; cancelled: number; active: number; avgTotalMinutes: number | null; avgRoadMinutes: number | null;
+  riders: { name: string; delivered: number; failed: number; fees: number; codCollected: number; codWithRider: number; avgRoadMinutes: number | null }[];
+  zones: { name: string; orders: number; fees: number; sales: number }[];
+  failures: { orderId: number; queueNumber: number | null; zone: string; reason: string | null; payment: string; total: number; voided: boolean; rider: string | null; at: string | null }[];
 };
 type FinanceLoyalty = {
   memberOrders: number; memberSales: number; members: number; starsEarned: number; starsSpent: number; starsAdjusted: number;
@@ -5127,14 +5244,16 @@ type FinanceOrder = {
   // A discount taken off the order (a loyalty reward, or ID discounts such as senior and PWD, whose
   // VAT is also removed: vatExemptAmount).
   subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; vatExemptAmount?: number; deliveryFee?: number;
-  // Dine in or take out (null: before it was recorded).
-  serviceType?: "dine_in" | "take_out" | null;
+  // Dine in, take out or delivery (null: before it was recorded).
+  serviceType?: "dine_in" | "take_out" | "delivery" | null;
+  // Delivery orders: where it went, who took it, and its cash on delivery.
+  delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null; failureReason: string | null; codCollected: number | null; receivedBy: string | null; deliveredAt: string | null; remittedAt: string | null } | null;
   paymentProvider?: string | null;
   // Split ticket: the part paid in cash (the rest was GCash).
   cashPortion?: number | null;
 } & ReturnDetails;
 type FinanceTab = "overview" | "shifts" | "orders";
-type OrdersPreset = { status?: OrderStatusFilter; cashier?: string; category?: string; channel?: OrderChannelFilter };
+type OrdersPreset = { status?: OrderStatusFilter; cashier?: string; category?: string; channel?: OrderChannelFilter; service?: "dine_in" | "take_out" | "delivery" };
 type OrderStatusFilter = "all" | "completed" | "voided" | "refunded" | "reversed";
 type OrderChannelFilter = "all" | "cash" | "online" | "split" | "mobile";
 
@@ -5355,7 +5474,7 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       </DashCard>
     </div>
 
-    {(data.serviceTypes ?? []).some((row) => row.type !== "unknown") && <DashCard title="Dine in vs take out" sub="Completed orders in this period.">
+    {(data.serviceTypes ?? []).some((row) => row.type !== "unknown") && <DashCard title={(data.serviceTypes ?? []).some((row) => row.type === "delivery") ? "Dine in, take out and delivery" : "Dine in vs take out"} sub="Completed orders in this period.">
       <ul className="fin-simple-list">
         {(data.serviceTypes ?? []).map((row) => {
           const totalOrders = (data.serviceTypes ?? []).reduce((sum, item) => sum + item.orders, 0);
@@ -5363,6 +5482,8 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
         })}
       </ul>
     </DashCard>}
+
+    {data.deliveries && (data.deliveries.orders > 0 || data.deliveries.failed > 0 || data.deliveries.cancelled > 0) && <FinanceDeliveriesCard deliveries={data.deliveries} onOpenOrders={onOpenOrders} />}
 
     {data.loyalty && (data.loyalty.memberOrders > 0 || data.loyalty.rewardsClaimed > 0 || data.loyalty.starsEarned !== 0 || (data.loyalty.discountTotal ?? 0) > 0) && <DashCard title="Loyalty" sub="Orders linked to customers, stars, and the rewards given away. Reward items are sold at ₱0, and their cost is already in the cost of goods above.">
       <div className="acc-stats">
@@ -5396,6 +5517,53 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
   </div>;
 }
 
+// Deliveries in the range: what they brought in, cash on delivery, the ones that failed, how long
+// they took, and each rider and zone.
+function FinanceDeliveriesCard({ deliveries, onOpenOrders }: { deliveries: FinanceDeliveries; onOpenOrders: (preset: OrdersPreset) => void }) {
+  const attempted = deliveries.delivered + deliveries.failed;
+  return <DashCard title="Deliveries" sub="Delivery orders in this period. The fee is part of the sales and is never discounted." action={<button type="button" className="inv-link" onClick={() => onOpenOrders({ status: "completed", service: "delivery" })}>See the orders</button>}>
+    <div className="acc-stats fin-dlv-stats">
+      <div><span>Delivery orders</span><strong>{deliveries.orders}</strong><em className="fin-loy-sub">{peso(deliveries.sales)} in sales{deliveries.active ? ` · ${deliveries.active} still going` : ""}</em></div>
+      <div><span>Delivery fees</span><strong>{peso(deliveries.fees)}</strong><em className="fin-loy-sub">{deliveries.orders ? `${peso(deliveries.fees / deliveries.orders)} per order` : "—"}{deliveries.freeDeliveries ? ` · ${deliveries.freeDeliveries} free` : ""}</em></div>
+      <div><span>Cash on delivery</span><strong>{peso(deliveries.codSales)}</strong><em className="fin-loy-sub">{deliveries.codOrders} order{deliveries.codOrders === 1 ? "" : "s"} · {peso(deliveries.codReceived)} handed in{deliveries.codWithRiders > 0 ? ` · ${peso(deliveries.codWithRiders)} still with riders` : ""}</em></div>
+      <div><span>Delivered</span><strong style={{ color: deliveries.failed ? "#B45309" : undefined }}>{attempted ? `${Math.round((deliveries.delivered / attempted) * 100)}%` : "—"}</strong><em className="fin-loy-sub">{deliveries.delivered} delivered · {deliveries.failed} not delivered{deliveries.cancelled ? ` · ${deliveries.cancelled} cancelled` : ""}</em></div>
+      <div><span>Average time</span><strong>{minutesLabel(deliveries.avgTotalMinutes)}</strong><em className="fin-loy-sub">order to door · {minutesLabel(deliveries.avgRoadMinutes)} on the road</em></div>
+    </div>
+    <div className="fin-dlv-grid">
+      <div>
+        <h4 className="fin-dlv-head">By rider</h4>
+        {deliveries.riders.length === 0 ? <p className="dash-empty">No rider has taken a delivery yet.</p> : <div className="fin-table-wrap">
+          <table className="fin-table">
+            <thead><tr><th>Rider</th><th className="is-num">Delivered</th><th className="is-num">Failed</th><th className="is-num">Fees</th><th className="is-num">Cash collected</th><th className="is-num">Avg. on road</th></tr></thead>
+            <tbody>
+              {deliveries.riders.map((rider) => <tr key={rider.name}>
+                <td><span className="fin-person"><UserAvatar name={rider.name} size={26} /><strong>{rider.name}</strong></span></td>
+                <td className="is-num">{rider.delivered}</td>
+                <td className="is-num">{rider.failed ? <span className="dash-down">{rider.failed}</span> : <span className="menu-muted">0</span>}</td>
+                <td className="is-num">{peso(rider.fees)}</td>
+                <td className="is-num">{rider.codCollected ? <>{peso(rider.codCollected)}{rider.codWithRider > 0 && <span className="fin-table-sub dash-warn">{peso(rider.codWithRider)} not handed in</span>}</> : <span className="menu-muted">—</span>}</td>
+                <td className="is-num">{minutesLabel(rider.avgRoadMinutes)}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>}
+      </div>
+      <div>
+        <h4 className="fin-dlv-head">By zone</h4>
+        {deliveries.zones.length === 0 ? <p className="dash-empty">No completed deliveries.</p> : <ul className="fin-simple-list">
+          {deliveries.zones.map((zone) => <li key={zone.name}><span><strong>{zone.name}</strong><em>{zone.orders} order{zone.orders === 1 ? "" : "s"} · {peso(zone.fees)} in fees</em></span><strong>{peso(zone.sales)}</strong></li>)}
+        </ul>}
+      </div>
+    </div>
+    {deliveries.failures.length > 0 && <div style={{ marginTop: 14 }}>
+      <h4 className="fin-dlv-head">Not delivered</h4>
+      <ul className="fin-simple-list">
+        {deliveries.failures.map((failure) => <li key={failure.orderId}><span><strong>#{failure.queueNumber ?? failure.orderId} · {failure.zone}</strong><em>{failure.reason ?? "No reason given"}{failure.rider ? ` · ${failure.rider}` : ""}{failure.at ? ` · ${shiftTime(failure.at)}` : ""}</em></span><span className={`fin-status is-${failure.voided ? "voided" : "refunded"}`}>{failure.voided ? "Voided" : "Not voided yet"}</span></li>)}
+      </ul>
+    </div>}
+  </DashCard>;
+}
+
 // ─── Orders: every transaction in the range, with detailed filters ────────────
 const ORDERS_PAGE_SIZE = 50;
 
@@ -5424,10 +5592,18 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {Boolean(order.discountAmount) && fact("Discount", `−${peso(order.discountAmount ?? 0)}${order.discountLabel ? ` · ${order.discountLabel}` : ""}`)}
           {Boolean(order.vatExemptAmount) && fact("VAT exempted", `−${peso(order.vatExemptAmount ?? 0)} (senior/PWD)`)}
           {Boolean(order.deliveryFee) && fact("Delivery fee", peso(order.deliveryFee ?? 0))}
-          {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
+          {fact("Payment", order.paymentMethod === "cod" ? "Cash on delivery" : order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.received !== null && fact("Cash received", peso(order.received))}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.change !== null && fact("Change", peso(order.change))}
         </div>
+        {order.delivery && <div className="fin-facts fin-dlv-facts">
+          {fact("Deliver to", `${order.delivery.recipient} · ${order.delivery.phone}`)}
+          {fact("Address", `${order.delivery.street}${order.delivery.landmark ? `, near ${order.delivery.landmark}` : ""} (${order.delivery.zone})`)}
+          {fact("Delivery", `${deliveryStatusLabels[order.delivery.status] ?? order.delivery.status}${order.delivery.deliveredAt ? ` ${shiftTime(order.delivery.deliveredAt)}` : ""}${order.delivery.failureReason ? `: ${order.delivery.failureReason}` : ""}`)}
+          {fact("Rider", order.delivery.rider ?? "Not picked up")}
+          {order.paymentMethod === "cod" && fact("Cash collected", order.delivery.codCollected === null ? "Not yet" : peso(order.delivery.codCollected))}
+          {order.paymentMethod === "cod" && order.delivery.codCollected !== null && fact("Handed in", order.delivery.remittedAt ? `${shiftTime(order.delivery.remittedAt)}${order.delivery.receivedBy ? ` to ${order.delivery.receivedBy}` : ""}` : "Not yet")}
+        </div>}
         <ul className="fin-items">
           {order.items.map((item, index) => {
             const addonTotal = item.additions.reduce((sum, addition) => sum + addition.quantity * addition.unitPrice, 0);
@@ -5466,6 +5642,10 @@ function financeOrderColumns(): ExcelColumn<FinanceOrder>[] {
     { header: "Customer", value: (order) => order.customerName ?? "" },
     { header: "Order type", value: (order) => order.serviceType ? serviceTypeLabels[order.serviceType] : "" },
     { header: "Payment", value: (order) => excelPayment(order) },
+    { header: "Delivery fee", value: (order) => order.deliveryFee || null, kind: "money" },
+    { header: "Delivery zone", value: (order) => order.delivery?.zone ?? "" },
+    { header: "Delivery status", value: (order) => order.delivery ? deliveryStatusLabels[order.delivery.status] ?? order.delivery.status : "" },
+    { header: "Rider", value: (order) => order.delivery?.rider ?? "" },
     { header: "Status", value: (order) => excelStatus(orderStatusOf(order)) },
     { header: "Items", value: (order) => describeItems(order.items) },
     { header: "Subtotal", value: (order) => order.subtotal ?? order.total + (order.discountAmount ?? 0) + (order.vatExemptAmount ?? 0), kind: "money" },
@@ -5537,7 +5717,7 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<OrderStatusFilter>(preset.status ?? "all");
   const [channel, setChannel] = useState<OrderChannelFilter>(preset.channel ?? "all");
-  const [serviceFilter, setServiceFilter] = useState<"all" | "dine_in" | "take_out">("all");
+  const [serviceFilter, setServiceFilter] = useState<"all" | "dine_in" | "take_out" | "delivery">(preset.service ?? "all");
   const [cashier, setCashier] = useState(preset.cashier ?? "all");
   const [category, setCategory] = useState(preset.category ?? "all");
   const [shift, setShift] = useState("all");
@@ -5648,7 +5828,7 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
         {([["all", "Any payment"], ["cash", "Cash"], ["online", "Online"], ["split", "Split"], ["mobile", "Mobile"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{label}</button>)}
       </div>
       <div className="inv-range" role="group" aria-label="Dine in or take out">
-        {([["all", "Any type"], ["dine_in", "Dine in"], ["take_out", "Take out"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={serviceFilter === id} onClick={() => setServiceFilter(id)}>{label}</button>)}
+        {([["all", "Any type"], ["dine_in", "Dine in"], ["take_out", "Take out"], ...(serviceFilter === "delivery" || orders.some((order) => order.serviceType === "delivery") ? [["delivery", "Delivery"] as const] : [])] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={serviceFilter === id} onClick={() => setServiceFilter(id)}>{label}</button>)}
       </div>
     </div>
 
@@ -5684,6 +5864,7 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
                           </span>
                           <span className="fin-order-tags">
                             <span className={`fin-chip is-${orderChannelKey}`}>{orderChannelKey === "online" ? "Online" : orderChannelKey === "split" ? "Split" : channelLabels[orderChannelKey].replace(" menu", "")}</span>
+                            {order.serviceType === "delivery" && <span className="fin-chip is-delivery">🛵 {order.paymentMethod === "cod" ? "COD" : "Delivery"}</span>}
                             {orderStatus !== "completed" && <span className={`fin-status is-${orderStatus}`}>{orderStatus === "voided" ? "Voided" : "Refunded"}</span>}
                           </span>
                           <strong className={`fin-order-total${order.reversed ? " is-reversed" : ""}`}>{peso(order.total)}</strong>
@@ -5702,10 +5883,10 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
 }
 
 // ─── Export: one workbook for the chosen range ────────────────────────────────
-type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; loyalty: boolean; shifts: boolean; orders: boolean };
+type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; loyalty: boolean; deliveries: boolean; shifts: boolean; orders: boolean };
 
 function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onClose: () => void }) {
-  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, loyalty: true, shifts: true, orders: true });
+  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, loyalty: true, deliveries: true, shifts: true, orders: true });
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const { start, end } = data.range;
@@ -5717,6 +5898,7 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
     addons: ["Add-ons", "Quantity and sales per add-on"],
     staff: ["Staff", "Orders and sales per person"],
     loyalty: ["Loyalty", "Member sales, stars and rewards given"],
+    deliveries: ["Deliveries", "Fees, cash on delivery, riders, zones and failed deliveries"],
     shifts: ["Shifts", "Each shift with its cash drawer count"],
     orders: ["Orders and items", "Every order in the range, with its items"],
   };
@@ -5812,6 +5994,33 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
           ["Reward", "Given", "Normal price", "Cost"],
           ...loyalty.rewards.map((reward): ExcelInfoRow => [reward.name, reward.claimed, reward.value, reward.cost]),
         ], ["Member orders", "Members who ordered", "Stars earned (after voids and refunds)", "Stars spent on rewards", "Stars adjusted by admin (net)", "Rewards given", "Share of net sales (%)"])]);
+      }
+      if (sections.deliveries && data.deliveries && (data.deliveries.orders > 0 || data.deliveries.failed > 0)) {
+        const dlv = data.deliveries;
+        sheets.push(["Deliveries", excelInfo([
+          ["Brew Houze deliveries", formatRange(start, end)],
+          ["Delivery orders", dlv.orders],
+          ["Delivery sales", dlv.sales],
+          ["Delivery fees", dlv.fees],
+          ["Free deliveries", dlv.freeDeliveries],
+          ["Delivered", dlv.delivered],
+          ["Could not be delivered", dlv.failed],
+          ["Cancelled (voided before delivery)", dlv.cancelled],
+          ["Cash on delivery orders", dlv.codOrders],
+          ["Cash on delivery sales", dlv.codSales],
+          ["Cash collected by riders", dlv.codCollected],
+          ["Handed in at the counter", dlv.codReceived],
+          ["Still with riders", dlv.codWithRiders],
+          ["Average minutes, order to door", dlv.avgTotalMinutes],
+          ["Average minutes on the road", dlv.avgRoadMinutes],
+          [],
+          ["Rider", "Delivered", "Not delivered", "Fees", "Cash collected", "Not handed in", "Avg. minutes on the road"],
+          ...dlv.riders.map((rider): ExcelInfoRow => [rider.name, rider.delivered, rider.failed, rider.fees, rider.codCollected, rider.codWithRider, rider.avgRoadMinutes]),
+          [],
+          ["Zone", "Orders", "Fees", "Sales"],
+          ...dlv.zones.map((zone): ExcelInfoRow => [zone.name, zone.orders, zone.fees, zone.sales]),
+          ...(dlv.failures.length ? [[] as ExcelInfoRow, ["Not delivered", "Zone", "Reason", "Rider", "Voided"] as ExcelInfoRow, ...dlv.failures.map((failure): ExcelInfoRow => [`#${failure.queueNumber ?? failure.orderId}`, failure.zone, failure.reason ?? "", failure.rider ?? "", failure.voided ? "Yes" : "No"])] : []),
+        ], ["Delivery orders", "Free deliveries", "Delivered", "Could not be delivered", "Cancelled (voided before delivery)", "Cash on delivery orders", "Average minutes, order to door", "Average minutes on the road"])]);
       }
       if (sections.shifts) {
         const response = await fetch(`/api/shifts?start=${start}&end=${end}`, { cache: "no-store" });
@@ -7862,6 +8071,8 @@ function DiscountFormDialog({ discount, onClose, onSaved }: { discount: Discount
 // delivery, cash on delivery) and the zones the café delivers to, each with its fee.
 type DeliveryRules = { enabled: boolean; start: string; end: string; maxActive: string; freeAbove: string; codEnabled: boolean; codMaxAmount: string; codMinOrders: string };
 type DeliveryZoneAdmin = { id: number; name: string; description: string; fee: number; minOrder: number | null; isActive: boolean; addresses: number };
+// Deliveries open right now: in progress, failed and not voided, or cash still with a rider.
+type LiveDelivery = { id: number; orderId: number; queueNumber: number | null; status: string; payment: string; zone: string; recipient: string; total: number; codCollected: number | null; failureReason: string | null; rider: string | null; since: string };
 
 function IconTruck({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
@@ -7876,6 +8087,7 @@ function Delivery() {
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<DeliveryZoneAdmin | "new" | null>(null);
+  const [live, setLive] = useState<LiveDelivery[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -7885,6 +8097,7 @@ function Delivery() {
       setRules(payload.data.rules);
       setSaved(payload.data.rules);
       setZones(payload.data.zones ?? []);
+      setLive(payload.data.live ?? []);
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load the delivery settings.");
@@ -7898,6 +8111,9 @@ function Delivery() {
   const set = <K extends keyof DeliveryRules>(key: K, value: DeliveryRules[K]) => setRules((current) => current && { ...current, [key]: value });
   const changed = rules !== null && saved !== null && JSON.stringify(rules) !== JSON.stringify(saved);
   const activeZones = zones.filter((zone) => zone.isActive);
+  const liveFailed = live.filter((delivery) => delivery.status === "failed");
+  const liveCash = live.filter((delivery) => delivery.payment === "cod" && delivery.codCollected !== null);
+  const liveGoing = live.filter((delivery) => ["preparing", "ready", "out"].includes(delivery.status));
 
   async function saveRules() {
     if (!rules) return;
@@ -7937,6 +8153,23 @@ function Delivery() {
       {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
       {notice && <div className="acc-notice" role="status">{notice}</div>}
       {!rules ? <div className="inv-empty">Loading delivery settings…</div> : <>
+        {live.length > 0 && <section className="acc-block dlv-now">
+          <header className="acc-block-head"><div><h3>Right now</h3><p>Riders and cashiers handle these in the staff app (Deliveries). Failed deliveries are voided in Void &amp; Refund.</p></div><button type="button" className="inv-mini" onClick={() => void load()}><IconRotateCcw size={12} />Refresh</button></header>
+          <div className="acc-stats">
+            <div><span>In progress</span><strong>{liveGoing.length}</strong><em className="fin-loy-sub">{liveGoing.filter((delivery) => delivery.status === "out").length} on the way · {liveGoing.filter((delivery) => delivery.status === "ready").length} waiting for a rider</em></div>
+            <div><span>Not delivered</span><strong style={{ color: liveFailed.length ? "#B91C1C" : undefined }}>{liveFailed.length}</strong><em className="fin-loy-sub">{liveFailed.length ? "to void in the staff app" : "none"}</em></div>
+            <div><span>Cash with riders</span><strong style={{ color: liveCash.length ? "#B45309" : undefined }}>{peso(liveCash.reduce((sum, delivery) => sum + (delivery.codCollected ?? 0), 0))}</strong><em className="fin-loy-sub">{liveCash.length} order{liveCash.length === 1 ? "" : "s"} not handed in</em></div>
+          </div>
+          <ul className="fin-simple-list" style={{ marginTop: 10 }}>
+            {live.map((delivery) => {
+              const cashOut = delivery.payment === "cod" && delivery.codCollected !== null;
+              return <li key={delivery.id}>
+                <span><strong>#{delivery.queueNumber ?? delivery.orderId} · {delivery.recipient} · {delivery.zone}</strong><em>{cashOut ? `Delivered · ${peso(delivery.codCollected ?? 0)} cash with ${delivery.rider ?? "the rider"}` : delivery.status === "failed" ? `Not delivered: ${delivery.failureReason ?? "no reason given"}${delivery.rider ? ` · ${delivery.rider}` : ""}` : `${deliveryStatusLabels[delivery.status] ?? delivery.status}${delivery.rider ? ` · ${delivery.rider}` : ""}`} · since {clockTime(delivery.since)}</em></span>
+                <span className={`dlv-now-tag is-${cashOut ? "cash" : delivery.status}`}>{cashOut ? "Cash to hand in" : delivery.status === "failed" ? "Void it" : delivery.status === "out" ? "On the way" : delivery.status === "ready" ? "Packed" : "Preparing"}</span>
+              </li>;
+            })}
+          </ul>
+        </section>}
         <section className="acc-block">
           <header className="acc-block-head"><div><h3>Delivery</h3><p>{rules.enabled ? `On${activeZones.length ? ` in ${activeZones.length} zone${activeZones.length === 1 ? "" : "s"}` : ""}.` : "Off. Customers do not see delivery until you switch it on."}</p></div></header>
           <div className="flex flex-col gap-3">

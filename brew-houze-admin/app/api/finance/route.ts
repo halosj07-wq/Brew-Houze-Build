@@ -160,6 +160,76 @@ async function loyaltyFigures(start: string, end: string) {
   };
 }
 
+// Deliveries in the range, by the business date of the order: sales and fees (completed orders),
+// cash on delivery collected and handed in, orders that could not be delivered, how long
+// deliveries took, and the same per rider and per zone.
+async function deliveryFigures(start: string, end: string) {
+  const [totals, riders, zones, failures] = await Promise.all([
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT COUNT(*) FILTER (WHERE NOT o.reversed)::int AS orders,
+        COALESCE(SUM(o.total_amount) FILTER (WHERE NOT o.reversed), 0) AS sales,
+        COALESCE(SUM(o.delivery_fee) FILTER (WHERE NOT o.reversed), 0) AS fees,
+        COUNT(*) FILTER (WHERE NOT o.reversed AND o.delivery_fee = 0)::int AS free_deliveries,
+        COUNT(*) FILTER (WHERE NOT o.reversed AND d.payment = 'cod')::int AS cod_orders,
+        COALESCE(SUM(o.total_amount) FILTER (WHERE NOT o.reversed AND d.payment = 'cod'), 0) AS cod_sales,
+        COALESCE(SUM(d.cod_collected), 0) AS cod_collected,
+        COALESCE(SUM(d.cod_collected) FILTER (WHERE d.cod_remitted_at IS NOT NULL), 0) AS cod_received,
+        COALESCE(SUM(d.cod_collected) FILTER (WHERE d.cod_remitted_at IS NULL), 0) AS cod_with_riders,
+        COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered,
+        COUNT(*) FILTER (WHERE d.status = 'failed')::int AS failed,
+        COUNT(*) FILTER (WHERE d.status = 'cancelled')::int AS cancelled,
+        COUNT(*) FILTER (WHERE d.status IN ('preparing', 'ready', 'out') AND NOT o.reversed)::int AS active,
+        AVG(EXTRACT(EPOCH FROM (d.delivered_at - d.created_at)) / 60) FILTER (WHERE d.status = 'delivered') AS avg_total_minutes,
+        AVG(EXTRACT(EPOCH FROM (d.delivered_at - d.picked_up_at)) / 60) FILTER (WHERE d.status = 'delivered' AND d.picked_up_at IS NOT NULL) AS avg_road_minutes
+      FROM o JOIN deliveries d ON d.order_id = o.order_id
+      WHERE o.bd BETWEEN $1::date AND $2::date
+    `, [start, end]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT d.rider_admin_id, MIN(r.full_name) AS name,
+        COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered,
+        COUNT(*) FILTER (WHERE d.status = 'failed')::int AS failed,
+        COALESCE(SUM(o.delivery_fee) FILTER (WHERE d.status = 'delivered' AND NOT o.reversed), 0) AS fees,
+        COALESCE(SUM(d.cod_collected), 0) AS cod_collected,
+        COALESCE(SUM(d.cod_collected) FILTER (WHERE d.cod_remitted_at IS NULL), 0) AS cod_with_rider,
+        AVG(EXTRACT(EPOCH FROM (d.delivered_at - d.picked_up_at)) / 60) FILTER (WHERE d.status = 'delivered' AND d.picked_up_at IS NOT NULL) AS avg_road_minutes
+      FROM o JOIN deliveries d ON d.order_id = o.order_id
+      LEFT JOIN admin_users r ON r.admin_id = d.rider_admin_id
+      WHERE o.bd BETWEEN $1::date AND $2::date AND d.rider_admin_id IS NOT NULL
+      GROUP BY d.rider_admin_id
+      ORDER BY delivered DESC, name
+    `, [start, end]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT d.zone_name AS name, COUNT(*)::int AS orders, COALESCE(SUM(o.delivery_fee), 0) AS fees, COALESCE(SUM(o.total_amount), 0) AS sales
+      FROM o JOIN deliveries d ON d.order_id = o.order_id
+      WHERE o.bd BETWEEN $1::date AND $2::date AND NOT o.reversed
+      GROUP BY d.zone_name ORDER BY orders DESC, name
+    `, [start, end]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT d.order_id, o.queue_number, d.zone_name, d.failure_reason, d.payment, o.total_amount, o.reversed, r.full_name AS rider,
+        TO_CHAR(d.failed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS failed_at
+      FROM o JOIN deliveries d ON d.order_id = o.order_id
+      LEFT JOIN admin_users r ON r.admin_id = d.rider_admin_id
+      WHERE o.bd BETWEEN $1::date AND $2::date AND d.status = 'failed'
+      ORDER BY d.failed_at DESC LIMIT 30
+    `, [start, end]),
+  ]);
+  const row = totals.rows[0];
+  const minutes = (value: unknown) => value === null || value === undefined ? null : Math.round(Number(value));
+  return {
+    orders: n(row.orders), sales: n(row.sales), fees: n(row.fees), freeDeliveries: n(row.free_deliveries),
+    codOrders: n(row.cod_orders), codSales: n(row.cod_sales), codCollected: n(row.cod_collected), codReceived: n(row.cod_received), codWithRiders: n(row.cod_with_riders),
+    delivered: n(row.delivered), failed: n(row.failed), cancelled: n(row.cancelled), active: n(row.active),
+    avgTotalMinutes: minutes(row.avg_total_minutes), avgRoadMinutes: minutes(row.avg_road_minutes),
+    riders: riders.rows.map((rider) => ({ name: String(rider.name ?? "Rider"), delivered: n(rider.delivered), failed: n(rider.failed), fees: n(rider.fees), codCollected: n(rider.cod_collected), codWithRider: n(rider.cod_with_rider), avgRoadMinutes: minutes(rider.avg_road_minutes) })),
+    zones: zones.rows.map((zone) => ({ name: String(zone.name), orders: n(zone.orders), fees: n(zone.fees), sales: n(zone.sales) })),
+    failures: failures.rows.map((failure) => ({ orderId: n(failure.order_id), queueNumber: failure.queue_number === null ? null : n(failure.queue_number), zone: String(failure.zone_name), reason: (failure.failure_reason as string | null) ?? null, payment: String(failure.payment), total: n(failure.total_amount), voided: Boolean(failure.reversed), rider: (failure.rider as string | null) ?? null, at: (failure.failed_at as string | null) ?? null })),
+  };
+}
+
 export async function GET(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
@@ -183,12 +253,19 @@ export async function GET(request: Request) {
           COALESCE(cashier.full_name, CASE WHEN o.order_source = 'online' THEN 'Mobile order' ELSE 'Unknown' END) AS punched_by,
           reverser.full_name AS reversed_by,
           cu.full_name AS customer_name, o.subtotal_amount, o.discount_amount, o.discount_label, o.service_type, o.vat_exempt_amount, o.delivery_fee,
+          dl.recipient_name AS delivery_recipient, dl.phone AS delivery_phone, dl.street AS delivery_street, dl.landmark AS delivery_landmark, dl.zone_name AS delivery_zone,
+          dl.status AS delivery_status, dl.cod_collected AS delivery_cod_collected, dl.failure_reason AS delivery_failure, drider.full_name AS delivery_rider, dreceiver.full_name AS delivery_received_by,
+          TO_CHAR(dl.delivered_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS delivery_delivered_at,
+          TO_CHAR(dl.cod_remitted_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS delivery_remitted_at,
           COALESCE(lines.items, '[]'::json) AS items,
           lines.cost AS cost
         FROM o
         LEFT JOIN admin_users cashier ON cashier.admin_id = o.cashier_admin_id
         LEFT JOIN admin_users reverser ON reverser.admin_id = o.reversed_by_admin_id
         LEFT JOIN customers cu ON cu.customer_id = o.customer_id AND cu.deleted_at IS NULL
+        LEFT JOIN deliveries dl ON dl.order_id = o.order_id
+        LEFT JOIN admin_users drider ON drider.admin_id = dl.rider_admin_id
+        LEFT JOIN admin_users dreceiver ON dreceiver.admin_id = dl.cod_remitted_to
         LEFT JOIN LATERAL (
           SELECT
             json_agg(json_build_object(
@@ -247,6 +324,13 @@ export async function GET(request: Request) {
           discountLabel: row.discount_label ?? null,
           vatExemptAmount: n(row.vat_exempt_amount ?? 0),
           deliveryFee: n(row.delivery_fee ?? 0),
+          delivery: row.delivery_status ? {
+            recipient: String(row.delivery_recipient), phone: String(row.delivery_phone), street: String(row.delivery_street),
+            landmark: (row.delivery_landmark as string | null) ?? null, zone: String(row.delivery_zone), status: String(row.delivery_status),
+            rider: (row.delivery_rider as string | null) ?? null, failureReason: (row.delivery_failure as string | null) ?? null,
+            codCollected: row.delivery_cod_collected === null ? null : n(row.delivery_cod_collected), receivedBy: (row.delivery_received_by as string | null) ?? null,
+            deliveredAt: (row.delivery_delivered_at as string | null) ?? null, remittedAt: (row.delivery_remitted_at as string | null) ?? null,
+          } : null,
           serviceType: row.service_type ?? null,
           paymentProvider: row.payment_provider ?? null,
           cashPortion: row.cash_portion === null || row.cash_portion === undefined ? null : n(row.cash_portion),
@@ -332,6 +416,11 @@ export async function GET(request: Request) {
       GROUP BY 1 ORDER BY 1
     `, [start, end]).then((result) => result.rows.map((row) => ({ type: String(row.service_type), orders: n(row.orders), sales: n(row.sales) }))).catch(() => []);
 
+    const deliveries = await deliveryFigures(start, end).catch((deliveryError) => {
+      console.error("GET /api/finance: delivery figures failed:", deliveryError);
+      return null;
+    });
+
     const loyalty = await loyaltyFigures(start, end).catch((loyaltyError) => {
       console.error("GET /api/finance: loyalty figures failed:", loyaltyError);
       return null;
@@ -340,6 +429,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       data: {
         loyalty,
+        deliveries,
         serviceTypes,
         range: { start, end, days },
         previousRange: { start: previousStart, end: previousEnd },

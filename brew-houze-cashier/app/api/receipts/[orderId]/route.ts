@@ -20,7 +20,9 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
         cashier.full_name AS cashier_name, cu.full_name AS customer_name, so.customer_id, so.subtotal_amount, so.discount_amount, so.discount_label, so.service_type, so.vat_exempt_amount, so.delivery_fee,
-        d.recipient_name AS delivery_recipient, d.phone AS delivery_phone, d.street AS delivery_street, d.landmark AS delivery_landmark, d.zone_name AS delivery_zone, d.status AS delivery_status, rider.full_name AS rider_name
+        d.recipient_name AS delivery_recipient, d.phone AS delivery_phone, d.street AS delivery_street, d.landmark AS delivery_landmark, d.zone_name AS delivery_zone, d.status AS delivery_status, rider.full_name AS rider_name,
+        d.check_id AS delivery_check_id, d.rider_notes AS delivery_notes, d.payment AS delivery_payment, d.cod_collected AS delivery_cod_collected,
+        TO_CHAR(d.delivered_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS delivery_delivered_at
       FROM sales_orders so
       LEFT JOIN admin_users cashier ON cashier.admin_id = so.cashier_admin_id
       LEFT JOIN customers cu ON cu.customer_id = so.customer_id AND cu.deleted_at IS NULL
@@ -100,7 +102,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         discountLabel: (order.discount_label as string | null) ?? null,
         vatExemptAmount: Number(order.vat_exempt_amount ?? 0),
         deliveryFee: Number(order.delivery_fee ?? 0),
-        delivery: order.delivery_street ? { recipient: String(order.delivery_recipient), phone: String(order.delivery_phone), street: String(order.delivery_street), landmark: (order.delivery_landmark as string | null) ?? null, zone: String(order.delivery_zone), status: String(order.delivery_status), rider: (order.rider_name as string | null) ?? null } : null,
+        delivery: order.delivery_street ? { recipient: String(order.delivery_recipient), phone: String(order.delivery_phone), street: String(order.delivery_street), landmark: (order.delivery_landmark as string | null) ?? null, zone: String(order.delivery_zone), status: String(order.delivery_status), rider: (order.rider_name as string | null) ?? null, checkId: Boolean(order.delivery_check_id), notes: (order.delivery_notes as string | null) ?? null, codCollected: order.delivery_cod_collected === null || order.delivery_cod_collected === undefined ? null : Number(order.delivery_cod_collected), deliveredAt: (order.delivery_delivered_at as string | null) ?? null } : null,
         idDiscounts: idDiscounts.rows.map((row) => ({
           code: String(row.type_code),
           name: String(row.type_name),

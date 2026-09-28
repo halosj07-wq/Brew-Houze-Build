@@ -45,6 +45,7 @@ export async function GET(request: Request) {
 
     const summaryResult = await pool.query(`
       SELECT ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
+        dlv.delivery_orders, dlv.delivery_fee_total, dlv.cod_order_total, dlv.delivered_count, dlv.failed_count, dlv.cod_with_riders,
         TO_CHAR(ss.business_date, 'YYYY-MM-DD') AS business_date_text,
         ${isoText("ss.opened_at")} AS opened_at_text,
         ${isoText("ss.closed_at")} AS closed_at_text,
@@ -63,15 +64,25 @@ export async function GET(request: Request) {
         COALESCE(SUM(discount_amount) FILTER (WHERE discount_source IN ('reward', 'birthday')), 0) AS reward_discount
       FROM sales_orders WHERE shift_id = ss.shift_id AND status NOT IN ('void', 'voided', 'refund', 'refunded')
     ) disc_so ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) FILTER (WHERE dso.status NOT IN ('void', 'voided', 'refund', 'refunded'))::int AS delivery_orders,
+        COALESCE(SUM(dso.delivery_fee) FILTER (WHERE dso.status NOT IN ('void', 'voided', 'refund', 'refunded')), 0) AS delivery_fee_total,
+        COALESCE(SUM(dso.total_amount) FILTER (WHERE d.payment = 'cod' AND dso.status NOT IN ('void', 'voided', 'refund', 'refunded')), 0) AS cod_order_total,
+        COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered_count,
+        COUNT(*) FILTER (WHERE d.status = 'failed')::int AS failed_count,
+        COALESCE(SUM(d.cod_collected) FILTER (WHERE d.cod_remitted_at IS NULL), 0) AS cod_with_riders
+      FROM deliveries d JOIN sales_orders dso ON dso.order_id = d.order_id
+      WHERE dso.shift_id = ss.shift_id AND dso.is_archived = FALSE
+    ) dlv ON TRUE
       WHERE ss.shift_id = $1
     `, [shiftId]);
     const row = summaryResult.rows[0];
     if (!row) return NextResponse.json({ error: "Shift not found." }, { status: 404 });
     const isOpen = row.closed_at_text === null;
 
-    const [orders, attendance, stock, products, checkouts, movements] = await Promise.all([
+    const [orders, attendance, stock, products, checkouts, movements, deliveries] = await Promise.all([
       pool.query(`
-        SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
+        SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total, so.service_type,
           so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, so.cash_portion,
           so.shift_id = $1 AS sold_in_shift,
           COALESCE(so.reversed_shift_id = $1, FALSE) AS reversed_in_shift,
@@ -144,6 +155,20 @@ export async function GET(request: Request) {
         WHERE cm.shift_id = $1
         ORDER BY cm.created_at DESC, cm.movement_id DESC
       `, [shiftId]),
+      // Delivery orders sold in the shift, and cash on delivery handed in during it.
+      pool.query(`
+        SELECT d.delivery_id, d.order_id, so.queue_number, d.status, d.payment, d.fee, d.zone_name, d.cod_amount, d.cod_collected, d.failure_reason,
+          so.shift_id = $1 AS sold_in_shift, so.status AS order_status, COALESCE(d.cod_remitted_shift_id = $1, FALSE) AS remitted_in_shift,
+          rider.full_name AS rider_name, receiver.full_name AS remitted_to,
+          ${isoText("d.picked_up_at")} AS picked_up_at, ${isoText("d.delivered_at")} AS delivered_at,
+          ${isoText("d.failed_at")} AS failed_at, ${isoText("d.cod_remitted_at")} AS remitted_at
+        FROM deliveries d
+        JOIN sales_orders so ON so.order_id = d.order_id
+        LEFT JOIN admin_users rider ON rider.admin_id = d.rider_admin_id
+        LEFT JOIN admin_users receiver ON receiver.admin_id = d.cod_remitted_to
+        WHERE (so.shift_id = $1 OR d.cod_remitted_shift_id = $1) AND so.is_archived = FALSE
+        ORDER BY d.created_at ASC
+      `, [shiftId]),
     ]);
 
     return NextResponse.json({
@@ -182,6 +207,7 @@ export async function GET(request: Request) {
           netSales: Number(row.net_sales ?? 0),
           costOfGoods: Number(row.cost_of_goods ?? 0),
           uncostedItems: Number(row.uncosted_items ?? 0),
+          delivery: { orders: Number(row.delivery_orders ?? 0), fees: Number(row.delivery_fee_total ?? 0), codSales: Number(row.cod_order_total ?? 0), codReceived: Number(row.cod_remitted ?? 0), codWithRiders: Number(row.cod_with_riders ?? 0), delivered: Number(row.delivered_count ?? 0), failed: Number(row.failed_count ?? 0) },
         },
         orders: orders.rows.map((order) => ({
           orderId: Number(order.order_id),
@@ -192,6 +218,7 @@ export async function GET(request: Request) {
           discountLabel: (order.discount_label as string | null) ?? null, discountTotal: Number(order.discount_total ?? 0),
           paymentMethod: order.payment_method as string,
           orderSource: order.order_source as string,
+          serviceType: (order.service_type as string | null) ?? null,
           soldInShift: Boolean(order.sold_in_shift),
           reversedInShift: Boolean(order.reversed_in_shift),
           createdAt: order.created_at as string,
@@ -235,6 +262,15 @@ export async function GET(request: Request) {
           amount: Number(checkout.amount),
           error: (checkout.error as string | null) ?? null,
           createdAt: checkout.created_at as string,
+        })),
+        deliveries: deliveries.rows.map((row) => ({
+          id: Number(row.delivery_id), orderId: Number(row.order_id), queueNumber: row.queue_number === null ? null : Number(row.queue_number),
+          status: String(row.status), payment: String(row.payment), fee: Number(row.fee), zone: String(row.zone_name),
+          codAmount: row.cod_amount === null ? null : Number(row.cod_amount), codCollected: row.cod_collected === null ? null : Number(row.cod_collected),
+          failureReason: (row.failure_reason as string | null) ?? null, soldInShift: Boolean(row.sold_in_shift), orderStatus: String(row.order_status),
+          remittedInShift: Boolean(row.remitted_in_shift), rider: (row.rider_name as string | null) ?? null, remittedTo: (row.remitted_to as string | null) ?? null,
+          pickedUpAt: (row.picked_up_at as string | null) ?? null, deliveredAt: (row.delivered_at as string | null) ?? null,
+          failedAt: (row.failed_at as string | null) ?? null, remittedAt: (row.remitted_at as string | null) ?? null,
         })),
         movements: movements.rows.map((row) => ({
           id: Number(row.movement_id),

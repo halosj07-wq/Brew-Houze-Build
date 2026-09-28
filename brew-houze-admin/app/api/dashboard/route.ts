@@ -27,6 +27,7 @@ function mapShift(row: Record<string, unknown> | undefined) {
     grossSales: Number(row.gross_sales ?? 0),
     cashSales: Number(row.cash_sales ?? 0),
     onlineSales: Number(row.online_sales ?? 0),
+    codReceived: Number(row.cod_remitted ?? 0),
     voidCount: Number(row.void_count ?? 0),
     refundCount: Number(row.refund_count ?? 0),
     reversedAmount: Number(row.reversed_amount ?? 0),

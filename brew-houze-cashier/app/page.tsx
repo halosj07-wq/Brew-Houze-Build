@@ -58,6 +58,9 @@ const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
 // The last queue number this terminal punched, kept across reloads for the rest of the shift.
 type LastOrder = { queueNumber: number; punchedAt: number; shiftId: number };
 type QueueCounts = { waiting: number; ready: number };
+// For the Deliveries badge: packed orders waiting for a rider, failed deliveries to void, cash on
+// delivery not handed in (all of it, and what this rider still has).
+type DeliveryCounts = { ready: number; failed: number; cash: number; mineCash: number };
 const LAST_ORDER_STORAGE_KEY = "brewhouze.cashier.lastOrder";
 
 function readStoredLastOrder(): LastOrder | null {
@@ -78,7 +81,7 @@ function formatTimeAgo(timestamp: number, now: number): string {
   return `${Math.floor(minutes / 60)} h ago`;
 }
 
-function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, canManageReversals, allowedPages, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; now: number; shiftOpen: boolean; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void; onToggle: () => void }) {
+function Sidebar({ current, collapsed, lastOrder, queueCounts, deliveryBadge, now, shiftOpen, canManageReversals, allowedPages, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; deliveryBadge: number; now: number; shiftOpen: boolean; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void; onToggle: () => void }) {
   const visibleNavItems = navItems.filter((item) => allowedPages ? allowedPages.includes(item.id) : item.id !== "reversals" || canManageReversals);
   const waiting = queueCounts?.waiting ?? 0;
   return <aside className={`app-sidebar ${collapsed ? "is-collapsed" : "is-expanded"} flex flex-col`} style={{ background: "#3D2B1F", minHeight: "100vh", width: collapsed ? 52 : 240, flexShrink: 0 }}>
@@ -90,10 +93,10 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
     <nav className="flex flex-col gap-1 px-3 pt-5 flex-1">
       {visibleNavItems.map(({ id, label, Icon }) => {
         const active = current === id;
-        const badge = id === "queue" && waiting > 0 ? waiting : 0;
+        const badge = id === "queue" && waiting > 0 ? waiting : id === "deliveries" ? deliveryBadge : 0;
         return <button key={id} onClick={() => onChange(id)} title={collapsed ? label : undefined} className="flex items-center gap-3 px-4 py-3 rounded-xl text-left w-full" style={{ position: "relative", background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}>
           <Icon size={17} /><span>{label}</span>
-          {badge > 0 && <b className="nav-badge" aria-label={`${badge} waiting`} style={{ marginLeft: "auto", minWidth: 22, height: 20, padding: "0 6px", borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: active ? "#FDF9F5" : "#D97706", color: active ? "#B45309" : "#FFFFFF", fontSize: 11, fontWeight: 800 }}>{badge > 99 ? "99+" : badge}</b>}
+          {badge > 0 && <b className="nav-badge" aria-label={id === "deliveries" ? `${badge} need attention` : `${badge} waiting`} style={{ marginLeft: "auto", minWidth: 22, height: 20, padding: "0 6px", borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: active ? "#FDF9F5" : "#D97706", color: active ? "#B45309" : "#FFFFFF", fontSize: 11, fontWeight: 800 }}>{badge > 99 ? "99+" : badge}</b>}
         </button>;
       })}
     </nav>
@@ -121,12 +124,12 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
 // Phones (portrait): the sidebar is hidden and these tabs sit at the bottom of the screen.
 const mobileTabLabels: Record<Page, string> = { pos: "POS", queue: "Queue", reversals: "Void & Refund", deliveries: "Deliveries", accounts: "Account" };
 
-function MobileTabBar({ current, queueWaiting, canManageReversals, allowedPages, onChange }: { current: Page; queueWaiting: number; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void }) {
+function MobileTabBar({ current, queueWaiting, deliveryBadge, canManageReversals, allowedPages, onChange }: { current: Page; queueWaiting: number; deliveryBadge: number; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void }) {
   return <nav className="mobile-tabbar" aria-label="Cashier sections">
     {navItems.filter((item) => allowedPages ? allowedPages.includes(item.id) : item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
       const active = current === id;
       return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className={`mobile-tab${active ? " is-active" : ""}`}>
-        <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}</span>
+        <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}{id === "deliveries" && deliveryBadge > 0 && <b aria-label={`${deliveryBadge} need attention`}>{deliveryBadge > 99 ? "99+" : deliveryBadge}</b>}</span>
         <span>{mobileTabLabels[id]}</span>
       </button>;
     })}
@@ -624,7 +627,7 @@ type ReceiptData = {
   // Senior, PWD and other ID discounts: one per person, with the VAT removed (senior and PWD) and the discount.
   vatExemptAmount?: number; idDiscounts?: ReceiptIdDiscount[];
   // Delivery orders: the fee, and where it went.
-  deliveryFee?: number; delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null } | null;
+  deliveryFee?: number; delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null; checkId?: boolean; notes?: string | null; codCollected?: number | null; deliveredAt?: string | null } | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
@@ -638,6 +641,13 @@ function needsSignature(entry: ReceiptIdDiscount): boolean {
 const ReceiptContext = createContext<{ settings: ReceiptSettings; setSettings: (settings: ReceiptSettings) => void; printReceipt: (orderId: number, options?: { reprint?: boolean }) => Promise<string | null> }>({
   settings: defaultReceiptSettings, setSettings: () => undefined, printReceipt: async () => "Printing is not available here.",
 });
+
+// A delivery order's progress, printed on its receipt.
+const receiptDeliveryStatus: Record<string, string> = { preparing: "Preparing", ready: "Packed for the rider", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" };
+// What the receipt says under the total for a delivery: the customer's thanks, or the rider's reminder.
+const receiptFooter = (receipt: ReceiptData) => receipt.serviceType === "delivery" ? "Thank you! Enjoy your order." : `Thank you!${receipt.queueNumber !== null ? " Please wait for your number." : ""}`;
+// The subtotal of the items (orders saved before subtotals were recorded work it out from the total).
+const receiptSubtotal = (receipt: ReceiptData) => receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0) - (receipt.deliveryFee ?? 0);
 
 function receiptMoney(value: number): string {
   return value.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -710,6 +720,9 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     row("Deliver to", receipt.delivery.recipient);
     row(`${receipt.delivery.street}${receipt.delivery.landmark ? `, near ${receipt.delivery.landmark}` : ""} (${receipt.delivery.zone})`, "", { size: base * 0.9, indent: 3 });
     row(receipt.delivery.phone, receipt.delivery.rider ? `Rider: ${receipt.delivery.rider}` : "", { size: base * 0.9, indent: 3 });
+    if (receipt.delivery.notes) row(`Note: ${receipt.delivery.notes}`, "", { size: base * 0.9, indent: 3 });
+    row(`Status: ${receiptDeliveryStatus[receipt.delivery.status] ?? receipt.delivery.status}${receipt.delivery.deliveredAt ? ` ${receiptTime(receipt.delivery.deliveredAt)}` : ""}`, "", { size: base * 0.9, indent: 3 });
+    if (receipt.delivery.checkId) text("RIDER: CHECK THE DISCOUNT ID AT THE DOOR", base * 0.9, true);
   }
   rule();
   for (const item of receipt.items) {
@@ -722,7 +735,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   rule();
   const idDiscounts = receipt.idDiscounts ?? [];
   if (receipt.discountAmount || receipt.vatExemptAmount || receipt.deliveryFee) {
-    row("Subtotal", money(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0)));
+    row(receipt.deliveryFee ? "Items" : "Subtotal", money(receiptSubtotal(receipt)));
     if (idDiscounts.length > 0) {
       for (const entry of idDiscounts) {
         row(`${entry.name}: ${entry.holderName}`, "", { bold: true });
@@ -744,7 +757,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     if (receipt.change !== null) row("Change", money(receipt.change), { indent: 3 });
     row("GCash", money(receipt.total - receipt.cashPortion));
   } else if (receipt.paymentMethod === "cod") {
-    row("Cash on delivery", money(receipt.total));
+    row(receipt.received ? "Cash on delivery" : "To collect on delivery", money(receipt.total), { bold: !receipt.received });
     if (receipt.received) row("Collected by the rider", money(receipt.received), { indent: 3 });
   } else if (isGcash) {
     row("Paid with GCash", money(receipt.total));
@@ -767,7 +780,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     row("Signature", "______________________", { size: base * 0.9 });
   }
   rule();
-  text(`Thank you!${receipt.queueNumber !== null ? " Please wait for your number." : ""}`);
+  text(receiptFooter(receipt));
   text("THIS IS NOT AN OFFICIAL RECEIPT", base * 0.85, true);
   if (reprint) text(`Reprinted ${receiptTime(new Date().toISOString())}`, base * 0.85);
 
@@ -818,6 +831,9 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       {row("Deliver to", receipt.delivery.recipient)}
       <div className="receipt-detail">{receipt.delivery.street}{receipt.delivery.landmark ? `, near ${receipt.delivery.landmark}` : ""} ({receipt.delivery.zone})</div>
       <div className="receipt-detail">{receipt.delivery.phone}{receipt.delivery.rider ? ` · Rider: ${receipt.delivery.rider}` : ""}</div>
+      {receipt.delivery.notes && <div className="receipt-detail">Note: {receipt.delivery.notes}</div>}
+      <div className="receipt-detail">Status: {receiptDeliveryStatus[receipt.delivery.status] ?? receipt.delivery.status}{receipt.delivery.deliveredAt ? ` ${receiptTime(receipt.delivery.deliveredAt)}` : ""}</div>
+      {receipt.delivery.checkId && <div className="receipt-stamp is-small">Rider: check the discount ID at the door</div>}
     </div>}
     <div className="receipt-rule" />
     {receipt.items.map((item, index) => {
@@ -830,7 +846,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     })}
     <div className="receipt-rule" />
     {Boolean(receipt.discountAmount || receipt.vatExemptAmount || receipt.deliveryFee) && <>
-      {row("Subtotal", receiptMoney(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0)))}
+      {row(receipt.deliveryFee ? "Items" : "Subtotal", receiptMoney(receiptSubtotal(receipt)))}
       {(receipt.idDiscounts ?? []).length > 0 ? (receipt.idDiscounts ?? []).map((entry, index) => <div key={index} className="receipt-item">
         {row(<strong>{entry.name}: {entry.holderName}</strong>, "")}
         {entry.idNumber && <div className="receipt-detail">ID {entry.idNumber}</div>}
@@ -838,7 +854,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
         {Boolean(entry.vatExempt) && row(<span className="receipt-detail">Less VAT (VAT-exempt)</span>, `-${receiptMoney(entry.vatExempt)}`)}
         {row(<span className="receipt-detail">Less discount</span>, `-${receiptMoney(entry.discount)}`)}
       </div>)
-        : row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel}` : ""}`, `-${receiptMoney(receipt.discountAmount ?? 0)}`)}
+        : Boolean(receipt.discountAmount) && row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel}` : ""}`, `-${receiptMoney(receipt.discountAmount ?? 0)}`)}
     </>}
     {Boolean(receipt.deliveryFee) && row("Delivery fee", receiptMoney(receipt.deliveryFee ?? 0))}
     {row("TOTAL", `₱${receiptMoney(receipt.total)}`, true)}
@@ -848,7 +864,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       {receipt.change !== null && row("  Change", receiptMoney(receipt.change))}
       {row("GCash", receiptMoney(receipt.total - receipt.cashPortion))}
     </> : receipt.paymentMethod === "cod" ? <>
-      {row("Cash on delivery", receiptMoney(receipt.total))}
+      {row(receipt.received ? "Cash on delivery" : "To collect on delivery", receiptMoney(receipt.total), !receipt.received)}
       {Boolean(receipt.received) && row("  Collected by the rider", receiptMoney(receipt.received ?? 0))}
     </> : isGcash ? row("Paid with GCash", receiptMoney(receipt.total))
       : <>
@@ -870,7 +886,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     </div>)}
     <div className="receipt-rule" />
     <div className="receipt-center">
-      <div>Thank you!{receipt.queueNumber !== null ? " Please wait for your number." : ""}</div>
+      <div>{receiptFooter(receipt)}</div>
       <div className="receipt-small receipt-legal">THIS IS NOT AN OFFICIAL RECEIPT</div>
       {reprint && <div className="receipt-small">Reprinted {receiptTime(new Date().toISOString())}</div>}
     </div>
@@ -2638,7 +2654,7 @@ function IconTruck({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
 }
 
-function DeliveriesPage({ user, onOpenReversals }: { user: Session; onOpenReversals: () => void }) {
+function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; onOpenReversals: () => void; onChanged?: () => void }) {
   const [list, setList] = useState<DeliveryCard[] | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -2680,6 +2696,7 @@ function DeliveriesPage({ user, onOpenReversals }: { user: Session; onOpenRevers
       setNotice(action === "pickup" ? `Order #${card.queueNumber} is on its way.` : action === "delivered" ? `Order #${card.queueNumber} delivered.${card.payment === "cod" ? ` Hand the ₱${(card.codAmount ?? 0).toFixed(2)} to the cashier.` : ""}` : action === "failed" ? `Order #${card.queueNumber} marked not delivered. A cashier voids it in Void & Refund.` : `Received ₱${(card.codCollected ?? 0).toFixed(2)} for order #${card.queueNumber}.`);
       setFailing(null);
       setCollecting(null);
+      onChanged?.();
       await load();
     } catch (actError) {
       setError(actError instanceof Error ? actError.message : "Could not update the delivery.");
@@ -3967,6 +3984,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(false);
   const [lastOrder, setLastOrder] = useState<LastOrder | null>(null);
   const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null);
+  const [deliveryCounts, setDeliveryCounts] = useState<DeliveryCounts | null>(null);
   const [now, setNow] = useState(() => Date.now());
   // undefined while loading, null when no shift is open.
   const [shift, setShift] = useState<CurrentShift | null | undefined>(undefined);
@@ -4038,8 +4056,9 @@ export default function App() {
     try {
       const response = await fetch("/api/queue?signatureOnly=1", { cache: "no-store" });
       if (!response.ok) return;
-      const payload = await response.json() as { signature?: { waiting_count?: number; ready_count?: number } };
+      const payload = await response.json() as { signature?: { waiting_count?: number; ready_count?: number }; deliveries?: { ready?: number; failed?: number; cash?: number; mine_cash?: number } | null };
       setQueueCounts({ waiting: Number(payload.signature?.waiting_count ?? 0), ready: Number(payload.signature?.ready_count ?? 0) });
+      setDeliveryCounts(payload.deliveries ? { ready: Number(payload.deliveries.ready ?? 0), failed: Number(payload.deliveries.failed ?? 0), cash: Number(payload.deliveries.cash ?? 0), mineCash: Number(payload.deliveries.mine_cash ?? 0) } : null);
     } catch (error) {
       console.error("Sidebar: failed to load queue counts", error);
     }
@@ -4167,10 +4186,13 @@ export default function App() {
   const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
   const queueOnly = isQueueOnlyRole(user.role);
   const allowedPages = limitedPages(user.role);
+  const deliveryBadge = !deliveryCounts || (allowedPages && !allowedPages.includes("deliveries")) ? 0
+    : user.role.toLowerCase() === "rider" ? deliveryCounts.ready + deliveryCounts.mineCash
+      : deliveryCounts.ready + deliveryCounts.failed + deliveryCounts.cash;
   const visiblePage: Page = allowedPages ? (allowedPages.includes(page) ? page : allowedPages[0]) : page === "reversals" && !canManageReversals ? "pos" : page;
   async function confirmSignOut() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }

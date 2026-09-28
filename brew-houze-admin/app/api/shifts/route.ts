@@ -43,12 +43,16 @@ function mapSummary(row: SummaryRow) {
     uncostedItems: Number(row.uncosted_items ?? 0),
     // Discounts in the shift's sales (already taken off the sales figures above).
     discounts: { scPwd: Number(row.sc_pwd_discount ?? 0), scPwdCount: Number(row.sc_pwd_count ?? 0), vatExempt: Number(row.vat_exempt ?? 0), otherId: Number(row.other_id_discount ?? 0), rewards: Number(row.reward_discount ?? 0) },
+    // Delivery orders of the shift. codReceived: riders' cash on delivery handed in during the
+    // shift (already in the expected cash); codWithRiders: collected but not handed in yet.
+    delivery: { orders: Number(row.delivery_orders ?? 0), fees: Number(row.delivery_fee_total ?? 0), codSales: Number(row.cod_order_total ?? 0), codReceived: Number(row.cod_remitted ?? 0), codWithRiders: Number(row.cod_with_riders ?? 0), delivered: Number(row.delivered_count ?? 0), failed: Number(row.failed_count ?? 0) },
   };
 }
 
 const summarySelect = `
   SELECT
     ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
+    dlv.delivery_orders, dlv.delivery_fee_total, dlv.cod_order_total, dlv.delivered_count, dlv.failed_count, dlv.cod_with_riders,
     TO_CHAR(ss.business_date, 'YYYY-MM-DD') AS business_date_text,
     TO_CHAR(ss.opened_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS opened_at_text,
     TO_CHAR(ss.closed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS closed_at_text,
@@ -66,6 +70,16 @@ const summarySelect = `
         COALESCE(SUM(discount_amount) FILTER (WHERE discount_source IN ('reward', 'birthday')), 0) AS reward_discount
       FROM sales_orders WHERE shift_id = ss.shift_id AND status NOT IN ('void', 'voided', 'refund', 'refunded')
     ) disc_so ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*) FILTER (WHERE dso.status NOT IN ('void', 'voided', 'refund', 'refunded'))::int AS delivery_orders,
+        COALESCE(SUM(dso.delivery_fee) FILTER (WHERE dso.status NOT IN ('void', 'voided', 'refund', 'refunded')), 0) AS delivery_fee_total,
+        COALESCE(SUM(dso.total_amount) FILTER (WHERE d.payment = 'cod' AND dso.status NOT IN ('void', 'voided', 'refund', 'refunded')), 0) AS cod_order_total,
+        COUNT(*) FILTER (WHERE d.status = 'delivered')::int AS delivered_count,
+        COUNT(*) FILTER (WHERE d.status = 'failed')::int AS failed_count,
+        COALESCE(SUM(d.cod_collected) FILTER (WHERE d.cod_remitted_at IS NULL), 0) AS cod_with_riders
+      FROM deliveries d JOIN sales_orders dso ON dso.order_id = d.order_id
+      WHERE dso.shift_id = ss.shift_id AND dso.is_archived = FALSE
+    ) dlv ON TRUE
 `;
 
 export async function GET(request: Request) {
@@ -83,7 +97,7 @@ export async function GET(request: Request) {
 
       const ordersResult = await pool.query(`
         SELECT
-          so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
+          so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total, so.service_type,
           so.shift_id = $1 AS sold_in_shift,
           COALESCE(so.reversed_shift_id = $1, FALSE) AS reversed_in_shift,
           TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
@@ -110,6 +124,21 @@ export async function GET(request: Request) {
         ORDER BY t.time_in ASC
       `, [shiftId]);
 
+      // Delivery orders sold in the shift, and cash on delivery handed in during it.
+      const deliveriesResult = await pool.query(`
+        SELECT d.delivery_id, d.order_id, so.queue_number, d.status, d.payment, d.fee, d.zone_name, d.cod_amount, d.cod_collected, d.failure_reason,
+          so.shift_id = $1 AS sold_in_shift, so.status AS order_status, COALESCE(d.cod_remitted_shift_id = $1, FALSE) AS remitted_in_shift,
+          rider.full_name AS rider_name, receiver.full_name AS remitted_to,
+          TO_CHAR(d.picked_up_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS picked_up_at, TO_CHAR(d.delivered_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS delivered_at,
+          TO_CHAR(d.failed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS failed_at, TO_CHAR(d.cod_remitted_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS remitted_at
+        FROM deliveries d
+        JOIN sales_orders so ON so.order_id = d.order_id
+        LEFT JOIN admin_users rider ON rider.admin_id = d.rider_admin_id
+        LEFT JOIN admin_users receiver ON receiver.admin_id = d.cod_remitted_to
+        WHERE (so.shift_id = $1 OR d.cod_remitted_shift_id = $1) AND so.is_archived = FALSE
+        ORDER BY d.created_at ASC
+      `, [shiftId]);
+
       const movementsResult = await pool.query(`
         SELECT cm.movement_id, cm.kind, cm.amount, cm.reason, cm.note, cm.source_app, au.full_name,
           TO_CHAR(cm.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
@@ -129,12 +158,22 @@ export async function GET(request: Request) {
             discountLabel: (row.discount_label as string | null) ?? null, discountTotal: Number(row.discount_total ?? 0),
             paymentMethod: row.payment_method,
             orderSource: row.order_source,
+            serviceType: (row.service_type as string | null) ?? null,
             soldInShift: Boolean(row.sold_in_shift),
             reversedInShift: Boolean(row.reversed_in_shift),
             createdAt: row.created_at,
             reversedAt: row.reversed_at,
             punchedBy: row.punched_by,
             items: row.items,
+          })),
+          deliveries: deliveriesResult.rows.map((row) => ({
+            id: Number(row.delivery_id), orderId: Number(row.order_id), queueNumber: row.queue_number === null ? null : Number(row.queue_number),
+            status: String(row.status), payment: String(row.payment), fee: Number(row.fee), zone: String(row.zone_name),
+            codAmount: row.cod_amount === null ? null : Number(row.cod_amount), codCollected: row.cod_collected === null ? null : Number(row.cod_collected),
+            failureReason: (row.failure_reason as string | null) ?? null, soldInShift: Boolean(row.sold_in_shift), orderStatus: String(row.order_status),
+            remittedInShift: Boolean(row.remitted_in_shift), rider: (row.rider_name as string | null) ?? null, remittedTo: (row.remitted_to as string | null) ?? null,
+            pickedUpAt: (row.picked_up_at as string | null) ?? null, deliveredAt: (row.delivered_at as string | null) ?? null,
+            failedAt: (row.failed_at as string | null) ?? null, remittedAt: (row.remitted_at as string | null) ?? null,
           })),
           movements: movementsResult.rows.map((row) => ({
             id: Number(row.movement_id),

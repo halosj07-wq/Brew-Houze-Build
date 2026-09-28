@@ -12,13 +12,16 @@ import { getSession } from "@/lib/sessions";
 //   customer  customers who signed up on the mobile menu in the last 7 days
 //   discount  an ID number (senior, PWD and others) used under different names in the last 30
 //             days, or 3 or more times in one shift in the last 7 days
+//   delivery  a delivery that failed and is not voided yet, a rider's cash on delivery not handed
+//             in 30 minutes after delivering, an order on the way for over an hour, and a packed
+//             order no rider picked up for 20 minutes
 
 const TZ = "Asia/Manila";
 const isoTz = (column: string) => `TO_CHAR(${column} AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
 // Columns stored without a time zone hold UTC.
 const isoUtc = (column: string) => `TO_CHAR(${column} AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
 
-type Notification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: "discounts" | "inventory" | "shift" | "finance" | "customers" };
+type Notification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount" | "delivery"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: "discounts" | "inventory" | "shift" | "finance" | "customers" | "delivery" };
 
 const peso = (value: unknown) => `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -27,7 +30,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const reversedOrder = "LOWER(so.status) IN ('void', 'voided', 'refund', 'refunded')";
-    const [stock, payments, reversals, cash, customers, idNames, idOften] = await Promise.all([
+    const [stock, payments, reversals, cash, customers, idNames, idOften, deliveries] = await Promise.all([
       // Portions made from another item (bound items) follow their source, which alerts instead.
       pool.query(`
         SELECT inventory_id, item_name, quantity, low_stock_threshold, unit_of_measure, ${isoUtc("COALESCE(updated_at, created_at)")} AS at
@@ -79,6 +82,23 @@ export async function GET() {
         HAVING COUNT(*) >= 3
         ORDER BY MAX(od.created_at) DESC LIMIT 10
       `),
+      // Deliveries that need someone (one row per problem).
+      pool.query(`
+        SELECT d.delivery_id, so.order_id, so.queue_number, d.zone_name, d.payment, d.failure_reason, d.cod_collected, so.total_amount, rider.full_name AS rider,
+          CASE WHEN d.status = 'failed' THEN 'failed'
+            WHEN d.status = 'out' THEN 'late'
+            WHEN d.status = 'ready' THEN 'waiting'
+            ELSE 'cash' END AS problem,
+          ${isoTz("CASE d.status WHEN 'failed' THEN d.failed_at WHEN 'out' THEN d.picked_up_at WHEN 'ready' THEN d.ready_at ELSE d.delivered_at END")} AS at
+        FROM deliveries d
+        JOIN sales_orders so ON so.order_id = d.order_id
+        LEFT JOIN admin_users rider ON rider.admin_id = d.rider_admin_id
+        WHERE (d.status = 'failed' AND so.status = 'completed')
+          OR (d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL AND d.delivered_at < CURRENT_TIMESTAMP - INTERVAL '30 minutes')
+          OR (d.status = 'out' AND so.status = 'completed' AND d.picked_up_at < CURRENT_TIMESTAMP - INTERVAL '60 minutes')
+          OR (d.status = 'ready' AND so.status = 'completed' AND d.ready_at < CURRENT_TIMESTAMP - INTERVAL '20 minutes')
+        ORDER BY d.delivery_id DESC LIMIT 30
+      `),
     ]);
 
     const items: Notification[] = [
@@ -95,6 +115,14 @@ export async function GET() {
       }),
       ...idNames.rows.map((row): Notification => ({ key: `dsc-names-${row.type_code}-${row.id_key}-${row.names}`, kind: "discount", tone: "warning", title: `${row.type_name} ID ${row.id_number} used under ${row.names} names`, detail: `${row.holder_names}. Check the register: one ID should belong to one person.`, at: String(row.at), page: "discounts" })),
       ...idOften.rows.map((row): Notification => ({ key: `dsc-often-${row.type_code}-${row.id_key}-${row.shift_id}-${row.uses}`, kind: "discount", tone: "warning", title: `${row.type_name} ID ${row.id_number} used ${row.uses} times in shift #${row.shift_id}`, detail: "The discount is for the ID holder's own food and drinks. Check the register.", at: String(row.at), page: "discounts" })),
+      ...deliveries.rows.map((row): Notification => {
+        const order = `Order #${row.queue_number ?? row.order_id}`;
+        const rider = row.rider ? String(row.rider) : "the rider";
+        if (row.problem === "failed") return { key: `dlv-failed-${row.delivery_id}`, kind: "delivery", tone: "danger", title: `${order} could not be delivered`, detail: `${row.failure_reason ?? "No reason given"} · ${row.zone_name}${row.rider ? ` · ${row.rider}` : ""}. A cashier voids it in the staff app (Void & Refund) to put the stock back.`, at: String(row.at), page: "delivery" };
+        if (row.problem === "cash") return { key: `dlv-cash-${row.delivery_id}`, kind: "delivery", tone: "warning", title: `${peso(Number(row.cod_collected))} cash on delivery not handed in`, detail: `${order} was delivered by ${rider}, but the cash was not received at the counter yet. The shift cannot close until it is.`, at: String(row.at), page: "delivery" };
+        if (row.problem === "late") return { key: `dlv-late-${row.delivery_id}`, kind: "delivery", tone: "warning", title: `${order} has been on the way for over an hour`, detail: `${row.zone_name} · ${rider}. Check with the rider or call the customer.`, at: String(row.at), page: "delivery" };
+        return { key: `dlv-wait-${row.delivery_id}`, kind: "delivery", tone: "info", title: `${order} is packed and waiting for a rider`, detail: `${row.zone_name} · packed over 20 minutes ago. Is a rider on duty?`, at: String(row.at), page: "delivery" };
+      }),
       ...customers.rows.map((row): Notification => ({ key: `cust-${row.customer_id}`, kind: "customer", tone: "info", title: `${row.full_name} made an account`, detail: `@${row.username ?? ""} signed up on the mobile menu.`, at: String(row.at), page: "customers" })),
     ].sort((a, b) => b.at.localeCompare(a.at));
 

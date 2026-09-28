@@ -1382,3 +1382,18 @@ strong.is-low { color: #B45309 !important; }
 .feat-name strong { color: #3D2B1F; font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .feat-name em { color: #9C8278; font-size: 11.5px; font-style: normal; }
 @media (max-width: 640px) { .feat-list li { flex-wrap: wrap; } .feat-list li input { width: 100% !important; order: 5; } }
+
+/* Deliveries in reports: Finance card, shift reports, order tags, and Delivery > Right now. */
+.fin-dlv-stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.fin-dlv-grid { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px; margin-top: 14px; }
+.fin-dlv-head { margin: 0 0 6px; color: #9C8278; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.fin-dlv-facts { padding-top: 10px; border-top: 1px dashed #E8DDD5; }
+.fin-chip.is-delivery { background: #DBEAFE; color: #1D4ED8; }
+.order-discount-tag.is-delivery { background: #DBEAFE; color: #1D4ED8; }
+.shiftm-discounts.is-delivery { background: #F0F9FF; color: #075985; }
+.dlv-now { border-color: #BFDBFE; }
+.dlv-now-tag { flex-shrink: 0; padding: 3px 9px; border-radius: 999px; background: #F3EDE5; color: #6B4C3B; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.dlv-now-tag.is-failed { background: #FEE2E2; color: #B91C1C; }
+.dlv-now-tag.is-cash { background: #FEF3C7; color: #92400E; }
+.dlv-now-tag.is-out { background: #DBEAFE; color: #1D4ED8; }
+@media (max-width: 860px) { .fin-dlv-grid { grid-template-columns: minmax(0, 1fr); } }
