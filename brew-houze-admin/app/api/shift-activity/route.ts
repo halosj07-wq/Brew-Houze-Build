@@ -44,13 +44,25 @@ export async function GET(request: Request) {
     }
 
     const summaryResult = await pool.query(`
-      SELECT ss.*,
+      SELECT ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
         TO_CHAR(ss.business_date, 'YYYY-MM-DD') AS business_date_text,
         ${isoText("ss.opened_at")} AS opened_at_text,
         ${isoText("ss.closed_at")} AS closed_at_text,
         (SELECT shift_id FROM shifts WHERE opened_at < ss.opened_at ORDER BY opened_at DESC LIMIT 1) AS previous_shift_id,
         (SELECT shift_id FROM shifts WHERE opened_at > ss.opened_at ORDER BY opened_at ASC LIMIT 1) AS next_shift_id
       FROM shift_summaries ss
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code IN ('senior', 'pwd')), 0) AS sc_pwd_discount,
+        COUNT(*) FILTER (WHERE od.type_code IN ('senior', 'pwd'))::int AS sc_pwd_count,
+        COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code NOT IN ('senior', 'pwd')), 0) AS other_id_discount
+      FROM order_discounts od JOIN sales_orders dso ON dso.order_id = od.order_id
+      WHERE dso.shift_id = ss.shift_id AND dso.status NOT IN ('void', 'voided', 'refund', 'refunded')
+    ) disc_id ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(vat_exempt_amount), 0) AS vat_exempt,
+        COALESCE(SUM(discount_amount) FILTER (WHERE discount_source IN ('reward', 'birthday')), 0) AS reward_discount
+      FROM sales_orders WHERE shift_id = ss.shift_id AND status NOT IN ('void', 'voided', 'refund', 'refunded')
+    ) disc_so ON TRUE
       WHERE ss.shift_id = $1
     `, [shiftId]);
     const row = summaryResult.rows[0];
@@ -59,7 +71,7 @@ export async function GET(request: Request) {
 
     const [orders, attendance, stock, products, checkouts, movements] = await Promise.all([
       pool.query(`
-        SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source,
+        SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
           so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, so.cash_portion,
           so.shift_id = $1 AS sold_in_shift,
           COALESCE(so.reversed_shift_id = $1, FALSE) AS reversed_in_shift,
@@ -157,6 +169,7 @@ export async function GET(request: Request) {
           mobileOrderCount: Number(row.mobile_order_count ?? 0),
           itemsSold: Number(row.items_sold ?? 0),
           grossSales: Number(row.gross_sales ?? 0),
+          discounts: { scPwd: Number(row.sc_pwd_discount ?? 0), scPwdCount: Number(row.sc_pwd_count ?? 0), vatExempt: Number(row.vat_exempt ?? 0), otherId: Number(row.other_id_discount ?? 0), rewards: Number(row.reward_discount ?? 0) },
           cashSales: Number(row.cash_sales ?? 0),
           onlineSales: Number(row.online_sales ?? 0),
           voidCount: Number(row.void_count ?? 0),
@@ -176,6 +189,7 @@ export async function GET(request: Request) {
           status: order.status as string,
           queueStatus: (order.queue_status as string | null) ?? null,
           total: Number(order.total_amount),
+          discountLabel: (order.discount_label as string | null) ?? null, discountTotal: Number(order.discount_total ?? 0),
           paymentMethod: order.payment_method as string,
           orderSource: order.order_source as string,
           soldInShift: Boolean(order.sold_in_shift),

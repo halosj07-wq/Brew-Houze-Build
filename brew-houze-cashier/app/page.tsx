@@ -17,7 +17,7 @@ function roleLabel(role: string): string {
 }
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null; discount_label?: string | null; discount_total?: string | number | null };
 
 
 function IconGrid({ size = 20 }: IconProps) {
@@ -3029,6 +3029,7 @@ function ReversalsPage({ user }: { user: Session }) {
               <input value={gcashReference} onChange={(event) => setGcashReference(event.target.value)} maxLength={60} autoComplete="off" placeholder="From the GCash receipt after sending" style={returnFieldStyle} />
             </label>
           </div>}
+          {pendingAction?.order.discount_label && Number(pendingAction.order.discount_total ?? 0) > 0 && <p style={{ margin: "12px 0 0", padding: "8px 11px", borderRadius: 10, background: "#EFF6FF", border: "1px solid #BFDBFE", color: "#1E3A8A", fontSize: 12.5, lineHeight: 1.45 }}>This order had a discount ({pendingAction.order.discount_label}, ₱{Number(pendingAction.order.discount_total).toFixed(2)} off). The amount below is what the customer paid. The discount stays in the register marked {pendingAction.action === "void" ? "voided" : "refunded"}.</p>}
           {returnMethod === "split" && <div style={{ marginTop: 12, padding: "12px 14px", borderRadius: 12, background: "#3D2B1F", color: "#FDF9F5", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
             <span style={{ fontSize: 12.5, lineHeight: 1.4 }}>Hand back in cash</span>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, whiteSpace: "nowrap" }}>₱{pendingCashPart.toFixed(2)}</strong>
@@ -3341,6 +3342,8 @@ type CurrentShift = {
   refundCount: number;
   reversedAmount: number;
   cashReversed: number;
+  // Discounts in the shift's sales, already taken off the figures above.
+  discounts?: { scPwd: number; scPwdCount: number; vatExempt: number; otherId: number; rewards: number };
   gcashReturned?: number;
   cashAdded?: number;
   cashRemoved?: number;
@@ -3721,6 +3724,13 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
             <ShiftSummaryRow label={`Voids & refunds (${summary.voidCount + summary.refundCount})`} value={`− ${formatPeso(summary.reversedAmount)}`} tone={summary.reversedAmount > 0 ? "#B91C1C" : undefined} />
             <div style={{ borderTop: "1px solid #E8DDD5" }}><ShiftSummaryRow label="Net sales" value={formatPeso(summary.netSales)} strong /></div>
             <ShiftSummaryRow label="Paid online" value={formatPeso(summary.onlineSales)} />
+            {summary.discounts && summary.discounts.scPwd + summary.discounts.vatExempt + summary.discounts.otherId + summary.discounts.rewards > 0 && <>
+              <p style={sectionLabel}>Discounts (already off the sales above)</p>
+              {summary.discounts.scPwd > 0 && <ShiftSummaryRow label={`Senior & PWD discount (${summary.discounts.scPwdCount})`} value={`− ${formatPeso(summary.discounts.scPwd)}`} tone="#1D4ED8" />}
+              {summary.discounts.vatExempt > 0 && <ShiftSummaryRow label="VAT exempted (senior & PWD)" value={`− ${formatPeso(summary.discounts.vatExempt)}`} tone="#1D4ED8" />}
+              {summary.discounts.otherId > 0 && <ShiftSummaryRow label="Other ID discounts" value={`− ${formatPeso(summary.discounts.otherId)}`} tone="#1D4ED8" />}
+              {summary.discounts.rewards > 0 && <ShiftSummaryRow label="Loyalty rewards" value={`− ${formatPeso(summary.discounts.rewards)}`} tone="#B45309" />}
+            </>}
 
             <p style={sectionLabel}>Cash drawer</p>
             <ShiftSummaryRow label="Starting cash" value={formatPeso(summary.startingCash)} />

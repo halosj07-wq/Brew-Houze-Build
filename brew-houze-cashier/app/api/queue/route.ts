@@ -78,6 +78,7 @@ export async function GET(request: Request) {
     `);
     const recentResult = await pool.query(`
       SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.payment_method, so.payment_provider, so.cash_portion, so.reversal_type,
+        so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
         so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, reverser.full_name AS reversed_by, cu.full_name AS customer_name,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,

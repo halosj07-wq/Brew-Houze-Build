@@ -41,17 +41,31 @@ function mapSummary(row: SummaryRow) {
     netSales: Number(row.net_sales ?? 0),
     costOfGoods: Number(row.cost_of_goods ?? 0),
     uncostedItems: Number(row.uncosted_items ?? 0),
+    // Discounts in the shift's sales (already taken off the sales figures above).
+    discounts: { scPwd: Number(row.sc_pwd_discount ?? 0), scPwdCount: Number(row.sc_pwd_count ?? 0), vatExempt: Number(row.vat_exempt ?? 0), otherId: Number(row.other_id_discount ?? 0), rewards: Number(row.reward_discount ?? 0) },
   };
 }
 
 const summarySelect = `
   SELECT
-    ss.*,
+    ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
     TO_CHAR(ss.business_date, 'YYYY-MM-DD') AS business_date_text,
     TO_CHAR(ss.opened_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS opened_at_text,
     TO_CHAR(ss.closed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS closed_at_text,
     EXTRACT(EPOCH FROM (COALESCE(ss.closed_at, CURRENT_TIMESTAMP) - ss.opened_at)) / 3600 AS hours_open
   FROM shift_summaries ss
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code IN ('senior', 'pwd')), 0) AS sc_pwd_discount,
+        COUNT(*) FILTER (WHERE od.type_code IN ('senior', 'pwd'))::int AS sc_pwd_count,
+        COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code NOT IN ('senior', 'pwd')), 0) AS other_id_discount
+      FROM order_discounts od JOIN sales_orders dso ON dso.order_id = od.order_id
+      WHERE dso.shift_id = ss.shift_id AND dso.status NOT IN ('void', 'voided', 'refund', 'refunded')
+    ) disc_id ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(vat_exempt_amount), 0) AS vat_exempt,
+        COALESCE(SUM(discount_amount) FILTER (WHERE discount_source IN ('reward', 'birthday')), 0) AS reward_discount
+      FROM sales_orders WHERE shift_id = ss.shift_id AND status NOT IN ('void', 'voided', 'refund', 'refunded')
+    ) disc_so ON TRUE
 `;
 
 export async function GET(request: Request) {
@@ -69,7 +83,7 @@ export async function GET(request: Request) {
 
       const ordersResult = await pool.query(`
         SELECT
-          so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source,
+          so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
           so.shift_id = $1 AS sold_in_shift,
           COALESCE(so.reversed_shift_id = $1, FALSE) AS reversed_in_shift,
           TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
@@ -112,6 +126,7 @@ export async function GET(request: Request) {
             queueNumber: row.queue_number === null ? null : Number(row.queue_number),
             status: row.status,
             total: Number(row.total_amount),
+            discountLabel: (row.discount_label as string | null) ?? null, discountTotal: Number(row.discount_total ?? 0),
             paymentMethod: row.payment_method,
             orderSource: row.order_source,
             soldInShift: Boolean(row.sold_in_shift),

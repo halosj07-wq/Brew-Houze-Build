@@ -56,17 +56,18 @@ export async function markVerificationUsed(client: PoolClient, verificationId: n
   if (result.rowCount === 0) throw new Error("The ID approval was already used or cancelled");
 }
 
-export type SavedIdDiscount = { typeId: number; typeName: string; holderName: string; idNumber: string | null };
+// verifiedBy: the staff member who checked the ID (recorded on each discount it gives).
+export type SavedIdDiscount = { typeId: number; typeName: string; holderName: string; idNumber: string | null; verifiedBy: number | null };
 
 // The ID remembered on a customer's account, while its discount is still switched on.
 export async function savedIdDiscount(customerId: number, db: Db = pool): Promise<SavedIdDiscount | null> {
   const result = await db.query(`
-    SELECT c.id_discount_type_id, dt.name, c.id_discount_name, c.id_discount_number
+    SELECT c.id_discount_type_id, dt.name, c.id_discount_name, c.id_discount_number, c.id_verified_by
     FROM customers c JOIN discount_types dt ON dt.discount_type_id = c.id_discount_type_id AND dt.is_active = TRUE
     WHERE c.customer_id = $1 AND c.id_verified_at IS NOT NULL AND c.id_discount_name IS NOT NULL
   `, [customerId]);
   const row = result.rows[0];
-  return row ? { typeId: Number(row.id_discount_type_id), typeName: String(row.name), holderName: String(row.id_discount_name), idNumber: (row.id_discount_number as string | null) ?? null } : null;
+  return row ? { typeId: Number(row.id_discount_type_id), typeName: String(row.name), holderName: String(row.id_discount_name), idNumber: (row.id_discount_number as string | null) ?? null, verifiedBy: row.id_verified_by === null ? null : Number(row.id_verified_by) } : null;
 }
 
 // Which of the order's items a mobile ID discount covers: { lines: [{ line, quantity }] } or

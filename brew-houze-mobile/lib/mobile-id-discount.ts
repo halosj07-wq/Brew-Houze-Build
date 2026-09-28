@@ -19,7 +19,7 @@ export async function mobileIdDiscount(body: { verification_token?: unknown; sav
     if (customerId === null) throw new Error("Sign in to use your saved ID.");
     const saved = await savedIdDiscount(customerId);
     if (!saved) throw new Error("Your saved ID is no longer on file. Send a photo of your ID instead.");
-    return { items: null, serviceType: null, customerId, idDiscounts: [{ typeId: saved.typeId, holderName: saved.holderName, idNumber: saved.idNumber, ...parseCoverage(body.saved_id) }], verificationId: null };
+    return { items: null, serviceType: null, customerId, idDiscounts: [{ typeId: saved.typeId, holderName: saved.holderName, idNumber: saved.idNumber, recordedBy: saved.verifiedBy, ...parseCoverage(body.saved_id) }], verificationId: null };
   }
   return null;
 }

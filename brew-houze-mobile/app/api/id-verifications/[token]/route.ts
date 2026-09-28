@@ -19,7 +19,7 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
   try {
     await cleanupIdVerifications(client);
     const result = await client.query(`
-      SELECT v.status, v.reject_reason, v.holder_name, dt.name AS discount_name,
+      SELECT v.status, v.reject_reason, v.holder_name, v.service_type, dt.name AS discount_name,
         TO_CHAR(v.expires_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS expires_at
       FROM id_verifications v LEFT JOIN discount_types dt ON dt.discount_type_id = v.discount_type_id
       WHERE v.public_token = $1
@@ -42,6 +42,8 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
         rejectReason: (row.reject_reason as string | null) ?? null,
         holderName: String(row.holder_name),
         discountName: (row.discount_name as string | null) ?? null,
+        // Dine in or take out as sent with the ID (the order uses this, not a later change on the phone).
+        serviceType: row.service_type === "take_out" ? "take_out" : row.service_type === "dine_in" ? "dine_in" : null,
         expiresAt: String(row.expires_at),
         breakdown,
         problem,

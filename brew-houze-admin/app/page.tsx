@@ -852,7 +852,7 @@ type DashboardShift = {
   voidCount: number; refundCount: number; reversedAmount: number; netSales: number;
   startingCash: number; expectedCash: number; countedCash: number | null; cashDifference: number | null; costOfGoods: number; uncostedItems: number;
 };
-type DashboardOrder = { orderId: number; queueNumber: number | null; status: string; total: number; paymentMethod: string; orderSource: string; createdAt: string; punchedBy: string; items: string };
+type DashboardOrder = { orderId: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; orderSource: string; createdAt: string; punchedBy: string; items: string };
 type DashboardData = {
   shift: DashboardShift | null;
   previousShift: DashboardShift | null;
@@ -1441,7 +1441,7 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
                     <span className="dash-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
                     <div className="dash-order-main">
                       <strong>{order.items || "Order"}</strong>
-                      <span>{when} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b></span>
+                      <span>{when} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b>{order.discountLabel && (order.discountTotal ?? 0) > 0 && <b className="order-discount-tag" title={order.discountLabel}>−{peso(order.discountTotal ?? 0)} {shortDiscountLabel(order.discountLabel)}</b>}</span>
                     </div>
                     <div className="dash-order-total">
                       <strong className={reversed ? "is-reversed" : ""}>{peso(order.total)}</strong>
@@ -4431,6 +4431,11 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
           <div><span>Voids & refunds</span><strong>{reversals}</strong><em>{shift.reversedAmount > 0 ? `−${peso(shift.reversedAmount)}` : "None"}</em></div>
           <div><span>{shift.isOpen ? "On duty" : "Staff"}</span><strong>{shift.isOpen ? onDuty.length : staff.filter((entry) => entry.logs.length > 0).length}</strong><em>{shift.isOpen ? (queueWaiting ? `${queueWaiting} order${queueWaiting === 1 ? "" : "s"} preparing` : "queue is clear") : "clocked in this shift"}</em></div>
         </div>
+        {shiftDiscountTotal(shift.discounts) > 0 && shift.discounts && <p className="shiftm-discounts">
+          <strong>Discounts this shift</strong>
+          {[shift.discounts.scPwd > 0 ? `Senior & PWD ${peso(shift.discounts.scPwd)} (${shift.discounts.scPwdCount})` : "", shift.discounts.vatExempt > 0 ? `VAT exempted ${peso(shift.discounts.vatExempt)}` : "", shift.discounts.otherId > 0 ? `Other ID ${peso(shift.discounts.otherId)}` : "", shift.discounts.rewards > 0 ? `Rewards ${peso(shift.discounts.rewards)}` : ""].filter(Boolean).join(" · ")}
+          <em>already off the sales</em>
+        </p>}
         <div className="dash-drawer shiftm-drawer">
           {shift.isHistorical ? <p className="dash-shift-meta" style={{ margin: 0 }}>Cash drawer not tracked: this day was recorded before shifts and cash counts were introduced.</p> : <>
             <div className="dash-drawer-row"><span>{shift.isOpen ? "Expected in cash drawer" : "Expected in drawer"}</span><strong>{peso(shift.expectedCash)}</strong></div>
@@ -4534,7 +4539,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
                 <span className="dash-order-queue">{order.queueNumber === null ? "—" : `#${order.queueNumber}`}</span>
                 <div className="dash-order-main">
                   <strong>{order.items || "Order"}</strong>
-                  <span>{timeWithDay(order.createdAt)} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b> · ref {order.orderId}{reversed && order.reversedAt ? ` · ${order.status.startsWith("void") ? "voided" : "refunded"} ${timeWithDay(order.reversedAt)}${order.reversedBy ? ` by ${order.reversedBy}` : ""}` : ""}</span>
+                  <span>{timeWithDay(order.createdAt)} · {order.punchedBy} · <b className={`dash-channel is-${channel.toLowerCase()}`}>{channel}</b>{order.discountLabel && (order.discountTotal ?? 0) > 0 && <b className="order-discount-tag" title={order.discountLabel}>−{peso(order.discountTotal ?? 0)} {shortDiscountLabel(order.discountLabel)}</b>} · ref {order.orderId}{reversed && order.reversedAt ? ` · ${order.status.startsWith("void") ? "voided" : "refunded"} ${timeWithDay(order.reversedAt)}${order.reversedBy ? ` by ${order.reversedBy}` : ""}` : ""}</span>
                   {reversed && describeReturn(order) && <span className={order.returnMethod === "gcash" ? "shiftm-return is-gcash" : "shiftm-return"}>{describeReturn(order)}</span>}
                 </div>
                 <div className="dash-order-total">
@@ -4643,13 +4648,19 @@ type ShiftReport = {
   netSales: number;
   costOfGoods: number;
   uncostedItems: number;
+  // Discounts in the shift's sales, already taken off the sales figures above.
+  discounts?: ShiftDiscounts;
 };
+type ShiftDiscounts = { scPwd: number; scPwdCount: number; vatExempt: number; otherId: number; rewards: number };
+const shiftDiscountTotal = (discounts?: ShiftDiscounts) => discounts ? discounts.scPwd + discounts.vatExempt + discounts.otherId + discounts.rewards : 0;
+// "Senior Citizen (Juan Dela Cruz)" → "Senior Citizen" for small tags (the full label is the tooltip).
+const shortDiscountLabel = (label: string) => label.replace(/\s*\(.*\)\s*$/, "");
 // Cash put into or taken out of the drawer during a shift (see cash-movements-migration.sql).
 type DrawerKind = "cash_in" | "cash_out" | "cash_drop";
 type DrawerMovement = { id: number; kind: string; amount: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string };
 const drawerKindLabels: Record<string, string> = { cash_in: "Cash in", cash_out: "Cash out", cash_drop: "Cash drop" };
 const drawerSigned = (entry: DrawerMovement) => entry.kind === "cash_in" ? entry.amount : -entry.amount;
-type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; paymentMethod: string; orderSource: string; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
+type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; orderSource: string; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
 type ShiftAttendance = { id: number; name: string; role: string; timeIn: string; timeOut: string | null };
 type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[]; movements?: DrawerMovement[] };
 
@@ -4693,6 +4704,10 @@ function shiftListColumns(): ExcelColumn<ShiftReport>[] {
     { header: "Voids and refunds", value: (shift) => shift.voidCount + shift.refundCount, kind: "count" },
     { header: "Voided or refunded", value: (shift) => shift.reversedAmount, kind: "money" },
     { header: "Net sales", value: (shift) => shift.netSales, kind: "money" },
+    { header: "Senior & PWD discount", value: (shift) => shift.discounts?.scPwd || null, kind: "money" },
+    { header: "VAT exempted", value: (shift) => shift.discounts?.vatExempt || null, kind: "money" },
+    { header: "Other ID discounts", value: (shift) => shift.discounts?.otherId || null, kind: "money" },
+    { header: "Loyalty rewards", value: (shift) => shift.discounts?.rewards || null, kind: "money" },
     { header: "Cash sales", value: (shift) => shift.cashSales, kind: "money" },
     { header: "GCash and online", value: (shift) => shift.onlineSales, kind: "money" },
     { header: "Starting cash", value: (shift) => shift.isHistorical ? null : shift.startingCash, kind: "money" },
@@ -4742,6 +4757,13 @@ function exportShiftReport(shift: ShiftDetail) {
       ["Refunds", summary.refundCount],
       ["Voided or refunded amount", summary.reversedAmount],
       ["Net sales", summary.netSales],
+      ...(shiftDiscountTotal(summary.discounts) > 0 && summary.discounts ? [
+        ["Senior and PWD discount", summary.discounts.scPwd],
+        ["Senior and PWD sales with a discount", summary.discounts.scPwdCount],
+        ["VAT exempted (senior and PWD)", summary.discounts.vatExempt],
+        ["Other ID discounts", summary.discounts.otherId],
+        ["Loyalty reward discounts", summary.discounts.rewards],
+      ] as ExcelInfoRow[] : []),
       ["Cost of goods", summary.costOfGoods],
       ["Items sold without a cost", summary.uncostedItems],
       ["Gross profit", summary.uncostedItems > 0 ? "Incomplete: some items have no cost" : summary.netSales - summary.costOfGoods],
@@ -4766,6 +4788,8 @@ function exportShiftReport(shift: ShiftDetail) {
       { header: "Order #", value: (order) => order.orderId },
       { header: "Time", value: (order) => excelDateTime(order.createdAt) },
       { header: "Items", value: (order) => order.items },
+      { header: "Discount", value: (order) => order.discountTotal || null, kind: "money" },
+      { header: "Discount for", value: (order) => order.discountLabel ?? "" },
       { header: "Total", value: (order) => order.total, kind: "money" },
       { header: "Payment", value: (order) => excelPayment(order) },
       { header: "Punched by", value: (order) => order.punchedBy },
@@ -4905,6 +4929,13 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
               {row("Gross sales", peso(summary.grossSales))}
               {row(`Voids (${summary.voidCount}) & refunds (${summary.refundCount})`, `−${peso(summary.reversedAmount)}`, false, summary.reversedAmount > 0 ? "#B91C1C" : undefined)}
               <div style={{ borderTop: "1px solid #E8DDD5" }}>{row("Net sales", peso(summary.netSales), true)}</div>
+              {summary.discounts && shiftDiscountTotal(summary.discounts) > 0 && <>
+                {summary.discounts.scPwd > 0 && row(`Senior & PWD discount (${summary.discounts.scPwdCount})`, `−${peso(summary.discounts.scPwd)}`, false, "#1D4ED8")}
+                {summary.discounts.vatExempt > 0 && row("VAT exempted (senior & PWD)", `−${peso(summary.discounts.vatExempt)}`, false, "#1D4ED8")}
+                {summary.discounts.otherId > 0 && row("Other ID discounts", `−${peso(summary.discounts.otherId)}`, false, "#1D4ED8")}
+                {summary.discounts.rewards > 0 && row("Loyalty rewards", `−${peso(summary.discounts.rewards)}`, false, "#B45309")}
+                <p style={{ margin: "2px 0 6px", color: "#9C8278", fontSize: 11 }}>Discounts are already taken off the sales above.</p>
+              </>}
               {row("Cost of goods", summary.uncostedItems > 0 ? `${peso(summary.costOfGoods)}*` : peso(summary.costOfGoods))}
               {row("Gross profit", summary.uncostedItems > 0 ? "Incomplete*" : peso(summary.netSales - summary.costOfGoods), true, "#2E7D32")}
               {summary.uncostedItems > 0 && <p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 11 }}>* {summary.uncostedItems} item{summary.uncostedItems === 1 ? "" : "s"} sold without a complete inventory cost.</p>}
@@ -4935,7 +4966,7 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
                   <strong style={{ minWidth: 42, color: reversed ? "#9C8278" : "#D97706" }}>#{order.queueNumber ?? "—"}</strong>
                   <span style={{ minWidth: 70, color: "#9C8278" }}>{new Date(order.createdAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</span>
                   <span style={{ flex: 1, minWidth: 0, color: reversed ? "#9C8278" : "#3D2B1F", textDecoration: reversed ? "line-through" : "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.items}</span>
-                  <span style={{ color: "#9C8278", fontSize: 11 }}>{order.paymentMethod === "online" ? "Online" : "Cash"} · {order.punchedBy}</span>
+                  <span style={{ color: "#9C8278", fontSize: 11 }}>{order.paymentMethod === "online" ? "Online" : "Cash"} · {order.punchedBy}{order.discountLabel && (order.discountTotal ?? 0) > 0 ? ` · −${peso(order.discountTotal ?? 0)} ${shortDiscountLabel(order.discountLabel)}` : ""}</span>
                   {reversed && <span style={{ padding: "1px 7px", borderRadius: 999, background: "#FEE2E2", color: "#B91C1C", fontSize: 10.5, fontWeight: 800, textTransform: "capitalize" }}>{order.status}{order.reversedInShift && !order.soldInShift ? " (earlier sale)" : ""}</span>}
                   <strong style={{ minWidth: 72, textAlign: "right", color: reversed ? "#9C8278" : "#3D2B1F" }}>{peso(order.total)}</strong>
                 </div>;
@@ -6251,7 +6282,7 @@ type Customer = {
   // Stars in the running loyalty campaign (null when none is running).
   stars: number | null;
 };
-type CustomerOrder = { id: number; queueNumber: number | null; shiftId: number | null; status: string; total: number; paymentMethod: string; source: "mobile" | "counter"; createdAt: string; punchedBy: string; items: string };
+type CustomerOrder = { id: number; queueNumber: number | null; shiftId: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; source: "mobile" | "counter"; createdAt: string; punchedBy: string; items: string };
 type CustomerDetail = { orders: CustomerOrder[]; devices: { device: string; signedInAt: string; lastSeenAt: string }[]; starEntries: StarEntry[] };
 type CustomerFilter = "active" | "app" | "profile" | "inactive";
 type CustomerSort = "name" | "recent" | "visits" | "spent";
@@ -6289,6 +6320,8 @@ function customerOrderColumns(): ExcelColumn<CustomerOrder>[] {
     { header: "Punched by", value: (order) => order.punchedBy },
     { header: "Items", value: (order) => order.items },
     { header: "Status", value: (order) => order.status === "voided" ? "Voided" : order.status === "refunded" ? "Refunded" : "Completed" },
+    { header: "Discount", value: (order) => order.discountTotal || null, kind: "money" },
+    { header: "Discount for", value: (order) => order.discountLabel ?? "" },
     { header: "Total", value: (order) => order.total, kind: "money" },
   ];
 }
@@ -6565,7 +6598,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
                 : detail.orders.length === 0 ? <p className="inv-hint">No orders yet.</p>
                   : <ul className="acc-list">
                     {detail.orders.map((order) => <li key={order.id}>
-                      <span><strong>Order {order.id}{order.queueNumber ? ` · #${order.queueNumber}` : ""}</strong><em>{shiftTime(order.createdAt)} · {order.source === "mobile" ? "Mobile menu" : `Counter · ${order.punchedBy}`}</em><em style={{ color: "#6B4C3B" }}>{order.items}</em></span>
+                      <span><strong>Order {order.id}{order.queueNumber ? ` · #${order.queueNumber}` : ""}</strong><em>{shiftTime(order.createdAt)} · {order.source === "mobile" ? "Mobile menu" : `Counter · ${order.punchedBy}`}{order.discountLabel && (order.discountTotal ?? 0) > 0 ? ` · −${peso(order.discountTotal ?? 0)} ${shortDiscountLabel(order.discountLabel)}` : ""}</em><em style={{ color: "#6B4C3B" }}>{order.items}</em></span>
                       <span className="acc-list-end">{order.status !== "completed" && <span className={`fin-status is-${order.status}`}>{order.status === "voided" ? "Voided" : "Refunded"}</span>}<strong className={order.status !== "completed" ? "fin-order-total is-reversed" : ""}>{peso(order.total)}</strong></span>
                     </li>)}
                   </ul>}

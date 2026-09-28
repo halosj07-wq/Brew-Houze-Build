@@ -141,7 +141,7 @@ export async function GET() {
         ORDER BY span.first_in ASC
       `),
       pool.query(`
-        SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source,
+        SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
           TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
           COALESCE(cashier.full_name, CASE WHEN so.order_source = 'online' THEN 'Mobile order' ELSE 'Unknown' END) AS punched_by,
           COALESCE(STRING_AGG(p.product_name || COALESCE(' ' || NULLIF(pv.size_label, 'Regular'), '') || CASE WHEN soi.quantity > 1 THEN ' x' || soi.quantity::text ELSE '' END, ', ' ORDER BY soi.order_item_id), '') AS items
@@ -152,7 +152,7 @@ export async function GET() {
         LEFT JOIN sales_order_items soi ON soi.order_id = so.order_id
         LEFT JOIN products p ON p.product_id = soi.product_id
         LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
-        GROUP BY so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source, so.created_at, cashier.full_name
+        GROUP BY so.order_id, so.queue_number, so.status, so.total_amount, so.payment_method, so.order_source, so.created_at, cashier.full_name, so.discount_label, so.discount_amount, so.vat_exempt_amount
         ORDER BY so.created_at DESC, so.order_id DESC
       `),
     ]);
@@ -178,6 +178,7 @@ export async function GET() {
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),
           status: row.status as string,
           total: Number(row.total_amount),
+          discountLabel: (row.discount_label as string | null) ?? null, discountTotal: Number(row.discount_total ?? 0),
           paymentMethod: row.payment_method as string,
           orderSource: row.order_source as string,
           createdAt: row.created_at as string,

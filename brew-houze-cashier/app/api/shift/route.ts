@@ -6,7 +6,7 @@ import { paymongoConfigured } from "@/lib/paymongo";
 import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
 
 // A shift is the café's business day, and it may run past midnight. Admins open it (or a cashier
-// an admin allowed to), and any cashier can close it at the end of the night. Totals come from the shift_summaries view (see shift-migration.sql).
+// an admin allowed to), and an admin or a cashier allowed to closes it at the end of the night. Totals come from the shift_summaries view (see shift-migration.sql).
 
 type SummaryRow = Record<string, unknown>;
 
@@ -42,17 +42,31 @@ function mapSummary(row: SummaryRow) {
     hoursOpen: toNumber(row.hours_open),
     openQueueCount: toNumber(row.open_queue_count),
     signedInCount: toNumber(row.signed_in_count),
+    // Discounts in the shift's sales (already taken off the sales figures above).
+    discounts: { scPwd: Number(row.sc_pwd_discount ?? 0), scPwdCount: Number(row.sc_pwd_count ?? 0), vatExempt: Number(row.vat_exempt ?? 0), otherId: Number(row.other_id_discount ?? 0), rewards: Number(row.reward_discount ?? 0) },
   };
 }
 
 async function loadSummary(client: PoolClient | typeof pool, where: string, params: unknown[]) {
   const result = await client.query(`
     SELECT
-      ss.*,
+      ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
       EXTRACT(EPOCH FROM (COALESCE(ss.closed_at, CURRENT_TIMESTAMP) - ss.opened_at)) / 3600 AS hours_open,
       (SELECT COUNT(*) FROM sales_orders so WHERE so.queue_status IN ('waiting', 'served'))::int AS open_queue_count,
       (SELECT COUNT(*) FROM employee_time_logs t WHERE t.time_out IS NULL)::int AS signed_in_count
     FROM shift_summaries ss
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code IN ('senior', 'pwd')), 0) AS sc_pwd_discount,
+        COUNT(*) FILTER (WHERE od.type_code IN ('senior', 'pwd'))::int AS sc_pwd_count,
+        COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code NOT IN ('senior', 'pwd')), 0) AS other_id_discount
+      FROM order_discounts od JOIN sales_orders dso ON dso.order_id = od.order_id
+      WHERE dso.shift_id = ss.shift_id AND dso.status NOT IN ('void', 'voided', 'refund', 'refunded')
+    ) disc_id ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(vat_exempt_amount), 0) AS vat_exempt,
+        COALESCE(SUM(discount_amount) FILTER (WHERE discount_source IN ('reward', 'birthday')), 0) AS reward_discount
+      FROM sales_orders WHERE shift_id = ss.shift_id AND status NOT IN ('void', 'voided', 'refund', 'refunded')
+    ) disc_so ON TRUE
     WHERE ${where}
   `, params);
   return result.rows[0] ? mapSummary(result.rows[0]) : null;

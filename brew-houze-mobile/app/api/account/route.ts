@@ -17,7 +17,7 @@ export async function GET() {
     const session = await getCustomerSession();
     if (!session) return NextResponse.json({ data: null, canResetByEmail: emailConfigured() }, { headers: NO_STORE });
     const orders = await pool.query(`
-      SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source,
+      SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         COALESCE(STRING_AGG(soi.quantity || 'x ' || p.product_name || COALESCE(' (' || pv.size_label || ')', ''), ', ' ORDER BY soi.order_item_id), '') AS items
       FROM sales_orders so
@@ -63,6 +63,7 @@ export async function GET() {
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),
           status: String(row.status),
           total: Number(row.total_amount),
+          discountLabel: (row.discount_label as string | null) ?? null, discountTotal: Number(row.discount_total ?? 0),
           source: String(row.order_source) === "online" ? "mobile" : "counter",
           createdAt: String(row.created_at),
           items: String(row.items),

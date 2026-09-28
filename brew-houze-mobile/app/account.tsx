@@ -11,7 +11,7 @@ import "./account.css";
 // The screens use their own .acct-* classes (account.css) plus the menu's shared modal/button
 // classes, so a new layout can restyle or replace them without touching the logic.
 
-export type CustomerOrder = { id: number; queueNumber: number | null; status: string; total: number; source: "mobile" | "counter"; createdAt: string; items: string };
+export type CustomerOrder = { id: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; source: "mobile" | "counter"; createdAt: string; items: string };
 export type LoyaltyCampaign = { id: number; name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; minOrderAmount?: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null };
 // A reward covers one item: a specific product, or any item (from a category), up to a price.
 export type LoyaltyReward = {
@@ -469,7 +469,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         {state.account.orders.length === 0
           ? <p className="acct-intro">No orders yet. Orders you place while signed in are saved here.</p>
           : <ul className="acct-orders">{state.account.orders.map((order) => <li key={order.id}>
-            <div><strong>{order.queueNumber ? `#${order.queueNumber}` : `Order ${order.id}`}</strong><span>{formatDate(order.createdAt)} · {order.source === "mobile" ? "Mobile" : "Counter"}</span><small>{order.items}</small></div>
+            <div><strong>{order.queueNumber ? `#${order.queueNumber}` : `Order ${order.id}`}</strong><span>{formatDate(order.createdAt)} · {order.source === "mobile" ? "Mobile" : "Counter"}</span><small>{order.items}</small>{order.discountLabel && (order.discountTotal ?? 0) > 0 && <small className="acct-order-discount">−₱{(order.discountTotal ?? 0).toFixed(2)} · {order.discountLabel.replace(/\s*\(.*\)\s*$/, "")} discount</small>}</div>
             <div className="acct-order-right"><strong>₱{order.total.toFixed(2)}</strong>{order.status !== "completed" && <span className="acct-order-status">{order.status === "voided" ? "Cancelled" : order.status === "refunded" ? "Refunded" : order.status}</span>}</div>
           </li>)}</ul>}
         <div className="acct-actions">
