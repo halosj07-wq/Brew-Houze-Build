@@ -27,6 +27,31 @@
     ningning: { name: "Ningning", hangul: "닝닝", short: "Main vocalist", real: "Ning Yizhuo (宁艺卓)", born: "October 23, 2002", from: "Harbin, China", role: "Main vocalist · the youngest", about: "The youngest member and a main vocalist, known for her strong live vocals." },
   };
   const memberOrder = Object.keys(MEMBERS);
+  // The back of the Dirty Work cards: a funny, a cute and a cool fact per member. They are built only
+  // from things that are certain (birthdays, hometowns, positions, aespa's avatar concept), with a
+  // playful twist. Edit freely; each is [label, text].
+  const DIRTY_FACTS = {
+    karina: [
+      ["Funny", "aespa’s concept gives every member an avatar, so there is also an æ-Karina. Technically, the group has two leaders."],
+      ["Cute", "She is the oldest member, but only just: Giselle was born the same year, six months later."],
+      ["Cool", "The leader and the center, the one out front when the formation hits."],
+    ],
+    giselle: [
+      ["Funny", "Her birthday is October 30, the day before Halloween. Costume planning starts early."],
+      ["Cute", "Her birthday is exactly one week after Ningning’s, just two years earlier."],
+      ["Cool", "She raps in Korean, Japanese and English."],
+    ],
+    winter: [
+      ["Funny", "Her name is Winter and she was born on January 1. Very on brand."],
+      ["Cute", "She gets a year older on New Year’s Day, so the whole world celebrates with her."],
+      ["Cool", "Main vocalist and lead dancer: she carries the high notes and the choreography."],
+    ],
+    ningning: [
+      ["Funny", "Born one week before Giselle’s birthday, two years later, so their parties are practically back to back."],
+      ["Cute", "The maknae, the youngest of the four, born October 23, 2002."],
+      ["Cool", "She grew up in Harbin, China’s “Ice City”, famous for its giant ice and snow festival."],
+    ],
+  };
 
   // ── Intros: each cue on its beat of the theme's intro clip (ms from its start) ──
   // An intro is { end, cues, mount(box, photos) → show(step) }. The player (playIntro) follows the
@@ -101,7 +126,7 @@
       introClip: "whiplash/whiplash-intro.mp3", loops: ["whiplash/whiplash-loop.mp3"], intro: whiplashIntro, introClass: "ae-intro",
     },
     dirtywork: {
-      era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work",
+      era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "facts",
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
       introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], seamless: true, intro: dirtyWorkIntro, introClass: "dw-intro",
@@ -463,9 +488,10 @@
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <h3>${escapeHtml(member.name)}</h3>
       <p class="ae-pc-kr">${escapeHtml(member.hangul)}</p>
+      ${t.back === "facts" ? `<ul class="ae-pc-fun">${DIRTY_FACTS[key].map(([label, text]) => `<li><b>${escapeHtml(label)}</b><span>${escapeHtml(text)}</span></li>`).join("")}</ul>` : `
       <p class="ae-pc-role">${escapeHtml(member.role)}</p>
       <dl class="ae-pc-facts"><dt>Name</dt><dd>${escapeHtml(member.real)}</dd><dt>Born</dt><dd>${escapeHtml(member.born)}</dd><dt>From</dt><dd>${escapeHtml(member.from)}</dd><dt>Group</dt><dd>aespa · debuted Nov 17, 2020</dd></dl>
-      <p class="ae-pc-about">${escapeHtml(member.about)}</p>
+      <p class="ae-pc-about">${escapeHtml(member.about)}</p>`}
       <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>`;
     // Replaying the entrance each time a member is shown.
     pcCard.style.animation = "none"; void pcCard.offsetWidth; pcCard.style.animation = "";
