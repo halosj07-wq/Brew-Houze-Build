@@ -34,6 +34,12 @@
 .acct-card strong { overflow: hidden; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
 .acct-card span { color: var(--muted); font-size: 12px; }
 .acct-card em { padding: 5px 9px; color: var(--teal); background: var(--paper); border-radius: 999px; font-size: 11px; font-style: normal; font-weight: 700; white-space: nowrap; }
+.acct-qr-toggle { display: flex; align-items: baseline; justify-content: center; gap: 6px; flex-wrap: wrap; padding: 12px; color: var(--paper); background: var(--ink); border: 0; border-radius: 12px; font-size: 13px; font-weight: 700; }
+.acct-qr-toggle span { color: #d8c3b2; font-size: 11px; font-weight: 500; }
+.acct-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; background: #fff; border: 1px solid var(--line); border-radius: 16px; text-align: center; }
+.acct-qr img { width: min(220px, 70vw); height: auto; image-rendering: pixelated; }
+.acct-qr-placeholder { display: grid; place-items: center; width: 220px; height: 220px; color: var(--muted); font-size: 12px; }
+.acct-qr p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .acct-rewards-soon { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; background: #fff5e8; border: 1px dashed #e5ae6d; border-radius: 14px; }
 .acct-rewards-soon strong { color: #7d4e24; font-size: 13px; }
 .acct-rewards-soon span { color: var(--muted); font-size: 12px; line-height: 1.45; }

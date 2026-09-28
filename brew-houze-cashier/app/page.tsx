@@ -17,7 +17,7 @@ function roleLabel(role: string): string {
 }
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -543,7 +543,7 @@ type ReceiptData = {
   orderId: number; queueNumber: number | null; shiftId: number | null; status: string; total: number;
   paymentMethod: string; paymentProvider: string | null; paymentReference: string | null; cashPortion: number | null;
   received: number | null; change: number | null; orderSource: string; returnMethod: string | null;
-  createdAt: string; reversedAt: string | null; cashierName: string | null;
+  createdAt: string; reversedAt: string | null; cashierName: string | null; customerName?: string | null;
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
 
@@ -616,6 +616,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   row("Date", receiptTime(receipt.createdAt));
   row("Order", `#${receipt.orderId}${receipt.shiftId ? ` - shift ${receipt.shiftId}` : ""}`);
   row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "-");
+  if (receipt.customerName) row("Customer", receipt.customerName);
   rule();
   for (const item of receipt.items) {
     row(`${item.quantity} x ${item.name}`, money(item.quantity * item.unitPrice));
@@ -685,6 +686,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     {row("Date", receiptTime(receipt.createdAt))}
     {row("Order", `#${receipt.orderId}${receipt.shiftId ? ` · shift ${receipt.shiftId}` : ""}`)}
     {row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "—")}
+    {receipt.customerName && row("Customer", receipt.customerName)}
     <div className="receipt-rule" />
     {receipt.items.map((item, index) => {
       const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : ""].filter(Boolean).join(" · ");
@@ -1021,6 +1023,160 @@ function quickCashAmounts(total: number): number[] {
   return amounts.slice(0, 4);
 }
 
+// ─── Customers at the counter ─────────────────────────────────────────────────────────────────
+// The cashier can attach a customer to the order (search, or scan the QR in their mobile menu
+// account), so the order shows in their purchases and the café's notes about them ("hot drinks
+// with a straw") reach the cashier and the barista's ticket.
+type AttachedCustomer = { id: number; fullName: string; username: string | null; notes: string; visits: number; lastVisit: string | null };
+
+function customerInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+}
+
+// Reads a QR code with the tablet camera (the back camera when there is one). jsQR is loaded
+// only when scanning, so the POS stays light.
+function QrScanner({ onCode, onCancel }: { onCode: (code: string) => void; onCancel: () => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [problem, setProblem] = useState("");
+  const onCodeRef = useRef(onCode);
+  useEffect(() => { onCodeRef.current = onCode; }, [onCode]);
+
+  useEffect(() => {
+    let stream: MediaStream | null = null;
+    let frame = 0;
+    let stopped = false;
+    let lastScan = 0;
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    (async () => {
+      if (!navigator.mediaDevices?.getUserMedia) { setProblem("This device cannot use its camera here. Search by name instead."); return; }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+      } catch {
+        setProblem("The camera is blocked or not available. Allow camera access for this site, or search by name instead.");
+        return;
+      }
+      const video = videoRef.current;
+      if (stopped || !video) { stream.getTracks().forEach((track) => track.stop()); return; }
+      video.srcObject = stream;
+      await video.play().catch(() => undefined);
+      const { default: jsQR } = await import("jsqr");
+      const tick = (time: number) => {
+        if (stopped) return;
+        frame = requestAnimationFrame(tick);
+        if (time - lastScan < 180 || !context || video.readyState < 2 || !video.videoWidth) return;
+        lastScan = time;
+        const scale = Math.min(1, 640 / video.videoWidth);
+        canvas.width = Math.round(video.videoWidth * scale);
+        canvas.height = Math.round(video.videoHeight * scale);
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const found = jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: "dontInvert" });
+        if (found?.data) { stopped = true; cancelAnimationFrame(frame); onCodeRef.current(found.data); }
+      };
+      frame = requestAnimationFrame(tick);
+    })();
+    return () => { stopped = true; cancelAnimationFrame(frame); stream?.getTracks().forEach((track) => track.stop()); };
+  }, []);
+
+  return <div className="pos-scan">
+    {problem ? <p className="pos-scan-problem">{problem}</p> : <>
+      <video ref={videoRef} playsInline muted className="pos-scan-video" />
+      <span className="pos-scan-frame" aria-hidden="true" />
+      <p className="pos-scan-hint">Ask the customer to open <strong>Sign in → their account → My QR code</strong> on the mobile menu, then hold it up to the camera.</p>
+    </>}
+    <button type="button" className="pos-scan-cancel" onClick={onCancel}>Search by name instead</button>
+  </div>;
+}
+
+function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: AttachedCustomer) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<AttachedCustomer[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [scanning, setScanning] = useState(false);
+
+  useEffect(() => {
+    const text = query.trim();
+    if (text.replace(/^@/, "").length < 2) { const timer = window.setTimeout(() => { setResults(null); setLoading(false); }, 0); return () => window.clearTimeout(timer); }
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/customers?q=${encodeURIComponent(text)}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not search the customers.");
+        if (active) { setResults(payload.data ?? []); setError(""); }
+      } catch (searchError) {
+        if (active) setError(searchError instanceof Error ? searchError.message : "Could not search the customers.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [query]);
+
+  async function lookUpCode(code: string) {
+    setScanning(false);
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/customers?code=${encodeURIComponent(code)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not look up that code.");
+      const found = (payload.data ?? [])[0] as AttachedCustomer | undefined;
+      if (found) onPick(found);
+      else setError("That QR code is not a Brew Houze customer account (or the account is deactivated). Try searching by name.");
+    } catch (lookupError) {
+      setError(lookupError instanceof Error ? lookupError.message : "Could not look up that code.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return <Modal onClose={onClose} label="Add a customer to this order">
+    <section className="pos-customer-dialog">
+      <div className="pos-customer-dialog-head">
+        <div><p>Customer</p><h3>Who is this order for?</h3></div>
+        <button type="button" onClick={onClose} aria-label="Close">×</button>
+      </div>
+      {scanning ? <QrScanner onCode={(code) => void lookUpCode(code)} onCancel={() => setScanning(false)} /> : <>
+        <div className="pos-customer-search">
+          <input data-autofocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or @username" autoComplete="off" autoCapitalize="none" aria-label="Search customers" />
+          <button type="button" onClick={() => setScanning(true)}>Scan QR</button>
+        </div>
+        {error && <p className="pos-customer-error" role="alert">{error}</p>}
+        <div className="pos-customer-results">
+          {loading ? <p className="pos-customer-empty">Searching…</p>
+            : results === null ? <p className="pos-customer-empty">Type at least 2 letters of their name or username, or scan the QR code in their mobile menu account.</p>
+              : results.length === 0 ? <p className="pos-customer-empty">No customer matches. The admin can add regulars in Customers, or the customer can make an account on the mobile menu.</p>
+                : results.map((customer) => <button key={customer.id} type="button" className="pos-customer-result" onClick={() => onPick(customer)}>
+                  <span className="pos-customer-avatar">{customerInitials(customer.fullName)}</span>
+                  <span className="pos-customer-result-text">
+                    <strong>{customer.fullName}</strong>
+                    <em>{customer.username ? `@${customer.username}` : "No app account"} · {customer.visits} visit{customer.visits === 1 ? "" : "s"}</em>
+                    {customer.notes && <small>📝 {customer.notes}</small>}
+                  </span>
+                </button>)}
+        </div>
+      </>}
+    </section>
+  </Modal>;
+}
+
+// The customer line in the cart: a button to attach one, or who it is with the café's notes.
+function CartCustomerSlot({ customer, onAdd, onRemove }: { customer: AttachedCustomer | null; onAdd: () => void; onRemove: () => void }) {
+  if (!customer) return <button type="button" className="pos-customer-add" onClick={onAdd}>+ Add customer <span>for their purchases and notes</span></button>;
+  return <div className="pos-customer-slot">
+    <div className="pos-customer-slot-top">
+      <span className="pos-customer-avatar">{customerInitials(customer.fullName)}</span>
+      <span className="pos-customer-result-text"><strong>{customer.fullName}</strong><em>{customer.username ? `@${customer.username}` : "No app account"} · {customer.visits} visit{customer.visits === 1 ? "" : "s"}</em></span>
+      <button type="button" onClick={onRemove} aria-label={`Remove ${customer.fullName} from this order`} title="Remove customer">×</button>
+    </div>
+    {customer.notes && <p className="pos-customer-note">📝 {customer.notes}</p>}
+  </div>;
+}
+
 function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
@@ -1065,6 +1221,9 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [activeCategory, setActiveCategory] = useState("");
   const [selectionProduct, setSelectionProduct] = useState<Product | null>(null);
   const cartLineId = useRef(0);
+  // The customer attached to this order (optional).
+  const [customer, setCustomer] = useState<AttachedCustomer | null>(null);
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -1249,6 +1408,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     setCart([]);
     setReceivedAmount("");
     setCashPart("");
+    setCustomer(null);
     setCartOpen(false);
     onQueueAssigned(queueNumber, shiftId);
     const refresh = await fetch("/api/products", { cache: "no-store" });
@@ -1287,7 +1447,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     if (paymentMethod === "gcash" || paymentMethod === "split") {
       const split = paymentMethod === "split" ? { cash_amount: Number.parseFloat(cashPart), received_amount: receivedAmount.trim() === "" ? Number.parseFloat(cashPart) : parsedReceivedAmount } : null;
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems, split }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems, split, customer_id: customer?.id ?? null }) });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || "Could not start the GCash payment.");
         setGcashCheckout(payload.data as GcashCheckout);
@@ -1311,6 +1471,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
           })),
           payment_method: paymentMethod,
           received_amount: paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) ? parsedReceivedAmount : 0,
+          customer_id: customer?.id ?? null,
         }),
       });
       const payload = await response.json();
@@ -1504,6 +1665,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
           })}
         </div>
 
+        <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={() => setCustomer(null)} />
         <div style={{ borderTop: "1px solid #E8DDD5", paddingTop: 8, flexShrink: 0 }}>
         {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: "0 0 8px" }}>{checkoutError}</p>}
           <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>Subtotal</div><div>₱{subtotal.toFixed(2)}</div></div>
@@ -1561,7 +1723,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button onClick={() => { setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); setCustomer(null); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
@@ -1574,6 +1736,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />{receipts.settings.output === "pdf" ? "Receipt PDF" : "Receipt"}</button>
       <button type="button" className="pos-placed-close" onClick={() => setLastPlaced(null)} aria-label="Dismiss">×</button>
     </div>}
+    {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
@@ -1742,6 +1905,10 @@ function QueuePage() {
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
                 </div>
               </header>
+              {order.customer_name && <div className="queue-customer">
+                <span className="queue-customer-name">For <strong>{order.customer_name}</strong></span>
+                {order.customer_notes && <span className="queue-customer-note">📝 {order.customer_notes}</span>}
+              </div>}
               <ul style={{ listStyle: "none", margin: 0, padding: "6px 8px" }}>
                 {order.order_details.map((detail, index) => {
                   const key = lineKeys[index];
@@ -1789,7 +1956,7 @@ function QueuePage() {
           const busy = busyOrderId === order.order_id;
           return <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#FFFFFF", border: "1px solid #FED7AA", borderRadius: 12 }}>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, color: "#C2410C", minWidth: 58, lineHeight: 1 }}>#{order.queue_number}</strong>
-            <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{order.items}</span>
+            <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{order.customer_name && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{order.customer_name}</strong>}{order.items}</span>
             <button type="button" disabled={busy} onClick={() => void runOrderAction(order.order_id, flushOrder, "Unable to flush ready order.")} title="Remove from the ready list once the customer has collected it" style={{ flexShrink: 0, border: "1px solid #EA580C", background: busy ? "#FED7AA" : "#FFFFFF", color: "#C2410C", borderRadius: 9, padding: "9px 11px", fontSize: 12, fontWeight: 800, cursor: busy ? "default" : "pointer" }}>{busy ? "…" : "Picked up"}</button>
           </div>;
         })}

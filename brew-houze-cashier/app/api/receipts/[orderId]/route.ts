@@ -18,9 +18,10 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         so.payment_reference, so.cash_portion, so.received_amount, so.change_amount, so.order_source, so.return_method,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
-        cashier.full_name AS cashier_name
+        cashier.full_name AS cashier_name, cu.full_name AS customer_name
       FROM sales_orders so
       LEFT JOIN admin_users cashier ON cashier.admin_id = so.cashier_admin_id
+      LEFT JOIN customers cu ON cu.customer_id = so.customer_id AND cu.deleted_at IS NULL
       WHERE so.order_id = $1
     `, [orderId]);
     const order = orderResult.rows[0];
@@ -59,6 +60,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         createdAt: order.created_at as string,
         reversedAt: (order.reversed_at as string | null) ?? null,
         cashierName: (order.cashier_name as string | null) ?? null,
+        customerName: (order.customer_name as string | null) ?? null,
         items: itemsResult.rows.map((row) => ({
           name: String(row.product_name),
           size: (row.size_label as string | null) ?? null,

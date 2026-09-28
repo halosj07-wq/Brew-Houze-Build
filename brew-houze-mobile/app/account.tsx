@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import "./account.css";
 
 // Customer accounts on the mobile menu. Kept apart from the menu page on purpose:
@@ -99,6 +100,23 @@ export function CartAccountNote({ state, onOpen }: { state: CustomerAccountState
 
 type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete";
 
+// The code the counter scans to attach this account to an order (the staff app reads the same
+// "brewhouze:customer:<username>" format). It only identifies the customer: it signs nobody in.
+function MyQrCode({ username }: { username: string }) {
+  const [image, setImage] = useState("");
+  useEffect(() => {
+    let active = true;
+    void import("qrcode").then(({ default: QRCode }) => QRCode.toDataURL(`brewhouze:customer:${username}`, { width: 440, margin: 1, color: { dark: "#2c1810", light: "#ffffff" } }))
+      .then((url) => { if (active) setImage(url); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [username]);
+  return <div className="acct-qr">
+    {image ? <Image src={image} alt={`QR code for @${username}`} width={220} height={220} unoptimized /> : <span className="acct-qr-placeholder">Making your code…</span>}
+    <p>Show this at the counter so the cashier can save your order to your account.</p>
+  </div>;
+}
+
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return <label className="acct-field"><span className="acct-label">{label}</span>{children}{hint && <span className="acct-hint">{hint}</span>}</label>;
 }
@@ -134,6 +152,7 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
   const [password2, setPassword2] = useState("");
   const [signup, setSignup] = useState({ fullName: "", username: "", email: "", birthday: "", consent: false });
   const [showPrivacy, setShowPrivacy] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [profile, setProfile] = useState({ fullName: state.account?.fullName ?? "", email: state.account?.email ?? "", birthday: state.account?.birthday ?? "" });
   const [resetInfo, setResetInfo] = useState<{ checked: boolean; valid: boolean; username?: string }>({ checked: false, valid: false });
 
@@ -248,6 +267,8 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
           <div><strong>{state.account.fullName}</strong><span>@{state.account.username}</span></div>
           <em>{state.account.orderCount} order{state.account.orderCount === 1 ? "" : "s"}</em>
         </div>
+        <button type="button" className="acct-qr-toggle" aria-expanded={showQr} onClick={() => setShowQr((current) => !current)}>{showQr ? "Hide my QR code" : "My QR code"} <span>for ordering at the counter</span></button>
+        {showQr && <MyQrCode username={state.account.username} />}
         <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>
         <h3 className="acct-section-title">Your orders</h3>
         {state.account.orders.length === 0

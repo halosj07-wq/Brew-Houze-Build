@@ -6288,14 +6288,14 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
 
   return <Modal onClose={onClose} closeDisabled={saving} label="Add customer">
     <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-      <DialogHeader title="Add a customer" sub="A profile for a regular. Their purchases fill in once the counter links orders to them." onClose={onClose} disabled={saving} />
+      <DialogHeader title="Add a customer" sub="A profile for a regular. The cashier can attach them to counter orders, so their purchases fill in." onClose={onClose} disabled={saving} />
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         <div className="inv-step-grid">
           <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" maxLength={120} /></WizardField>
           <WizardField label="Birthday (optional)"><input type="date" value={draft.birthday} max={getFinanceDateStamp()} onChange={(event) => setDraft((current) => ({ ...current, birthday: event.target.value }))} style={packagingInput} /></WizardField>
         </div>
         <WizardField label="Email (optional)" hint="Lets them reset a forgotten password by themselves."><input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@gmail.com" style={packagingInput} autoComplete="off" /></WizardField>
-        <WizardField label="Notes (optional)" hint="Private to the café. For example: wants their hot drinks with a straw."><textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} rows={3} maxLength={1000} style={{ ...packagingInput, resize: "vertical", lineHeight: 1.45 }} /></WizardField>
+        <WizardField label="Notes (optional)" hint="Never shown to the customer. Cashiers and baristas see them on this customer's orders. For example: wants their hot drinks with a straw."><textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} rows={3} maxLength={1000} style={{ ...packagingInput, resize: "vertical", lineHeight: 1.45 }} /></WizardField>
         <PermissionSwitch checked={draft.withLogin} title="Give them a login" description="A username and temporary password for the mobile menu. You can also do this later." onChange={(checked) => setDraft((current) => ({ ...current, withLogin: checked, password: checked && !current.password ? generateTemporaryPassword() : current.password }))} />
         {draft.withLogin && <div className="inv-step-grid">
           <WizardField label="Username"><input value={draft.username} onChange={(event) => setDraft((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} placeholder="mariasantos" style={packagingInput} autoComplete="off" maxLength={30} /></WizardField>
@@ -6388,7 +6388,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
 
         {tab === "profile" && <>
           <section className="acc-block">
-            <header className="acc-block-head"><div><h3>Notes</h3><p>Private to the café, never shown to the customer. For example: wants their hot drinks with a straw.</p></div></header>
+            <header className="acc-block-head"><div><h3>Notes</h3><p>Never shown to the customer. The cashier sees them when attaching this customer to an order, and they appear on the barista&apos;s queue ticket.</p></div></header>
             <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={4} maxLength={1000} placeholder="Preferences, allergies, how they like their drink…" style={{ ...packagingInput, resize: "vertical", lineHeight: 1.5 }} />
             <div className="flex justify-end" style={{ marginTop: 10 }}>
               <button type="button" className="ui-button ui-button-primary" disabled={!notesChanged || working !== null} onClick={() => void act<{ notes: string }>("notes", { action: "set_notes", notes }, "Could not save the notes.", (data) => { onChanged({ ...customer, notes: data.notes }); setNotes(data.notes); setNotice("Notes saved."); })}>{working === "notes" ? "Saving…" : "Save notes"}</button>
@@ -6435,7 +6435,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
             <div><span>Favourite</span><strong style={{ fontSize: 14 }}>{customer.favourite ?? "—"}</strong></div>
           </div>
           <section className="acc-block">
-            <header className="acc-block-head"><div><h3>Orders</h3><p>Orders placed while signed in on the mobile menu, and (after the counter update) orders the cashier links to them.</p></div></header>
+            <header className="acc-block-head"><div><h3>Orders</h3><p>Orders placed while signed in on the mobile menu, and counter orders the cashier attached them to.</p></div></header>
             {detailError ? <p className="acc-error">{detailError}</p>
               : !detail ? <p className="inv-hint">Loading…</p>
                 : detail.orders.length === 0 ? <p className="inv-hint">No orders yet.</p>
