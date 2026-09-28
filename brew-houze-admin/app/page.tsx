@@ -4,7 +4,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, u
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "loyalty" | "discounts" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -304,6 +304,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
   { id: "loyalty", label: "Loyalty", short: "Loyalty", Icon: IconStar },
   { id: "discounts", label: "Discounts", short: "Discounts", Icon: IconTag },
+  { id: "delivery", label: "Delivery", short: "Delivery", Icon: IconTruck },
   { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
   { id: "archives", label: "Archives", short: "Archives", Icon: IconArchive },
 ];
@@ -311,7 +312,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "customers", "loyalty", "discounts", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "customers", "loyalty", "discounts", "delivery", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -6374,6 +6375,9 @@ type Customer = {
   id: number; username: string | null; fullName: string; email: string | null; birthday: string | null; notes: string;
   isActive: boolean; hasLogin: boolean; consented: boolean; createdAt: string; createdBy: string | null;
   visits: number; visits30d: number; spent: number; lastVisit: string | null; favourite: string | null; devices: number;
+  // Delivery: mobile number, saved addresses, and whether cash on delivery is blocked.
+  phone?: string | null; codBlocked?: boolean; codBlockReason?: string | null;
+  addresses?: { id: number; label: string; recipientName: string; phone: string; street: string; landmark: string | null; riderNotes: string | null; zoneName: string | null; isDefault: boolean }[];
   // A senior, PWD or other ID the café checked and remembered for discounts (never a photo).
   savedId?: { typeName: string; holderName: string; idNumber: string | null; verifiedAt: string; verifiedBy: string | null } | null;
   // Stars in the running loyalty campaign (null when none is running).
@@ -6468,7 +6472,7 @@ function exportCustomerReport(customer: Customer, detail: CustomerDetail) {
 }
 
 function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [draft, setDraft] = useState({ fullName: "", email: "", birthday: "", notes: "", withLogin: false, username: "", password: "" });
+  const [draft, setDraft] = useState({ fullName: "", email: "", birthday: "", notes: "", withLogin: false, username: "", password: "", phone: "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<{ name: string; username: string; password: string } | null>(null);
@@ -6484,7 +6488,7 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     setError("");
     try {
       const response = await fetch("/api/customers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
-        fullName: draft.fullName.trim(), email: draft.email.trim(), birthday: draft.birthday, notes: draft.notes.trim(),
+        fullName: draft.fullName.trim(), email: draft.email.trim(), birthday: draft.birthday, notes: draft.notes.trim(), phone: draft.phone.trim(),
         ...(draft.withLogin ? { username: draft.username.trim(), password: draft.password } : {}),
       }) });
       const payload = await response.json();
@@ -6520,6 +6524,7 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" maxLength={120} /></WizardField>
           <WizardField label="Birthday (optional)"><input type="date" value={draft.birthday} max={getFinanceDateStamp()} onChange={(event) => setDraft((current) => ({ ...current, birthday: event.target.value }))} style={packagingInput} /></WizardField>
         </div>
+        <WizardField label="Mobile number (optional)" hint="Needed for delivery orders."><input type="tel" value={draft.phone} onChange={(event) => setDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="0917 123 4567" style={packagingInput} maxLength={16} /></WizardField>
         <WizardField label="Email (optional)" hint="Lets them reset a forgotten password by themselves."><input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@gmail.com" style={packagingInput} autoComplete="off" /></WizardField>
         <WizardField label="Notes (optional)" hint="Never shown to the customer. Cashiers and baristas see them on this customer's orders. For example: wants their hot drinks with a straw."><textarea value={draft.notes} onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))} rows={3} maxLength={1000} style={{ ...packagingInput, resize: "vertical", lineHeight: 1.45 }} /></WizardField>
         <PermissionSwitch checked={draft.withLogin} title="Give them a login" description="A username and temporary password for the mobile menu. You can also do this later." onChange={(checked) => setDraft((current) => ({ ...current, withLogin: checked, password: checked && !current.password ? generateTemporaryPassword() : current.password }))} />
@@ -6545,13 +6550,13 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   const [detailVersion, setDetailVersion] = useState(0);
   const [adjust, setAdjust] = useState({ stars: "", reason: "" });
   const [detailError, setDetailError] = useState("");
-  const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "" });
+  const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "", phone: customer.phone ?? "" });
   const [notes, setNotes] = useState(customer.notes);
   const [login, setLogin] = useState({ username: "", password: "" });
   const [working, setWorking] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const profileChanged = profile.fullName.trim() !== customer.fullName || profile.email.trim().toLowerCase() !== (customer.email ?? "") || profile.birthday !== (customer.birthday ?? "");
+  const profileChanged = profile.fullName.trim() !== customer.fullName || profile.email.trim().toLowerCase() !== (customer.email ?? "") || profile.birthday !== (customer.birthday ?? "") || profile.phone.trim() !== (customer.phone ?? "");
   const notesChanged = notes.trim() !== customer.notes;
 
   useEffect(() => {
@@ -6623,15 +6628,25 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
             </div>
           </section>
 
-          <form className="acc-block" onSubmit={(event) => { event.preventDefault(); void act<{ fullName: string; email: string | null; birthday: string | null }>("profile", { action: "update_profile", ...profile }, "Could not save the details.", (data) => { onChanged({ ...customer, ...data }); setNotice("Details saved."); }); }}>
+          <form className="acc-block" onSubmit={(event) => { event.preventDefault(); void act<{ fullName: string; email: string | null; birthday: string | null; phone: string | null }>("profile", { action: "update_profile", ...profile }, "Could not save the details.", (data) => { onChanged({ ...customer, ...data }); setNotice("Details saved."); }); }}>
             <header className="acc-block-head"><div><h3>Details</h3><p>{customer.createdBy ? `Added by ${customer.createdBy}` : "Signed up on the mobile menu"} on {shiftTime(customer.createdAt)}.{customer.hasLogin && !customer.consented ? " Has not seen the privacy notice yet (made by an admin)." : ""}</p></div></header>
             <div className="inv-step-grid">
               <WizardField label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} style={packagingInput} maxLength={120} /></WizardField>
               <WizardField label="Birthday"><input type="date" value={profile.birthday} max={getFinanceDateStamp()} onChange={(event) => setProfile((current) => ({ ...current, birthday: event.target.value }))} style={packagingInput} /></WizardField>
             </div>
-            <div style={{ marginTop: 12 }}><WizardField label="Email"><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} style={packagingInput} /></WizardField></div>
+            <div className="inv-step-grid" style={{ marginTop: 12 }}>
+              <WizardField label="Email"><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} style={packagingInput} /></WizardField>
+              <WizardField label="Mobile number"><input type="tel" value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} placeholder="0917 123 4567" style={packagingInput} maxLength={16} /></WizardField>
+            </div>
             <div className="flex justify-end" style={{ marginTop: 12 }}><button type="submit" className="ui-button ui-button-primary" disabled={!profileChanged || !profile.fullName.trim() || working !== null}>{working === "profile" ? "Saving…" : "Save details"}</button></div>
           </form>
+
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Delivery</h3><p>{(customer.addresses ?? []).length === 0 ? "No saved addresses. Customers add them on the mobile menu." : `${customer.addresses?.length} saved address${customer.addresses?.length === 1 ? "" : "es"}.`}{customer.codBlocked ? ` Cash on delivery is blocked${customer.codBlockReason ? `: ${customer.codBlockReason}` : ""}.` : ""}</p></div>
+              <button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ codBlocked: boolean; codBlockReason: string | null }>("cod", { action: "set_cod", codBlocked: !customer.codBlocked, reason: "Blocked by the admin." }, "Could not change cash on delivery.", (data) => { onChanged({ ...customer, ...data }); setNotice(data.codBlocked ? "Cash on delivery blocked for this customer." : "Cash on delivery allowed again."); })}>{working === "cod" ? "Saving…" : customer.codBlocked ? "Allow COD again" : "Block COD"}</button>
+            </header>
+            {(customer.addresses ?? []).length > 0 && <ul className="acc-list">{customer.addresses?.map((address) => <li key={address.id}><span><strong>{address.label}{address.isDefault ? " · default" : ""}</strong><em>{address.street}{address.landmark ? `, near ${address.landmark}` : ""} · {address.zoneName ?? "no zone"} · {address.recipientName}, {address.phone}{address.riderNotes ? ` · “${address.riderNotes}”` : ""}</em></span></li>)}</ul>}
+          </section>
 
           {customer.savedId && <section className="acc-block">
             <header className="acc-block-head"><div><h3>Saved discount ID</h3><p>{customer.savedId.typeName} · {customer.savedId.holderName}{customer.savedId.idNumber ? ` · ID ${customer.savedId.idNumber}` : ""}. Checked{customer.savedId.verifiedBy ? ` by ${customer.savedId.verifiedBy}` : ""} on {shiftTime(customer.savedId.verifiedAt)}. Their mobile orders get this discount without a photo; the barista checks the ID at pickup.</p></div>
@@ -6742,7 +6757,7 @@ function Customers() {
     if (filter === "inactive" && customer.isActive) return false;
     if (filter === "app" && (!customer.hasLogin || !customer.isActive)) return false;
     if (filter === "profile" && (customer.hasLogin || !customer.isActive)) return false;
-    return !query || [customer.fullName, customer.username ?? "", customer.email ?? "", customer.notes].some((value) => value.toLowerCase().includes(query));
+    return !query || [customer.fullName, customer.username ?? "", customer.email ?? "", customer.notes, customer.phone ?? ""].some((value) => value.toLowerCase().includes(query.replace(/^\+?63/, "0")) || value.toLowerCase().includes(query));
   }).sort((a, b) => sort === "name" ? a.fullName.localeCompare(b.fullName)
     : sort === "visits" ? b.visits - a.visits || a.fullName.localeCompare(b.fullName)
       : sort === "spent" ? b.spent - a.spent || a.fullName.localeCompare(b.fullName)
@@ -7837,6 +7852,186 @@ function DiscountFormDialog({ discount, onClose, onSaved }: { discount: Discount
   </Modal>;
 }
 
+// ─── Delivery ─────────────────────────────────────────────────────────────────
+// The rules for delivery orders from the mobile menu (on/off, hours, how many at once, free
+// delivery, cash on delivery) and the zones the café delivers to, each with its fee.
+type DeliveryRules = { enabled: boolean; start: string; end: string; maxActive: string; freeAbove: string; codEnabled: boolean; codMaxAmount: string; codMinOrders: string };
+type DeliveryZoneAdmin = { id: number; name: string; description: string; fee: number; minOrder: number | null; isActive: boolean; addresses: number };
+
+function IconTruck({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
+}
+
+function Delivery() {
+  const confirmAction = useConfirm();
+  const [rules, setRules] = useState<DeliveryRules | null>(null);
+  const [saved, setSaved] = useState<DeliveryRules | null>(null);
+  const [zones, setZones] = useState<DeliveryZoneAdmin[]>([]);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<DeliveryZoneAdmin | "new" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/delivery", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the delivery settings.");
+      setRules(payload.data.rules);
+      setSaved(payload.data.rules);
+      setZones(payload.data.zones ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the delivery settings.");
+    }
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const set = <K extends keyof DeliveryRules>(key: K, value: DeliveryRules[K]) => setRules((current) => current && { ...current, [key]: value });
+  const changed = rules !== null && saved !== null && JSON.stringify(rules) !== JSON.stringify(saved);
+  const activeZones = zones.filter((zone) => zone.isActive);
+
+  async function saveRules() {
+    if (!rules) return;
+    if (rules.enabled && activeZones.length === 0) { setError("Add at least one zone before switching delivery on."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/delivery", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "settings", ...rules }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the rules.");
+      setNotice("Delivery rules saved.");
+      await load();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the rules.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function zoneAction(zone: DeliveryZoneAdmin, action: "toggle" | "delete") {
+    if (action === "delete" && !(await confirmAction({ title: `Delete ${zone.name}?`, message: "No customer address uses it, so nothing else is affected.", confirmLabel: "Delete", tone: "danger" }))) return;
+    setError("");
+    try {
+      const response = await fetch(action === "delete" ? `/api/delivery?id=${zone.id}` : "/api/delivery", { method: action === "delete" ? "DELETE" : "PATCH", headers: action === "delete" ? undefined : { "Content-Type": "application/json" }, body: action === "delete" ? undefined : JSON.stringify({ id: zone.id, isActive: !zone.isActive }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not change the zone.");
+      setNotice(action === "delete" ? `${zone.name} deleted.` : `${zone.name} switched ${zone.isActive ? "off" : "on"}.`);
+      await load();
+    } catch (zoneError) {
+      setError(zoneError instanceof Error ? zoneError.message : "Could not change the zone.");
+    }
+  }
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <p className="inv-hint" style={{ margin: 0 }}>Delivery orders come from the mobile menu. Customers sign in, choose a saved address in one of your zones, and pay with GCash (or cash on delivery, if you allow it). The delivery fee is added to the order and is not discounted.</p>
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="acc-notice" role="status">{notice}</div>}
+      {!rules ? <div className="inv-empty">Loading delivery settings…</div> : <>
+        <section className="acc-block">
+          <header className="acc-block-head"><div><h3>Delivery</h3><p>{rules.enabled ? `On${activeZones.length ? ` in ${activeZones.length} zone${activeZones.length === 1 ? "" : "s"}` : ""}.` : "Off. Customers do not see delivery until you switch it on."}</p></div></header>
+          <div className="flex flex-col gap-3">
+            <PermissionSwitch checked={rules.enabled} title="Take delivery orders" description="Delivery also needs an open shift. Ordering by delivery opens on the mobile menu with the next update." onChange={(checked) => set("enabled", checked)} />
+            <div className="inv-step-grid">
+              <WizardField label="Delivery starts (optional)" hint="Empty: whenever a shift is open."><input type="time" value={rules.start} onChange={(event) => set("start", event.target.value)} style={packagingInput} /></WizardField>
+              <WizardField label="Delivery ends (optional)" hint="Can be after midnight."><input type="time" value={rules.end} onChange={(event) => set("end", event.target.value)} style={packagingInput} /></WizardField>
+            </div>
+            <div className="inv-step-grid">
+              <WizardField label="Deliveries at once (optional)" hint="New delivery orders wait when this many are in progress. Empty: no limit."><input type="number" min={1} max={100} step={1} value={rules.maxActive} onChange={(event) => set("maxActive", event.target.value)} style={packagingInput} /></WizardField>
+              <WizardField label="Free delivery from (₱, optional)" hint="Orders at or above this amount pay no fee. Empty: never."><input type="number" min={0} step="0.01" value={rules.freeAbove} onChange={(event) => set("freeAbove", event.target.value)} style={packagingInput} /></WizardField>
+            </div>
+          </div>
+        </section>
+
+        <section className="acc-block">
+          <header className="acc-block-head"><div><h3>Cash on delivery</h3><p>Only for signed-in customers. GCash stays the default. A customer whose cash order fails to deliver loses COD until you allow it again in Customers.</p></div></header>
+          <div className="flex flex-col gap-3">
+            <PermissionSwitch checked={rules.codEnabled} title="Allow cash on delivery" description="The rider collects the payment and hands it to the cashier." onChange={(checked) => set("codEnabled", checked)} />
+            {rules.codEnabled && <div className="inv-step-grid">
+              <WizardField label="Largest COD order (₱)"><input type="number" min={1} step="0.01" value={rules.codMaxAmount} onChange={(event) => set("codMaxAmount", event.target.value)} style={packagingInput} /></WizardField>
+              <WizardField label="Completed orders first" hint="Orders the customer must have completed before they can use COD."><input type="number" min={0} max={50} step={1} value={rules.codMinOrders} onChange={(event) => set("codMinOrders", event.target.value)} style={packagingInput} /></WizardField>
+            </div>}
+          </div>
+        </section>
+        <div className="flex justify-end gap-2">
+          {changed && <button type="button" className="inv-secondary" onClick={() => setRules(saved)} disabled={saving}>Undo changes</button>}
+          <button type="button" className="inv-primary" onClick={() => void saveRules()} disabled={!changed || saving}>{saving ? "Saving…" : "Save rules"}</button>
+        </div>
+
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="loy-section-title">Zones</h3>
+          <button type="button" className="inv-secondary" onClick={() => setEditing("new")}><IconPlus size={14} />Add zone</button>
+        </div>
+        {zones.length === 0 ? <p className="inv-hint" style={{ margin: 0 }}>No zones yet. Add the barangays or areas you deliver to, each with its fee.</p> : <div className="acc-grid">
+          {zones.map((zone) => <div key={zone.id} className={`acc-card${zone.isActive ? "" : " is-inactive"}`} style={{ cursor: "default" }}>
+            <span className="acc-card-top">
+              <span className="loy-badge" style={{ background: "#E0F2FE", color: "#0369A1" }}><IconTruck size={20} /></span>
+              <span className="acc-card-name"><strong>{zone.name}</strong><em style={{ whiteSpace: "normal" }}>{zone.description || "No description"}</em></span>
+              <span className={`acc-status ${zone.isActive ? "is-on" : "is-off"}`}><i />{zone.isActive ? "On" : "Off"}</span>
+            </span>
+            <span className="acc-card-stats">
+              <span><em>Fee</em><strong>{zone.fee > 0 ? peso(zone.fee) : "Free"}</strong></span>
+              <span><em>Min. order</em><strong>{zone.minOrder ? peso(zone.minOrder) : "None"}</strong></span>
+              <span><em>Addresses</em><strong>{zone.addresses}</strong></span>
+            </span>
+            <span className="flex gap-2 flex-wrap">
+              <button type="button" className="inv-mini" onClick={() => setEditing(zone)}><IconPencil size={12} />Edit</button>
+              <button type="button" className="inv-mini" onClick={() => void zoneAction(zone, "toggle")}>{zone.isActive ? "Switch off" : "Switch on"}</button>
+              {zone.addresses === 0 && <button type="button" className="inv-mini" onClick={() => void zoneAction(zone, "delete")}><IconTrash size={12} />Delete</button>}
+            </span>
+          </div>)}
+        </div>}
+      </>}
+    </div>
+    {editing && <ZoneDialog zone={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async (message) => { setEditing(null); setNotice(message); await load(); }} />}
+  </div>;
+}
+
+function ZoneDialog({ zone, onClose, onSaved }: { zone: DeliveryZoneAdmin | null; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const [draft, setDraft] = useState({ name: zone?.name ?? "", description: zone?.description ?? "", fee: zone ? String(zone.fee) : "", minOrder: zone?.minOrder ? String(zone.minOrder) : "", isActive: zone?.isActive ?? true });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const problem = !draft.name.trim() ? "Enter the zone name." : draft.fee.trim() === "" || !(Number(draft.fee) >= 0) ? "Enter the delivery fee (0 for free)." : draft.minOrder.trim() !== "" && !(Number(draft.minOrder) > 0) ? "The minimum order must be more than ₱0, or empty." : "";
+  async function save() {
+    if (problem) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/delivery", { method: zone ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...(zone ? { id: zone.id } : {}), ...draft, fee: Number(draft.fee), minOrder: draft.minOrder.trim() ? Number(draft.minOrder) : null }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the zone.");
+      await onSaved(zone ? `${draft.name.trim()} saved.` : `${draft.name.trim()} added.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the zone.");
+      setSaving(false);
+    }
+  }
+  return <Modal onClose={onClose} closeDisabled={saving} label={zone ? "Edit zone" : "New zone"}>
+    <form onSubmit={(event) => { event.preventDefault(); void save(); }} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={zone ? `Edit ${zone.name}` : "New delivery zone"} sub="An area you deliver to, such as a barangay. Customers pick it when they add an address." onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <WizardField label="Name"><input data-autofocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Poblacion" style={packagingInput} maxLength={60} /></WizardField>
+        <WizardField label="Streets or areas included (optional)" hint="Shown to customers so they pick the right zone."><input value={draft.description} onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))} placeholder="e.g. Rizal St. to the plaza" style={packagingInput} maxLength={200} /></WizardField>
+        <div className="inv-step-grid">
+          <WizardField label="Delivery fee (₱)"><input type="number" min={0} step="0.01" value={draft.fee} onChange={(event) => setDraft((current) => ({ ...current, fee: event.target.value }))} style={packagingInput} /></WizardField>
+          <WizardField label="Minimum order (₱, optional)"><input type="number" min={0} step="0.01" value={draft.minOrder} onChange={(event) => setDraft((current) => ({ ...current, minOrder: event.target.value }))} style={packagingInput} /></WizardField>
+        </div>
+        <PermissionSwitch checked={draft.isActive} title="Deliver to this zone" description="Switched off: customers cannot choose it for new addresses or orders." onChange={(checked) => setDraft((current) => ({ ...current, isActive: checked }))} />
+        {error && <p role="alert" className="acc-error">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-wrap" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary">{saving ? "Saving…" : zone ? "Save zone" : "Add zone"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
 function Accounts() {
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -8813,7 +9008,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -8837,6 +9032,7 @@ export default function App() {
         {page === "customers" && <Customers />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
         {page === "discounts" && <Discounts />}
+        {page === "delivery" && <Delivery />}
         {page === "accounts" && <Accounts />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}

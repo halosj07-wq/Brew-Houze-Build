@@ -51,9 +51,16 @@ export function rewardMismatch(reward: LoyaltyReward, item: { productId: number;
   if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `up to ₱${reward.maxPrice.toFixed(2)}`;
   return null;
 }
+// A delivery address (see delivery-setup-migration.sql). zoneActive false: the café stopped delivering there.
+export type CustomerAddress = { id: number; label: string; recipientName: string; phone: string; zoneId: number | null; zoneName: string | null; zoneFee: number | null; zoneActive: boolean; street: string; landmark: string | null; riderNotes: string | null; isDefault: boolean };
+export type AddressDraft = { id?: number; label: string; recipientName: string; phone: string; zoneId: string; street: string; landmark: string; riderNotes: string; isDefault: boolean };
+type DeliveryZoneOption = { id: number; name: string; description: string | null; fee: number; minOrder: number | null };
+
 export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[]; loyalty?: CustomerLoyalty | null;
   // The products this customer orders most, most first (the Favorites chip).
   favorites?: number[];
+  // Mobile number and delivery addresses; codBlocked: cash on delivery switched off for this account.
+  phone?: string | null; codBlocked?: boolean; addresses?: CustomerAddress[];
   // A senior, PWD or other ID the café checked and the customer asked to remember (see ./id-discount.tsx).
   savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null } | null };
 
@@ -104,9 +111,13 @@ export function useCustomerAccount() {
     canResetByEmail,
     refresh,
     signIn: async (login: string, password: string) => afterSignIn(await send("/api/account/login", "POST", { login, password })),
-    register: async (form: { fullName: string; username: string; password: string; email: string; birthday: string; consent: boolean }) => afterSignIn(await send("/api/account/register", "POST", form)),
+    register: async (form: { fullName: string; username: string; password: string; email: string; birthday: string; consent: boolean; phone: string }) => afterSignIn(await send("/api/account/register", "POST", form)),
     signOut: async () => { const result = await send("/api/account/logout", "POST"); if (result.ok) setAccount(null); return result; },
-    updateProfile: async (form: { fullName: string; email: string; birthday: string }) => afterSignIn(await send("/api/account", "PATCH", { action: "update_profile", ...form })),
+    updateProfile: async (form: { fullName: string; email: string; birthday: string; phone: string }) => afterSignIn(await send("/api/account", "PATCH", { action: "update_profile", ...form })),
+    // Delivery addresses.
+    saveAddress: async (draft: AddressDraft) => afterSignIn(await send("/api/account/addresses", draft.id ? "PATCH" : "POST", { ...draft, zoneId: Number(draft.zoneId) })),
+    makeDefaultAddress: async (id: number) => afterSignIn(await send("/api/account/addresses", "PATCH", { id, action: "default" })),
+    removeAddress: async (id: number) => afterSignIn(await send(`/api/account/addresses?id=${id}`, "DELETE")),
     // Removes the senior, PWD or other ID the café remembered for discounts.
     forgetSavedId: async () => afterSignIn(await send("/api/account", "PATCH", { action: "forget_id" })),
     changePassword: async (currentPassword: string, newPassword: string) => send("/api/account", "PATCH", { action: "change_password", currentPassword, newPassword }),
@@ -153,7 +164,7 @@ export function CartAccountNote({ state, onOpen }: { state: CustomerAccountState
     : <p className="acct-cart-note">Have an account? <button type="button" onClick={onOpen}>Sign in</button> to save this order to it. You can also order as a guest.</p>;
 }
 
-type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete" | "claim";
+type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete" | "claim" | "addresses";
 
 function pluralStars(count: number): string {
   return `${count} star${Math.abs(count) === 1 ? "" : "s"}`;
@@ -339,10 +350,13 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
   const [password2, setPassword2] = useState("");
-  const [signup, setSignup] = useState({ fullName: "", username: "", email: "", birthday: "", consent: false });
+  const [signup, setSignup] = useState({ fullName: "", username: "", email: "", birthday: "", consent: false, phone: "" });
   const [showPrivacy, setShowPrivacy] = useState(false);
   const [showQr, setShowQr] = useState(false);
-  const [profile, setProfile] = useState({ fullName: state.account?.fullName ?? "", email: state.account?.email ?? "", birthday: state.account?.birthday ?? "" });
+  const [profile, setProfile] = useState({ fullName: state.account?.fullName ?? "", email: state.account?.email ?? "", birthday: state.account?.birthday ?? "", phone: state.account?.phone ?? "" });
+  // Delivery addresses: the one being edited, and the café's delivery zones for the area list.
+  const [addressDraft, setAddressDraft] = useState<AddressDraft | null>(null);
+  const [zones, setZones] = useState<DeliveryZoneOption[] | null>(null);
   const [resetInfo, setResetInfo] = useState<{ checked: boolean; valid: boolean; username?: string }>({ checked: false, valid: false });
 
   const { checkResetLink } = state;
@@ -359,7 +373,10 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
     setNotice("");
     setPassword("");
     setPassword2("");
-    if (next === "edit" && state.account) setProfile({ fullName: state.account.fullName, email: state.account.email ?? "", birthday: state.account.birthday ?? "" });
+    if (next === "edit" && state.account) setProfile({ fullName: state.account.fullName, email: state.account.email ?? "", birthday: state.account.birthday ?? "", phone: state.account.phone ?? "" });
+    if (next === "addresses" && zones === null) {
+      void fetch("/api/delivery", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload: { data?: { zones: DeliveryZoneOption[] } } | null) => setZones(payload?.data?.zones ?? [])).catch(() => setZones([]));
+    }
   }
 
   async function run(action: () => Promise<Result>, onSuccess: () => void) {
@@ -382,6 +399,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
     edit: ["YOUR ACCOUNT", "Edit details"],
     password: ["YOUR ACCOUNT", "Change password"],
     delete: ["YOUR ACCOUNT", "Delete account"],
+    addresses: ["DELIVERY", addressDraft ? (addressDraft.id ? "Edit address" : "New address") : "Your addresses"],
     claim: ["STARS AT THE COUNTER", "Use your stars"],
   };
 
@@ -412,6 +430,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
         <Field label="Password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
+        <Field label="Mobile number (optional)" hint="For delivery updates from the café, e.g. 0917 123 4567."><input type="tel" inputMode="tel" value={signup.phone} onChange={(event) => setSignup((current) => ({ ...current, phone: event.target.value }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Email (optional)" hint="Only used if you forget your password."><input type="email" value={signup.email} onChange={(event) => setSignup((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
         <Field label="Birthday (optional)" hint="For a birthday treat when the café has one."><input type="date" value={signup.birthday} max={today} onChange={(event) => setSignup((current) => ({ ...current, birthday: event.target.value }))} autoComplete="bday" /></Field>
         <div className="acct-consent">
@@ -467,6 +486,10 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
           <div><strong>🪪 {state.account.savedId.typeName} discount saved</strong><span>{state.account.savedId.holderName}{state.account.savedId.idEnding ? ` · ID ending ${state.account.savedId.idEnding}` : ""}. Checked by the café, no photo kept. Show your ID at pickup.</span></div>
           <button type="button" disabled={busy} onClick={() => void run(state.forgetSavedId, () => setNotice("Your saved ID was removed."))}>Forget</button>
         </div>}
+        <button type="button" className="acct-delivery-row" onClick={() => go("addresses")}>
+          <span><strong>📍 Delivery addresses</strong><em>{(state.account.addresses?.length ?? 0) === 0 ? "Add where the café should deliver" : `${state.account.addresses?.length} saved${state.account.addresses?.find((address) => address.isDefault) ? ` · ${state.account.addresses?.find((address) => address.isDefault)?.label} is the default` : ""}`}{state.account.phone ? ` · ${state.account.phone}` : " · add your mobile number in Edit details"}</em></span>
+          <b aria-hidden="true">›</b>
+        </button>
         <h3 className="acct-section-title">Your orders</h3>
         {state.account.orders.length === 0
           ? <p className="acct-intro">No orders yet. Orders you place while signed in are saved here.</p>
@@ -489,6 +512,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         <Field label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} /></Field>
         <Field label="Username" hint="Usernames cannot be changed."><input value={`@${state.account?.username ?? ""}`} disabled /></Field>
         <Field label="Email (optional)" hint="Only used if you forget your password."><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
+        <Field label="Mobile number (optional)" hint="Needed for delivery, e.g. 0917 123 4567."><input type="tel" inputMode="tel" value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Birthday (optional)"><input type="date" value={profile.birthday} max={today} onChange={(event) => setProfile((current) => ({ ...current, birthday: event.target.value }))} /></Field>
         <button type="submit" className="add-order-button" disabled={busy || !profile.fullName.trim()}>{busy ? "Saving..." : "Save"} <span>→</span></button>
         <p className="acct-switch"><button type="button" onClick={() => go("home")}>Cancel</button></p>
@@ -506,8 +530,47 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         <p className="acct-switch"><button type="button" onClick={() => { setLogin(""); go("home"); }}>Cancel</button></p>
       </form>}
 
+      {view === "addresses" && state.account && !addressDraft && <div className="acct-home">
+        <p className="acct-intro">Where the café delivers your orders. Each address needs its area, so the delivery fee is known.</p>
+        {(state.account.addresses ?? []).length === 0 && <p className="acct-intro">No addresses yet.</p>}
+        <ul className="acct-addresses">{(state.account.addresses ?? []).map((address) => <li key={address.id} className={address.isDefault ? "is-default" : ""}>
+          <div>
+            <strong>{address.label}{address.isDefault ? <span className="acct-default-tag">Default</span> : null}</strong>
+            <span>{address.street}{address.landmark ? ` · near ${address.landmark}` : ""}</span>
+            <small>{address.zoneName ?? "No area"}{address.zoneFee !== null && address.zoneActive ? ` · ₱${address.zoneFee.toFixed(2)} delivery` : ""}{!address.zoneActive ? " · the café no longer delivers here" : ""} · {address.recipientName}, {address.phone}</small>
+          </div>
+          <div className="acct-address-actions">
+            <button type="button" disabled={busy} onClick={() => setAddressDraft({ id: address.id, label: address.label, recipientName: address.recipientName, phone: address.phone, zoneId: address.zoneId ? String(address.zoneId) : "", street: address.street, landmark: address.landmark ?? "", riderNotes: address.riderNotes ?? "", isDefault: address.isDefault })}>Edit</button>
+            {!address.isDefault && <button type="button" disabled={busy} onClick={() => void run(() => state.makeDefaultAddress(address.id), () => setNotice(`${address.label} is now your default address.`))}>Make default</button>}
+            <button type="button" disabled={busy} onClick={() => void run(() => state.removeAddress(address.id), () => setNotice("Address removed."))}>Remove</button>
+          </div>
+        </li>)}</ul>
+        {(state.account.addresses?.length ?? 0) < 10 && <button type="button" className="add-order-button" disabled={zones === null || zones.length === 0} onClick={() => setAddressDraft({ label: "Home", recipientName: state.account?.fullName ?? "", phone: state.account?.phone ?? "", zoneId: "", street: "", landmark: "", riderNotes: "", isDefault: (state.account?.addresses?.length ?? 0) === 0 })}>{zones !== null && zones.length === 0 ? "The café has no delivery areas yet" : "Add an address"} <span>+</span></button>}
+        <p className="acct-switch"><button type="button" onClick={() => go("home")}>Back to your account</button></p>
+      </div>}
+
+      {view === "addresses" && addressDraft && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.saveAddress(addressDraft), () => { setAddressDraft(null); setNotice("Address saved."); }); }}>
+        <div className="acct-label-choice" role="radiogroup" aria-label="Label">
+          {["Home", "Work", "Other"].map((label) => <button key={label} type="button" role="radio" aria-checked={addressDraft.label === label} onClick={() => setAddressDraft((current) => current && { ...current, label })}>{label}</button>)}
+        </div>
+        <Field label="Area" hint={(() => { const zone = zones?.find((option) => String(option.id) === addressDraft.zoneId); return zone ? `${zone.description ? `${zone.description} · ` : ""}₱${zone.fee.toFixed(2)} delivery${zone.minOrder ? ` · orders from ₱${zone.minOrder.toFixed(2)}` : ""}` : "The areas the café delivers to."; })()}>
+          <select value={addressDraft.zoneId} onChange={(event) => setAddressDraft((current) => current && { ...current, zoneId: event.target.value })}>
+            <option value="">Choose your area</option>
+            {(zones ?? []).map((zone) => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
+          </select>
+        </Field>
+        <Field label="House number and street"><input value={addressDraft.street} onChange={(event) => setAddressDraft((current) => current && { ...current, street: event.target.value })} autoComplete="street-address" maxLength={200} /></Field>
+        <Field label="Landmark (optional)" hint="Something the rider can look for."><input value={addressDraft.landmark} onChange={(event) => setAddressDraft((current) => current && { ...current, landmark: event.target.value })} maxLength={120} /></Field>
+        <Field label="Who receives it"><input value={addressDraft.recipientName} onChange={(event) => setAddressDraft((current) => current && { ...current, recipientName: event.target.value })} autoComplete="name" maxLength={80} /></Field>
+        <Field label="Their mobile number" hint="The rider calls this number."><input type="tel" inputMode="tel" value={addressDraft.phone} onChange={(event) => setAddressDraft((current) => current && { ...current, phone: event.target.value })} autoComplete="tel" maxLength={16} /></Field>
+        <Field label="Notes for the rider (optional)"><input value={addressDraft.riderNotes} onChange={(event) => setAddressDraft((current) => current && { ...current, riderNotes: event.target.value })} placeholder="Gate code, floor, where to leave it" maxLength={200} /></Field>
+        <label className="acct-check"><input type="checkbox" checked={addressDraft.isDefault} onChange={(event) => setAddressDraft((current) => current && { ...current, isDefault: event.target.checked })} />Use this address by default</label>
+        <button type="submit" className="add-order-button" disabled={busy || !addressDraft.zoneId || addressDraft.street.trim().length < 3 || addressDraft.recipientName.trim().length < 2 || !addressDraft.phone.trim()}>{busy ? "Saving..." : "Save address"} <span>→</span></button>
+        <p className="acct-switch"><button type="button" onClick={() => setAddressDraft(null)}>Cancel</button></p>
+      </form>}
+
       {view === "delete" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.deleteAccount(password), onClose); }}>
-        <p className="acct-intro">Your name, username, email, birthday and the café&apos;s notes about you are erased, and you are signed out everywhere. Your past orders stay in the café&apos;s sales records without your name. This cannot be undone.</p>
+        <p className="acct-intro">Your name, username, email, birthday, mobile number, addresses and the café&apos;s notes about you are erased, and you are signed out everywhere. Your past orders stay in the café&apos;s sales records without your name. This cannot be undone.</p>
         <Field label="Enter your password to confirm"><PasswordInput value={password} onChange={setPassword} autoComplete="current-password" autoFocus /></Field>
         <button type="submit" className="add-order-button acct-danger" disabled={busy || !password}>{busy ? "Deleting..." : "Delete my account"} <span>→</span></button>
         <p className="acct-switch"><button type="button" onClick={() => go("home")}>Keep my account</button></p>

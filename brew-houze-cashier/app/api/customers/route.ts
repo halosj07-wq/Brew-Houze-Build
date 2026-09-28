@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { birthdayStatus, runningCampaign } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
+import { normalizePhone } from "@/lib/delivery";
 
-// Finds a customer to attach to the order at the counter: by name or username (?q=), or by the
+// Finds a customer to attach to the order at the counter: by name, username or mobile number (?q=), or by the
 // code on their phone (?code=, from the QR in their mobile menu account). Only what the counter
 // needs is returned: no email or birthday. Notes are the café's own, for serving them.
 
@@ -32,10 +33,10 @@ export async function GET(request: Request) {
         SELECT COUNT(*)::int AS visits, MAX(created_at) AS last_visit FROM sales_orders WHERE customer_id = c.customer_id AND status = 'completed'
       ) o ON TRUE
       WHERE c.is_active = TRUE AND c.deleted_at IS NULL
-        AND ${username ? "LOWER(c.username) = LOWER($1)" : "(c.full_name ILIKE '%' || $1 || '%' OR c.username ILIKE $1 || '%')"}
+        AND ${username ? "LOWER(c.username) = LOWER($1)" : "(c.full_name ILIKE '%' || $1 || '%' OR c.username ILIKE $1 || '%' OR c.phone = $2)"}
       ORDER BY ${username ? "c.customer_id" : "(LOWER(c.username) = LOWER($1)) DESC, o.last_visit DESC NULLS LAST, c.full_name"}
       LIMIT ${MAX_RESULTS}
-    `, [username || escaped]);
+    `, username ? [username] : [escaped, normalizePhone(query) ?? ""]);
     // Stars in the running loyalty campaign (null when none is running).
     const campaign = await runningCampaign().catch(() => null);
     const balances = new Map<number, number>();

@@ -7,6 +7,7 @@ import {
 import { cookies } from "next/headers";
 import { customerLoyalty } from "@/lib/loyalty";
 import { savedIdDiscount } from "@/lib/id-verifications";
+import { normalizePhone } from "@/lib/delivery";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -53,6 +54,14 @@ export async function GET() {
       WHERE so.customer_id = $1 AND so.status = 'completed'
       GROUP BY soi.product_id ORDER BY SUM(soi.quantity) DESC, MAX(so.created_at) DESC LIMIT 8
     `, [session.customerId]).catch(() => ({ rows: [] as { product_id: number }[] }));
+    // Mobile number and delivery addresses (with their zone and its fee), and whether cash on
+    // delivery is blocked for this account.
+    const contact = await pool.query("SELECT phone, cod_blocked FROM customers WHERE customer_id = $1", [session.customerId]).catch(() => ({ rows: [] as { phone: string | null; cod_blocked: boolean }[] }));
+    const addresses = await pool.query(`
+      SELECT a.address_id, a.label, a.recipient_name, a.phone, a.zone_id, z.name AS zone_name, z.fee AS zone_fee, z.is_active AS zone_active, a.street, a.landmark, a.rider_notes, a.is_default
+      FROM customer_addresses a LEFT JOIN delivery_zones z ON z.zone_id = a.zone_id
+      WHERE a.customer_id = $1 ORDER BY a.is_default DESC, a.updated_at DESC
+    `, [session.customerId]).catch(() => ({ rows: [] as Record<string, unknown>[] }));
     // A senior, PWD or other ID the café checked and the customer asked to remember (no photo is kept).
     const savedId = await savedIdDiscount(session.customerId).catch(() => null);
     return NextResponse.json({
@@ -64,6 +73,13 @@ export async function GET() {
         orderCount: Number(totals.rows[0]?.orders ?? 0),
         loyalty,
         favorites: favorites.rows.map((row) => Number(row.product_id)),
+        phone: (contact.rows[0]?.phone as string | null | undefined) ?? null,
+        codBlocked: Boolean(contact.rows[0]?.cod_blocked),
+        addresses: addresses.rows.map((row) => ({
+          id: Number(row.address_id), label: String(row.label), recipientName: String(row.recipient_name), phone: String(row.phone),
+          zoneId: row.zone_id === null ? null : Number(row.zone_id), zoneName: (row.zone_name as string | null) ?? null, zoneFee: row.zone_fee === null ? null : Number(row.zone_fee), zoneActive: Boolean(row.zone_active),
+          street: String(row.street), landmark: (row.landmark as string | null) ?? null, riderNotes: (row.rider_notes as string | null) ?? null, isDefault: Boolean(row.is_default),
+        })),
         savedId: savedId ? { typeId: savedId.typeId, typeName: savedId.typeName, holderName: savedId.holderName, idEnding: savedId.idNumber ? savedId.idNumber.slice(-4) : null } : null,
         orders: orders.rows.map((row) => ({
           id: Number(row.order_id),
@@ -88,7 +104,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const session = await getCustomerSession();
   if (!session) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
-  let body: { action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; currentPassword?: unknown; newPassword?: unknown };
+  let body: { action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; phone?: unknown; currentPassword?: unknown; newPassword?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -99,10 +115,12 @@ export async function PATCH(request: Request) {
       const fullName = cleanName(body.fullName);
       const email = String(body.email ?? "").trim().toLowerCase();
       const birthday = String(body.birthday ?? "").trim();
-      const problem = !fullName ? "Enter your name." : emailProblem(email) ?? birthdayProblem(birthday);
+      const phoneText = String(body.phone ?? "").trim();
+      const phone = phoneText ? normalizePhone(phoneText) : null;
+      const problem = !fullName ? "Enter your name." : emailProblem(email) ?? birthdayProblem(birthday) ?? (phoneText && !phone ? "Enter a mobile number like 0917 123 4567, or leave it empty." : null);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
-      await pool.query("UPDATE customers SET full_name = $2, email = NULLIF($3, ''), birthday = NULLIF($4, '')::date, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId, fullName, email, birthday]);
-      return NextResponse.json({ data: { fullName, email: email || null, birthday: birthday || null } });
+      await pool.query("UPDATE customers SET full_name = $2, email = NULLIF($3, ''), birthday = NULLIF($4, '')::date, phone = $5, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId, fullName, email, birthday, phone]);
+      return NextResponse.json({ data: { fullName, email: email || null, birthday: birthday || null, phone } });
     }
     if (body.action === "change_password") {
       const newPassword = String(body.newPassword ?? "");
@@ -144,11 +162,12 @@ export async function DELETE(request: Request) {
     await client.query(`
       UPDATE customers
       SET username = NULL, full_name = 'Deleted customer', email = NULL, password_hash = NULL, birthday = NULL, notes = NULL,
-        id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL,
+        id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, phone = NULL,
         is_active = FALSE, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE customer_id = $1
     `, [session.customerId]);
     await client.query("DELETE FROM customer_password_resets WHERE customer_id = $1", [session.customerId]);
+    await client.query("DELETE FROM customer_addresses WHERE customer_id = $1", [session.customerId]);
     await endCustomerSessions(session.customerId, "account_deleted", client);
     await client.query("COMMIT");
     (await cookies()).delete(CUSTOMER_COOKIE);

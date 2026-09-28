@@ -115,3 +115,26 @@
 .acct-saved-id span { color: #3b82f6; font-size: 11.5px; line-height: 1.4; }
 .acct-saved-id button { flex-shrink: 0; padding: 7px 12px; color: #1e3a8a; background: #fff; border: 1px solid #bfdbfe; border-radius: 9px; font-size: 12px; font-weight: 700; }
 .acct-order-discount { color: #1d4ed8 !important; font-weight: 700; }
+
+/* Delivery addresses. */
+.acct-delivery-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 12px; padding: 11px 12px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 12px; text-align: left; }
+.acct-delivery-row span { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.acct-delivery-row strong { font-size: 13.5px; }
+.acct-delivery-row em { color: var(--muted); font-size: 11.5px; font-style: normal; line-height: 1.4; }
+.acct-delivery-row b { color: var(--muted); font-size: 20px; }
+.acct-addresses { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; padding: 0; list-style: none; }
+.acct-addresses li { display: flex; flex-direction: column; gap: 8px; padding: 11px 12px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.acct-addresses li.is-default { border-color: var(--brown, #5B2A16); }
+.acct-addresses li > div:first-child { display: flex; flex-direction: column; gap: 2px; }
+.acct-addresses strong { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.acct-addresses span { font-size: 13px; }
+.acct-addresses small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+.acct-default-tag { padding: 1px 7px; color: #fff; background: var(--brown, #5B2A16); border-radius: 999px; font-size: 10.5px; font-weight: 700; }
+.acct-address-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.acct-address-actions button { padding: 5px 10px; color: var(--ink); background: var(--cream); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; font-weight: 600; }
+.acct-label-choice { display: flex; gap: 6px; }
+.acct-label-choice button { flex: 1; padding: 8px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; font-weight: 600; }
+.acct-label-choice button[aria-checked="true"] { color: #fff; background: var(--brown, #5B2A16); border-color: var(--brown, #5B2A16); }
+.acct-form select { width: 100%; padding: 11px 12px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 15px; }
+.acct-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
+.acct-check input { width: 18px; height: 18px; accent-color: var(--brown, #5B2A16); }

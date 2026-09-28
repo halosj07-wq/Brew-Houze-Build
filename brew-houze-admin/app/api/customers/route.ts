@@ -57,6 +57,14 @@ async function endCustomerSessions(customerId: number, reason: "password_reset" 
   return result.rowCount ?? 0;
 }
 
+// A Philippine mobile number as 09XXXXXXXXX (the same rule as the mobile menu), or null.
+function normalizePhone(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const digits = value.replace(/[\s()-]/g, "").replace(/^\+/, "");
+  const local = digits.startsWith("63") ? `0${digits.slice(2)}` : digits.startsWith("9") ? `0${digits}` : digits;
+  return /^09\d{9}$/.test(local) ? local : null;
+}
+
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
@@ -71,6 +79,9 @@ export async function GET() {
         TO_CHAR(o.last_visit AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS last_visit,
         fav.product_name AS favourite,
         (SELECT COUNT(*)::int FROM customer_sessions s WHERE s.customer_id = c.customer_id AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP) AS devices,
+        c.phone, c.cod_blocked, c.cod_block_reason,
+        COALESCE((SELECT json_agg(json_build_object('id', a.address_id, 'label', a.label, 'recipientName', a.recipient_name, 'phone', a.phone, 'street', a.street, 'landmark', a.landmark, 'riderNotes', a.rider_notes, 'zoneName', z.name, 'isDefault', a.is_default) ORDER BY a.is_default DESC, a.updated_at DESC)
+          FROM customer_addresses a LEFT JOIN delivery_zones z ON z.zone_id = a.zone_id WHERE a.customer_id = c.customer_id), '[]'::json) AS addresses,
         saved_type.name AS saved_id_type, c.id_discount_name, c.id_discount_number, verifier.full_name AS id_verified_by,
         TO_CHAR(c.id_verified_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS id_verified_at
       FROM customers c
@@ -120,6 +131,11 @@ export async function GET() {
         lastVisit: (row.last_visit as string | null) ?? null,
         favourite: (row.favourite as string | null) ?? null,
         devices: Number(row.devices),
+        // Delivery: mobile number, saved addresses, and whether cash on delivery is blocked.
+        phone: (row.phone as string | null) ?? null,
+        codBlocked: Boolean(row.cod_blocked),
+        codBlockReason: (row.cod_block_reason as string | null) ?? null,
+        addresses: Array.isArray(row.addresses) ? row.addresses : [],
         // A senior, PWD or other ID the café checked and remembered (from the mobile menu).
         savedId: row.id_verified_at && row.id_discount_name ? { typeName: String(row.saved_id_type ?? "Discount"), holderName: String(row.id_discount_name), idNumber: (row.id_discount_number as string | null) ?? null, verifiedAt: String(row.id_verified_at), verifiedBy: (row.id_verified_by as string | null) ?? null } : null,
       })),
@@ -135,7 +151,7 @@ export async function GET() {
 export async function POST(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  let body: { fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown };
+  let body: { fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; phone?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -148,16 +164,19 @@ export async function POST(request: Request) {
   const username = String(body.username ?? "").trim();
   const password = String(body.password ?? "");
   const withLogin = username !== "" || password !== "";
+  const phoneText = String(body.phone ?? "").trim();
+  const phone = phoneText ? normalizePhone(phoneText) : null;
   const problem = !fullName ? "Enter the customer's name."
     : email && !EMAIL_RE.test(email) ? "Enter a valid email address, or leave it empty."
+    : phoneText && !phone ? "Enter a mobile number like 0917 123 4567, or leave it empty."
     : birthdayProblem(birthday) ?? (withLogin ? usernameProblem(username) ?? passwordProblem(password) : null);
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   try {
     const result = await pool.query(`
-      INSERT INTO customers (full_name, email, birthday, notes, username, password_hash, created_by_admin_id)
-      VALUES ($1, NULLIF($2, ''), NULLIF($3, '')::date, NULLIF($4, ''), NULLIF($5, ''), CASE WHEN $6 = '' THEN NULL ELSE crypt($6, gen_salt('bf')) END, $7)
+      INSERT INTO customers (full_name, email, birthday, notes, username, password_hash, created_by_admin_id, phone)
+      VALUES ($1, NULLIF($2, ''), NULLIF($3, '')::date, NULLIF($4, ''), NULLIF($5, ''), CASE WHEN $6 = '' THEN NULL ELSE crypt($6, gen_salt('bf')) END, $7, $8)
       RETURNING customer_id
-    `, [fullName, email, birthday, notes, withLogin ? username : "", withLogin ? password : "", auth.session.adminId]);
+    `, [fullName, email, birthday, notes, withLogin ? username : "", withLogin ? password : "", auth.session.adminId, phone]);
     return NextResponse.json({ data: { id: Number(result.rows[0].customer_id) } }, { status: 201 });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: uniqueMessage(error) }, { status: 409 });
@@ -169,7 +188,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  let body: { id?: unknown; action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; isActive?: unknown; stars?: unknown; reason?: unknown };
+  let body: { id?: unknown; action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; isActive?: unknown; stars?: unknown; reason?: unknown; phone?: unknown; codBlocked?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -186,10 +205,20 @@ export async function PATCH(request: Request) {
       const fullName = cleanName(body.fullName);
       const email = String(body.email ?? "").trim().toLowerCase();
       const birthday = String(body.birthday ?? "").trim();
-      const problem = !fullName ? "Enter the customer's name." : email && !EMAIL_RE.test(email) ? "Enter a valid email address, or leave it empty." : birthdayProblem(birthday);
+      const phoneText = String(body.phone ?? "").trim();
+      const phone = phoneText ? normalizePhone(phoneText) : null;
+      const problem = !fullName ? "Enter the customer's name." : email && !EMAIL_RE.test(email) ? "Enter a valid email address, or leave it empty." : phoneText && !phone ? "Enter a mobile number like 0917 123 4567, or leave it empty." : birthdayProblem(birthday);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
-      await pool.query("UPDATE customers SET full_name = $2, email = NULLIF($3, ''), birthday = NULLIF($4, '')::date, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [id, fullName, email, birthday]);
-      return NextResponse.json({ data: { fullName, email: email || null, birthday: birthday || null } });
+      await pool.query("UPDATE customers SET full_name = $2, email = NULLIF($3, ''), birthday = NULLIF($4, '')::date, phone = $5, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [id, fullName, email, birthday, phone]);
+      return NextResponse.json({ data: { fullName, email: email || null, birthday: birthday || null, phone } });
+    }
+
+    // Cash on delivery for this customer: blocked (with a reason) or allowed again.
+    if (body.action === "set_cod") {
+      const blocked = body.codBlocked === true;
+      const reason = blocked ? String(body.reason ?? "").trim().slice(0, 200) || "Blocked by the admin." : null;
+      await pool.query("UPDATE customers SET cod_blocked = $2, cod_block_reason = $3, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [id, blocked, reason]);
+      return NextResponse.json({ data: { codBlocked: blocked, codBlockReason: reason } });
     }
 
     if (body.action === "set_notes") {
@@ -263,10 +292,12 @@ export async function PATCH(request: Request) {
           UPDATE customers
           SET username = NULL, full_name = 'Deleted customer', email = NULL, password_hash = NULL, birthday = NULL, notes = NULL,
             id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL,
+            phone = NULL, cod_blocked = FALSE, cod_block_reason = NULL,
             is_active = FALSE, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
           WHERE customer_id = $1
         `, [id]);
         await client.query("DELETE FROM customer_password_resets WHERE customer_id = $1", [id]);
+        await client.query("DELETE FROM customer_addresses WHERE customer_id = $1", [id]);
         await endCustomerSessions(id, "account_deleted", client);
         await client.query("COMMIT");
         return NextResponse.json({ data: { erased: true } });
