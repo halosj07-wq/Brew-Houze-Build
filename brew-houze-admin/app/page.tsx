@@ -4976,6 +4976,8 @@ type FinanceOverviewData = {
   staff: { name: string; role: string; orders: number; revenue: number; reversedOrders: number; reversedAmount: number }[];
   // Loyalty in the range (null when it could not be read).
   loyalty?: FinanceLoyalty | null;
+  // Dine in vs take out ("unknown": orders from before it was recorded).
+  serviceTypes?: { type: string; orders: number; sales: number }[];
 };
 type FinanceLoyalty = {
   memberOrders: number; memberSales: number; members: number; starsEarned: number; starsSpent: number; starsAdjusted: number;
@@ -4991,6 +4993,8 @@ type FinanceOrder = {
   customerName?: string | null;
   // A discount taken off the order (a reward now; PWD or senior later).
   subtotal?: number | null; discountAmount?: number; discountLabel?: string | null;
+  // Dine in or take out (null: before it was recorded).
+  serviceType?: "dine_in" | "take_out" | null;
   paymentProvider?: string | null;
   // Split ticket: the part paid in cash (the rest was GCash).
   cashPortion?: number | null;
@@ -5026,6 +5030,8 @@ function orderChannel(order: Pick<FinanceOrder, "orderSource" | "paymentMethod">
   return order.paymentMethod === "cash" ? "cash" : "online";
 }
 const channelLabels = { cash: "Cash", online: "Online at counter", split: "Split (cash + GCash)", mobile: "Mobile menu" } as const;
+
+const serviceTypeLabels: Record<string, string> = { dine_in: "Dine in", take_out: "Take out", unknown: "Not recorded" };
 
 function orderStatusOf(order: Pick<FinanceOrder, "status">): "completed" | "voided" | "refunded" {
   const status = order.status.toLowerCase();
@@ -5215,6 +5221,15 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       </DashCard>
     </div>
 
+    {(data.serviceTypes ?? []).some((row) => row.type !== "unknown") && <DashCard title="Dine in vs take out" sub="Completed orders in this period.">
+      <ul className="fin-simple-list">
+        {(data.serviceTypes ?? []).map((row) => {
+          const totalOrders = (data.serviceTypes ?? []).reduce((sum, item) => sum + item.orders, 0);
+          return <li key={row.type}><span><strong>{serviceTypeLabels[row.type] ?? row.type}</strong><em>{row.orders} order{row.orders === 1 ? "" : "s"} · {totalOrders ? Math.round((row.orders / totalOrders) * 100) : 0}%</em></span><strong>{peso(row.sales)}</strong></li>;
+        })}
+      </ul>
+    </DashCard>}
+
     {data.loyalty && (data.loyalty.memberOrders > 0 || data.loyalty.rewardsClaimed > 0 || data.loyalty.starsEarned !== 0 || (data.loyalty.discountTotal ?? 0) > 0) && <DashCard title="Loyalty" sub="Orders linked to customers, stars, and the rewards given away. Reward items are sold at ₱0, and their cost is already in the cost of goods above.">
       <div className="acc-stats">
         <div><span>Member sales</span><strong>{peso(data.loyalty.memberSales)}</strong><em className="fin-loy-sub">{data.loyalty.memberOrders} order{data.loyalty.memberOrders === 1 ? "" : "s"} · {data.current.netSales > 0 ? `${Math.round((data.loyalty.memberSales / data.current.netSales) * 100)}% of net sales` : "—"}</em></div>
@@ -5270,6 +5285,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {fact("Business date", formatRange(order.businessDate, order.businessDate))}
           {fact("Shift", order.shiftId ? `#${order.shiftId}` : "—")}
           {fact("Punched by", order.punchedBy)}
+          {fact("Order type", serviceTypeLabels[order.serviceType ?? "unknown"])}
           {order.customerName && fact("Customer", order.customerName)}
           {Boolean(order.discountAmount) && fact("Discount", `−${peso(order.discountAmount ?? 0)}${order.discountLabel ? ` · ${order.discountLabel}` : ""}`)}
           {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
@@ -5312,6 +5328,7 @@ function financeOrderColumns(): ExcelColumn<FinanceOrder>[] {
     { header: "Shift", value: (order) => order.shiftId ? `#${order.shiftId}` : "" },
     { header: "Punched by", value: (order) => order.punchedBy },
     { header: "Customer", value: (order) => order.customerName ?? "" },
+    { header: "Order type", value: (order) => order.serviceType ? serviceTypeLabels[order.serviceType] : "" },
     { header: "Payment", value: (order) => excelPayment(order) },
     { header: "Status", value: (order) => excelStatus(orderStatusOf(order)) },
     { header: "Items", value: (order) => describeItems(order.items) },
@@ -5383,6 +5400,7 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<OrderStatusFilter>(preset.status ?? "all");
   const [channel, setChannel] = useState<OrderChannelFilter>(preset.channel ?? "all");
+  const [serviceFilter, setServiceFilter] = useState<"all" | "dine_in" | "take_out">("all");
   const [cashier, setCashier] = useState(preset.cashier ?? "all");
   const [category, setCategory] = useState(preset.category ?? "all");
   const [shift, setShift] = useState("all");
@@ -5423,6 +5441,7 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
     const orderStatus = orderStatusOf(order);
     if (status === "reversed" ? orderStatus === "completed" : status !== "all" && orderStatus !== status) return false;
     if (channel !== "all" && orderChannel(order) !== channel) return false;
+    if (serviceFilter !== "all" && order.serviceType !== serviceFilter) return false;
     if (cashier !== "all" && order.punchedBy !== cashier) return false;
     if (category !== "all" && !order.items.some((item) => item.category === category)) return false;
     if (shift !== "all" && String(order.shiftId) !== shift) return false;
@@ -5434,16 +5453,17 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
   const paidShown = shown.filter((order) => !order.reversed);
   const reversedShown = shown.filter((order) => order.reversed);
   const moreCount = [cashier !== "all", category !== "all", shift !== "all", min !== null, max !== null].filter(Boolean).length;
-  const anyFilter = status !== "all" || channel !== "all" || moreCount > 0 || query !== "";
+  const anyFilter = status !== "all" || channel !== "all" || serviceFilter !== "all" || moreCount > 0 || query !== "";
 
   function resetFilters() {
-    setSearch(""); setStatus("all"); setChannel("all"); setCashier("all"); setCategory("all"); setShift("all"); setMinTotal(""); setMaxTotal(""); setVisible(ORDERS_PAGE_SIZE);
+    setSearch(""); setStatus("all"); setChannel("all"); setServiceFilter("all"); setCashier("all"); setCategory("all"); setShift("all"); setMinTotal(""); setMaxTotal(""); setVisible(ORDERS_PAGE_SIZE);
   }
 
   function filterLabel(): string {
     const parts = [formatRange(start, end)];
     if (status !== "all") parts.push(status === "reversed" ? "voided or refunded" : status);
     if (channel !== "all") parts.push(channelLabels[channel]);
+    if (serviceFilter !== "all") parts.push(serviceTypeLabels[serviceFilter].toLowerCase());
     if (cashier !== "all") parts.push(`punched by ${cashier}`);
     if (category !== "all") parts.push(category);
     if (shift !== "all") parts.push(`shift #${shift}`);
@@ -5489,6 +5509,9 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
       </div>
       <div className="inv-range" role="group" aria-label="Payment">
         {([["all", "Any payment"], ["cash", "Cash"], ["online", "Online"], ["split", "Split"], ["mobile", "Mobile"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{label}</button>)}
+      </div>
+      <div className="inv-range" role="group" aria-label="Dine in or take out">
+        {([["all", "Any type"], ["dine_in", "Dine in"], ["take_out", "Take out"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={serviceFilter === id} onClick={() => setServiceFilter(id)}>{label}</button>)}
       </div>
     </div>
 
@@ -5628,6 +5651,11 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
         { header: "Voided or refunded orders", value: (person) => person.reversedOrders, kind: "count" },
         { header: "Voided or refunded amount", value: (person) => person.reversedAmount, kind: "money" },
       ]) : null]);
+      if (sections.summary && (data.serviceTypes ?? []).length > 0) sheets.push(["Dine in vs take out", excelTable(data.serviceTypes ?? [], [
+        { header: "Order type", value: (row) => serviceTypeLabels[row.type] ?? row.type },
+        { header: "Orders", value: (row) => row.orders, kind: "count" },
+        { header: "Sales", value: (row) => row.sales, kind: "money" },
+      ])]);
       if (sections.loyalty && data.loyalty) {
         const loyalty = data.loyalty;
         sheets.push(["Loyalty", excelInfo([

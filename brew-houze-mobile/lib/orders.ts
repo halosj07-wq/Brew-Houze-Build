@@ -9,6 +9,11 @@ import { awardOrderStarsSafely, computeDiscount, discountText, planRewards, reco
 // birthday treat).
 export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null };
 export type OrderSource = "cashier" | "mobile";
+// Eaten at the café or taken away (null: not recorded, for callers that do not ask).
+export type ServiceType = "dine_in" | "take_out";
+export function parseServiceType(value: unknown): ServiceType | null {
+  return value === "dine_in" || value === "take_out" ? value : null;
+}
 export type PlaceOrderInput = {
   items: OrderItemInput[];
   source: OrderSource;
@@ -26,6 +31,7 @@ export type PlaceOrderInput = {
   rewardsAuthorized?: boolean;
   // A discount reward on the whole order (at most one).
   discountRewardId?: number | null;
+  serviceType?: ServiceType | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
@@ -222,12 +228,12 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const order = await client.query(`
     INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id,
-      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id)
-    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id, service_type)
+    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
   `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null,
-    subtotal, discountAmount, discount ? `${discount.name} (${discountText(discount)})` : null, discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null]);
+    subtotal, discountAmount, discount ? `${discount.name} (${discountText(discount)})` : null, discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null, input.serviceType ?? null]);
   const orderId = Number(order.rows[0].order_id);
 
   for (const [inventoryId, detail] of deductionDetails) {

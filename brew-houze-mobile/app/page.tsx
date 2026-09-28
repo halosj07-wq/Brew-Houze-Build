@@ -92,6 +92,8 @@ export default function MenuPage() {
   const [rewardPick, setRewardPick] = useState<LoyaltyReward | null>(null);
   // A discount reward on the order (at most one).
   const [discountReward, setDiscountReward] = useState<LoyaltyReward | null>(null);
+  // Eaten at the café (usually, from the table QR) or taken away.
+  const [serviceType, setServiceType] = useState<"dine_in" | "take_out">("dine_in");
   const rewardLineId = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackedOrdersHydratedRef = useRef(false);
@@ -232,7 +234,7 @@ export default function MenuPage() {
         if (!response.ok || !result) return;
         if (result.status === "completed") {
           window.localStorage.removeItem(pendingPaymentStorageKey);
-          setCart([]); setDiscountReward(null);
+          setCart([]); setDiscountReward(null); setServiceType("dine_in");
           setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting" }]);
           setPaymentCheck(null);
           setOrderPlaced(true);
@@ -433,7 +435,7 @@ export default function MenuPage() {
     // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
     if (paymentConfig.method === "gcash" && cartTotal > 0) {
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType }) });
         const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
         try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
@@ -448,11 +450,11 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId }),
+        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
-      setCart([]); setDiscountReward(null);
+      setCart([]); setDiscountReward(null); setServiceType("dine_in");
       setCartOpen(false);
       if (payload.data?.trackingToken) {
         setTrackedOrders((current) => [...current, {
@@ -591,10 +593,13 @@ export default function MenuPage() {
       </section>
     </div>}
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
-      <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
+      <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">{serviceType === "take_out" ? "YOUR TAKE-OUT ORDER" : "YOUR TABLE ORDER"}</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
         {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <><div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div>{starsSection}</> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.rewardId ? `🎁 Free · ${item.rewardName} · ★ ${item.rewardCost}` : `${item.variantName} · ₱${item.price.toFixed(2)}`}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
         {starsSection}
         {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
+        <div className="service-choice" role="radiogroup" aria-label="Dine in or take out">
+          {([["dine_in", "Dine in", "Enjoy it here"], ["take_out", "Take out", "To go"]] as const).map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} onClick={() => setServiceType(value)}><strong>{label}</strong><span>{hint}</span></button>)}
+        </div>
         <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal > 0 && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : cartTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}

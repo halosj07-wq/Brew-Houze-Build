@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { parseOrderItems, placeOrder } from "@/lib/orders";
+import { parseOrderItems, parseServiceType, placeOrder } from "@/lib/orders";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { authorizeCounterRewards, CUSTOMER_UNAVAILABLE, linkableCustomerId, markClaimUsed } from "@/lib/customers";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown };
+    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown };
     // Cash only: GCash, the only online payment, goes through /api/payments (paid before the order).
     if (body.payment_method !== undefined && body.payment_method !== "cash") return NextResponse.json({ error: "Only cash orders are punched here. Use GCash for online payments." }, { status: 400 });
     const paymentMethod = "cash";
@@ -38,6 +38,7 @@ export async function POST(request: Request) {
       customerId: customerId ?? null,
       rewardsAuthorized: rewards.authorized,
       discountRewardId,
+      serviceType: parseServiceType(body.service_type),
     });
     await markClaimUsed(client, rewards.claimId, placed.orderId);
     await client.query("COMMIT");

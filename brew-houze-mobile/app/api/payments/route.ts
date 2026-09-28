@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { parseOrderItems } from "@/lib/orders";
+import { parseOrderItems, parseServiceType } from "@/lib/orders";
 import { startCheckout } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { getCustomerSession } from "@/lib/customers";
@@ -9,7 +9,7 @@ import { getCustomerSession } from "@/lib/customers";
 export async function POST(request: Request) {
   if (!paymongoConfigured()) return NextResponse.json({ error: "Online payment is not available right now." }, { status: 503 });
   try {
-    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown };
+    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown };
     // Each add-on is once per cup on the mobile menu.
     const items = parseOrderItems(body.items).map((item) => ({ ...item, additionIds: Array.from(new Set(item.additionIds)) }));
     if (items.length === 0) return NextResponse.json({ error: "Add something to your order first." }, { status: 400 });
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
     if ((items.some((item) => item.rewardId) || discountRewardId !== null) && !customer) return NextResponse.json({ error: "Sign in to use your rewards." }, { status: 401 });
     // Rewards are the customer's own stars (their signed-in account); they are spent once paid.
-    const started = await startCheckout({ source: "mobile", items, cashierAdminId: null, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, returnUrl: (token) => `${origin}/?payment=${token}` });
+    const started = await startCheckout({ source: "mobile", items, cashierAdminId: null, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, serviceType: parseServiceType(body.service_type), returnUrl: (token) => `${origin}/?payment=${token}` });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
     console.error("POST /api/payments (mobile) failed:", error);

@@ -25,7 +25,8 @@ export async function GET(request: Request) {
         so.queue_number,
         so.queue_status,
         so.order_source,
-        -- The customer linked to the order and the café's notes about them, for the barista.
+        -- Dine in (mug) or take out (cup), and the customer with the café's notes, for the barista.
+        so.service_type,
         cu.full_name AS customer_name,
         cu.notes AS customer_notes,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,

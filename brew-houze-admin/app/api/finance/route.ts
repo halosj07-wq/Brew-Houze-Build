@@ -179,7 +179,7 @@ export async function GET(request: Request) {
           TO_CHAR(o.reversed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
           COALESCE(cashier.full_name, CASE WHEN o.order_source = 'online' THEN 'Mobile order' ELSE 'Unknown' END) AS punched_by,
           reverser.full_name AS reversed_by,
-          cu.full_name AS customer_name, o.subtotal_amount, o.discount_amount, o.discount_label,
+          cu.full_name AS customer_name, o.subtotal_amount, o.discount_amount, o.discount_label, o.service_type,
           COALESCE(lines.items, '[]'::json) AS items,
           lines.cost AS cost
         FROM o
@@ -242,6 +242,7 @@ export async function GET(request: Request) {
           subtotal: row.subtotal_amount === null || row.subtotal_amount === undefined ? null : n(row.subtotal_amount),
           discountAmount: n(row.discount_amount),
           discountLabel: row.discount_label ?? null,
+          serviceType: row.service_type ?? null,
           paymentProvider: row.payment_provider ?? null,
           cashPortion: row.cash_portion === null || row.cash_portion === undefined ? null : n(row.cash_portion),
           returnMethod: row.return_method ?? null,
@@ -318,6 +319,14 @@ export async function GET(request: Request) {
       `, [start, end]),
     ]);
 
+    // Dine in vs take out (completed orders; orders from before it was recorded count as unknown).
+    const serviceTypes = await pool.query(`
+      WITH ${ordersCte}
+      SELECT COALESCE(service_type, 'unknown') AS service_type, COUNT(*)::int AS orders, COALESCE(SUM(total_amount), 0) AS sales
+      FROM o WHERE NOT o.reversed AND o.bd BETWEEN $1::date AND $2::date
+      GROUP BY 1 ORDER BY 1
+    `, [start, end]).then((result) => result.rows.map((row) => ({ type: String(row.service_type), orders: n(row.orders), sales: n(row.sales) }))).catch(() => []);
+
     const loyalty = await loyaltyFigures(start, end).catch((loyaltyError) => {
       console.error("GET /api/finance: loyalty figures failed:", loyaltyError);
       return null;
@@ -326,6 +335,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       data: {
         loyalty,
+        serviceTypes,
         range: { start, end, days },
         previousRange: { start: previousStart, end: previousEnd },
         current,

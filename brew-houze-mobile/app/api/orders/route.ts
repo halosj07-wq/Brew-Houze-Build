@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { parseOrderItems, placeOrder } from "@/lib/orders";
+import { parseOrderItems, parseServiceType, placeOrder } from "@/lib/orders";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { getCustomerSession } from "@/lib/customers";
 
@@ -12,7 +12,7 @@ import { getCustomerSession } from "@/lib/customers";
 export async function POST(request: Request) {
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown };
+    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown };
     // Each add-on is once per cup on the mobile menu.
     const items = parseOrderItems(body.items).map((item) => ({ ...item, additionIds: Array.from(new Set(item.additionIds)) }));
     if (items.length === 0) return NextResponse.json({ error: "At least one valid order item is required." }, { status: 400 });
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
     const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
     if ((items.some((item) => item.rewardId) || discountRewardId !== null) && !customer) return NextResponse.json({ error: "Sign in to use your rewards." }, { status: 401 });
     await client.query("BEGIN");
-    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod: "online", customerToken, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId });
+    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod: "online", customerToken, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, serviceType: parseServiceType(body.service_type) });
     if (paymongoConfigured() && placed.total > 0) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "Please pay with GCash to place your order." }, { status: 409 });

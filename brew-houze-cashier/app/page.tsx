@@ -17,7 +17,7 @@ function roleLabel(role: string): string {
 }
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; service_type?: "dine_in" | "take_out" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
 
 function IconCoffee({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1" /><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z" /><line x1="6" y1="1" x2="6" y2="4" /><line x1="10" y1="1" x2="10" y2="4" /><line x1="14" y1="1" x2="14" y2="4" /></svg>;
@@ -617,7 +617,7 @@ type ReceiptData = {
   received: number | null; change: number | null; orderSource: string; returnMethod: string | null;
   createdAt: string; reversedAt: string | null; cashierName: string | null; customerName?: string | null;
   loyalty?: { starsEarned: number; starsUsed?: number; balance: number; campaignName: string } | null;
-  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null;
+  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; serviceType?: string | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
@@ -692,6 +692,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   row("Order", `#${receipt.orderId}${receipt.shiftId ? ` - shift ${receipt.shiftId}` : ""}`);
   row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "-");
   if (receipt.customerName) row("Customer", receipt.customerName);
+  if (receipt.serviceType) row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : "DINE IN", { bold: true });
   rule();
   for (const item of receipt.items) {
     row(`${item.quantity} x ${item.name}`, money(item.quantity * item.unitPrice));
@@ -773,6 +774,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     {row("Order", `#${receipt.orderId}${receipt.shiftId ? ` · shift ${receipt.shiftId}` : ""}`)}
     {row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "—")}
     {receipt.customerName && row("Customer", receipt.customerName)}
+    {receipt.serviceType && row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : "DINE IN", true)}
     <div className="receipt-rule" />
     {receipt.items.map((item, index) => {
       const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" · ");
@@ -1388,6 +1390,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [rewardForItem, setRewardForItem] = useState<LoyaltyRewardRule | null>(null);
   // A discount reward on this order (at most one).
   const [discountReward, setDiscountReward] = useState<LoyaltyRewardRule | null>(null);
+  // Eaten at the café or taken away: the barista's mug or cup, and the receipt.
+  const [serviceType, setServiceType] = useState<"dine_in" | "take_out">("dine_in");
   const [rewardPasswordOpen, setRewardPasswordOpen] = useState(false);
   const [rewardPassword, setRewardPassword] = useState("");
   const [rewardPasswordInvalid, setRewardPasswordInvalid] = useState(false);
@@ -1674,6 +1678,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setLastPlaced({ orderId, queueNumber, note: "", stars: starNotes && customer ? `${starNotes} for ${customer.fullName.split(" ")[0]}` : undefined });
     setClaimId(null);
     setDiscountReward(null);
+    setServiceType("dine_in");
     setRewardPassword("");
     void refreshLoyalty();
     if (receipts.settings.autoPrint) void printPlacedReceipt(orderId, queueNumber);
@@ -1702,7 +1707,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       setRewardPasswordOpen(true);
       return;
     }
-    const rewardAuth = { claim_id: claimId, discount_reward_id: discountReward?.id ?? null, ...(password !== undefined ? { reward_password: password } : {}) };
+    // Sent with the order: dine in or take out, and how its rewards were confirmed.
+    const rewardAuth = { service_type: serviceType, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, ...(password !== undefined ? { reward_password: password } : {}) };
     // What the customer pays: the cart minus a reward discount.
     const subtotalValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount) * 100) / 100);
     const parsedReceivedAmount = Number.parseFloat(receivedAmount);
@@ -1967,6 +1973,9 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           {discountReward && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Items</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
           <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>{discountReward ? "Total after discount" : "Subtotal"}</div><div>₱{subtotal.toFixed(2)}</div></div>
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="pos-service" role="radiogroup" aria-label="Dine in or take out">
+              {([["dine_in", "Dine in"], ["take_out", "Take out"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
               <div style={{ display: "flex", gap: 6 }}>
@@ -2247,7 +2256,8 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
             return <article key={order.order_id} style={{ display: "flex", flexDirection: "column", background: "#FDF9F5", border: "1px solid #E8DDD5", borderTop: `6px solid ${wait.color}`, borderRadius: 16, boxShadow: "0 4px 16px rgba(61,43,31,0.08)", overflow: "hidden" }}>
               <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px 10px", borderBottom: "1px dashed #E8DDD5" }}>
                 <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 34, fontWeight: 800, lineHeight: 1, color: "#3D2B1F" }}>#{order.queue_number}</strong>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
+                {order.service_type && <span className={`queue-service is-${order.service_type}`}>{order.service_type === "take_out" ? "Take out" : "Dine in"}</span>}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, marginLeft: "auto" }}>
                   <span style={{ padding: "3px 9px", borderRadius: 999, background: wait.background, color: wait.color, border: `1px solid ${wait.border}`, fontSize: 12, fontWeight: 800 }}>{wait.label}</span>
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
                 </div>
@@ -2303,7 +2313,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
           const busy = busyOrderId === order.order_id;
           return <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#FFFFFF", border: "1px solid #FED7AA", borderRadius: 12 }}>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, color: "#C2410C", minWidth: 58, lineHeight: 1 }}>#{order.queue_number}</strong>
-            <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{order.customer_name && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{order.customer_name}</strong>}{order.items}</span>
+            <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{(order.customer_name || order.service_type) && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{[order.service_type === "take_out" ? "Take out" : order.service_type === "dine_in" ? "Dine in" : "", order.customer_name ?? ""].filter(Boolean).join(" · ")}</strong>}{order.items}</span>
             <button type="button" disabled={busy} onClick={() => void runOrderAction(order.order_id, flushOrder, "Unable to flush ready order.")} title="Remove from the ready list once the customer has collected it" style={{ flexShrink: 0, border: "1px solid #EA580C", background: busy ? "#FED7AA" : "#FFFFFF", color: "#C2410C", borderRadius: 9, padding: "9px 11px", fontSize: 12, fontWeight: 800, cursor: busy ? "default" : "pointer" }}>{busy ? "…" : "Picked up"}</button>
           </div>;
         })}
