@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { AccountButton, AccountSheet, CartAccountNote, useCustomerAccount } from "./account";
+import { AccountButton, AccountSheet, CartAccountNote, rewardMismatch, useCustomerAccount, type LoyaltyReward } from "./account";
 
 type Product = {
   id: number;
@@ -19,7 +19,8 @@ type Product = {
 type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number };
 type Addition = { id: number; name: string; quantity: number; price: number; unit: string; inventoryId: number; availableQuantity: number };
 type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" | "both" | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
-type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[] };
+// rewardId: a loyalty reward line (one item, free, paid with the customer's stars).
+type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; rewardId?: number; rewardName?: string; rewardCost?: number };
 type OrderStatus = "waiting" | "served" | "flushed";
 type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
 const trackedOrdersStorageKey = "brew-houze-tracked-orders";
@@ -85,6 +86,11 @@ export default function MenuPage() {
   const [accountOpen, setAccountOpen] = useState(false);
   // A password reset link from email opens the account sheet on its reset screen.
   const [resetToken, setResetToken] = useState<string | null>(null);
+  // Opened from the printed Stars sign at the counter (?claim=1).
+  const [claimStart, setClaimStart] = useState(false);
+  // The reward whose item the customer is choosing.
+  const [rewardPick, setRewardPick] = useState<LoyaltyReward | null>(null);
+  const rewardLineId = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackedOrdersHydratedRef = useRef(false);
   const pendingReadyPingRef = useRef(false);
@@ -183,6 +189,18 @@ export default function MenuPage() {
       params.delete("reset");
       window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
       setResetToken(token);
+      setAccountOpen(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("claim") !== "1") return;
+    const timer = window.setTimeout(() => {
+      params.delete("claim");
+      window.history.replaceState(null, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
+      setClaimStart(true);
       setAccountOpen(true);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -352,18 +370,38 @@ export default function MenuPage() {
       if (item.key !== key) return [item];
       const quantity = item.quantity + change;
       if (quantity <= 0) return [];
+      if (item.rewardId && change > 0) return [item];
       const variant = item.product.variants?.find((candidate) => candidate.id === item.variantId);
       if (change > 0 && variant && quantity > getCartLimit({ ingredients: variant.ingredients, additions: item.additions }, current, key)) return [item];
       return [{ ...item, quantity }];
     }));
   }
 
+  // Stars: the customer's balance, what rewards in the cart use, and adding a reward item.
+  const loyalty = customer.account?.loyalty ?? null;
+  const starsInCart = cart.reduce((total, item) => total + (item.rewardCost ?? 0), 0);
+  const starsLeft = (loyalty?.balance ?? 0) - starsInCart;
+  function addRewardItem(product: Product, variant: Variant, reward: LoyaltyReward) {
+    rewardLineId.current += 1;
+    const key = `reward-${reward.id}-${variant.id}-${rewardLineId.current}`;
+    if (!variant.available || getCartLimit({ ingredients: variant.ingredients, additions: [] }, cart, key) < 1) return;
+    setCart((current) => [...current, { key, product, variantId: variant.id, variantName: variant.size ?? "Regular", price: 0, quantity: 1, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.starsCost }]);
+    setRewardPick(null);
+  }
+
+  // "Use your stars" in the cart (also on an empty cart, for customers who only want their reward).
+  const starsSection = loyalty && loyalty.rewards.length > 0 ? <div className="cart-stars">
+    <div className="cart-stars-head"><strong>Use your stars</strong><span>★ {starsLeft} left</span></div>
+    <div className="cart-stars-list">{loyalty.rewards.map((reward) => <button key={reward.id} type="button" disabled={reward.starsCost > starsLeft} onClick={() => setRewardPick(reward)}><span>{reward.name}</span><b>★ {reward.starsCost}</b></button>)}</div>
+  </div> : null;
+
   async function submitOrder() {
     if (cart.length === 0) return;
     setPlacingOrder(true);
     setOrderError("");
-    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) }));
-    if (paymentConfig.method === "gcash") {
+    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), reward_id: item.rewardId ?? null }));
+    // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
+    if (paymentConfig.method === "gcash" && cartTotal > 0) {
       try {
         const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems }) });
         const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
@@ -380,7 +418,7 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) })) }),
+        body: JSON.stringify({ items: orderItems }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
@@ -524,12 +562,33 @@ export default function MenuPage() {
     </div>}
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
       <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
-        {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.variantName} · ₱{item.price.toFixed(2)}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
-        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" ? "Opening GCash..." : "Sending order...") : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
+        {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <><div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div>{starsSection}</> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.rewardId ? `🎁 Free · ${item.rewardName} · ★ ${item.rewardCost}` : `${item.variantName} · ₱${item.price.toFixed(2)}`}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
+        {starsSection}
+        <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal > 0 && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : cartTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}
     {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
-    {accountOpen && <AccountSheet state={customer} resetToken={resetToken} onClose={() => { setAccountOpen(false); setResetToken(null); }} onResetDone={() => setResetToken(null)} />}
+    {rewardPick && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setRewardPick(null); }}>
+      <section className="cart-modal" aria-label={`Choose the item for ${rewardPick.name}`}>
+        <div className="cart-modal-heading"><div><p className="eyebrow">REWARD · ★ {rewardPick.starsCost}</p><h2>{rewardPick.name}</h2></div><button className="modal-close inline" onClick={() => setRewardPick(null)} aria-label="Close">×</button></div>
+        <p className="modal-description" style={{ marginBottom: 12 }}>Choose the item you want for free.</p>
+        <div className="cart-items">
+          {(() => {
+            const options = products.flatMap((product) => sortVariants(product.variants ?? []).map((variant) => ({ product, variant }))).filter(({ product, variant }) => rewardMismatch(rewardPick, { productId: product.id, category: product.category, price: variant.price }) === null);
+            if (options.length === 0) return <p className="empty-state">Nothing on the menu fits this reward right now.</p>;
+            return options.map(({ product, variant }) => {
+              const unavailable = !variant.available || getCartLimit({ ingredients: variant.ingredients, additions: [] }, cart, "") < 1;
+              return <button key={variant.id} type="button" className="reward-option" disabled={unavailable} onClick={() => addRewardItem(product, variant, rewardPick)}>
+                <span><strong>{product.name}</strong><small>{variant.size || "Regular"}{variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Cold" : ""} · normally ₱{variant.price.toFixed(2)}</small></span>
+                <b>{unavailable ? "Unavailable" : "Free"}</b>
+              </button>;
+            });
+          })()}
+        </div>
+      </section>
+    </div>}
+    {/* From the Stars sign, wait until the account has loaded so a signed-in customer goes straight to their stars. */}
+    {accountOpen && !(claimStart && customer.loading) && <AccountSheet state={customer} resetToken={resetToken} startClaim={claimStart} onClose={() => { setAccountOpen(false); setResetToken(null); setClaimStart(false); }} onResetDone={() => setResetToken(null)} />}
     {paymentCheck && <div className="modal-backdrop">
       <section className="confirmation-modal payment-check" role="status" aria-live="polite">
         {paymentCheck.state === "failed" ? <>

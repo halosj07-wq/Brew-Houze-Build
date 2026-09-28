@@ -84,3 +84,19 @@
   .acct-header-button { padding: 0 8px; }
   .acct-actions { grid-template-columns: 1fr; }
 }
+
+/* The Stars sign at the counter */
+.acct-claim { display: flex; flex-direction: column; gap: 12px; }
+.acct-claim h3 { margin: 4px 0 0; font-family: 'Playfair Display', serif; font-size: 21px; }
+.acct-claim-card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 14px; color: var(--paper); background: linear-gradient(145deg, #2c1810, #4a2a18); border-radius: 18px; text-align: center; }
+.acct-claim-card.is-accepted, .acct-claim-card.is-used { background: linear-gradient(145deg, #0f5e55, #0d9488); }
+.acct-claim-card.is-cancelled, .acct-claim-card.is-expired { background: #806d62; }
+.acct-claim-name { font-family: 'Playfair Display', serif; font-size: 28px; line-height: 1.1; }
+.acct-claim-card strong { color: #fde68a; font-size: 14px; }
+.acct-claim-card em { color: #fbbf24; font-style: normal; font-weight: 800; }
+.acct-claim-rewards { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.acct-claim-rewards button { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 12px 14px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 12px; text-align: left; }
+.acct-claim-rewards button:disabled { opacity: .55; }
+.acct-claim-rewards span { display: flex; flex-direction: column; gap: 2px; }
+.acct-claim-rewards em { color: var(--muted); font-size: 11.5px; font-style: normal; }
+.acct-claim-rewards b { color: #b45309; white-space: nowrap; }

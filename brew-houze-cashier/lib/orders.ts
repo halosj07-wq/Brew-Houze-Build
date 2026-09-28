@@ -1,11 +1,12 @@
 import type { PoolClient } from "pg";
-import { awardOrderStarsSafely } from "@/lib/loyalty";
+import { awardOrderStarsSafely, checkRewardLines, recordRedemptions, type RewardLine } from "@/lib/loyalty";
 
 // Creating a sales order, shared by the cashier checkout, the mobile menu and GCash payments
 // (brew-houze-cashier and brew-houze-mobile keep identical copies of this file). Everything runs
 // on the caller's transaction: the caller BEGINs and COMMITs (or ROLLs BACK for a price check).
 
-export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[] };
+// rewardId: the line is a loyalty reward (one item, priced at 0, paid for with stars).
+export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null };
 export type OrderSource = "cashier" | "mobile";
 export type PlaceOrderInput = {
   items: OrderItemInput[];
@@ -19,11 +20,15 @@ export type PlaceOrderInput = {
   // The customer account the order belongs to (a signed-in mobile customer, or one the counter
   // attached), so their purchases and stars follow them.
   customerId?: number | null;
+  // Reward lines are only accepted when the caller has confirmed the customer (their signed-in
+  // phone on the mobile menu, an accepted claim from the Stars sign, or the cashier's password).
+  rewardsAuthorized?: boolean;
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
 // starsEarned: loyalty stars the linked customer got for this order (0 without a customer or campaign).
-export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number };
+// starsRedeemed: stars spent on reward lines in this order.
+export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
 
 // Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
 // what it draws from its source, which is the stock actually deducted at checkout.
@@ -34,13 +39,15 @@ const effectiveUnitCostSql = "CASE WHEN i.derived_from_inventory_id IS NOT NULL 
 export function parseOrderItems(value: unknown): OrderItemInput[] {
   if (!Array.isArray(value)) return [];
   return value.map((raw) => {
-    const item = raw as { product_variant_id?: unknown; quantity?: unknown; addition_ids?: unknown };
+    const item = raw as { product_variant_id?: unknown; quantity?: unknown; addition_ids?: unknown; reward_id?: unknown };
+    const rewardId = Number(item.reward_id);
     return {
       productVariantId: Number(item.product_variant_id),
       quantity: Number(item.quantity),
       additionIds: Array.isArray(item.addition_ids) ? item.addition_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0) : [],
+      rewardId: Number.isInteger(rewardId) && rewardId > 0 ? rewardId : null,
     };
-  }).filter((item) => Number.isInteger(item.productVariantId) && item.productVariantId > 0 && Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= 500);
+  }).filter((item) => Number.isInteger(item.productVariantId) && item.productVariantId > 0 && Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= 500 && (!item.rewardId || item.quantity === 1));
 }
 
 // Redirects any bound (derived) inventory item's deduction onto its source item, scaled by
@@ -70,17 +77,18 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const quantities = new Map<number, number>();
   // Lines with the same variant and the same add-on counts are merged into one sales line.
-  const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number> }>();
+  const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number>; rewardId: number | null }>();
   for (const item of input.items) {
     quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
     const additionCounts = new Map<number, number>();
     for (const additionId of item.additionIds) additionCounts.set(additionId, (additionCounts.get(additionId) ?? 0) + 1);
     const additionIds = Array.from(additionCounts.keys()).sort((a, b) => a - b);
-    const groupKey = `${item.productVariantId}:${additionIds.map((id) => `${id}x${additionCounts.get(id)}`).join(",")}`;
+    // A reward is always its own line (one item each), never merged with paid items.
+    const groupKey = item.rewardId ? `reward:${groupedItems.size}` : `${item.productVariantId}:${additionIds.map((id) => `${id}x${additionCounts.get(id)}`).join(",")}`;
     const current = groupedItems.get(groupKey);
     groupedItems.set(groupKey, current
       ? { ...current, quantity: current.quantity + item.quantity }
-      : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts });
+      : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts, rewardId: item.rewardId ?? null });
   }
 
   // Sales belong to the open shift. The share lock keeps the shift from being closed while
@@ -93,7 +101,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const variantIds = Array.from(quantities.keys());
   const variants = await client.query(`
-    SELECT pv.product_variant_id, pv.product_id, pv.price, p.product_name, p.product_type
+    SELECT pv.product_variant_id, pv.product_id, pv.price, p.product_name, p.product_type, p.product_category
     FROM product_variants pv
     JOIN products p ON p.product_id = pv.product_id
     WHERE pv.product_variant_id = ANY($1::int[])
@@ -102,6 +110,19 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     FOR UPDATE OF pv
   `, [variantIds]);
   if (variants.rowCount !== variantIds.length) throw new Error("One or more selected products are no longer available.");
+
+  // Loyalty rewards: checked (and the customer's stars locked) before anything is deducted.
+  const variantById = new Map(variants.rows.map((variant) => [Number(variant.product_variant_id), variant]));
+  const rewardLines: RewardLine[] = Array.from(groupedItems.values()).filter((group) => group.rewardId !== null).map((group) => {
+    const variant = variantById.get(group.productVariantId);
+    return { rewardId: Number(group.rewardId), productId: Number(variant?.product_id), category: (variant?.product_category as string | null) ?? null, price: Number(variant?.price ?? 0), name: String(variant?.product_name ?? "item") };
+  });
+  let rewardCheck: Awaited<ReturnType<typeof checkRewardLines>> | null = null;
+  if (rewardLines.length > 0) {
+    if (!input.customerId) throw new Error("Attach the customer before using a reward.");
+    if (!input.rewardsAuthorized) throw new Error("The customer has to confirm the reward first (scan the Stars sign, or the cashier confirms with their password).");
+    rewardCheck = await checkRewardLines(client, input.customerId, rewardLines);
+  }
 
   // Cost snapshot per variant: NULL when any component has no cost entered yet.
   const variantCostResult = await client.query(`
@@ -168,7 +189,8 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-shift-' || $1::text))", [shiftId]);
   const queueResult = await client.query("SELECT COALESCE(MAX(queue_number), 0) + 1 AS queue_number FROM sales_orders WHERE shift_id = $1", [shiftId]);
   const queueNumber = Number(queueResult.rows[0].queue_number);
-  const total = Math.round((variants.rows.reduce((sum: number, variant: { product_variant_id: number; price: number }) => sum + Number(variant.price) * (quantities.get(Number(variant.product_variant_id)) ?? 0), 0) + additionTotal) * 100) / 100;
+  // Reward lines cost nothing (their add-ons are still charged).
+  const total = Math.round((Array.from(groupedItems.values()).reduce((sum, group) => sum + (group.rewardId ? 0 : Number(variantById.get(group.productVariantId)?.price ?? 0)) * group.quantity, 0) + additionTotal) * 100) / 100;
 
   let receivedAmount = total;
   let changeAmount = 0;
@@ -204,10 +226,10 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   for (const variant of variants.rows) {
     for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
       const itemResult = await client.query(`
-        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost, reward_id, reward_value)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING order_item_id
-      `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null]);
+      `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, group.rewardId ? 0 : variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null, group.rewardId, group.rewardId ? variant.price : null]);
       for (const additionId of group.additionIds) {
         await client.query(`
           INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity, unit_price, unit_cost)
@@ -221,8 +243,9 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     }
   }
 
+  const starsRedeemed = rewardCheck && input.customerId ? await recordRedemptions(client, orderId, input.customerId, rewardCheck.campaignId, rewardCheck.rewards, rewardLines) : 0;
   const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
-  return { orderId, queueNumber, shiftId, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned };
+  return { orderId, queueNumber, shiftId, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
 }
 
 // The exact total the order would have right now (prices, stock and the open shift all

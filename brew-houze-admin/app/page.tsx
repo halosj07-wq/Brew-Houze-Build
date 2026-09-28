@@ -6822,7 +6822,7 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
         </section>
 
         <section className="acc-block">
-          <header className="acc-block-head"><div><h3>Rewards</h3><p>What stars can buy. Claiming rewards at the counter and on the mobile menu comes in the next update.</p></div>
+          <header className="acc-block-head"><div><h3>Rewards</h3><p>What stars can buy: one item each, free. Customers claim them in their mobile menu cart, or at the counter by scanning the Stars sign (regulars without the app: the cashier confirms with their password).</p></div>
             <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: [...current.rewards, { key: nextRewardKey(), id: null, name: "", starsCost: "", productId: "", category: "", maxPrice: "" }] }))}><IconPlus size={13} />Add reward</button></header>
           {draft.rewards.length === 0 ? <p className="inv-hint">No rewards yet. Customers can still collect stars.</p> : <div className="flex flex-col gap-3">
             {draft.rewards.map((reward) => <div key={reward.key} className="loy-reward-row">

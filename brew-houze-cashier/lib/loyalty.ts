@@ -56,7 +56,7 @@ async function starsForOrder(client: PoolClient, orderId: number, campaign: Runn
     SELECT soi.quantity, COALESCE(p.product_category, '') AS category,
       soi.unit_price * soi.quantity + COALESCE((SELECT SUM(a.unit_price * a.quantity) FROM sales_order_item_additions a WHERE a.order_item_id = soi.order_item_id), 0) AS amount
     FROM sales_order_items soi JOIN products p ON p.product_id = soi.product_id
-    WHERE soi.order_id = $1
+    WHERE soi.order_id = $1 AND soi.reward_id IS NULL
   `, [orderId]);
   const counted = lines.rows.filter((line) => !campaign.categories || campaign.categories.includes(String(line.category)));
   const units = campaign.earnMode === "per_amount"
@@ -103,7 +103,8 @@ export async function awardOrderStarsSafely(client: PoolClient, orderId: number,
   }
 }
 
-// A voided or refunded order gives back the stars it earned (in the campaign it earned them in).
+// A voided or refunded order gives back the stars it earned (in the campaign it earned them in),
+// and returns the stars spent on rewards in it.
 export async function reverseOrderStarsSafely(client: PoolClient, orderId: number, adminId: number | null): Promise<number> {
   await client.query("SAVEPOINT loyalty_reverse");
   try {
@@ -114,6 +115,13 @@ export async function reverseOrderStarsSafely(client: PoolClient, orderId: numbe
       ON CONFLICT DO NOTHING
       RETURNING stars
     `, [orderId, adminId]);
+    await client.query(`
+      INSERT INTO loyalty_star_entries (customer_id, campaign_id, kind, stars, order_id, reward_id, admin_id, reason)
+      SELECT customer_id, campaign_id, 'restored', -stars, order_id, reward_id, $2, 'Reward order voided or refunded'
+      FROM loyalty_star_entries redeemed
+      WHERE redeemed.order_id = $1 AND redeemed.kind = 'redeemed'
+        AND NOT EXISTS (SELECT 1 FROM loyalty_star_entries restored WHERE restored.order_id = $1 AND restored.kind = 'restored')
+    `, [orderId, adminId]);
     await client.query("RELEASE SAVEPOINT loyalty_reverse");
     return result.rowCount ? -Number(result.rows[0].stars) : 0;
   } catch (error) {
@@ -123,20 +131,73 @@ export async function reverseOrderStarsSafely(client: PoolClient, orderId: numbe
   }
 }
 
+export type LoyaltyRewardRule = { id: number; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null };
 export type CustomerLoyalty = {
   campaign: Omit<RunningCampaign, "carryOver"> & { carryOver: boolean };
   balance: number;
-  rewards: { id: number; name: string; starsCost: number }[];
+  rewards: LoyaltyRewardRule[];
 };
+
+export async function runningRewards(campaignId: number, db: Db = pool): Promise<LoyaltyRewardRule[]> {
+  const result = await db.query("SELECT reward_id, name, stars_cost, product_id, category, max_price FROM loyalty_rewards WHERE campaign_id = $1 AND is_active ORDER BY stars_cost, sort_order, reward_id", [campaignId]);
+  return result.rows.map((row) => ({
+    id: Number(row.reward_id), name: String(row.name), starsCost: Number(row.stars_cost),
+    productId: row.product_id === null ? null : Number(row.product_id), category: (row.category as string | null) ?? null, maxPrice: row.max_price === null ? null : Number(row.max_price),
+  }));
+}
+
+// Why an item cannot be taken as a reward, or null when it can.
+export function rewardMismatch(reward: LoyaltyRewardRule, item: { productId: number; category: string | null; price: number; name: string }): string | null {
+  if (reward.productId !== null && reward.productId !== item.productId) return `"${reward.name}" is for a different product than ${item.name}.`;
+  if (reward.productId === null && reward.category && reward.category !== (item.category ?? "")) return `"${reward.name}" is only for ${reward.category} items.`;
+  if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `"${reward.name}" covers items up to ₱${reward.maxPrice.toFixed(2)}. ${item.name} costs ₱${item.price.toFixed(2)}.`;
+  return null;
+}
+
+export type RewardLine = { rewardId: number; productId: number; category: string | null; price: number; name: string };
+
+// Checks the reward lines of an order: a campaign is running, each reward belongs to it and
+// covers its item, and the customer has enough stars. The customer row is locked until the
+// order's transaction ends, so the same stars cannot be spent twice at the same time.
+export async function checkRewardLines(client: PoolClient, customerId: number, lines: RewardLine[]): Promise<{ campaignId: number; rewards: Map<number, LoyaltyRewardRule> }> {
+  const campaign = await runningCampaign(client);
+  if (!campaign) throw new Error("No loyalty campaign is running, so rewards cannot be claimed right now.");
+  const locked = await client.query("SELECT full_name FROM customers WHERE customer_id = $1 AND is_active = TRUE AND deleted_at IS NULL FOR UPDATE", [customerId]);
+  if (locked.rowCount === 0) throw new Error("That customer can no longer use rewards.");
+  const rewards = new Map((await runningRewards(campaign.id, client)).map((reward) => [reward.id, reward]));
+  let cost = 0;
+  for (const line of lines) {
+    const reward = rewards.get(line.rewardId);
+    if (!reward) throw new Error("That reward is no longer available.");
+    const mismatch = rewardMismatch(reward, line);
+    if (mismatch) throw new Error(mismatch);
+    cost += reward.starsCost;
+  }
+  const balance = await starBalance(customerId, campaign.id, client);
+  if (balance < cost) throw new Error(`Not enough stars: ${String(locked.rows[0].full_name).split(" ")[0]} has ${balance} and the rewards need ${cost}.`);
+  return { campaignId: campaign.id, rewards };
+}
+
+// Records the stars spent on the reward lines of a placed order. Returns how many.
+export async function recordRedemptions(client: PoolClient, orderId: number, customerId: number, campaignId: number, rewards: Map<number, LoyaltyRewardRule>, lines: RewardLine[]): Promise<number> {
+  let spent = 0;
+  for (const line of lines) {
+    const reward = rewards.get(line.rewardId);
+    if (!reward) continue;
+    await client.query(`
+      INSERT INTO loyalty_star_entries (customer_id, campaign_id, kind, stars, order_id, reward_id, reason)
+      VALUES ($1, $2, 'redeemed', $3, $4, $5, $6)
+    `, [customerId, campaignId, -reward.starsCost, orderId, reward.id, `${reward.name}: ${line.name}`]);
+    spent += reward.starsCost;
+  }
+  return spent;
+}
 
 // What a customer sees: the running campaign, their stars in it, and the rewards. Null when no
 // campaign is running.
 export async function customerLoyalty(customerId: number, db: Db = pool): Promise<CustomerLoyalty | null> {
   const campaign = await runningCampaign(db);
   if (!campaign) return null;
-  const [balance, rewards] = await Promise.all([
-    starBalance(customerId, campaign.id, db),
-    db.query("SELECT reward_id, name, stars_cost FROM loyalty_rewards WHERE campaign_id = $1 AND is_active ORDER BY stars_cost, sort_order, reward_id", [campaign.id]),
-  ]);
-  return { campaign, balance, rewards: rewards.rows.map((row) => ({ id: Number(row.reward_id), name: String(row.name), starsCost: Number(row.stars_cost) })) };
+  const [balance, rewards] = await Promise.all([starBalance(customerId, campaign.id, db), runningRewards(campaign.id, db)]);
+  return { campaign, balance, rewards };
 }

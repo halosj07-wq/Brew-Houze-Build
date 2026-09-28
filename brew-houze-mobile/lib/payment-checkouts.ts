@@ -73,11 +73,11 @@ async function loadByToken(token: string): Promise<CheckoutRow | null> {
 
 // Prices the cart (stock, prices and the open shift all checked), opens a PayMongo GCash
 // payment for exactly that amount, and returns where to send the customer.
-export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
+export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; rewardsAuthorized?: boolean; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
   const client = await pool.connect();
   let total: number;
   try {
-    total = await quoteOrder(client, { items: input.items, source: input.source, cashierAdminId: input.cashierAdminId });
+    total = await quoteOrder(client, { items: input.items, source: input.source, cashierAdminId: input.cashierAdminId, customerId: input.customerId ?? null, rewardsAuthorized: input.rewardsAuthorized });
   } finally {
     client.release();
   }
@@ -164,6 +164,8 @@ async function finalizePaid(checkoutId: number, paymentId: string | null): Promi
         receivedAmount: row.received_amount === null || row.received_amount === undefined ? cashAmount : Number(row.received_amount),
         customerToken: row.source_app === "mobile" ? row.public_token : null,
         customerId: row.customer_id === null || row.customer_id === undefined ? null : Number(row.customer_id),
+        // Rewards in the cart were confirmed when the payment started.
+        rewardsAuthorized: true,
         paymentReference: paymentId,
         paymentProvider: "paymongo_gcash",
       });

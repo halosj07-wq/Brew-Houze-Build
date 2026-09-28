@@ -171,3 +171,16 @@ button { cursor: pointer; }
 .add-order-button.secondary { background: #F3EDE5; color: #6B4C3B; box-shadow: none; }
 @keyframes payment-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .payment-check-spinner { animation-duration: 3s; } }
+/* Rewards in the cart */
+.cart-stars { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding: 12px; background: #fff8ee; border: 1px dashed #e5ae6d; border-radius: 14px; }
+.cart-stars-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.cart-stars-head span { color: #b45309; font-weight: 800; }
+.cart-stars-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.cart-stars-list button { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; color: var(--ink); background: #fff; border: 1px solid #f0c58e; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.cart-stars-list button b { color: #b45309; }
+.cart-stars-list button:disabled { opacity: .45; cursor: not-allowed; }
+.reward-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 0; color: var(--ink); background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.reward-option span { display: flex; flex-direction: column; gap: 3px; }
+.reward-option small { color: var(--muted); font-size: 11px; }
+.reward-option b { color: var(--teal); font-size: 13px; }
+.reward-option:disabled { opacity: .45; cursor: not-allowed; }

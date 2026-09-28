@@ -17,7 +17,9 @@ export async function POST(request: Request) {
     const origin = process.env.APP_URL?.replace(/\/$/, "") || new URL(request.url).origin;
     // Signed-in customers get the order saved to their account once the payment goes through.
     const customer = await getCustomerSession();
-    const started = await startCheckout({ source: "mobile", items, cashierAdminId: null, customerId: customer?.customerId ?? null, returnUrl: (token) => `${origin}/?payment=${token}` });
+    if (items.some((item) => item.rewardId) && !customer) return NextResponse.json({ error: "Sign in to use your rewards." }, { status: 401 });
+    // Rewards are the customer's own stars (their signed-in account); they are spent once paid.
+    const started = await startCheckout({ source: "mobile", items, cashierAdminId: null, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), returnUrl: (token) => `${origin}/?payment=${token}` });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
     console.error("POST /api/payments (mobile) failed:", error);

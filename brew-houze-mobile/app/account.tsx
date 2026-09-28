@@ -13,11 +13,23 @@ import "./account.css";
 
 export type CustomerOrder = { id: number; queueNumber: number | null; status: string; total: number; source: "mobile" | "counter"; createdAt: string; items: string };
 export type LoyaltyCampaign = { id: number; name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount"; starsPerUnit: number; amountStep: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null };
-export type CustomerLoyalty = { campaign: LoyaltyCampaign; balance: number; rewards: { id: number; name: string; starsCost: number }[]; history: { kind: string; stars: number; createdAt: string; orderQueue: number | null }[] };
+// A reward covers one item: a specific product, or any item (from a category), up to a price.
+export type LoyaltyReward = { id: number; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null };
+export type CustomerLoyalty = { campaign: LoyaltyCampaign; balance: number; rewards: LoyaltyReward[]; history: { kind: string; stars: number; createdAt: string; orderQueue: number | null }[] };
+// A claim from the printed Stars sign at the counter (see /api/claims).
+export type StarsClaim = { id: number; rewardId: number | null; rewardName: string | null; starsCost: number | null; status: "pending" | "accepted" | "used" | "cancelled" | "expired"; expiresAt: string; queueNumber: number | null };
+
+// Why a menu item cannot be taken as this reward, or null when it can (the server checks too).
+export function rewardMismatch(reward: LoyaltyReward, item: { productId: number; category: string; price: number }): string | null {
+  if (reward.productId !== null && reward.productId !== item.productId) return "different product";
+  if (reward.productId === null && reward.category && reward.category !== item.category) return `only ${reward.category}`;
+  if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `up to ₱${reward.maxPrice.toFixed(2)}`;
+  return null;
+}
 export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[]; loyalty?: CustomerLoyalty | null };
 
-// Claiming rewards arrives with the next update; until then the rewards card says it opens soon.
-const REWARDS_CLAIMABLE = false;
+// Rewards can be claimed in the cart (mobile orders) and with the Stars sign (counter orders).
+const REWARDS_CLAIMABLE = true;
 type Result = { ok: true } | { ok: false; error: string; field?: string };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result & { data?: unknown }> {
@@ -74,6 +86,13 @@ export function useCustomerAccount() {
       return result.ok ? (result.data as { valid: boolean; username?: string }) : { valid: false };
     },
     resetPassword: async (token: string, password: string) => send("/api/account/reset-password", "POST", { token, password }),
+    // The Stars sign at the counter.
+    claim: async (rewardId: number | null) => send("/api/claims", "POST", { rewardId }),
+    claimStatus: async (): Promise<StarsClaim | null> => {
+      const result = await send("/api/claims", "GET");
+      return result.ok ? (result.data as StarsClaim | null) : null;
+    },
+    cancelClaim: async () => send("/api/claims", "DELETE"),
   };
 }
 export type CustomerAccountState = ReturnType<typeof useCustomerAccount>;
@@ -103,7 +122,7 @@ export function CartAccountNote({ state, onOpen }: { state: CustomerAccountState
     : <p className="acct-cart-note">Have an account? <button type="button" onClick={onOpen}>Sign in</button> to save this order to it. You can also order as a guest.</p>;
 }
 
-type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete";
+type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete" | "claim";
 
 function pluralStars(count: number): string {
   return `${count} star${Math.abs(count) === 1 ? "" : "s"}`;
@@ -138,7 +157,7 @@ function RewardsCard({ loyalty }: { loyalty: CustomerLoyalty }) {
     {rewards.length > 0 && <ul className="acct-rewards-list">
       {rewards.map((reward) => <li key={reward.id} className={reward.starsCost <= balance ? "is-ready" : ""}><span>{reward.starsCost <= balance ? "✓ " : ""}{reward.name}</span><strong>★ {reward.starsCost}</strong></li>)}
     </ul>}
-    {affordable.length > 0 && <p className="acct-rewards-claim">{REWARDS_CLAIMABLE ? "Tell the cashier you want to use your stars." : "Claiming rewards opens soon. Your stars are saved."}</p>}
+    {affordable.length > 0 && <p className="acct-rewards-claim">{REWARDS_CLAIMABLE ? "Use them in your cart when you order here, or scan the Stars sign at the counter." : "Claiming rewards opens soon. Your stars are saved."}</p>}
     <p className="acct-rewards-rule">{earnRuleText(campaign)} Counter orders count too: show your QR code to the cashier.</p>
     {loyalty.history.length > 0 && <details className="acct-rewards-history">
       <summary>Star history</summary>
@@ -188,9 +207,87 @@ function formatDate(value: string): string {
   return Number.isNaN(date.getTime()) ? "" : date.toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
-export function AccountSheet({ state, resetToken, onClose, onResetDone }: { state: CustomerAccountState; resetToken: string | null; onClose: () => void; onResetDone: () => void }) {
+const CLAIM_STATUS_TEXT: Record<StarsClaim["status"], { title: string; text: string }> = {
+  pending: { title: "Waiting for the cashier", text: "Tell the cashier your name. They will see you on their screen and add you to your order." },
+  accepted: { title: "The cashier added you ✓", text: "You are on this order. Your stars update once it is placed." },
+  used: { title: "All done ✓", text: "Your order is in. Enjoy!" },
+  cancelled: { title: "This claim was closed", text: "The cashier declined it or it was replaced. Scan the Stars sign again if you still need it." },
+  expired: { title: "This claim expired", text: "Claims last 10 minutes. Scan the Stars sign again when you are at the counter." },
+};
+
+// After scanning the Stars sign: pick a reward (or just be added to the order), then wait for
+// the cashier. The status updates by itself.
+function ClaimScreen({ state, fullName }: { state: CustomerAccountState; fullName: string }) {
+  const loyalty = state.account?.loyalty ?? null;
+  const [claim, setClaim] = useState<StarsClaim | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const { claimStatus, refresh } = state;
+  const open = claim !== null && (claim.status === "pending" || claim.status === "accepted");
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const check = async () => {
+      if (document.visibilityState !== "visible") return;
+      const latest = await claimStatus();
+      if (!active || !latest) return;
+      setClaim(latest);
+      if (latest.status === "used") void refresh();
+    };
+    const timer = window.setInterval(() => void check(), 3000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [open, claimStatus, refresh]);
+
+  async function start(rewardId: number | null) {
+    setBusy(true);
+    setError("");
+    const result = await state.claim(rewardId);
+    setBusy(false);
+    if (result.ok) setClaim(result.data as StarsClaim);
+    else setError(result.error);
+  }
+
+  if (claim) {
+    const info = CLAIM_STATUS_TEXT[claim.status];
+    return <div className="acct-claim">
+      <div className={`acct-claim-card is-${claim.status}`}>
+        <span className="acct-claim-name">{fullName}</span>
+        <strong>{claim.rewardName ? `🎁 ${claim.rewardName}` : "Add me to this order"}</strong>
+        {claim.starsCost ? <em>★ {claim.starsCost}</em> : null}
+      </div>
+      <h3>{info.title}</h3>
+      <p className="acct-intro">{info.text}{claim.status === "used" && claim.queueNumber ? ` Your queue number is #${claim.queueNumber}.` : ""}</p>
+      {open && <div className="payment-check-spinner" aria-hidden="true" style={{ alignSelf: "center" }} />}
+      {open
+        ? <button type="button" className="add-order-button secondary" disabled={busy} onClick={() => void state.cancelClaim().then(() => setClaim(null))}>Cancel <span>×</span></button>
+        : <button type="button" className="add-order-button" onClick={() => setClaim(null)}>Start again <span>→</span></button>}
+    </div>;
+  }
+
+  return <div className="acct-claim">
+    <p className="acct-intro">You are at the Brew Houze counter. Choose what to do, then tell the cashier your name.</p>
+    {error && <p className="error-message" role="alert">{error}</p>}
+    <button type="button" className="add-order-button" disabled={busy} onClick={() => void start(null)}>Add me to my order <span>earn stars →</span></button>
+    {loyalty && loyalty.rewards.length > 0 && <>
+      <h3 className="acct-section-title">Use your stars · ★ {loyalty.balance}</h3>
+      <ul className="acct-claim-rewards">
+        {loyalty.rewards.map((reward) => {
+          const affordable = reward.starsCost <= loyalty.balance;
+          return <li key={reward.id}><button type="button" disabled={busy || !affordable} onClick={() => void start(reward.id)}>
+            <span><strong>{reward.name}</strong><em>{affordable ? "Tap to use" : `${reward.starsCost - loyalty.balance} more stars needed`}</em></span>
+            <b>★ {reward.starsCost}</b>
+          </button></li>;
+        })}
+      </ul>
+    </>}
+    {!loyalty && <p className="acct-intro">No rewards campaign is running right now, but the cashier can still add you to your order.</p>}
+  </div>;
+}
+
+export function AccountSheet({ state, resetToken, startClaim = false, onClose, onResetDone }: { state: CustomerAccountState; resetToken: string | null; startClaim?: boolean; onClose: () => void; onResetDone: () => void }) {
   const signedIn = Boolean(state.account);
-  const [view, setView] = useState<View>(resetToken ? "reset" : signedIn ? "home" : "signin");
+  const [view, setView] = useState<View>(resetToken ? "reset" : startClaim ? (signedIn ? "claim" : "signin") : signedIn ? "home" : "signin");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -240,6 +337,7 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
     edit: ["YOUR ACCOUNT", "Edit details"],
     password: ["YOUR ACCOUNT", "Change password"],
     delete: ["YOUR ACCOUNT", "Delete account"],
+    claim: ["STARS AT THE COUNTER", "Use your stars"],
   };
 
   return <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -251,7 +349,7 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
       {error && <p className="error-message" role="alert">{error}</p>}
       {notice && <p className="acct-notice" role="status">{notice}</p>}
 
-      {view === "signin" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.signIn(login, password), () => { setPassword(""); onClose(); }); }}>
+      {view === "signin" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.signIn(login, password), () => { setPassword(""); if (startClaim) setView("claim"); else onClose(); }); }}>
         <p className="acct-intro">Sign in to keep your orders in one place. Café rewards will show up here too.</p>
         <Field label="Username or email"><input value={login} onChange={(event) => setLogin(event.target.value)} autoComplete="username" autoCapitalize="none" autoFocus /></Field>
         <Field label="Password"><PasswordInput value={password} onChange={setPassword} autoComplete="current-password" /></Field>
@@ -263,7 +361,7 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
       {view === "register" && <form className="acct-form" onSubmit={(event) => {
         event.preventDefault();
         if (password !== password2) { setError("The two passwords do not match."); return; }
-        void run(() => state.register({ ...signup, password }), () => { setPassword(""); setPassword2(""); setView("home"); setNotice("Welcome to Brew Houze! Your account is ready."); });
+        void run(() => state.register({ ...signup, password }), () => { setPassword(""); setPassword2(""); setView(startClaim ? "claim" : "home"); setNotice("Welcome to Brew Houze! Your account is ready."); });
       }}>
         <Field label="Full name"><input value={signup.fullName} onChange={(event) => setSignup((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} autoFocus /></Field>
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
@@ -333,6 +431,9 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
         </div>
         <button type="button" className="acct-danger-link" onClick={() => go("delete")}>Delete my account</button>
       </div>}
+
+      {view === "claim" && state.account && <ClaimScreen state={state} fullName={state.account.fullName} />}
+      {view === "signin" && startClaim && <p className="acct-intro" style={{ marginTop: 12 }}>Sign in (or make an account) to use your stars at the counter.</p>}
 
       {view === "edit" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.updateProfile(profile), () => { go("home"); setNotice("Details saved."); }); }}>
         <Field label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} /></Field>

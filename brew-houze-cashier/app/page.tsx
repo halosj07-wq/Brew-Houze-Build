@@ -544,8 +544,9 @@ type ReceiptData = {
   paymentMethod: string; paymentProvider: string | null; paymentReference: string | null; cashPortion: number | null;
   received: number | null; change: number | null; orderSource: string; returnMethod: string | null;
   createdAt: string; reversedAt: string | null; cashierName: string | null; customerName?: string | null;
-  loyalty?: { starsEarned: number; balance: number; campaignName: string } | null;
-  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] }[];
+  loyalty?: { starsEarned: number; starsUsed?: number; balance: number; campaignName: string } | null;
+  // rewardName: the line was a loyalty reward (free, paid with stars).
+  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
 
 const ReceiptContext = createContext<{ settings: ReceiptSettings; setSettings: (settings: ReceiptSettings) => void; printReceipt: (orderId: number, options?: { reprint?: boolean }) => Promise<string | null> }>({
@@ -621,7 +622,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   rule();
   for (const item of receipt.items) {
     row(`${item.quantity} x ${item.name}`, money(item.quantity * item.unitPrice));
-    const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${money(item.unitPrice)}` : ""].filter(Boolean).join(" - ");
+    const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${money(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" - ");
     if (details) row(details, "", { size: base * 0.9, indent: 3 });
     for (const addition of item.additions) row(`+ ${addition.name}${addition.quantity !== 1 ? ` x${addition.quantity}` : ""}`, money(addition.quantity * addition.unitPrice), { size: base * 0.9, indent: 3 });
     y += 0.8;
@@ -643,7 +644,8 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   if (isGcash && receipt.paymentReference) row(`Payment ref ${receipt.paymentReference}`, "", { size: base * 0.85 });
   if (receipt.loyalty) {
     rule();
-    row("Stars earned", `+${receipt.loyalty.starsEarned}`);
+    if (receipt.loyalty.starsUsed) row("Stars used", `-${receipt.loyalty.starsUsed}`);
+    if (receipt.loyalty.starsEarned) row("Stars earned", `+${receipt.loyalty.starsEarned}`);
     row("Your stars", String(receipt.loyalty.balance));
     text(receipt.loyalty.campaignName, base * 0.85);
   }
@@ -696,7 +698,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     {receipt.customerName && row("Customer", receipt.customerName)}
     <div className="receipt-rule" />
     {receipt.items.map((item, index) => {
-      const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : ""].filter(Boolean).join(" · ");
+      const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" · ");
       return <div key={index} className="receipt-item">
         {row(`${item.quantity} × ${item.name}`, receiptMoney(item.quantity * item.unitPrice))}
         {details && <div className="receipt-detail">{details}</div>}
@@ -718,7 +720,8 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     {isGcash && receipt.paymentReference && <div className="receipt-small">Payment ref {receipt.paymentReference}</div>}
     {receipt.loyalty && <>
       <div className="receipt-rule" />
-      {row("Stars earned", `+${receipt.loyalty.starsEarned}`)}
+      {Boolean(receipt.loyalty.starsUsed) && row("Stars used", `-${receipt.loyalty.starsUsed}`)}
+      {Boolean(receipt.loyalty.starsEarned) && row("Stars earned", `+${receipt.loyalty.starsEarned}`)}
       {row("Your stars", String(receipt.loyalty.balance))}
       <div className="receipt-center receipt-small">{receipt.loyalty.campaignName}</div>
     </>}
@@ -1178,8 +1181,40 @@ function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: Attached
   </Modal>;
 }
 
+// Loyalty at the counter. Customers with the app scan the printed Stars sign and pick a reward
+// on their phone; their claim waits here until the cashier accepts it into the order. Regulars
+// without the app redeem with the cashier confirming their own password.
+type LoyaltyRewardRule = { id: number; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null };
+type CounterClaim = { id: number; rewardId: number | null; customerId: number; fullName: string; username: string | null; notes: string; stars: number; createdAt: string };
+type CounterLoyalty = { campaign: { id: number; name: string } | null; rewards: LoyaltyRewardRule[]; claims: CounterClaim[] };
+const CLAIMS_REFRESH_MS = 5000;
+
+// Why an item cannot be taken as this reward (the server checks the same rules).
+function rewardMismatch(reward: LoyaltyRewardRule, item: { productId: number; category: string | null; price: number }): string | null {
+  if (reward.productId !== null && reward.productId !== item.productId) return "different product";
+  if (reward.productId === null && reward.category && reward.category !== (item.category ?? "")) return `only ${reward.category}`;
+  if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `over ₱${reward.maxPrice.toFixed(2)}`;
+  return null;
+}
+
+function WaitingClaims({ claims, rewards, busyId, onAccept, onDecline }: { claims: CounterClaim[]; rewards: LoyaltyRewardRule[]; busyId: number | null; onAccept: (claim: CounterClaim) => void; onDecline: (claim: CounterClaim) => void }) {
+  if (claims.length === 0) return null;
+  return <div className="pos-claims" role="region" aria-label="Customers waiting from the Stars sign">
+    <p className="pos-claims-title">★ Waiting at the counter</p>
+    {claims.map((claim) => {
+      const reward = rewards.find((item) => item.id === claim.rewardId) ?? null;
+      return <div key={claim.id} className="pos-claim">
+        <span className="pos-customer-avatar">{customerInitials(claim.fullName)}</span>
+        <span className="pos-customer-result-text"><strong>{claim.fullName}</strong><em>{reward ? `wants ${reward.name} (★ ${reward.starsCost})` : "add me to this order"} · has ★ {claim.stars}</em></span>
+        <button type="button" className="pos-claim-accept" disabled={busyId !== null} onClick={() => onAccept(claim)}>{busyId === claim.id ? "…" : "Add"}</button>
+        <button type="button" className="pos-claim-decline" disabled={busyId !== null} onClick={() => onDecline(claim)} aria-label={`Decline ${claim.fullName}`} title="Decline">×</button>
+      </div>;
+    })}
+  </div>;
+}
+
 // The customer line in the cart: a button to attach one, or who it is with the café's notes.
-function CartCustomerSlot({ customer, onAdd, onRemove }: { customer: AttachedCustomer | null; onAdd: () => void; onRemove: () => void }) {
+function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }: { customer: AttachedCustomer | null; onAdd: () => void; onRemove: () => void; onUseReward?: () => void; rewardNote?: string }) {
   if (!customer) return <button type="button" className="pos-customer-add" onClick={onAdd}>+ Add customer <span>for their purchases and notes</span></button>;
   return <div className="pos-customer-slot">
     <div className="pos-customer-slot-top">
@@ -1189,10 +1224,12 @@ function CartCustomerSlot({ customer, onAdd, onRemove }: { customer: AttachedCus
       <button type="button" onClick={onRemove} aria-label={`Remove ${customer.fullName} from this order`} title="Remove customer">×</button>
     </div>
     {customer.notes && <p className="pos-customer-note">📝 {customer.notes}</p>}
+    {onUseReward && <button type="button" className="pos-reward-button" onClick={onUseReward}>🎁 Use a reward</button>}
+    {rewardNote && <p className="pos-reward-note">{rewardNote}</p>}
   </div>;
 }
 
-function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
+function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
@@ -1200,7 +1237,8 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   type ProductsResponse = { data?: Product[]; additions?: Addition[] };
   // "count" is how many of this add-on go on EACH cup of the line (Double Shot x2 per cup).
   type CartAddition = Addition & { count: number };
-  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[] };
+  // rewardId: a loyalty reward line (one item, free, paid with stars; its add-ons are still charged).
+  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number };
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -1240,6 +1278,32 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   // The customer attached to this order (optional).
   const [customer, setCustomer] = useState<AttachedCustomer | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  // Loyalty: the running campaign's rewards and the claims from the Stars sign (refreshed while
+  // the POS is open), the accepted claim of this order, and the reward being given.
+  const [loyalty, setLoyalty] = useState<CounterLoyalty>({ campaign: null, rewards: [], claims: [] });
+  const [claimId, setClaimId] = useState<number | null>(null);
+  const [claimBusyId, setClaimBusyId] = useState<number | null>(null);
+  const [rewardChoiceOpen, setRewardChoiceOpen] = useState(false);
+  const [rewardForItem, setRewardForItem] = useState<LoyaltyRewardRule | null>(null);
+  const [rewardPasswordOpen, setRewardPasswordOpen] = useState(false);
+  const [rewardPassword, setRewardPassword] = useState("");
+  const [rewardPasswordInvalid, setRewardPasswordInvalid] = useState(false);
+
+  const refreshLoyalty = useCallback(async () => {
+    try {
+      const response = await fetch("/api/claims", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json() as { data?: CounterLoyalty };
+      if (payload.data) setLoyalty(payload.data);
+    } catch {
+      // Offline for a moment: the next refresh catches up.
+    }
+  }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void refreshLoyalty(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshLoyalty(); }, CLAIMS_REFRESH_MS);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [refreshLoyalty]);
 
   useEffect(() => {
     let active = true;
@@ -1400,6 +1464,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     setCart((prev) => {
       const item = prev.find((entry) => entry.key === key);
       if (!item) return prev;
+      if (item.rewardId && delta > 0) return prev;
       const limit = getLineLimit(item, prev, key);
       const nextQuantity = Math.min(limit, Math.max(0, item.qty + delta));
       return prev.flatMap((entry) => {
@@ -1414,12 +1479,67 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   }
 
   function getLineLabel(item: CartItem): string {
-    return `${item.name}${item.size ? ` — ${item.size}` : ""}${item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}`;
+    return `${item.rewardId ? "🎁 " : ""}${item.name}${item.size ? ` — ${item.size}` : ""}${item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}`;
+  }
+
+  // Stars left for more rewards in this order (the customer's balance minus rewards in the cart).
+  const starsInCart = cart.reduce((sum, item) => sum + (item.rewardCost ?? 0), 0);
+  const starsLeft = customer?.stars !== null && customer?.stars !== undefined ? customer.stars - starsInCart : 0;
+
+  function addRewardLine(product: Product, variant: Variant, reward: LoyaltyRewardRule) {
+    cartLineId.current += 1;
+    const key = `${product.product_id}:${variant.product_variant_id}:reward:${cartLineId.current}`;
+    if (getCartLimit(variant, cart, key) <= 0) return;
+    setCart((prev) => [...prev, { key, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name, size: variant.size_label, temperature: variant.temperature, isRecipe: product.product_type !== "stock", qty: 1, price: 0, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.starsCost }]);
+    if (product.product_type !== "stock") setSelectedKey(key);
+    setRewardForItem(null);
+  }
+
+  function removeCustomer() {
+    if (claimId !== null) void fetch("/api/claims", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: claimId, action: "decline" }) }).catch(() => undefined);
+    setCustomer(null);
+    setClaimId(null);
+    setCart((prev) => prev.filter((item) => !item.rewardId));
+  }
+
+  async function acceptClaim(claim: CounterClaim) {
+    setClaimBusyId(claim.id);
+    setCheckoutError("");
+    try {
+      const response = await fetch("/api/claims", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: claim.id, action: "accept" }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not add the customer.");
+      // A different customer's rewards leave the cart with them.
+      if (customer && customer.id !== payload.data.customer.id) setCart((prev) => prev.filter((item) => !item.rewardId));
+      setCustomer(payload.data.customer as AttachedCustomer);
+      setClaimId(Number(payload.data.claimId));
+      if (payload.data.reward) setRewardForItem(payload.data.reward as LoyaltyRewardRule);
+      setCartOpen(true);
+    } catch (error) {
+      setCheckoutError(error instanceof Error ? error.message : "Could not add the customer.");
+    } finally {
+      setClaimBusyId(null);
+      void refreshLoyalty();
+    }
+  }
+
+  async function declineClaim(claim: CounterClaim) {
+    setClaimBusyId(claim.id);
+    try {
+      await fetch("/api/claims", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: claim.id, action: "decline" }) });
+    } finally {
+      setClaimBusyId(null);
+      void refreshLoyalty();
+    }
   }
 
   // Clears the cart and refreshes stock once an order is in the queue (cash or GCash).
-  async function afterOrderPlaced(orderId: number, queueNumber: number, shiftId: number, starsEarned = 0) {
-    setLastPlaced({ orderId, queueNumber, note: "", stars: starsEarned > 0 && customer ? `+${starsEarned} ★ for ${customer.fullName.split(" ")[0]}` : undefined });
+  async function afterOrderPlaced(orderId: number, queueNumber: number, shiftId: number, starsEarned = 0, starsRedeemed = 0) {
+    const starNotes = [starsRedeemed > 0 ? `${starsRedeemed} ★ used` : "", starsEarned > 0 ? `+${starsEarned} ★` : ""].filter(Boolean).join(", ");
+    setLastPlaced({ orderId, queueNumber, note: "", stars: starNotes && customer ? `${starNotes} for ${customer.fullName.split(" ")[0]}` : undefined });
+    setClaimId(null);
+    setRewardPassword("");
+    void refreshLoyalty();
     if (receipts.settings.autoPrint) void printPlacedReceipt(orderId, queueNumber);
     setCart([]);
     setReceivedAmount("");
@@ -1435,8 +1555,16 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     }
   }
 
-  async function checkout() {
+  async function checkout(password?: string) {
     if (cart.length === 0 || checkingOut) return;
+    const hasRewards = cart.some((item) => item.rewardId);
+    // Regulars without the app: the cashier confirms the reward with their own password.
+    if (hasRewards && claimId === null && password === undefined) {
+      setRewardPasswordInvalid(false);
+      setRewardPasswordOpen(true);
+      return;
+    }
+    const rewardAuth = { claim_id: claimId, ...(password !== undefined ? { reward_password: password } : {}) };
     const subtotalValue = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
     const parsedReceivedAmount = Number.parseFloat(receivedAmount);
     if (paymentMethod === "cash" && subtotalValue > 0) {
@@ -1451,6 +1579,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       product_variant_id: item.variantId,
       quantity: item.qty,
       addition_ids: item.additions.flatMap((addition) => Array.from({ length: addition.count }, () => addition.addition_id)),
+      reward_id: item.rewardId ?? null,
     }));
     if (paymentMethod === "split") {
       const cash = Number.parseFloat(cashPart);
@@ -1463,9 +1592,11 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     if (paymentMethod === "gcash" || paymentMethod === "split") {
       const split = paymentMethod === "split" ? { cash_amount: Number.parseFloat(cashPart), received_amount: receivedAmount.trim() === "" ? Number.parseFloat(cashPart) : parsedReceivedAmount } : null;
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems, split, customer_id: customer?.id ?? null }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: cartItems, split, customer_id: customer?.id ?? null, ...rewardAuth }) });
         const payload = await response.json();
+        if (payload?.code === "wrong_password") { setRewardPasswordInvalid(true); setRewardPasswordOpen(true); return; }
         if (!response.ok) throw new Error(payload?.error || "Could not start the GCash payment.");
+        setRewardPasswordOpen(false);
         setGcashCheckout(payload.data as GcashCheckout);
       } catch (error) {
         setCheckoutError(error instanceof Error ? error.message : "Could not start the GCash payment.");
@@ -1479,20 +1610,19 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: cart.filter((item) => item.variantId !== null).map((item) => ({
-            product_variant_id: item.variantId,
-            quantity: item.qty,
-            // Repeated ids mean repeated servings on each cup of the line.
-            addition_ids: item.additions.flatMap((addition) => Array.from({ length: addition.count }, () => addition.addition_id)),
-          })),
+          // Repeated addition ids mean repeated servings on each cup of the line.
+          items: cartItems,
           payment_method: paymentMethod,
           received_amount: paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) ? parsedReceivedAmount : 0,
           customer_id: customer?.id ?? null,
+          ...rewardAuth,
         }),
       });
       const payload = await response.json();
+      if (payload?.code === "wrong_password") { setRewardPasswordInvalid(true); setRewardPasswordOpen(true); return; }
       if (!response.ok) throw new Error(payload?.error || "Unable to complete checkout.");
-      await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId), Number(payload.data.starsEarned ?? 0));
+      setRewardPasswordOpen(false);
+      await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId), Number(payload.data.starsEarned ?? 0), Number(payload.data.starsRedeemed ?? 0));
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete checkout.");
     } finally {
@@ -1655,6 +1785,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
           <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif" }}>Cart</h3>
           <button type="button" className="pos-cart-close" onClick={() => setCartOpen(false)}>‹ Add more</button>
         </div>
+        <WaitingClaims claims={loyalty.claims} rewards={loyalty.rewards} busyId={claimBusyId} onAccept={(claim) => void acceptClaim(claim)} onDecline={(claim) => void declineClaim(claim)} />
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {
@@ -1663,7 +1794,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
             <div key={item.key} onClick={item.isRecipe ? () => setSelectedKey(item.key) : undefined} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 10, border: isSelected ? "2px solid #D97706" : "1px solid #F0E8E2", background: isSelected ? "#FFF7ED" : "transparent", cursor: item.isRecipe ? "pointer" : "default" }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{getLineLabel(item)}</div>
-                <div style={{ fontSize: 12, color: "#9C8278" }}>₱{(item.price).toFixed(2)} • x{item.qty}</div>
+                <div style={{ fontSize: 12, color: item.rewardId ? "#B45309" : "#9C8278", fontWeight: item.rewardId ? 700 : 400 }}>{item.rewardId ? `Free · ${item.rewardName} · ★ ${item.rewardCost}` : `₱${(item.price).toFixed(2)} • x${item.qty}`}</div>
                 {item.additions.length > 0 && <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 3 }}>
                   {item.additions.map((addition) => <div key={addition.addition_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 11, color: "#7E22CE" }}>
                     <span>+ {addition.addition_name} ×{addition.count}{item.qty > 1 ? " each" : ""} · ₱{(Number(addition.price) * addition.count).toFixed(2)}</span>
@@ -1674,14 +1805,16 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <button onClick={() => updateQty(item.key, -1)} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E8DDD5", background: "#fff" }}>-</button>
-                <button onClick={() => updateQty(item.key, +1)} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E8DDD5", background: "#fff" }}>+</button>
+                <button onClick={() => updateQty(item.key, +1)} disabled={Boolean(item.rewardId)} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E8DDD5", background: "#fff", opacity: item.rewardId ? 0.4 : 1 }}>+</button>
               </div>
             </div>
             );
           })}
         </div>
 
-        <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={() => setCustomer(null)} />
+        <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={removeCustomer}
+          onUseReward={customer && loyalty.rewards.length > 0 && customer.stars !== null && customer.stars !== undefined && (claimId !== null || !customer.username) ? () => setRewardChoiceOpen(true) : undefined}
+          rewardNote={customer && loyalty.rewards.length > 0 && customer.username && claimId === null ? "To use their stars, ask them to scan the Stars sign and pick the reward on their phone." : undefined} />
         <div style={{ borderTop: "1px solid #E8DDD5", paddingTop: 8, flexShrink: 0 }}>
         {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: "0 0 8px" }}>{checkoutError}</p>}
           <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>Subtotal</div><div>₱{subtotal.toFixed(2)}</div></div>
@@ -1739,7 +1872,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); setCustomer(null); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button onClick={() => { removeCustomer(); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
@@ -1752,7 +1885,48 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />{receipts.settings.output === "pdf" ? "Receipt PDF" : "Receipt"}</button>
       <button type="button" className="pos-placed-close" onClick={() => setLastPlaced(null)} aria-label="Dismiss">×</button>
     </div>}
-    {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
+    {rewardChoiceOpen && customer && <Modal onClose={() => setRewardChoiceOpen(false)} label="Choose a reward">
+      <section className="pos-customer-dialog">
+        <div className="pos-customer-dialog-head"><div><p>Rewards · {loyalty.campaign?.name}</p><h3>{customer.fullName.split(" ")[0]} has ★ {starsLeft}{starsInCart ? ` left (★ ${starsInCart} in this order)` : ""}</h3></div><button type="button" onClick={() => setRewardChoiceOpen(false)} aria-label="Close">×</button></div>
+        <div className="pos-customer-results">
+          {loyalty.rewards.map((reward) => {
+            const affordable = reward.starsCost <= starsLeft;
+            return <button key={reward.id} type="button" className="pos-customer-result" disabled={!affordable} style={{ opacity: affordable ? 1 : 0.5 }} onClick={() => { setRewardChoiceOpen(false); setRewardForItem(reward); }}>
+              <span className="pos-customer-avatar" style={{ background: "#F59E0B" }}>★</span>
+              <span className="pos-customer-result-text"><strong>{reward.name}</strong><em>★ {reward.starsCost}{affordable ? "" : ` · needs ${reward.starsCost - starsLeft} more`}</em></span>
+            </button>;
+          })}
+        </div>
+      </section>
+    </Modal>}
+    {rewardForItem && <Modal onClose={() => setRewardForItem(null)} label={`Choose the item for ${rewardForItem.name}`}>
+      <section className="pos-customer-dialog">
+        <div className="pos-customer-dialog-head"><div><p>Reward · ★ {rewardForItem.starsCost}</p><h3>{rewardForItem.name}: which item?</h3></div><button type="button" onClick={() => setRewardForItem(null)} aria-label="Close">×</button></div>
+        <div className="pos-customer-results">
+          {(() => {
+            const options = products.flatMap((product) => product.variants.map((variant) => ({ product, variant, why: rewardMismatch(rewardForItem, { productId: product.product_id, category: product.product_category, price: Number(variant.price) }), left: getRemainingQuantity(product, variant) })))
+              .filter((option) => option.why === null);
+            if (options.length === 0) return <p className="pos-customer-empty">No menu item fits this reward right now. Check the reward in Admin → Loyalty.</p>;
+            return options.map(({ product, variant, left }) => {
+              const unavailable = variant.available === false || left <= 0;
+              return <button key={variant.product_variant_id} type="button" className="pos-customer-result" disabled={unavailable} style={{ opacity: unavailable ? 0.5 : 1 }} onClick={() => addRewardLine(product, variant, rewardForItem)}>
+                <span className="pos-customer-avatar" style={{ background: "#3D2B1F" }}>🎁</span>
+                <span className="pos-customer-result-text"><strong>{product.product_name}{variant.size_label ? ` — ${variant.size_label}` : ""}{variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Cold" : ""}</strong><em>Normally {formatPeso(Number(variant.price))}{unavailable ? " · sold out" : ""}</em></span>
+              </button>;
+            });
+          })()}
+        </div>
+      </section>
+    </Modal>}
+    {rewardPasswordOpen && customer && <Modal onClose={() => setRewardPasswordOpen(false)} label="Confirm the reward">
+      <form className="pos-customer-dialog" onSubmit={(event) => { event.preventDefault(); if (rewardPassword) void checkout(rewardPassword); }}>
+        <div className="pos-customer-dialog-head"><div><p>Confirm reward</p><h3>Use ★ {starsInCart} of {customer.fullName.split(" ")[0]}&apos;s stars?</h3></div><button type="button" onClick={() => setRewardPasswordOpen(false)} aria-label="Close">×</button></div>
+        <p className="pos-customer-empty" style={{ margin: 0 }}>{customer.fullName} has no app account, so you confirm the reward with your password. It is recorded under your name.</p>
+        <ConfirmPasswordField value={rewardPassword} onChange={(value) => { setRewardPassword(value); setRewardPasswordInvalid(false); }} userName={userName} invalid={rewardPasswordInvalid} autoFocus />
+        <button type="submit" className="pos-reward-button" disabled={!rewardPassword || checkingOut}>{checkingOut ? "Placing the order…" : "Confirm and check out"}</button>
+      </form>
+    </Modal>}
+    {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { if (customer && customer.id !== picked.id) removeCustomer(); setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
@@ -3180,5 +3354,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }

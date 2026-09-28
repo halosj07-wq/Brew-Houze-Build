@@ -29,7 +29,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
     if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
 
     const itemsResult = await pool.query(`
-      SELECT soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price,
+      SELECT soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name AS reward_name,
         COALESCE(json_agg(json_build_object('name', a.addition_name, 'quantity', soia.quantity, 'unitPrice', soia.unit_price) ORDER BY a.addition_name)
           FILTER (WHERE soia.order_item_id IS NOT NULL), '[]'::json) AS additions
       FROM sales_order_items soi
@@ -37,21 +37,27 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
       LEFT JOIN sales_order_item_additions soia ON soia.order_item_id = soi.order_item_id
       LEFT JOIN additions a ON a.addition_id = soia.addition_id
+      LEFT JOIN loyalty_rewards lr ON lr.reward_id = soi.reward_id
       WHERE soi.order_id = $1
-      GROUP BY soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price
+      GROUP BY soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name
       ORDER BY soi.order_item_id
     `, [orderId]);
 
     // Loyalty stars this order earned, and the customer's balance in that campaign now.
-    let loyalty: { starsEarned: number; balance: number; campaignName: string } | null = null;
+    let loyalty: { starsEarned: number; starsUsed: number; balance: number; campaignName: string } | null = null;
     if (order.customer_id !== null && order.customer_name) {
       try {
-        const earned = await pool.query(`
-          SELECT e.stars, e.campaign_id, c.name FROM loyalty_star_entries e JOIN loyalty_campaigns c ON c.campaign_id = e.campaign_id
-          WHERE e.order_id = $1 AND e.kind = 'earned'
+        const stars = await pool.query(`
+          SELECT e.campaign_id, c.name,
+            COALESCE(SUM(e.stars) FILTER (WHERE e.kind = 'earned'), 0)::int AS earned,
+            COALESCE(-SUM(e.stars) FILTER (WHERE e.kind = 'redeemed'), 0)::int AS used
+          FROM loyalty_star_entries e JOIN loyalty_campaigns c ON c.campaign_id = e.campaign_id
+          WHERE e.order_id = $1 AND e.kind IN ('earned', 'redeemed')
+          GROUP BY e.campaign_id, c.name
         `, [orderId]);
-        if (earned.rows[0]) {
-          loyalty = { starsEarned: Number(earned.rows[0].stars), balance: await starBalance(Number(order.customer_id), Number(earned.rows[0].campaign_id)), campaignName: String(earned.rows[0].name) };
+        const row = stars.rows[0];
+        if (row) {
+          loyalty = { starsEarned: Number(row.earned), starsUsed: Number(row.used), balance: await starBalance(Number(order.customer_id), Number(row.campaign_id)), campaignName: String(row.name) };
         }
       } catch (loyaltyError) {
         console.error("Receipt: could not read loyalty stars:", loyaltyError);
@@ -81,6 +87,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         loyalty,
         items: itemsResult.rows.map((row) => ({
           name: String(row.product_name),
+          rewardName: (row.reward_name as string | null) ?? null,
           size: (row.size_label as string | null) ?? null,
           temperature: (row.temperature as string | null) ?? null,
           quantity: Number(row.quantity),
