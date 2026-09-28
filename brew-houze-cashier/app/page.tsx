@@ -1351,7 +1351,6 @@ function WaitingClaims({ claims, rewards, busyId, onAccept, onDecline }: { claim
   </div>;
 }
 
-// The customer line in the cart: a button to attach one, or who it is with the café's notes.
 // ID discounts switched on in Admin → Discounts (senior, PWD and others) and the shop's VAT
 // setting. Senior and PWD items lose their VAT first (price / 1.12), then the discount.
 type CounterDiscountType = { id: number; code: string; name: string; discountKind: "percent" | "fixed"; discountValue: number; maxDiscount: number | null; vatExempt: boolean; requiresId: boolean; idLabel: string | null };
@@ -1381,15 +1380,17 @@ type IdDiscountLine = { key: string; label: string; qty: number; unit: number };
 
 // Adds one person's ID discount: the discount, their name and ID number, and what it covers
 // (their own items, or their share of a shared bill).
-function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSize, existing, onAdd, onClose }: {
+function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSize, existing, initialTypeId = null, onAdd, onClose }: {
   types: CounterDiscountType[]; vat: CounterVat; lines: IdDiscountLine[];
+  // The discount a customer claimed on the mobile menu (preselected).
+  initialTypeId?: number | null;
   // Units of each line already covered by other people's discounts.
   taken: Record<string, number>;
   // Every ID discount on an order uses the same way of covering (and the same group size).
   lockedMode: "items" | "shared" | null; lockedGroupSize: number | null; existing: number;
   onAdd: (entry: CartIdDiscount) => void; onClose: () => void;
 }) {
-  const [typeId, setTypeId] = useState(types[0]?.id ?? 0);
+  const [typeId, setTypeId] = useState(initialTypeId !== null && types.some((entry) => entry.id === initialTypeId) ? initialTypeId : types[0]?.id ?? 0);
   const [holderName, setHolderName] = useState("");
   const [idNumber, setIdNumber] = useState("");
   const [mode, setMode] = useState<"items" | "shared">(lockedMode ?? "items");
@@ -1478,6 +1479,32 @@ function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSiz
   </Modal>;
 }
 
+// Carts customers sent from the mobile menu to claim an ID discount: the cashier loads one into
+// the POS, checks the ID, and takes payment.
+type CounterCart = {
+  id: number; code: string; items: { productVariantId: number; quantity: number; additionIds: number[] }[];
+  serviceType: "dine_in" | "take_out"; discountTypeId: number | null; discountName: string | null;
+  createdAt: string; expiresAt: string; customer: AttachedCustomer | null;
+};
+
+function WaitingCounterCarts({ carts, loadedId, onLoad, onDismiss }: { carts: CounterCart[]; loadedId: number | null; onLoad: (cart: CounterCart) => void; onDismiss: (cart: CounterCart) => void }) {
+  const visible = carts.filter((cart) => cart.id !== loadedId);
+  if (visible.length === 0) return null;
+  return <div className="pos-claims pos-sent" role="region" aria-label="Carts sent from the mobile menu">
+    <p className="pos-claims-title">📱 Sent to the counter</p>
+    {visible.map((cart) => {
+      const units = cart.items.reduce((sum, item) => sum + item.quantity, 0);
+      return <div key={cart.id} className="pos-claim">
+        <span className="pos-sent-code">{cart.code}</span>
+        <span className="pos-customer-result-text"><strong>{cart.discountName ?? "ID discount"}{cart.customer ? ` · ${cart.customer.fullName}` : ""}</strong><em>{units} item{units === 1 ? "" : "s"} · {cart.serviceType === "take_out" ? "take out" : "dine in"} · sent {new Date(cart.createdAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</em></span>
+        <button type="button" className="pos-claim-accept" onClick={() => onLoad(cart)}>Load</button>
+        <button type="button" className="pos-claim-decline" onClick={() => onDismiss(cart)} aria-label={`Dismiss cart ${cart.code}`} title="Dismiss">×</button>
+      </div>;
+    })}
+  </div>;
+}
+
+// The customer line in the cart: a button to attach one, or who it is with the café's notes.
 function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }: { customer: AttachedCustomer | null; onAdd: () => void; onRemove: () => void; onUseReward?: () => void; rewardNote?: string }) {
   if (!customer) return <button type="button" className="pos-customer-add" onClick={onAdd}>+ Add customer <span>for their purchases and notes</span></button>;
   return <div className="pos-customer-slot">
@@ -1560,6 +1587,25 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [idDiscountSetup, setIdDiscountSetup] = useState<{ types: CounterDiscountType[]; vat: CounterVat }>({ types: [], vat: { registered: true, rate: 12 } });
   const [idDiscounts, setIdDiscounts] = useState<CartIdDiscount[]>([]);
   const [idDiscountDialogOpen, setIdDiscountDialogOpen] = useState(false);
+  const [idDiscountInitialType, setIdDiscountInitialType] = useState<number | null>(null);
+  // Carts sent from the mobile menu, and the one loaded into this order.
+  const [counterCarts, setCounterCarts] = useState<CounterCart[]>([]);
+  const [counterCartId, setCounterCartId] = useState<number | null>(null);
+  const refreshCounterCarts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/counter-carts", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json() as { data?: CounterCart[] };
+      if (payload.data) setCounterCarts(payload.data);
+    } catch {
+      // Offline for a moment: the next refresh catches up.
+    }
+  }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void refreshCounterCarts(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshCounterCarts(); }, CLAIMS_REFRESH_MS);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [refreshCounterCarts]);
   const loadIdDiscountSetup = useCallback(async () => {
     try {
       const response = await fetch("/api/discounts", { cache: "no-store" });
@@ -1842,6 +1888,40 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setCart((prev) => prev.filter((item) => !item.rewardId));
   }
 
+  // Puts a sent cart into the POS (the current order must be empty), then asks for the ID.
+  function loadCounterCart(sent: CounterCart) {
+    if (cart.length > 0) { setCheckoutError("Finish or clear the current order before loading a sent cart."); setCartOpen(true); return; }
+    const variants = products.flatMap((product) => product.variants.map((variant) => ({ product, variant })));
+    let missing = 0;
+    const lines: CartItem[] = sent.items.flatMap((item) => {
+      const match = variants.find(({ variant }) => Number(variant.product_variant_id) === item.productVariantId);
+      if (!match) { missing += item.quantity; return []; }
+      cartLineId.current += 1;
+      const { product, variant } = match;
+      return [{
+        key: `${product.product_id}:${variant.product_variant_id}:${cartLineId.current}`, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name,
+        size: variant.size_label ?? null, temperature: variant.temperature, isRecipe: product.product_type !== "stock", qty: item.quantity, price: Number(variant.price), ingredients: variant.ingredients ?? [],
+        additions: additions.filter((addition) => item.additionIds.includes(addition.addition_id)).map((addition) => ({ ...addition, count: 1 })),
+      }];
+    });
+    if (lines.length === 0) { setCheckoutError(`Nothing in cart ${sent.code} is available anymore.`); return; }
+    setCart(lines);
+    setServiceType(sent.serviceType);
+    setCustomer(sent.customer);
+    setCounterCartId(sent.id);
+    setCheckoutError(missing > 0 ? `${missing} item${missing === 1 ? "" : "s"} from cart ${sent.code} ${missing === 1 ? "is" : "are"} no longer available.` : "");
+    setCartOpen(true);
+    setIdDiscountInitialType(sent.discountTypeId);
+    void loadIdDiscountSetup();
+    setIdDiscountDialogOpen(true);
+  }
+
+  async function dismissCounterCart(sent: CounterCart) {
+    await fetch("/api/counter-carts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sent.id, action: "dismiss" }) }).catch(() => undefined);
+    if (counterCartId === sent.id) setCounterCartId(null);
+    void refreshCounterCarts();
+  }
+
   async function acceptClaim(claim: CounterClaim) {
     setClaimBusyId(claim.id);
     setCheckoutError("");
@@ -1884,6 +1964,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setClaimId(null);
     setDiscountReward(null);
     setIdDiscounts([]);
+    setCounterCartId(null);
+    void refreshCounterCarts();
     setServiceType("dine_in");
     setRewardPassword("");
     void refreshLoyalty();
@@ -1924,7 +2006,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       return;
     }
     // Sent with the order: dine in or take out, and how its rewards were confirmed.
-    const rewardAuth = { service_type: serviceType, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, ...(password !== undefined ? { reward_password: password } : {}) };
+    const rewardAuth = { service_type: serviceType, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, counter_cart_id: counterCartId, ...(password !== undefined ? { reward_password: password } : {}) };
     // What the customer pays: the cart minus a reward discount or the ID discounts (and their VAT).
     const subtotalValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount - idCheck.discount - idCheck.vatExempt) * 100) / 100);
     const parsedReceivedAmount = Number.parseFloat(receivedAmount);
@@ -2152,6 +2234,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           <button type="button" className="pos-cart-close" onClick={() => setCartOpen(false)}>‹ Add more</button>
         </div>
         <WaitingClaims claims={loyalty.claims} rewards={loyalty.rewards} busyId={claimBusyId} onAccept={(claim) => void acceptClaim(claim)} onDecline={(claim) => void declineClaim(claim)} />
+        <WaitingCounterCarts carts={counterCarts} loadedId={counterCartId} onLoad={loadCounterCart} onDismiss={(sent) => void dismissCounterCart(sent)} />
+        {counterCartId !== null && <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu. The customer&apos;s phone follows this order once it is paid.</p>}
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {
@@ -2257,7 +2341,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { removeCustomer(); setDiscountReward(null); setIdDiscounts([]); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button onClick={() => { removeCustomer(); setDiscountReward(null); setIdDiscounts([]); setCounterCartId(null); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
@@ -2315,9 +2399,9 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     </Modal>}
     {idDiscountDialogOpen && <IdDiscountDialog types={idDiscountSetup.types} vat={idDiscountSetup.vat}
       lines={cart.filter((item) => item.variantId !== null && getLineTotal(item) > 0).map((item) => ({ key: item.key, label: getLineLabel(item), qty: item.qty, unit: getLineTotal(item) / item.qty }))}
-      taken={Object.fromEntries(idPreview.used)} existing={idDiscounts.length}
+      taken={Object.fromEntries(idPreview.used)} existing={idDiscounts.length} initialTypeId={idDiscounts.length === 0 ? idDiscountInitialType : null}
       lockedMode={idDiscounts.length === 0 ? null : idDiscounts[0].lines === null ? "shared" : "items"} lockedGroupSize={idDiscounts.length > 0 && idDiscounts[0].lines === null ? idDiscounts[0].groupSize : null}
-      onAdd={(entry) => { setIdDiscounts((current) => [...current, entry]); setIdDiscountDialogOpen(false); if (checkoutError) setCheckoutError(""); }} onClose={() => setIdDiscountDialogOpen(false)} />}
+      onAdd={(entry) => { setIdDiscounts((current) => [...current, entry]); setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); if (checkoutError) setCheckoutError(""); }} onClose={() => { setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); }} />}
     {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { if (customer && customer.id !== picked.id) removeCustomer(); setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>

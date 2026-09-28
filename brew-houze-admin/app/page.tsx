@@ -481,7 +481,7 @@ function Sidebar({ current, collapsed, user, onChange, onToggle, onAccount }: { 
 // refunds, drawer short or over, new customer sign-ups). Which ones were seen is remembered per
 // device in the browser; keys of alerts that are gone are dropped, so an item that runs low
 // again after a restock shows up as new.
-type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
+type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
 const SEEN_NOTIFICATIONS_KEY = "brew-houze-admin-seen-notifications";
 const NOTIFICATION_REFRESH_MS = 60_000;
 
@@ -568,7 +568,7 @@ function NotificationBell({ onNavigate }: { onNavigate: (page: Page) => void }) 
   const list = items ?? [];
   const unread = list.filter((item) => !seen.has(item.key));
   const urgent = unread.some((item) => item.tone === "danger");
-  const kindIcon = (kind: AdminNotification["kind"]) => kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
+  const kindIcon = (kind: AdminNotification["kind"]) => kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "discount" ? <IconTag size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
 
   return <div className="notif" ref={wrapRef}>
     <button type="button" className={`notif-bell${open ? " is-open" : ""}`} onClick={() => { setOpen((value) => !value); setNow(Date.now()); }} aria-label={unread.length ? `Notifications, ${unread.length} new` : "Notifications"} aria-expanded={open} title="Notifications">
@@ -7512,10 +7512,129 @@ function Discounts() {
             </span>
           </div>)}
         </div>}
+        <DiscountRegister />
       </>}
     </div>
     {editing && <DiscountFormDialog discount={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async (message) => { setEditing(null); setNotice(message); await load(); }} />}
   </div>;
+}
+
+// The ID discount register: every senior, PWD and other ID discount given in a date range, with
+// the name and ID number. The café keeps it for senior and PWD sales (the Excel export has every
+// column the record needs). Voided and refunded orders are shown struck through and not counted.
+type RegisterEntry = {
+  id: number; at: string; businessDate: string; orderId: number; queueNumber: number | null; shiftId: number | null; reversed: boolean; status: string;
+  code: string; typeName: string; holderName: string; idNumber: string | null; groupSize: number | null; coveredAmount: number; vatExempt: number; discount: number; cashierName: string | null;
+};
+const REGISTER_PREVIEW_ROWS = 60;
+
+function DiscountRegister() {
+  const today = getFinanceDateStamp();
+  const [from, setFrom] = useState(`${today.slice(0, 8)}01`);
+  const [to, setTo] = useState(today);
+  const [scope, setScope] = useState<"all" | "statutory">("all");
+  const [rows, setRows] = useState<RegisterEntry[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      if (!from || !to || from > to) { setError("Choose a start date on or before the end date."); return; }
+      setError("");
+      setRows(null);
+      fetch(`/api/discounts/register?from=${from}&to=${to}`, { cache: "no-store" })
+        .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload?.error || "Could not load the register."); if (active) setRows(payload.data ?? []); })
+        .catch((loadError) => { if (active) { setRows([]); setError(loadError instanceof Error ? loadError.message : "Could not load the register."); } });
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [from, to]);
+
+  const shown = (rows ?? []).filter((row) => scope === "all" || row.code === "senior" || row.code === "pwd");
+  const counted = shown.filter((row) => !row.reversed);
+  const total = (pick: (row: RegisterEntry) => number) => counted.reduce((sum, row) => sum + pick(row), 0);
+  const when = (value: string) => new Date(value).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const covers = (row: RegisterEntry) => row.groupSize ? `Share of bill (1 of ${row.groupSize})` : "Own items";
+
+  function exportRegister() {
+    try {
+      const byType = Array.from(new Set(counted.map((row) => row.typeName))).map((name) => {
+        const list = counted.filter((row) => row.typeName === name);
+        return [name, list.length, list.reduce((sum, row) => sum + row.coveredAmount, 0), list.reduce((sum, row) => sum + row.vatExempt, 0), list.reduce((sum, row) => sum + row.discount, 0)] as [string, number, number, number, number];
+      });
+      saveWorkbook([
+        ["Summary", excelInfo([
+          [`Brew Houze ID discount register${scope === "statutory" ? " (senior citizen and PWD)" : ""}`],
+          ["Business dates", `${from} to ${to}`],
+          ["Generated", excelNow()],
+          [],
+          ["Discount", "Entries", "Gross amount", "VAT exempt", "Discount"],
+          ...byType,
+          ["Total", counted.length, total((row) => row.coveredAmount), total((row) => row.vatExempt), total((row) => row.discount)],
+          [],
+          ["Voided or refunded orders are listed in the register but not counted here."],
+        ], ["Entries"])],
+        ["Register", excelTable(shown, [
+          { header: "Business date", value: (row) => row.businessDate },
+          { header: "Time", value: (row) => when(row.at) },
+          { header: "Order no.", value: (row) => row.orderId, kind: "count" },
+          { header: "Queue no.", value: (row) => row.queueNumber, kind: "count" },
+          { header: "Shift", value: (row) => row.shiftId, kind: "count" },
+          { header: "Discount", value: (row) => row.typeName },
+          { header: "Name", value: (row) => row.holderName },
+          { header: "ID no.", value: (row) => row.idNumber ?? "" },
+          { header: "Covers", value: (row) => covers(row) },
+          { header: "Gross amount", value: (row) => row.coveredAmount, kind: "money" },
+          { header: "VAT exempt", value: (row) => row.vatExempt || null, kind: "money" },
+          { header: "Discount", value: (row) => row.discount, kind: "money" },
+          { header: "Amount paid", value: (row) => Math.round((row.coveredAmount - row.vatExempt - row.discount) * 100) / 100, kind: "money" },
+          { header: "Cashier", value: (row) => row.cashierName ?? "" },
+          { header: "Status", value: (row) => row.reversed ? (row.status.toLowerCase().startsWith("void") ? "Voided" : "Refunded") : "Completed" },
+        ])],
+      ], `brew-houze-discount-register-${from}-to-${to}.xlsx`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Could not export the register.");
+    }
+  }
+
+  return <section className="acc-block dsc-register">
+    <header className="acc-block-head">
+      <div><h3>Discount register</h3><p>Every ID discount given, with the name and ID number. Keep the senior and PWD part for the café&apos;s records.</p></div>
+    </header>
+    <div className="dsc-register-tools">
+      <label><span>From</span><input type="date" value={from} max={to} onChange={(event) => setFrom(event.target.value)} style={packagingInput} /></label>
+      <label><span>To</span><input type="date" value={to} min={from} max={today} onChange={(event) => setTo(event.target.value)} style={packagingInput} /></label>
+      <div className="dsc-register-scope" role="radiogroup" aria-label="Which discounts">
+        {([["all", "All discounts"], ["statutory", "Senior & PWD"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={scope === value} className={scope === value ? "is-on" : ""} onClick={() => setScope(value)}>{label}</button>)}
+      </div>
+      <button type="button" className="inv-secondary" disabled={!rows || shown.length === 0} onClick={exportRegister}><IconDownload size={14} />Export</button>
+    </div>
+    {error && <p role="alert" className="acc-error">{error}</p>}
+    {rows === null ? <div className="inv-empty">Loading the register…</div> : shown.length === 0 ? <p className="inv-hint" style={{ margin: 0 }}>No ID discounts in these dates.</p> : <>
+      <div className="dsc-register-totals">
+        <span><em>Entries</em><strong>{counted.length}</strong></span>
+        <span><em>Gross amount</em><strong>{peso(total((row) => row.coveredAmount))}</strong></span>
+        <span><em>VAT exempt</em><strong>{peso(total((row) => row.vatExempt))}</strong></span>
+        <span><em>Discount</em><strong>{peso(total((row) => row.discount))}</strong></span>
+      </div>
+      <div className="fin-table-wrap">
+        <table className="fin-table dsc-register-table">
+          <thead><tr><th>When</th><th>Order</th><th>Discount</th><th>Name · ID no.</th><th className="is-num">Gross</th><th className="is-num">VAT exempt</th><th className="is-num">Discount</th></tr></thead>
+          <tbody>
+            {shown.slice(0, REGISTER_PREVIEW_ROWS).map((row) => <tr key={row.id} className={row.reversed ? "is-reversed" : ""}>
+              <td>{when(row.at)}<span className="fin-table-sub">{row.cashierName ?? ""}</span></td>
+              <td>#{row.orderId}{row.queueNumber ? <span className="fin-table-sub">Queue {row.queueNumber}</span> : null}</td>
+              <td>{row.typeName}<span className="fin-table-sub">{row.reversed ? (row.status.toLowerCase().startsWith("void") ? "Voided" : "Refunded") : covers(row)}</span></td>
+              <td><strong>{row.holderName}</strong><span className="fin-table-sub">{row.idNumber ?? "No ID number"}</span></td>
+              <td className="is-num">{peso(row.coveredAmount)}</td>
+              <td className="is-num">{row.vatExempt ? peso(row.vatExempt) : "—"}</td>
+              <td className="is-num">{peso(row.discount)}</td>
+            </tr>)}
+          </tbody>
+        </table>
+      </div>
+      {shown.length > REGISTER_PREVIEW_ROWS && <p className="inv-hint" style={{ margin: 0 }}>Showing the latest {REGISTER_PREVIEW_ROWS} of {shown.length}. The export has them all.</p>}
+    </>}
+  </section>;
 }
 
 function DiscountFormDialog({ discount, onClose, onSaved }: { discount: DiscountTypeAdmin | null; onClose: () => void; onSaved: (message: string) => Promise<void> }) {

@@ -391,6 +391,13 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-claim-accept { flex-shrink: 0; height: 32px; padding: 0 13px; border: 0; border-radius: 8px; background: #D97706; color: #FFFFFF; font-weight: 800; cursor: pointer; }
 .pos-claim-decline { flex-shrink: 0; width: 30px; height: 32px; border: 1px solid #E8DDD5; border-radius: 8px; background: #FFFFFF; color: #9C8278; font-size: 16px; cursor: pointer; }
 .pos-claim button:disabled { opacity: 0.55; cursor: default; }
+/* Carts sent from the mobile menu for an ID discount. */
+.pos-sent { border-color: #BFDBFE; background: #EFF6FF; }
+.pos-sent .pos-claims-title { color: #1E3A8A; }
+.pos-sent .pos-claim { border-color: #BFDBFE; }
+.pos-sent .pos-claim-accept { background: #1D4ED8; }
+.pos-sent-code { flex-shrink: 0; display: grid; place-items: center; min-width: 52px; height: 34px; padding: 0 6px; border-radius: 8px; background: #1E3A8A; color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 800; letter-spacing: 0.06em; }
+.pos-sent-loaded { flex-shrink: 0; margin: 0; padding: 7px 10px; border-radius: 9px; background: #EFF6FF; color: #1E3A8A; font-size: 12px; font-weight: 600; line-height: 1.4; }
 .pos-reward-button { width: 100%; height: 40px; border: 0; border-radius: 10px; background: #3D2B1F; color: #FDF9F5; font-weight: 800; cursor: pointer; }
 .pos-reward-button:disabled { opacity: 0.55; cursor: default; }
 .pos-reward-note { margin: 0; color: #92400E; font-size: 11.5px; line-height: 1.45; }

@@ -10,13 +10,15 @@ import { getSession } from "@/lib/sessions";
 //   reversal  voids and refunds in the last 3 days
 //   cash      shifts closed in the last 7 days with the drawer short or over
 //   customer  customers who signed up on the mobile menu in the last 7 days
+//   discount  an ID number (senior, PWD and others) used under different names in the last 30
+//             days, or 3 or more times in one shift in the last 7 days
 
 const TZ = "Asia/Manila";
 const isoTz = (column: string) => `TO_CHAR(${column} AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
 // Columns stored without a time zone hold UTC.
 const isoUtc = (column: string) => `TO_CHAR(${column} AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
 
-type Notification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: "inventory" | "shift" | "finance" | "customers" };
+type Notification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: "discounts" | "inventory" | "shift" | "finance" | "customers" };
 
 const peso = (value: unknown) => `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -24,7 +26,8 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
-    const [stock, payments, reversals, cash, customers] = await Promise.all([
+    const reversedOrder = "LOWER(so.status) IN ('void', 'voided', 'refund', 'refunded')";
+    const [stock, payments, reversals, cash, customers, idNames, idOften] = await Promise.all([
       // Portions made from another item (bound items) follow their source, which alerts instead.
       pool.query(`
         SELECT inventory_id, item_name, quantity, low_stock_threshold, unit_of_measure, ${isoUtc("COALESCE(updated_at, created_at)")} AS at
@@ -56,6 +59,26 @@ export async function GET() {
         WHERE created_by_admin_id IS NULL AND deleted_at IS NULL AND created_at > CURRENT_TIMESTAMP - INTERVAL '7 days'
         ORDER BY created_at DESC LIMIT 20
       `),
+      // The same ID number given under different names.
+      pool.query(`
+        SELECT od.type_code, MIN(od.type_name) AS type_name, LOWER(od.id_number) AS id_key, MIN(od.id_number) AS id_number,
+          COUNT(DISTINCT LOWER(od.holder_name))::int AS names, STRING_AGG(DISTINCT od.holder_name, ', ') AS holder_names, ${isoTz("MAX(od.created_at)")} AS at
+        FROM order_discounts od JOIN sales_orders so ON so.order_id = od.order_id
+        WHERE od.id_number IS NOT NULL AND od.created_at > CURRENT_TIMESTAMP - INTERVAL '30 days' AND NOT ${reversedOrder}
+        GROUP BY od.type_code, LOWER(od.id_number)
+        HAVING COUNT(DISTINCT LOWER(od.holder_name)) > 1
+        ORDER BY MAX(od.created_at) DESC LIMIT 10
+      `),
+      // The same ID number used again and again in one shift.
+      pool.query(`
+        SELECT od.type_code, MIN(od.type_name) AS type_name, LOWER(od.id_number) AS id_key, MIN(od.id_number) AS id_number, so.shift_id,
+          COUNT(*)::int AS uses, ${isoTz("MAX(od.created_at)")} AS at
+        FROM order_discounts od JOIN sales_orders so ON so.order_id = od.order_id
+        WHERE od.id_number IS NOT NULL AND so.shift_id IS NOT NULL AND od.created_at > CURRENT_TIMESTAMP - INTERVAL '7 days' AND NOT ${reversedOrder}
+        GROUP BY od.type_code, LOWER(od.id_number), so.shift_id
+        HAVING COUNT(*) >= 3
+        ORDER BY MAX(od.created_at) DESC LIMIT 10
+      `),
     ]);
 
     const items: Notification[] = [
@@ -70,6 +93,8 @@ export async function GET() {
         const difference = Number(row.cash_difference);
         return { key: `cash-${row.shift_id}`, kind: "cash", tone: difference < 0 ? "danger" : "warning", title: `Shift #${row.shift_id} closed ${peso(Math.abs(difference))} ${difference < 0 ? "short" : "over"}`, detail: `The counted cash did not match the expected cash${row.closed_by_name ? ` · closed by ${row.closed_by_name}` : ""}.`, at: String(row.at), page: "finance" };
       }),
+      ...idNames.rows.map((row): Notification => ({ key: `dsc-names-${row.type_code}-${row.id_key}-${row.names}`, kind: "discount", tone: "warning", title: `${row.type_name} ID ${row.id_number} used under ${row.names} names`, detail: `${row.holder_names}. Check the register: one ID should belong to one person.`, at: String(row.at), page: "discounts" })),
+      ...idOften.rows.map((row): Notification => ({ key: `dsc-often-${row.type_code}-${row.id_key}-${row.shift_id}-${row.uses}`, kind: "discount", tone: "warning", title: `${row.type_name} ID ${row.id_number} used ${row.uses} times in shift #${row.shift_id}`, detail: "The discount is for the ID holder's own food and drinks. Check the register.", at: String(row.at), page: "discounts" })),
       ...customers.rows.map((row): Notification => ({ key: `cust-${row.customer_id}`, kind: "customer", tone: "info", title: `${row.full_name} made an account`, detail: `@${row.username ?? ""} signed up on the mobile menu.`, at: String(row.at), page: "customers" })),
     ].sort((a, b) => b.at.localeCompare(a.at));
 
