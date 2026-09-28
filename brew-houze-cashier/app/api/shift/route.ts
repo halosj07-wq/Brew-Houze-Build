@@ -52,7 +52,7 @@ async function loadSummary(client: PoolClient | typeof pool, where: string, para
     SELECT
       ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
       EXTRACT(EPOCH FROM (COALESCE(ss.closed_at, CURRENT_TIMESTAMP) - ss.opened_at)) / 3600 AS hours_open,
-      (SELECT COUNT(*) FROM sales_orders so WHERE so.queue_status IN ('waiting', 'served'))::int AS open_queue_count,
+      (SELECT COUNT(*) FROM sales_orders so WHERE so.queue_status = 'waiting' OR (so.queue_status = 'served' AND so.service_type IS DISTINCT FROM 'delivery'))::int AS open_queue_count,
       (SELECT COUNT(*) FROM employee_time_logs t WHERE t.time_out IS NULL)::int AS signed_in_count
     FROM shift_summaries ss
     LEFT JOIN LATERAL (

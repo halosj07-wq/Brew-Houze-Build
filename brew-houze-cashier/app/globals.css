@@ -558,3 +558,4 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 
 /* A smaller stamp line on receipts (the rider's ID check). */
 .receipt-stamp.is-small { margin: 3px 0; font-size: 0.85em; }
+.dlv-confirm select { min-width: 180px; height: 36px; padding: 0 8px; border: 1px solid #E8DDD5; border-radius: 8px; background: #FFFFFF; color: #3D2B1F; font-size: 13px; }

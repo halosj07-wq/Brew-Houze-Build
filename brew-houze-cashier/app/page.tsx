@@ -2661,14 +2661,18 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
   const [busyId, setBusyId] = useState<number | null>(null);
   const [failing, setFailing] = useState<{ id: number; reason: string } | null>(null);
   const [collecting, setCollecting] = useState<number | null>(null);
+  // "Picked up" by a cashier: which rider took it (handing: the card being handed over).
+  const [riders, setRiders] = useState<{ id: number; name: string; onDuty: boolean }[]>([]);
+  const [handing, setHanding] = useState<{ id: number; riderId: number } | null>(null);
   const isRider = user.role.toLowerCase() === "rider";
 
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/deliveries", { cache: "no-store" });
-      const payload = await response.json() as { data?: DeliveryCard[]; error?: string };
+      const payload = await response.json() as { data?: DeliveryCard[]; riders?: { id: number; name: string; onDuty: boolean }[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "Could not load the deliveries.");
       setList(payload.data ?? []);
+      setRiders(payload.riders ?? []);
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load the deliveries.");
@@ -2693,9 +2697,11 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       const response = await fetch("/api/deliveries", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: card.id, action, ...extra }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not update the delivery.");
-      setNotice(action === "pickup" ? `Order #${card.queueNumber} is on its way.` : action === "delivered" ? `Order #${card.queueNumber} delivered.${card.payment === "cod" ? ` Hand the ₱${(card.codAmount ?? 0).toFixed(2)} to the cashier.` : ""}` : action === "failed" ? `Order #${card.queueNumber} marked not delivered. A cashier voids it in Void & Refund.` : `Received ₱${(card.codCollected ?? 0).toFixed(2)} for order #${card.queueNumber}.`);
+      const riderName = action === "pickup" && typeof extra.riderId === "number" && extra.riderId !== user.adminId ? riders.find((rider) => rider.id === extra.riderId)?.name : null;
+      setNotice(action === "pickup" ? `Order #${card.queueNumber} is on its way${riderName ? ` with ${riderName}` : ""}.` : action === "delivered" ? `Order #${card.queueNumber} delivered.${card.payment === "cod" ? ` Hand the ₱${(card.codAmount ?? 0).toFixed(2)} to the cashier.` : ""}` : action === "failed" ? `Order #${card.queueNumber} marked not delivered. A cashier voids it in Void & Refund.` : `Received ₱${(card.codCollected ?? 0).toFixed(2)} for order #${card.queueNumber}.`);
       setFailing(null);
       setCollecting(null);
+      setHanding(null);
       onChanged?.();
       await load();
     } catch (actError) {
@@ -2734,7 +2740,7 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       <span className="dlv-meta">₱{card.total.toFixed(2)}{card.fee > 0 ? ` incl. ₱${card.fee.toFixed(2)} fee` : ""} · {card.status === "out" ? `out since ${clock(card.pickedUpAt)}${card.riderName ? ` · ${card.riderName}` : ""}` : card.status === "ready" ? `packed ${clock(card.readyAt)}` : card.status === "preparing" ? `ordered ${clock(card.createdAt)}` : card.status === "delivered" ? `delivered ${clock(card.deliveredAt)}${card.riderName ? ` by ${card.riderName}` : ""}` : card.status === "failed" ? `not delivered: ${card.failureReason ?? ""}` : "cancelled"}</span>
       <span className="dlv-actions">
         <a className="dlv-button is-light" href={mapsLink(card)} target="_blank" rel="noopener">Open in Maps</a>
-        {card.status === "ready" && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "pickup")}>{busyId === card.id ? "…" : isRider ? "Pick up" : "Picked up"}</button>}
+        {card.status === "ready" && handing?.id !== card.id && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => isRider ? void act(card, "pickup") : setHanding({ id: card.id, riderId: riders[0]?.id ?? user.adminId })}>{busyId === card.id ? "…" : isRider ? "Pick up" : "Picked up…"}</button>}
         {card.status === "out" && (card.payment === "cod" && collecting !== card.id
           ? <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => setCollecting(card.id)}>Delivered</button>
           : card.status === "out" && card.payment !== "cod" && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered")}>{busyId === card.id ? "…" : "Delivered"}</button>)}
@@ -2743,6 +2749,15 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
         {failed.includes(card) && !isRider && <button type="button" className="dlv-button is-danger" onClick={onOpenReversals}>Void in Void & Refund</button>}
       </span>
     </footer>
+    {handing?.id === card.id && <div className="dlv-confirm">
+      <span>Picked up by</span>
+      <select value={handing.riderId} onChange={(event) => setHanding({ id: card.id, riderId: Number(event.target.value) })} aria-label="Rider">
+        {riders.map((rider) => <option key={rider.id} value={rider.id}>{rider.name}{rider.onDuty ? "" : " (not clocked in)"}</option>)}
+        <option value={user.adminId}>Me ({user.fullName})</option>
+      </select>
+      <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "pickup", { riderId: handing.riderId })}>{busyId === card.id ? "…" : "Confirm"}</button>
+      <button type="button" className="dlv-button is-light" onClick={() => setHanding(null)}>Back</button>
+    </div>}
     {collecting === card.id && <div className="dlv-confirm">
       <span>Did you collect <strong>₱{(card.codAmount ?? 0).toFixed(2)}</strong> in cash?</span>
       <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered", { collected: card.codAmount })}>{busyId === card.id ? "…" : "Yes, collected"}</button>
@@ -2913,7 +2928,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
                 </div>
               </header>
-              {order.id_check && <div className="queue-id-check">🪪 {order.id_check} discount · check the ID at pickup</div>}
+              {order.id_check && <div className="queue-id-check">🪪 {order.id_check} discount · {order.service_type === "delivery" ? "the rider checks the ID at the door" : "check the ID at pickup"}</div>}
               {order.customer_name && <div className="queue-customer">
                 <span className="queue-customer-name">For <strong>{order.customer_name}</strong></span>
                 {order.customer_notes && <span className="queue-customer-note">📝 {order.customer_notes}</span>}

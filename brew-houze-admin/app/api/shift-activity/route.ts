@@ -83,6 +83,7 @@ export async function GET(request: Request) {
     const [orders, attendance, stock, products, checkouts, movements, deliveries] = await Promise.all([
       pool.query(`
         SELECT so.order_id, so.queue_number, so.status, so.queue_status, so.total_amount, so.payment_method, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total, so.service_type,
+          (SELECT d.status FROM deliveries d WHERE d.order_id = so.order_id) AS delivery_status,
           so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, so.cash_portion,
           so.shift_id = $1 AS sold_in_shift,
           COALESCE(so.reversed_shift_id = $1, FALSE) AS reversed_in_shift,
@@ -219,6 +220,7 @@ export async function GET(request: Request) {
           paymentMethod: order.payment_method as string,
           orderSource: order.order_source as string,
           serviceType: (order.service_type as string | null) ?? null,
+          deliveryStatus: (order.delivery_status as string | null) ?? null,
           soldInShift: Boolean(order.sold_in_shift),
           reversedInShift: Boolean(order.reversed_in_shift),
           createdAt: order.created_at as string,

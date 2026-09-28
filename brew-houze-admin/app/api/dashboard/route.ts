@@ -122,7 +122,8 @@ export async function GET() {
       pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE queue_status = 'waiting')::int AS waiting,
-          COUNT(*) FILTER (WHERE queue_status = 'served')::int AS ready
+          -- Packed delivery orders are with the riders, not at the pickup counter.
+          COUNT(*) FILTER (WHERE queue_status = 'served' AND service_type IS DISTINCT FROM 'delivery')::int AS ready
         FROM sales_orders
         WHERE queue_status IN ('waiting', 'served') AND is_archived = FALSE
       `),

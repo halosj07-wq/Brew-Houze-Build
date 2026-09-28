@@ -4185,7 +4185,8 @@ function getFinanceDateStamp(): string {
 // log of everything recorded under it (orders, voids and refunds, clock-ins, stock changes and
 // GCash payments). Earlier shifts open in the same view from the picker.
 type ShiftLive = Omit<ShiftReport, "hoursOpen"> & { isOpen: boolean; previousShiftId: number | null; nextShiftId: number | null };
-type ShiftLiveOrder = ShiftOrder & { queueStatus: string | null; reversedBy: string | null } & ReturnDetails;
+// deliveryStatus: a delivery order's progress (its queue status stays "served" once packed).
+type ShiftLiveOrder = ShiftOrder & { queueStatus: string | null; reversedBy: string | null; deliveryStatus?: string | null } & ReturnDetails;
 // How the money of a voided or refunded order went back to the customer (set by the cashier).
 type ReturnDetails = { returnMethod?: string | null; returnGcashName?: string | null; returnGcashNumber?: string | null; returnReference?: string | null; cashPortion?: number | null; total?: number };
 type ShiftStockLog = {
@@ -4455,7 +4456,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
     return true;
   });
   const queueWaiting = shift?.isOpen ? orders.filter((order) => order.queueStatus === "waiting").length : 0;
-  const queueReady = shift?.isOpen ? orders.filter((order) => order.queueStatus === "served").length : 0;
+  const queueReady = shift?.isOpen ? orders.filter((order) => order.queueStatus === "served" && order.serviceType !== "delivery").length : 0;
   const paymentsNeedingAttention = (data?.payments ?? []).filter((payment) => payment.status === "needs_attention");
 
   const dayOf = (value: string) => manilaDay(value);
@@ -4673,7 +4674,8 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
                   <strong className={reversed ? "is-reversed" : ""}>{peso(order.total)}</strong>
                   {reversed ? <span className="dash-tag is-out">{order.status.startsWith("void") ? "Voided" : "Refunded"}{order.soldInShift ? "" : " · earlier sale"}</span>
                     : order.queueStatus === "waiting" && shift.isOpen ? <span className="dash-tag is-low">Preparing</span>
-                      : order.queueStatus === "served" && shift.isOpen ? <span className="dash-tag shiftm-ready">Ready</span> : null}
+                      : order.serviceType === "delivery" && order.deliveryStatus && order.deliveryStatus !== "preparing" ? <span className={`dash-tag ${order.deliveryStatus === "failed" ? "is-out" : order.deliveryStatus === "delivered" ? "shiftm-ready" : "is-low"}`}>{order.deliveryStatus === "ready" ? "Packed" : deliveryStatusLabels[order.deliveryStatus] ?? order.deliveryStatus}</span>
+                        : order.queueStatus === "served" && shift.isOpen ? <span className="dash-tag shiftm-ready">Ready</span> : null}
                 </div>
               </li>;
             })}

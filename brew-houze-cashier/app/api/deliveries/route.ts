@@ -5,7 +5,8 @@ import { getSession } from "@/lib/sessions";
 // The delivery queue (see delivery-orders-migration.sql), for riders, cashiers and admins.
 //   GET    deliveries in progress, today's finished ones, and cash on delivery still with a rider
 //   PATCH  { id, action }
-//     pickup      ready -> out (the rider taking it; a cashier can pick it up for a rider)
+//     pickup      ready -> out (the rider taking it). A cashier or admin marking it for a rider
+//                 sends riderId: an active rider, or themselves when the café has no rider.
 //     delivered   out -> delivered; cash on delivery records what the rider collected
 //     failed      could not deliver, with a reason. Cash on delivery: the customer loses COD
 //                 until an admin allows it again. The order is then voided in Void & Refund.
@@ -48,9 +49,18 @@ export async function GET() {
       ORDER BY d.created_at DESC
       LIMIT 200
     `);
+    // Rider accounts for "Picked up by", on duty first.
+    const riders = auth.role === "rider" ? { rows: [] as Record<string, unknown>[] } : await pool.query(`
+      SELECT u.admin_id, u.full_name,
+        EXISTS (SELECT 1 FROM employee_time_logs t WHERE t.admin_id = u.admin_id AND t.time_out IS NULL AND t.is_archived = FALSE) AS on_duty
+      FROM admin_users u
+      WHERE LOWER(u.role) = 'rider' AND u.is_active = TRUE
+      ORDER BY on_duty DESC, u.full_name
+    `);
     return NextResponse.json({
       role: auth.role,
       adminId: auth.session.adminId,
+      riders: riders.rows.map((row) => ({ id: Number(row.admin_id), name: String(row.full_name), onDuty: Boolean(row.on_duty) })),
       data: result.rows.map((row) => ({
         id: Number(row.delivery_id), orderId: Number(row.order_id), queueNumber: row.queue_number === null ? null : Number(row.queue_number),
         total: Number(row.total_amount), fee: Number(row.delivery_fee), orderStatus: String(row.order_status), discountLabel: (row.discount_label as string | null) ?? null,
@@ -74,7 +84,7 @@ export async function PATCH(request: Request) {
   if (auth.error) return auth.error;
   const client = await pool.connect();
   try {
-    const body = await request.json() as { id?: unknown; action?: unknown; collected?: unknown; reason?: unknown };
+    const body = await request.json() as { id?: unknown; action?: unknown; collected?: unknown; reason?: unknown; riderId?: unknown };
     const id = Number(body.id);
     const action = String(body.action ?? "");
     if (!Number.isInteger(id) || id <= 0 || ![...RIDER_ACTIONS, "remit"].includes(action)) return NextResponse.json({ error: "Unknown request." }, { status: 400 });
@@ -93,7 +103,14 @@ export async function PATCH(request: Request) {
 
     if (action === "pickup") {
       if (row.status !== "ready") return await fail(row.status === "preparing" ? "The barista has not packed this order yet." : "This delivery was already picked up.");
-      await client.query("UPDATE deliveries SET status = 'out', rider_admin_id = $2, picked_up_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE delivery_id = $1", [id, auth.session.adminId]);
+      // A rider takes it themselves. A cashier or admin names the rider (or themselves).
+      let riderId = auth.session.adminId;
+      if (auth.role !== "rider" && body.riderId !== undefined && body.riderId !== null && Number(body.riderId) !== auth.session.adminId) {
+        riderId = Number(body.riderId);
+        const rider = await client.query("SELECT 1 FROM admin_users WHERE admin_id = $1 AND LOWER(role) = 'rider' AND is_active = TRUE", [riderId]);
+        if (!Number.isInteger(riderId) || rider.rowCount === 0) return await fail("Choose a rider who can take deliveries.", 400);
+      }
+      await client.query("UPDATE deliveries SET status = 'out', rider_admin_id = $2, picked_up_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE delivery_id = $1", [id, riderId]);
     } else if (action === "delivered") {
       if (row.status !== "out") return await fail("Only a delivery on its way can be marked delivered.");
       let collected: number | null = null;
