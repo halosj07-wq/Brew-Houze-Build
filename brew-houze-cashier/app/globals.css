@@ -393,3 +393,29 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-reward-button:disabled { opacity: 0.55; cursor: default; }
 .pos-reward-note { margin: 0; color: #92400E; font-size: 11.5px; line-height: 1.45; }
 .pos-customer-result:disabled { cursor: not-allowed; }
+
+/* Discount rewards in the cart */
+.pos-discount-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding: 7px 9px; border-radius: 9px; background: #FFFBEB; border: 1px solid #FDE68A; font-size: 12.5px; }
+.pos-discount-row span { flex: 1; display: flex; flex-direction: column; gap: 2px; color: #92400E; font-weight: 700; min-width: 0; }
+.pos-discount-row em { color: #B45309; font-size: 11px; font-style: normal; font-weight: 500; }
+.pos-discount-row strong { color: #B45309; white-space: nowrap; }
+.pos-discount-row button { flex-shrink: 0; width: 24px; height: 24px; border: 1px solid #FDE68A; border-radius: 6px; background: #FFFFFF; color: #B45309; cursor: pointer; }
+
+/* Campaign preview in the top bar */
+.campaign-preview { position: relative; }
+.campaign-chip { display: inline-flex; align-items: center; gap: 8px; height: 40px; max-width: 240px; padding: 0 12px; border-radius: 12px; border: 1px solid #FCD34D; background: #FFFBEB; color: #92400E; font-size: 12.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.campaign-chip span { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.campaign-chip-label { overflow: hidden; text-overflow: ellipsis; font-weight: 800; }
+.campaign-popover { position: absolute; top: calc(100% + 8px); right: 0; z-index: 70; width: 340px; max-height: 70vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 14px; border: 1px solid #E8DDD5; background: #FDF9F5; box-shadow: 0 18px 44px rgba(61,43,31,0.2); }
+.campaign-popover section { display: flex; flex-direction: column; gap: 6px; }
+.campaign-popover section + section { padding-top: 12px; border-top: 1px solid #F0E8E1; }
+.campaign-popover-eyebrow { margin: 0; color: #D97706; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; }
+.campaign-popover h3 { margin: 0; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; }
+.campaign-popover-copy { margin: 0; color: #6B4C3B; font-size: 12.5px; line-height: 1.45; }
+.campaign-popover-rule { margin: 0; padding: 8px 10px; border-radius: 9px; background: #FFFBEB; color: #92400E; font-size: 12.5px; font-weight: 700; line-height: 1.45; }
+.campaign-popover ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.campaign-popover li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 8px; background: #FFFFFF; border: 1px solid #F0E8E1; color: #3D2B1F; font-size: 12.5px; }
+.campaign-popover li b { color: #B45309; white-space: nowrap; }
+.campaign-popover-foot { margin: 0; color: #9C8278; font-size: 11.5px; line-height: 1.45; }
+@media (max-width: 1100px) { .campaign-chip-label { display: none; } .campaign-chip { padding: 0 10px; } }
+@media (max-width: 640px) { .campaign-popover { position: fixed; top: 64px; left: 10px; right: 10px; width: auto; } }

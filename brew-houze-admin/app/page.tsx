@@ -4980,6 +4980,7 @@ type FinanceOverviewData = {
 type FinanceLoyalty = {
   memberOrders: number; memberSales: number; members: number; starsEarned: number; starsSpent: number; starsAdjusted: number;
   rewardsClaimed: number; rewardValue: number; rewardCost: number | null; rewards: { name: string; claimed: number; value: number; cost: number | null }[];
+  discounts?: { source: string; orders: number; amount: number }[]; discountTotal?: number;
 };
 // rewardName: a loyalty reward line (sold at ₱0); rewardValue: its normal price.
 type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; rewardValue?: number | null; additions: { name: string; quantity: number; unitPrice: number }[] };
@@ -4988,6 +4989,8 @@ type FinanceOrder = {
   received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
   businessDate: string; createdAt: string; reversedAt: string | null; punchedBy: string; reversedBy: string | null; cost: number | null; items: FinanceOrderItem[];
   customerName?: string | null;
+  // A discount taken off the order (a reward now; PWD or senior later).
+  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null;
   paymentProvider?: string | null;
   // Split ticket: the part paid in cash (the rest was GCash).
   cashPortion?: number | null;
@@ -5212,12 +5215,13 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       </DashCard>
     </div>
 
-    {data.loyalty && (data.loyalty.memberOrders > 0 || data.loyalty.rewardsClaimed > 0 || data.loyalty.starsEarned !== 0) && <DashCard title="Loyalty" sub="Orders linked to customers, stars, and the rewards given away. Reward items are sold at ₱0, and their cost is already in the cost of goods above.">
+    {data.loyalty && (data.loyalty.memberOrders > 0 || data.loyalty.rewardsClaimed > 0 || data.loyalty.starsEarned !== 0 || (data.loyalty.discountTotal ?? 0) > 0) && <DashCard title="Loyalty" sub="Orders linked to customers, stars, and the rewards given away. Reward items are sold at ₱0, and their cost is already in the cost of goods above.">
       <div className="acc-stats">
         <div><span>Member sales</span><strong>{peso(data.loyalty.memberSales)}</strong><em className="fin-loy-sub">{data.loyalty.memberOrders} order{data.loyalty.memberOrders === 1 ? "" : "s"} · {data.current.netSales > 0 ? `${Math.round((data.loyalty.memberSales / data.current.netSales) * 100)}% of net sales` : "—"}</em></div>
         <div><span>Members who ordered</span><strong>{data.loyalty.members}</strong></div>
         <div><span>Stars earned / spent</span><strong>★ {data.loyalty.starsEarned} / {data.loyalty.starsSpent}</strong></div>
         <div><span>Rewards given</span><strong>{data.loyalty.rewardsClaimed}</strong><em className="fin-loy-sub">worth {peso(data.loyalty.rewardValue)} · cost {data.loyalty.rewardCost === null ? "not recorded" : peso(data.loyalty.rewardCost)}</em></div>
+        {(data.loyalty.discountTotal ?? 0) > 0 && <div><span>Discounts given</span><strong>{peso(data.loyalty.discountTotal ?? 0)}</strong><em className="fin-loy-sub">{(data.loyalty.discounts ?? []).map((row) => `${row.orders} ${row.source === "birthday" ? "birthday" : row.source === "reward" ? "reward" : row.source} order${row.orders === 1 ? "" : "s"}`).join(" · ")}</em></div>}
       </div>
       {data.loyalty.rewards.length > 0 && <ul className="fin-simple-list" style={{ marginTop: 12 }}>
         {data.loyalty.rewards.map((reward) => <li key={reward.name}><span><strong>{reward.name}</strong><em>{reward.claimed} given · cost {reward.cost === null ? "not recorded" : peso(reward.cost)}</em></span><strong>{peso(reward.value)}</strong></li>)}
@@ -5267,6 +5271,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {fact("Shift", order.shiftId ? `#${order.shiftId}` : "—")}
           {fact("Punched by", order.punchedBy)}
           {order.customerName && fact("Customer", order.customerName)}
+          {Boolean(order.discountAmount) && fact("Discount", `−${peso(order.discountAmount ?? 0)}${order.discountLabel ? ` · ${order.discountLabel}` : ""}`)}
           {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.received !== null && fact("Cash received", peso(order.received))}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.change !== null && fact("Change", peso(order.change))}
@@ -5310,6 +5315,9 @@ function financeOrderColumns(): ExcelColumn<FinanceOrder>[] {
     { header: "Payment", value: (order) => excelPayment(order) },
     { header: "Status", value: (order) => excelStatus(orderStatusOf(order)) },
     { header: "Items", value: (order) => describeItems(order.items) },
+    { header: "Subtotal", value: (order) => order.subtotal ?? order.total + (order.discountAmount ?? 0), kind: "money" },
+    { header: "Discount", value: (order) => order.discountAmount || null, kind: "money" },
+    { header: "Discount for", value: (order) => order.discountLabel ?? "" },
     { header: "Total", value: (order) => order.total, kind: "money" },
     { header: "Cash part", value: (order) => order.paymentMethod === "split" ? order.cashPortion ?? null : order.paymentMethod === "cash" ? order.total : null, kind: "money" },
     { header: "Cash received", value: (order) => order.paymentMethod === "cash" || order.paymentMethod === "split" ? order.received : null, kind: "money" },
@@ -5634,6 +5642,7 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
           ["Rewards given", loyalty.rewardsClaimed],
           ["Normal price of rewards given", loyalty.rewardValue],
           ["Cost of rewards given", loyalty.rewardCost],
+          ["Discounts given", loyalty.discountTotal ?? 0],
           [],
           ["Reward", "Given", "Normal price", "Cost"],
           ...loyalty.rewards.map((reward): ExcelInfoRow => [reward.name, reward.claimed, reward.value, reward.cost]),
@@ -6654,22 +6663,37 @@ function Customers() {
 // happens to stars when it ends, and the rewards. One campaign runs at a time. Stars are a
 // ledger (see /api/loyalty): nothing is edited or deleted, the admin adds adjustments instead.
 
-type LoyaltyReward = { id: number; name: string; starsCost: number; productId: number | null; productName: string | null; category: string | null; maxPrice: number | null };
-type LoyaltyStatus = "draft" | "scheduled" | "running" | "ended";
+// A reward is a free item or a discount (percent or pesos off, optional cap and minimum order).
+type LoyaltyReward = {
+  id: number; name: string; starsCost: number; productId: number | null; productName: string | null; category: string | null; maxPrice: number | null;
+  rewardType: "free_item" | "discount"; discountKind: "percent" | "fixed" | null; discountValue: number | null; maxDiscount: number | null; minOrderAmount: number | null;
+};
+type LoyaltyStatus = "draft" | "scheduled" | "running" | "paused" | "ended";
+type BirthdayWindow = "day" | "week" | "month";
 type LoyaltyCampaign = {
   id: number; name: string; description: string; startsOn: string; endsOn: string | null; status: LoyaltyStatus; isActive: boolean;
-  earnMode: "per_item" | "per_amount"; starsPerUnit: number; amountStep: number | null; categories: string[]; maxPerOrder: number | null; maxPerDay: number | null;
+  // seasonal: stars; birthday: one treat a year around the customer's birthday, switched on and off.
+  kind: "seasonal" | "birthday"; birthdayWindow: BirthdayWindow | null; birthdayClaims: number; minOrderAmount: number | null;
+  earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; categories: string[]; maxPerOrder: number | null; maxPerDay: number | null;
   carryOver: boolean; activatedAt: string | null; endedAt: string | null; createdAt: string;
   stats: { members: number; earned: number; reversed: number; adjusted: number; carriedIn: number; redeemed: number; rewardsClaimed: number; outstanding: number; orders: number };
   rewards: LoyaltyReward[];
 };
 type CampaignMember = { customerId: number; fullName: string; username: string | null; erased: boolean; balance: number; earned: number; orders: number; rewards: number; lastActivity: string };
 type StarEntry = { id: number; kind: string; stars: number; orderId: number | null; queueNumber: number | null; reason: string | null; customerName?: string; adminName: string | null; rewardName: string | null; createdAt: string; campaignId?: number; campaignName?: string };
-type CampaignResults = { memberOrders: number; memberSales: number; buyers: number; rewards: { rewardId: number; name: string; claimed: number; value: number; cost: number | null }[]; rewardValue: number; rewardCost: number | null };
+type CampaignResults = {
+  memberOrders: number; memberSales: number; buyers: number; rewards: { rewardId: number; name: string; claimed: number; value: number; cost: number | null }[]; rewardValue: number; rewardCost: number | null;
+  discounts?: { rewardId: number; name: string; uses: number; amount: number }[]; birthdayTreats?: { year: number; treats: number }[];
+};
 type CampaignDetail = { members: CampaignMember[]; entries: StarEntry[]; results?: CampaignResults };
-type CampaignRules = Pick<LoyaltyCampaign, "earnMode" | "starsPerUnit" | "amountStep" | "categories" | "maxPerOrder" | "maxPerDay">;
+type CampaignRules = Pick<LoyaltyCampaign, "earnMode" | "starsPerUnit" | "amountStep" | "categories" | "maxPerOrder" | "maxPerDay" | "minOrderAmount">;
 
-const loyaltyStatusLabels: Record<LoyaltyStatus, string> = { draft: "Draft", scheduled: "Scheduled", running: "Running", ended: "Ended" };
+const loyaltyStatusLabels: Record<LoyaltyStatus, string> = { draft: "Draft", scheduled: "Scheduled", running: "Running", paused: "Switched off", ended: "Ended" };
+const birthdayWindowLabels: Record<BirthdayWindow, [string, string]> = {
+  day: ["On the day", "Only on their birthday itself."],
+  week: ["Birthday week", "From 3 days before to 3 days after."],
+  month: ["Birthday month", "Any day in their birthday month."],
+};
 const starEntryLabels: Record<string, string> = { earned: "Earned", reversed: "Taken back (void/refund)", adjusted: "Adjusted by admin", carried_out: "Moved to next campaign", carried_in: "Carried over", redeemed: "Reward claimed", restored: "Reward returned" };
 
 function IconStar({ size = 20 }: { size?: number }) {
@@ -6682,9 +6706,11 @@ function starsText(count: number): string {
 
 function campaignRuleText(rules: CampaignRules): string {
   const from = rules.categories.length ? ` from ${rules.categories.join(" or ")}` : "";
-  const rule = rules.earnMode === "per_amount"
-    ? `${starsText(rules.starsPerUnit)} for every ${peso(rules.amountStep ?? 0)} spent${from ? ` on items${from}` : ""}`
-    : `${starsText(rules.starsPerUnit)} for every item${from}`;
+  const rule = rules.earnMode === "per_order"
+    ? `${starsText(rules.starsPerUnit)} for every order${from ? ` with items${from}` : ""}${rules.minOrderAmount ? ` of ${peso(rules.minOrderAmount)} or more` : ""}`
+    : rules.earnMode === "per_amount"
+      ? `${starsText(rules.starsPerUnit)} for every ${peso(rules.amountStep ?? 0)} spent${from ? ` on items${from}` : ""}`
+      : `${starsText(rules.starsPerUnit)} for every item${from}`;
   const limits = [rules.maxPerOrder ? `${starsText(rules.maxPerOrder)} per order` : "", rules.maxPerDay ? `${starsText(rules.maxPerDay)} per day` : ""].filter(Boolean);
   return `${rule}${limits.length ? `, up to ${limits.join(" and ")}` : ""}.`;
 }
@@ -6694,7 +6720,20 @@ function campaignDateText(campaign: Pick<LoyaltyCampaign, "startsOn" | "endsOn">
   return campaign.endsOn ? `${format(campaign.startsOn)} – ${format(campaign.endsOn)}` : `From ${format(campaign.startsOn)}, no end date`;
 }
 
-function rewardCoverage(reward: Pick<LoyaltyReward, "productName" | "category" | "maxPrice">): string {
+// "10% off (up to ₱50.00), orders from ₱200.00".
+function rewardDiscountText(reward: Pick<LoyaltyReward, "discountKind" | "discountValue" | "maxDiscount" | "minOrderAmount">): string {
+  if (!reward.discountKind || !reward.discountValue) return "";
+  const off = reward.discountKind === "percent" ? `${reward.discountValue}% off` : `${peso(reward.discountValue)} off`;
+  return [off + (reward.discountKind === "percent" && reward.maxDiscount ? ` (up to ${peso(reward.maxDiscount)})` : ""), reward.minOrderAmount ? `orders from ${peso(reward.minOrderAmount)}` : ""].filter(Boolean).join(", ");
+}
+
+function birthdayRuleText(campaign: Pick<LoyaltyCampaign, "birthdayWindow">): string {
+  const window = campaign.birthdayWindow === "day" ? "on their birthday" : campaign.birthdayWindow === "month" ? "in their birthday month" : "within 3 days of their birthday";
+  return `One free treat a year per customer, ${window}. No stars needed; the customer needs their birthday on their profile.`;
+}
+
+function rewardCoverage(reward: Pick<LoyaltyReward, "productName" | "category" | "maxPrice"> & Partial<Pick<LoyaltyReward, "rewardType" | "discountKind" | "discountValue" | "maxDiscount" | "minOrderAmount">>): string {
+  if (reward.rewardType === "discount") return `${rewardDiscountText(reward as LoyaltyReward)} · on ${reward.productName ?? (reward.category ? `${reward.category} items` : "the whole order")}`;
   const parts = [reward.productName ?? (reward.category ? `any ${reward.category} item` : "any item"), reward.maxPrice !== null ? `up to ${peso(reward.maxPrice)}` : ""].filter(Boolean);
   return parts.join(", ");
 }
@@ -6769,21 +6808,31 @@ function exportCampaignReport(campaign: LoyaltyCampaign, detail: CampaignDetail)
 let rewardKeySeed = 0;
 const nextRewardKey = () => ++rewardKeySeed;
 
-type RewardDraft = { key: number; id: number | null; name: string; starsCost: string; productId: string; category: string; maxPrice: string };
-type CampaignDraft = {
-  name: string; description: string; startsOn: string; endsOn: string; earnMode: "per_item" | "per_amount"; starsPerUnit: string; amountStep: string;
-  categories: string[]; maxPerOrder: string; maxPerDay: string; carryOver: boolean; rewards: RewardDraft[];
+type RewardDraft = {
+  key: number; id: number | null; name: string; starsCost: string; productId: string; category: string; maxPrice: string;
+  rewardType: "free_item" | "discount"; discountKind: "percent" | "fixed"; discountValue: string; maxDiscount: string; minOrderAmount: string;
 };
+type CampaignDraft = {
+  name: string; description: string; startsOn: string; endsOn: string; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: string; amountStep: string; minOrderAmount: string;
+  categories: string[]; maxPerOrder: string; maxPerDay: string; carryOver: boolean; birthdayWindow: BirthdayWindow; rewards: RewardDraft[];
+};
+const blankReward = (name = "", starsCost = ""): RewardDraft => ({ key: nextRewardKey(), id: null, name, starsCost, productId: "", category: "", maxPrice: "", rewardType: "free_item", discountKind: "percent", discountValue: "", maxDiscount: "", minOrderAmount: "" });
 
-function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }: { campaign: LoyaltyCampaign | null; products: Product[]; categories: ProductCategory[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+function CampaignFormDialog({ campaign, kind: newKind = "seasonal", products, categories, onClose, onSaved }: { campaign: LoyaltyCampaign | null; kind?: "seasonal" | "birthday"; products: Product[]; categories: ProductCategory[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const birthday = (campaign?.kind ?? newKind) === "birthday";
   const [draft, setDraft] = useState<CampaignDraft>(() => campaign ? {
     name: campaign.name, description: campaign.description, startsOn: campaign.startsOn, endsOn: campaign.endsOn ?? "", earnMode: campaign.earnMode,
-    starsPerUnit: String(campaign.starsPerUnit), amountStep: campaign.amountStep === null ? "" : String(campaign.amountStep), categories: campaign.categories,
+    starsPerUnit: String(campaign.starsPerUnit), amountStep: campaign.amountStep === null ? "" : String(campaign.amountStep), minOrderAmount: campaign.minOrderAmount === null ? "" : String(campaign.minOrderAmount), categories: campaign.categories,
     maxPerOrder: campaign.maxPerOrder === null ? "" : String(campaign.maxPerOrder), maxPerDay: campaign.maxPerDay === null ? "" : String(campaign.maxPerDay), carryOver: campaign.carryOver,
-    rewards: campaign.rewards.map((reward) => ({ key: nextRewardKey(), id: reward.id, name: reward.name, starsCost: String(reward.starsCost), productId: reward.productId === null ? "" : String(reward.productId), category: reward.category ?? "", maxPrice: reward.maxPrice === null ? "" : String(reward.maxPrice) })),
+    birthdayWindow: campaign.birthdayWindow ?? "week",
+    rewards: campaign.rewards.map((reward) => ({
+      key: nextRewardKey(), id: reward.id, name: reward.name, starsCost: String(reward.starsCost), productId: reward.productId === null ? "" : String(reward.productId), category: reward.category ?? "", maxPrice: reward.maxPrice === null ? "" : String(reward.maxPrice),
+      rewardType: reward.rewardType, discountKind: reward.discountKind ?? "percent", discountValue: reward.discountValue === null ? "" : String(reward.discountValue), maxDiscount: reward.maxDiscount === null ? "" : String(reward.maxDiscount), minOrderAmount: reward.minOrderAmount === null ? "" : String(reward.minOrderAmount),
+    })),
   } : {
-    name: "", description: "", startsOn: getFinanceDateStamp(), endsOn: "", earnMode: "per_item", starsPerUnit: "1", amountStep: "100", categories: [], maxPerOrder: "", maxPerDay: "", carryOver: false,
-    rewards: [{ key: nextRewardKey(), id: null, name: "Free drink", starsCost: "10", productId: "", category: "", maxPrice: "" }],
+    name: birthday ? "Birthday treat" : "", description: "", startsOn: getFinanceDateStamp(), endsOn: "", earnMode: "per_item", starsPerUnit: "1", amountStep: "100", minOrderAmount: "", categories: [], maxPerOrder: "", maxPerDay: "", carryOver: false,
+    birthdayWindow: "week",
+    rewards: [birthday ? blankReward("Free birthday drink", "0") : blankReward("Free drink", "10")],
   });
   const [saving, setSaving] = useState<"draft" | "start" | "save" | null>(null);
   const [error, setError] = useState("");
@@ -6792,24 +6841,31 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
   const setReward = (key: number, patch: Partial<RewardDraft>) => setDraft((current) => ({ ...current, rewards: current.rewards.map((reward) => reward.key === key ? { ...reward, ...patch } : reward) }));
   const starsPerUnit = Number(draft.starsPerUnit);
   const amountStep = Number(draft.amountStep);
+  const badDiscount = (reward: RewardDraft) => reward.rewardType === "discount" && (!(Number(reward.discountValue) > 0) || (reward.discountKind === "percent" && Number(reward.discountValue) > 100));
   const problem = !draft.name.trim() ? "Give the campaign a name."
-    : !draft.startsOn ? "Choose the start date."
-      : draft.endsOn && draft.endsOn < draft.startsOn ? "The end date must be on or after the start date."
-        : !Number.isInteger(starsPerUnit) || starsPerUnit < 1 || starsPerUnit > 100 ? "Stars earned must be a whole number from 1 to 100."
-          : draft.earnMode === "per_amount" && !(amountStep > 0) ? "Enter how many pesos earn the stars."
-            : draft.rewards.some((reward) => !reward.name.trim() || !(Number.isInteger(Number(reward.starsCost)) && Number(reward.starsCost) >= 1)) ? "Every reward needs a name and a star cost."
-              : "";
-  const previewRules: CampaignRules = { earnMode: draft.earnMode, starsPerUnit: Number.isFinite(starsPerUnit) && starsPerUnit > 0 ? starsPerUnit : 1, amountStep: amountStep > 0 ? amountStep : 0, categories: draft.categories, maxPerOrder: Number(draft.maxPerOrder) > 0 ? Number(draft.maxPerOrder) : null, maxPerDay: Number(draft.maxPerDay) > 0 ? Number(draft.maxPerDay) : null };
+    : birthday ? (draft.rewards.length === 0 ? "Add the birthday treat." : draft.rewards.some((reward) => !reward.name.trim()) ? "Every treat needs a name." : draft.rewards.some(badDiscount) ? "Set each discount (1 to 100% or a peso amount)." : "")
+      : !draft.startsOn ? "Choose the start date."
+        : draft.endsOn && draft.endsOn < draft.startsOn ? "The end date must be on or after the start date."
+          : !Number.isInteger(starsPerUnit) || starsPerUnit < 1 || starsPerUnit > 100 ? "Stars earned must be a whole number from 1 to 100."
+            : draft.earnMode === "per_amount" && !(amountStep > 0) ? "Enter how many pesos earn the stars."
+              : draft.rewards.some((reward) => !reward.name.trim() || !(Number.isInteger(Number(reward.starsCost)) && Number(reward.starsCost) >= 1)) ? "Every reward needs a name and a star cost."
+                : draft.rewards.some(badDiscount) ? "Set each discount (1 to 100% or a peso amount)."
+                  : "";
+  const previewRules: CampaignRules = { earnMode: draft.earnMode, starsPerUnit: Number.isFinite(starsPerUnit) && starsPerUnit > 0 ? starsPerUnit : 1, amountStep: amountStep > 0 ? amountStep : 0, minOrderAmount: Number(draft.minOrderAmount) > 0 ? Number(draft.minOrderAmount) : null, categories: draft.categories, maxPerOrder: Number(draft.maxPerOrder) > 0 ? Number(draft.maxPerOrder) : null, maxPerDay: Number(draft.maxPerDay) > 0 ? Number(draft.maxPerDay) : null };
 
   async function save(mode: "draft" | "start" | "save") {
     if (problem || saving) { setError(problem); return; }
     setSaving(mode);
     setError("");
     const payload = {
+      kind: birthday ? "birthday" : "seasonal", birthdayWindow: draft.birthdayWindow,
       name: draft.name, description: draft.description, startsOn: draft.startsOn, endsOn: draft.endsOn || null, earnMode: draft.earnMode,
-      starsPerUnit: starsPerUnit, amountStep: draft.earnMode === "per_amount" ? amountStep : null, categories: draft.categories,
+      starsPerUnit: starsPerUnit, amountStep: draft.earnMode === "per_amount" ? amountStep : null, minOrderAmount: draft.earnMode === "per_order" ? draft.minOrderAmount || null : null, categories: draft.categories,
       maxPerOrder: draft.maxPerOrder || null, maxPerDay: draft.maxPerDay || null, carryOver: draft.carryOver,
-      rewards: draft.rewards.map((reward) => ({ id: reward.id, name: reward.name, starsCost: Number(reward.starsCost), productId: reward.productId || null, category: reward.category || null, maxPrice: reward.maxPrice || null })),
+      rewards: draft.rewards.map((reward) => ({
+        id: reward.id, name: reward.name, starsCost: birthday ? 0 : Number(reward.starsCost), productId: reward.productId || null, category: reward.category || null, maxPrice: reward.rewardType === "free_item" ? reward.maxPrice || null : null,
+        rewardType: reward.rewardType, discountKind: reward.discountKind, discountValue: reward.discountValue || null, maxDiscount: reward.maxDiscount || null, minOrderAmount: reward.minOrderAmount || null,
+      })),
     };
     try {
       const response = await fetch("/api/loyalty", {
@@ -6818,7 +6874,7 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error || "Could not save the campaign.");
-      await onSaved(campaign ? "Campaign saved." : mode === "start" ? `Campaign started.${result.data?.carried ? ` Stars of ${result.data.carried} customer${result.data.carried === 1 ? "" : "s"} were carried over.` : ""}` : "Draft saved. Start it when you are ready.");
+      await onSaved(campaign ? "Campaign saved." : birthday ? (mode === "start" ? "Birthday treat switched on." : "Birthday treat saved. Switch it on when you are ready.") : mode === "start" ? `Campaign started.${result.data?.carried ? ` Stars of ${result.data.carried} customer${result.data.carried === 1 ? "" : "s"} were carried over.` : ""}` : "Draft saved. Start it when you are ready.");
       onClose();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save the campaign.");
@@ -6828,10 +6884,60 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
   }
 
   const choice = (active: boolean) => ({ flex: 1, padding: "10px 12px", borderRadius: 11, border: active ? "1.5px solid #D97706" : "1.5px solid #E8DDD5", background: active ? "#FFF7ED" : "#FFFFFF", textAlign: "left" as const, cursor: "pointer" });
+  const rewardEditor = <section className="acc-block">
+    <header className="acc-block-head"><div><h3>{birthday ? "Birthday treat" : "Rewards"}</h3><p>{birthday ? "What each customer gets once a year: a free item or a discount. Add more than one to let them choose." : "What stars can buy: a free item, or a discount off the order. Customers claim them in their mobile menu cart, or at the counter by scanning the Stars sign (regulars without the app: the cashier confirms with their password)."}</p></div>
+      <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: [...current.rewards, blankReward("", birthday ? "0" : "")] }))}><IconPlus size={13} />{birthday ? "Add treat" : "Add reward"}</button></header>
+    {draft.rewards.length === 0 ? <p className="inv-hint">{birthday ? "Add the treat." : "No rewards yet. Customers can still collect stars."}</p> : <div className="flex flex-col gap-3">
+      {draft.rewards.map((reward) => <div key={reward.key} className="loy-reward-row">
+        <div className="loy-reward-top">
+          <input value={reward.name} onChange={(event) => setReward(reward.key, { name: event.target.value })} placeholder={reward.rewardType === "discount" ? "e.g. 10% off your order" : "e.g. Free 12oz drink"} style={packagingInput} maxLength={80} aria-label="Reward name" />
+          {!birthday && <label className="loy-stars-input"><IconStar size={13} /><input type="number" min={1} max={1000} step={1} value={reward.starsCost} onChange={(event) => setReward(reward.key, { starsCost: event.target.value })} placeholder="10" aria-label="Stars needed" /></label>}
+          <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: current.rewards.filter((item) => item.key !== reward.key) }))} aria-label={`Remove ${reward.name || "reward"}`} style={{ width: 34, padding: 0, justifyContent: "center" }}><IconX size={13} /></button>
+        </div>
+        <div className="inv-range" role="group" aria-label="Reward type" style={{ alignSelf: "flex-start" }}>
+          <button type="button" aria-pressed={reward.rewardType === "free_item"} onClick={() => setReward(reward.key, { rewardType: "free_item" })}>Free item</button>
+          <button type="button" aria-pressed={reward.rewardType === "discount"} onClick={() => setReward(reward.key, { rewardType: "discount" })}>Discount</button>
+        </div>
+        {reward.rewardType === "discount" && <div className="loy-reward-covers">
+          <label className="loy-price-input"><select value={reward.discountKind} onChange={(event) => setReward(reward.key, { discountKind: event.target.value as "percent" | "fixed" })} aria-label="Discount type" style={{ border: 0, background: "transparent", color: "#3D2B1F", fontWeight: 700 }}><option value="percent">% off</option><option value="fixed">₱ off</option></select><input type="number" min={0} step="0.01" value={reward.discountValue} onChange={(event) => setReward(reward.key, { discountValue: event.target.value })} placeholder={reward.discountKind === "percent" ? "10" : "30"} aria-label="Discount amount" /></label>
+          {reward.discountKind === "percent" ? <label className="loy-price-input"><span>Cap ₱</span><input type="number" min={0} step="0.01" value={reward.maxDiscount} onChange={(event) => setReward(reward.key, { maxDiscount: event.target.value })} placeholder="no cap" aria-label="Most it can take off" /></label> : <span />}
+          <label className="loy-price-input"><span>Min. order ₱</span><input type="number" min={0} step="0.01" value={reward.minOrderAmount} onChange={(event) => setReward(reward.key, { minOrderAmount: event.target.value })} placeholder="none" aria-label="Minimum order" /></label>
+        </div>}
+        <div className="loy-reward-covers">
+          <select value={reward.productId} onChange={(event) => setReward(reward.key, { productId: event.target.value })} className="inv-select" aria-label="Product">
+            <option value="">{reward.rewardType === "discount" ? "Whole order (any product)" : "Any product"}</option>
+            {[...products].sort((a, b) => a.name.localeCompare(b.name)).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+          </select>
+          <select value={reward.category} onChange={(event) => setReward(reward.key, { category: event.target.value })} className="inv-select" aria-label="Category" disabled={Boolean(reward.productId)}>
+            <option value="">Any category</option>
+            {categoryNames.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+          {reward.rewardType === "free_item" ? <label className="loy-price-input"><span>Up to ₱</span><input type="number" min={0} step="0.01" value={reward.maxPrice} onChange={(event) => setReward(reward.key, { maxPrice: event.target.value })} placeholder="any price" aria-label="Price limit" /></label> : <span />}
+        </div>
+      </div>)}
+    </div>}
+  </section>;
+
   return <Modal onClose={onClose} closeDisabled={saving !== null} label={campaign ? "Edit campaign" : "New campaign"}>
     <form onSubmit={(event) => { event.preventDefault(); void save(campaign ? "save" : "draft"); }} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 680, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-      <DialogHeader title={campaign ? `Edit ${campaign.name}` : "New loyalty campaign"} sub={campaign?.status === "running" ? "Changes apply to orders from now on. Stars already earned stay." : "A season of the loyalty program: how stars are earned and what they buy."} onClose={onClose} disabled={saving !== null} />
+      <DialogHeader title={campaign ? `Edit ${campaign.name}` : birthday ? "Birthday treat" : "New loyalty campaign"} sub={birthday ? "A free treat for each customer around their birthday, once a year. It has no end date: switch it off and on whenever you like." : campaign?.status === "running" ? "Changes apply to orders from now on. Stars already earned stay." : "A season of the loyalty program: how stars are earned and what they buy."} onClose={onClose} disabled={saving !== null} />
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        {birthday ? <>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Basics</h3></div></header>
+            <div className="flex flex-col gap-3">
+              <WizardField label="Name"><input data-autofocus value={draft.name} onChange={(event) => set("name", event.target.value)} placeholder="e.g. Birthday treat" style={packagingInput} maxLength={80} /></WizardField>
+              <WizardField label="Description (optional)" hint="Shown to customers on the mobile menu."><input value={draft.description} onChange={(event) => set("description", event.target.value)} placeholder="Happy birthday from Brew Houze!" style={packagingInput} maxLength={400} /></WizardField>
+            </div>
+          </section>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>When customers can get it</h3><p>Once a year per customer. They need their birthday on their profile (they add it on the mobile menu, or you add it in Customers).</p></div></header>
+            <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Birthday window">
+              {(Object.keys(birthdayWindowLabels) as BirthdayWindow[]).map((window) => <button key={window} type="button" role="radio" aria-checked={draft.birthdayWindow === window} style={choice(draft.birthdayWindow === window)} onClick={() => set("birthdayWindow", window)}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>{birthdayWindowLabels[window][0]}</strong><span style={{ color: "#9C8278", fontSize: 12 }}>{birthdayWindowLabels[window][1]}</span></button>)}
+            </div>
+          </section>
+          {rewardEditor}
+        </> : <>
         <section className="acc-block">
           <header className="acc-block-head"><div><h3>Basics</h3></div></header>
           <div className="flex flex-col gap-3">
@@ -6849,12 +6955,15 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
           <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Earning">
             <button type="button" role="radio" aria-checked={draft.earnMode === "per_item"} style={choice(draft.earnMode === "per_item")} onClick={() => set("earnMode", "per_item")}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Per item</strong><span style={{ color: "#9C8278", fontSize: 12 }}>Like a stamp card: each drink or item counts.</span></button>
             <button type="button" role="radio" aria-checked={draft.earnMode === "per_amount"} style={choice(draft.earnMode === "per_amount")} onClick={() => set("earnMode", "per_amount")}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Per amount spent</strong><span style={{ color: "#9C8278", fontSize: 12 }}>Stars for every set amount, like ₱100.</span></button>
+            <button type="button" role="radio" aria-checked={draft.earnMode === "per_order"} style={choice(draft.earnMode === "per_order")} onClick={() => set("earnMode", "per_order")}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Per order</strong><span style={{ color: "#9C8278", fontSize: 12 }}>Stars for each visit, however much they order.</span></button>
           </div>
           <div className="inv-step-grid" style={{ marginTop: 12 }}>
             <WizardField label="Stars earned"><input type="number" min={1} max={100} step={1} value={draft.starsPerUnit} onChange={(event) => set("starsPerUnit", event.target.value)} style={packagingInput} /></WizardField>
             {draft.earnMode === "per_amount"
               ? <WizardField label="For every (₱)"><input type="number" min={1} step={1} value={draft.amountStep} onChange={(event) => set("amountStep", event.target.value)} style={packagingInput} /></WizardField>
-              : <WizardField label="For every"><input value="1 item" disabled style={{ ...packagingInput, color: "#9C8278" }} /></WizardField>}
+              : draft.earnMode === "per_order"
+                ? <WizardField label="Minimum order (₱, optional)" hint="Empty: every order counts."><input type="number" min={0} step="0.01" value={draft.minOrderAmount} onChange={(event) => set("minOrderAmount", event.target.value)} placeholder="none" style={packagingInput} /></WizardField>
+                : <WizardField label="For every"><input value="1 item" disabled style={{ ...packagingInput, color: "#9C8278" }} /></WizardField>}
           </div>
           <div style={{ marginTop: 12 }}>
             <WizardField label="Which items count" hint="None ticked: every item counts.">
@@ -6879,30 +6988,8 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
           </div>
         </section>
 
-        <section className="acc-block">
-          <header className="acc-block-head"><div><h3>Rewards</h3><p>What stars can buy: one item each, free. Customers claim them in their mobile menu cart, or at the counter by scanning the Stars sign (regulars without the app: the cashier confirms with their password).</p></div>
-            <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: [...current.rewards, { key: nextRewardKey(), id: null, name: "", starsCost: "", productId: "", category: "", maxPrice: "" }] }))}><IconPlus size={13} />Add reward</button></header>
-          {draft.rewards.length === 0 ? <p className="inv-hint">No rewards yet. Customers can still collect stars.</p> : <div className="flex flex-col gap-3">
-            {draft.rewards.map((reward) => <div key={reward.key} className="loy-reward-row">
-              <div className="loy-reward-top">
-                <input value={reward.name} onChange={(event) => setReward(reward.key, { name: event.target.value })} placeholder="Reward name, e.g. Free 12oz drink" style={packagingInput} maxLength={80} aria-label="Reward name" />
-                <label className="loy-stars-input"><IconStar size={13} /><input type="number" min={1} max={1000} step={1} value={reward.starsCost} onChange={(event) => setReward(reward.key, { starsCost: event.target.value })} placeholder="10" aria-label="Stars needed" /></label>
-                <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: current.rewards.filter((item) => item.key !== reward.key) }))} aria-label={`Remove ${reward.name || "reward"}`} style={{ width: 34, padding: 0, justifyContent: "center" }}><IconX size={13} /></button>
-              </div>
-              <div className="loy-reward-covers">
-                <select value={reward.productId} onChange={(event) => setReward(reward.key, { productId: event.target.value })} className="inv-select" aria-label="Product">
-                  <option value="">Any product</option>
-                  {[...products].sort((a, b) => a.name.localeCompare(b.name)).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
-                </select>
-                <select value={reward.category} onChange={(event) => setReward(reward.key, { category: event.target.value })} className="inv-select" aria-label="Category" disabled={Boolean(reward.productId)}>
-                  <option value="">Any category</option>
-                  {categoryNames.map((name) => <option key={name} value={name}>{name}</option>)}
-                </select>
-                <label className="loy-price-input"><span>Up to ₱</span><input type="number" min={0} step="0.01" value={reward.maxPrice} onChange={(event) => setReward(reward.key, { maxPrice: event.target.value })} placeholder="any price" aria-label="Price limit" /></label>
-              </div>
-            </div>)}
-          </div>}
-        </section>
+        {rewardEditor}
+        </>}
         {error && <p role="alert" className="acc-error">{error}</p>}
       </div>
       <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-wrap" style={{ borderColor: "#E8DDD5" }}>
@@ -6912,7 +6999,7 @@ function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }
           ? <button type="submit" disabled={saving !== null || Boolean(problem)} className="ui-button ui-button-primary">{saving ? "Saving…" : "Save changes"}</button>
           : <>
             <button type="submit" disabled={saving !== null || Boolean(problem)} className="ui-button ui-button-secondary">{saving === "draft" ? "Saving…" : "Save as draft"}</button>
-            <button type="button" disabled={saving !== null || Boolean(problem)} onClick={() => void save("start")} className="ui-button ui-button-primary">{saving === "start" ? "Starting…" : "Save and start"}</button>
+            <button type="button" disabled={saving !== null || Boolean(problem)} onClick={() => void save("start")} className="ui-button ui-button-primary">{saving === "start" ? "Starting…" : birthday ? "Save and switch on" : "Save and start"}</button>
           </>}
       </div>
     </form>
@@ -6934,15 +7021,17 @@ function CampaignDialog({ campaign, onClose, onEdit, onChanged }: { campaign: Lo
     return () => { active = false; };
   }, [campaign.id]);
 
+  const birthday = campaign.kind === "birthday";
   async function act(action: "activate" | "end") {
-    if (action === "end" && !(await confirmAction({ title: `End ${campaign.name}?`, message: `Customers stop earning stars right away. ${campaign.carryOver ? "Their unspent stars carry over into the next campaign you start." : "Their unspent stars expire (they stay in the history)."} An ended campaign cannot be restarted.`, confirmLabel: "End campaign" }))) return;
+    if (action === "end" && birthday && !(await confirmAction({ title: `Switch off ${campaign.name}?`, message: "Customers cannot get their birthday treat until you switch it on again. Treats already given stay recorded.", confirmLabel: "Switch off", tone: "default" }))) return;
+    if (action === "end" && !birthday && !(await confirmAction({ title: `End ${campaign.name}?`, message: `Customers stop earning stars right away. ${campaign.carryOver ? "Their unspent stars carry over into the next campaign you start." : "Their unspent stars expire (they stay in the history)."} An ended campaign cannot be restarted.`, confirmLabel: "End campaign" }))) return;
     setWorking(true);
     setError("");
     try {
       const response = await fetch("/api/loyalty", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: campaign.id, action }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not update the campaign.");
-      await onChanged(action === "end" ? `${campaign.name} ended.` : `${campaign.name} started.${payload.data?.carried ? ` Stars of ${payload.data.carried} customer${payload.data.carried === 1 ? "" : "s"} were carried over.` : ""}`);
+      await onChanged(birthday ? `${campaign.name} switched ${action === "end" ? "off" : "on"}.` : action === "end" ? `${campaign.name} ended.` : `${campaign.name} started.${payload.data?.carried ? ` Stars of ${payload.data.carried} customer${payload.data.carried === 1 ? "" : "s"} were carried over.` : ""}`);
       onClose();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Could not update the campaign.");
@@ -6955,10 +7044,10 @@ function CampaignDialog({ campaign, onClose, onEdit, onChanged }: { campaign: Lo
   return <Modal onClose={onClose} closeDisabled={working} labelledBy="campaign-dialog-title">
     <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 720, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
       <header className="acc-dialog-head">
-        <span className="loy-badge"><IconStar size={24} /></span>
+        <span className="loy-badge">{birthday ? <span style={{ fontSize: 22 }}>🎂</span> : <IconStar size={24} />}</span>
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 id="campaign-dialog-title">{campaign.name}</h2>
-          <p>{campaignDateText(campaign)}</p>
+          <p>{birthday ? "Birthday campaign · no end date" : campaignDateText(campaign)}</p>
           <LoyaltyStatusChip status={campaign.status} />
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -6967,11 +7056,39 @@ function CampaignDialog({ campaign, onClose, onEdit, onChanged }: { campaign: Lo
         </div>
       </header>
       <div className="acc-tabs" role="tablist" aria-label="Campaign sections">
-        {([["overview", "Overview"], ["members", `Members${detail ? ` (${detail.members.length})` : ""}`], ["history", "Star history"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        {(birthday ? [["overview", "Overview"]] as const : [["overview", "Overview"], ["members", `Members${detail ? ` (${detail.members.length})` : ""}`], ["history", "Star history"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         {error && <p role="alert" className="acc-error">{error}</p>}
-        {tab === "overview" && <>
+        {tab === "overview" && birthday && <>
+          <div className="acc-stats">
+            <div><span>Treats this year</span><strong>{campaign.birthdayClaims}</strong></div>
+            <div><span>Window</span><strong style={{ fontSize: 14 }}>{birthdayWindowLabels[campaign.birthdayWindow ?? "week"][0]}</strong></div>
+            <div><span>Status</span><strong style={{ fontSize: 14 }}>{loyaltyStatusLabels[campaign.status]}</strong></div>
+          </div>
+          <p className="loy-preview"><span aria-hidden="true">🎂</span> {birthdayRuleText(campaign)}</p>
+          {detail?.results && ((detail.results.birthdayTreats?.length ?? 0) > 0 || detail.results.rewards.length > 0 || (detail.results.discounts?.length ?? 0) > 0) && <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Treats given</h3></div></header>
+            <ul className="acc-list">
+              {detail.results.birthdayTreats?.map((row) => <li key={row.year}><span><strong>{row.year}</strong></span><span className="acc-list-end"><strong>{row.treats} treat{row.treats === 1 ? "" : "s"}</strong></span></li>)}
+              {detail.results.rewards.map((reward) => <li key={`r${reward.rewardId}`}><span><strong>{reward.name}</strong><em>{reward.claimed} free item{reward.claimed === 1 ? "" : "s"} · normally {peso(reward.value)}</em></span><span className="acc-list-end"><strong>{reward.cost === null ? "cost not recorded" : `cost ${peso(reward.cost)}`}</strong></span></li>)}
+              {detail.results.discounts?.map((discount) => <li key={`d${discount.rewardId}`}><span><strong>{discount.name}</strong><em>{discount.uses} order{discount.uses === 1 ? "" : "s"}</em></span><span className="acc-list-end"><strong>−{peso(discount.amount)}</strong></span></li>)}
+            </ul>
+          </section>}
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Treats</h3></div></header>
+            {campaign.rewards.length === 0 ? <p className="inv-hint">No treat set.</p> : <ul className="acc-list">
+              {campaign.rewards.map((reward) => <li key={reward.id}><span><strong>{reward.name}</strong><em>{rewardCoverage(reward)}</em></span><span className="acc-list-end"><strong className="loy-cost">Free</strong></span></li>)}
+            </ul>}
+          </section>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <button type="button" className="ui-button ui-button-secondary" disabled={working} onClick={onEdit}>Edit</button>
+            {campaign.isActive
+              ? <button type="button" className="ui-button ui-button-secondary" disabled={working} onClick={() => void act("end")}>{working ? "Switching off…" : "Switch off"}</button>
+              : <button type="button" className="ui-button ui-button-primary" disabled={working} onClick={() => void act("activate")}>{working ? "Switching on…" : "Switch on"}</button>}
+          </div>
+        </>}
+        {tab === "overview" && !birthday && <>
           <div className="acc-stats">
             <div><span>Members</span><strong>{stats.members}</strong></div>
             <div><span>Stars earned</span><strong>{stats.earned.toLocaleString("en-PH")}</strong></div>
@@ -6988,6 +7105,9 @@ function CampaignDialog({ campaign, onClose, onEdit, onChanged }: { campaign: Lo
             </div>
             {detail.results.rewards.length > 0 && <ul className="acc-list" style={{ marginTop: 10 }}>
               {detail.results.rewards.map((reward) => <li key={reward.rewardId}><span><strong>{reward.name}</strong><em>{reward.claimed} given · normally {peso(reward.value)}</em></span><span className="acc-list-end"><strong>{reward.cost === null ? "cost not recorded" : `cost ${peso(reward.cost)}`}</strong></span></li>)}
+            </ul>}
+            {(detail.results.discounts?.length ?? 0) > 0 && <ul className="acc-list" style={{ marginTop: 10 }}>
+              {detail.results.discounts?.map((discount) => <li key={discount.rewardId}><span><strong>{discount.name}</strong><em>{discount.uses} order{discount.uses === 1 ? "" : "s"} with this discount</em></span><span className="acc-list-end"><strong>−{peso(discount.amount)}</strong></span></li>)}
             </ul>}
             {detail.results.memberSales > 0 && detail.results.rewardCost !== null && <p className="loy-preview" style={{ marginTop: 10 }}><IconStar size={14} /> Rewards cost {Math.round((detail.results.rewardCost / detail.results.memberSales) * 1000) / 10}% of what members spent.</p>}
           </section>}
@@ -7036,7 +7156,7 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [openId, setOpenId] = useState<number | null>(null);
-  const [editing, setEditing] = useState<LoyaltyCampaign | "new" | null>(null);
+  const [editing, setEditing] = useState<LoyaltyCampaign | "new" | "new-birthday" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -7106,13 +7226,26 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
     }
   }
 
-  const live = campaigns.find((campaign) => campaign.status === "running") ?? campaigns.find((campaign) => campaign.status === "scheduled") ?? null;
-  const others = campaigns.filter((campaign) => campaign !== live);
+  const seasonal = campaigns.filter((campaign) => campaign.kind !== "birthday");
+  const birthdayCampaign = campaigns.find((campaign) => campaign.kind === "birthday" && campaign.isActive) ?? campaigns.find((campaign) => campaign.kind === "birthday") ?? null;
+  const live = seasonal.find((campaign) => campaign.status === "running") ?? seasonal.find((campaign) => campaign.status === "scheduled") ?? null;
+  const others = seasonal.filter((campaign) => campaign !== live);
+
+  async function toggleBirthday(campaign: LoyaltyCampaign) {
+    try {
+      const response = await fetch("/api/loyalty", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: campaign.id, action: campaign.isActive ? "end" : "activate" }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not switch the birthday treat.");
+      await changed(`${campaign.name} switched ${campaign.isActive ? "off" : "on"}.`);
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Could not switch the birthday treat.");
+    }
+  }
   const open = campaigns.find((campaign) => campaign.id === openId) ?? null;
 
   return <div className="inv-wrap">
     <div className="inv">
-      <p className="inv-hint" style={{ margin: 0 }}>Run the loyalty program in seasons. Customers earn stars on orders linked to them (signed in on the mobile menu, or attached by the cashier) while a campaign is running. Only one campaign runs at a time.</p>
+      <p className="inv-hint" style={{ margin: 0 }}>Run the loyalty program in seasons. Customers earn stars on orders linked to them (signed in on the mobile menu, or attached by the cashier) while a campaign is running. One seasonal campaign runs at a time; the birthday treat runs alongside it.</p>
       {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
       {notice && <div className="acc-notice" role="status">{notice}</div>}
 
@@ -7145,6 +7278,24 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
           <button type="button" className="inv-primary" onClick={() => setEditing("new")}><IconPlus size={15} />New campaign</button>
         </div>}
 
+        <section className={`loy-birthday${birthdayCampaign?.isActive ? " is-on" : ""}`}>
+          <span className="loy-birthday-icon" aria-hidden="true">🎂</span>
+          {birthdayCampaign ? <>
+            <div className="loy-birthday-text">
+              <strong>{birthdayCampaign.name} <LoyaltyStatusChip status={birthdayCampaign.status} /></strong>
+              <span>{birthdayRuleText(birthdayCampaign)}</span>
+              <em>{birthdayCampaign.rewards.map((reward) => reward.rewardType === "discount" ? `${reward.name} (${rewardDiscountText(reward)})` : reward.name).join(" or ") || "No treat set"} · {birthdayCampaign.birthdayClaims} given this year</em>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button type="button" className="inv-secondary" onClick={() => setOpenId(birthdayCampaign.id)}>Open</button>
+              <button type="button" className={birthdayCampaign.isActive ? "inv-secondary" : "inv-primary"} onClick={() => void toggleBirthday(birthdayCampaign)}>{birthdayCampaign.isActive ? "Switch off" : "Switch on"}</button>
+            </div>
+          </> : <>
+            <div className="loy-birthday-text"><strong>Birthday treat</strong><span>Give every customer a free treat around their birthday, once a year. It runs next to your seasonal campaign and has no end date.</span></div>
+            <button type="button" className="inv-primary" onClick={() => setEditing("new-birthday")}><IconPlus size={14} />Set up</button>
+          </>}
+        </section>
+
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h3 className="loy-section-title">All campaigns</h3>
           <div className="flex gap-2 flex-wrap">
@@ -7174,7 +7325,7 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
       </>}
     </div>
     {open && <CampaignDialog key={open.id} campaign={open} onClose={() => setOpenId(null)} onEdit={() => { setOpenId(null); setEditing(open); }} onChanged={changed} />}
-    {editing && <CampaignFormDialog campaign={editing === "new" ? null : editing} products={products} categories={categories} onClose={() => setEditing(null)} onSaved={changed} />}
+    {editing && <CampaignFormDialog campaign={editing === "new" || editing === "new-birthday" ? null : editing} kind={editing === "new-birthday" ? "birthday" : "seasonal"} products={products} categories={categories} onClose={() => setEditing(null)} onSaved={changed} />}
   </div>;
 }
 

@@ -1333,3 +1333,13 @@ strong.is-low { color: #B45309 !important; }
 }
 
 .fin-loy-sub { display: block; margin-top: 3px; color: #9C8278; font-size: 11px; font-style: normal; font-weight: 500; }
+
+/* Birthday campaign section */
+.loy-birthday { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border-radius: 16px; border: 1px dashed #F9A8D4; background: #FDF2F8; }
+.loy-birthday.is-on { border-style: solid; background: linear-gradient(145deg, #FCE7F3, #FEF3C7); }
+.loy-birthday-icon { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 14px; background: #FFFFFF; font-size: 24px; }
+.loy-birthday-text { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 3px; }
+.loy-birthday-text strong { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: #9D174D; font-family: 'Hanken Grotesk', sans-serif; font-size: 15px; font-weight: 800; }
+.loy-birthday-text span { color: #6B4C3B; font-size: 12.5px; line-height: 1.45; }
+.loy-birthday-text em { color: #9C8278; font-size: 12px; font-style: normal; }
+.loy-status.is-paused { background: #F3EDE5; color: #6B4C3B; }

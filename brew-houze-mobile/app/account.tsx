@@ -12,15 +12,40 @@ import "./account.css";
 // classes, so a new layout can restyle or replace them without touching the logic.
 
 export type CustomerOrder = { id: number; queueNumber: number | null; status: string; total: number; source: "mobile" | "counter"; createdAt: string; items: string };
-export type LoyaltyCampaign = { id: number; name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount"; starsPerUnit: number; amountStep: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null };
+export type LoyaltyCampaign = { id: number; name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; minOrderAmount?: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null };
 // A reward covers one item: a specific product, or any item (from a category), up to a price.
-export type LoyaltyReward = { id: number; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null };
-export type CustomerLoyalty = { campaign: LoyaltyCampaign; balance: number; rewards: LoyaltyReward[]; history: { kind: string; stars: number; createdAt: string; orderQueue: number | null }[] };
+export type LoyaltyReward = {
+  id: number; name: string; starsCost: number; kind?: "seasonal" | "birthday"; rewardType?: "free_item" | "discount";
+  productId: number | null; category: string | null; maxPrice: number | null;
+  discountKind?: "percent" | "fixed" | null; discountValue?: number | null; maxDiscount?: number | null; minOrderAmount?: number | null;
+};
+// The birthday campaign: one free treat a year within the window around their birthday.
+export type BirthdayLoyalty = { campaign: { id: number; name: string; description: string | null; window: "day" | "week" | "month" }; rewards: LoyaltyReward[]; hasBirthday: boolean; eligible: boolean; claimed: boolean };
+export type CustomerLoyalty = { campaign: LoyaltyCampaign | null; balance: number; rewards: LoyaltyReward[]; birthday: BirthdayLoyalty | null; history: { kind: string; stars: number; createdAt: string; orderQueue: number | null }[] };
+
+// "10% off (up to ₱50)" / "₱30.00 off Pastries".
+export function discountText(reward: LoyaltyReward): string {
+  if (!reward.discountKind || !reward.discountValue) return "";
+  const off = reward.discountKind === "percent" ? `${reward.discountValue}% off` : `₱${Number(reward.discountValue).toFixed(2)} off`;
+  return `${off}${reward.category ? ` ${reward.category}` : ""}${reward.discountKind === "percent" && reward.maxDiscount ? ` (up to ₱${Number(reward.maxDiscount).toFixed(2)})` : ""}`;
+}
+
+// The rewards a customer can pick now: star rewards, plus the birthday treat when it is theirs.
+export function usableRewards(loyalty: CustomerLoyalty | null | undefined): LoyaltyReward[] {
+  if (!loyalty) return [];
+  const treat = loyalty.birthday && loyalty.birthday.eligible && !loyalty.birthday.claimed ? loyalty.birthday.rewards : [];
+  return [...treat, ...loyalty.rewards];
+}
+
+export function birthdayWindowText(window: "day" | "week" | "month"): string {
+  return window === "day" ? "on your birthday" : window === "month" ? "during your birthday month" : "within 3 days of your birthday";
+}
 // A claim from the printed Stars sign at the counter (see /api/claims).
 export type StarsClaim = { id: number; rewardId: number | null; rewardName: string | null; starsCost: number | null; status: "pending" | "accepted" | "used" | "cancelled" | "expired"; expiresAt: string; queueNumber: number | null };
 
 // Why a menu item cannot be taken as this reward, or null when it can (the server checks too).
 export function rewardMismatch(reward: LoyaltyReward, item: { productId: number; category: string; price: number }): string | null {
+  if (reward.rewardType === "discount") return "discount";
   if (reward.productId !== null && reward.productId !== item.productId) return "different product";
   if (reward.productId === null && reward.category && reward.category !== item.category) return `only ${reward.category}`;
   if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `up to ₱${reward.maxPrice.toFixed(2)}`;
@@ -131,16 +156,29 @@ function pluralStars(count: number): string {
 // "Earn 1 star for every drink from Coffee or Tea. Up to 3 stars per order."
 export function earnRuleText(campaign: LoyaltyCampaign): string {
   const from = campaign.categories?.length ? ` from ${campaign.categories.join(" or ")}` : "";
-  const rule = campaign.earnMode === "per_amount"
-    ? `Earn ${pluralStars(campaign.starsPerUnit)} for every ₱${(campaign.amountStep ?? 0).toLocaleString("en-PH")} you spend${from ? ` on items${from}` : ""}.`
-    : `Earn ${pluralStars(campaign.starsPerUnit)} for every item${from} you order.`;
+  const rule = campaign.earnMode === "per_order"
+    ? `Earn ${pluralStars(campaign.starsPerUnit)} for every order${from ? ` with items${from}` : ""}${campaign.minOrderAmount ? ` of ₱${campaign.minOrderAmount.toLocaleString("en-PH")} or more` : ""}.`
+    : campaign.earnMode === "per_amount"
+      ? `Earn ${pluralStars(campaign.starsPerUnit)} for every ₱${(campaign.amountStep ?? 0).toLocaleString("en-PH")} you spend${from ? ` on items${from}` : ""}.`
+      : `Earn ${pluralStars(campaign.starsPerUnit)} for every item${from} you order.`;
   const limits = [campaign.maxPerOrder ? `${pluralStars(campaign.maxPerOrder)} per order` : "", campaign.maxPerDay ? `${pluralStars(campaign.maxPerDay)} per day` : ""].filter(Boolean);
   return limits.length ? `${rule} Up to ${limits.join(" and ")}.` : rule;
 }
 
 const STAR_ENTRY_LABELS: Record<string, string> = { earned: "Earned", reversed: "Order cancelled", adjusted: "Added by the café", carried_in: "Carried over", carried_out: "Moved to the next campaign", redeemed: "Reward claimed", restored: "Reward returned" };
 
-function RewardsCard({ loyalty }: { loyalty: CustomerLoyalty }) {
+function BirthdayCard({ birthday, onAddBirthday }: { birthday: BirthdayLoyalty; onAddBirthday: () => void }) {
+  const treats = birthday.rewards.map((reward) => reward.rewardType === "discount" ? `${reward.name} (${discountText(reward)})` : reward.name).join(" or ");
+  return <section className={`acct-birthday${birthday.eligible && !birthday.claimed ? " is-ready" : ""}`}>
+    <strong>🎂 {birthday.campaign.name}</strong>
+    <span>{!birthday.hasBirthday ? <>Add your birthday to get a free treat {birthdayWindowText(birthday.campaign.window)}. <button type="button" onClick={onAddBirthday}>Add my birthday</button></>
+      : birthday.claimed ? "You already enjoyed your birthday treat this year. See you next year!"
+        : birthday.eligible ? `Happy birthday! Your treat is ready: ${treats}. Pick it in your cart, or scan the Stars sign at the counter.`
+          : `A free treat ${birthdayWindowText(birthday.campaign.window)}: ${treats}.`}</span>
+  </section>;
+}
+
+function RewardsCard({ loyalty }: { loyalty: CustomerLoyalty & { campaign: LoyaltyCampaign } }) {
   const { campaign, balance, rewards } = loyalty;
   const next = rewards.find((reward) => reward.starsCost > balance) ?? null;
   const affordable = rewards.filter((reward) => reward.starsCost <= balance);
@@ -155,7 +193,7 @@ function RewardsCard({ loyalty }: { loyalty: CustomerLoyalty }) {
     {rewards.length > 0 && <div className="acct-rewards-progress" aria-hidden="true"><span style={{ width: `${target ? Math.min(100, (Math.max(0, balance) / target) * 100) : 0}%` }} /></div>}
     <p className="acct-rewards-next">{next ? `${pluralStars(next.starsCost - Math.max(0, balance))} more for ${next.name}.` : affordable.length ? "You have enough stars for every reward!" : "Stars add up with every order while you are signed in."}</p>
     {rewards.length > 0 && <ul className="acct-rewards-list">
-      {rewards.map((reward) => <li key={reward.id} className={reward.starsCost <= balance ? "is-ready" : ""}><span>{reward.starsCost <= balance ? "✓ " : ""}{reward.name}</span><strong>★ {reward.starsCost}</strong></li>)}
+      {rewards.map((reward) => <li key={reward.id} className={reward.starsCost <= balance ? "is-ready" : ""}><span>{reward.starsCost <= balance ? "✓ " : ""}{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><strong>★ {reward.starsCost}</strong></li>)}
     </ul>}
     {affordable.length > 0 && <p className="acct-rewards-claim">{REWARDS_CLAIMABLE ? "Use them in your cart when you order here, or scan the Stars sign at the counter." : "Claiming rewards opens soon. Your stars are saved."}</p>}
     <p className="acct-rewards-rule">{earnRuleText(campaign)} Counter orders count too: show your QR code to the cashier.</p>
@@ -269,14 +307,15 @@ function ClaimScreen({ state, fullName }: { state: CustomerAccountState; fullNam
     <p className="acct-intro">You are at the Brew Houze counter. Choose what to do, then tell the cashier your name.</p>
     {error && <p className="error-message" role="alert">{error}</p>}
     <button type="button" className="add-order-button" disabled={busy} onClick={() => void start(null)}>Add me to my order <span>earn stars →</span></button>
-    {loyalty && loyalty.rewards.length > 0 && <>
-      <h3 className="acct-section-title">Use your stars · ★ {loyalty.balance}</h3>
+    {usableRewards(loyalty).length > 0 && loyalty && <>
+      <h3 className="acct-section-title">Use a reward{loyalty.campaign ? ` · ★ ${loyalty.balance}` : ""}</h3>
       <ul className="acct-claim-rewards">
-        {loyalty.rewards.map((reward) => {
-          const affordable = reward.starsCost <= loyalty.balance;
+        {usableRewards(loyalty).map((reward) => {
+          const birthdayTreat = reward.kind === "birthday";
+          const affordable = birthdayTreat || reward.starsCost <= loyalty.balance;
           return <li key={reward.id}><button type="button" disabled={busy || !affordable} onClick={() => void start(reward.id)}>
-            <span><strong>{reward.name}</strong><em>{affordable ? "Tap to use" : `${reward.starsCost - loyalty.balance} more stars needed`}</em></span>
-            <b>★ {reward.starsCost}</b>
+            <span><strong>{birthdayTreat ? "🎂 " : ""}{reward.name}</strong><em>{reward.rewardType === "discount" ? `${discountText(reward)} · ` : ""}{affordable ? "Tap to use" : `${reward.starsCost - loyalty.balance} more stars needed`}</em></span>
+            <b>{birthdayTreat ? "Free" : `★ ${reward.starsCost}`}</b>
           </button></li>;
         })}
       </ul>
@@ -414,9 +453,10 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         </div>
         <button type="button" className="acct-qr-toggle" aria-expanded={showQr} onClick={() => setShowQr((current) => !current)}>{showQr ? "Hide my QR code" : "My QR code"} <span>for ordering at the counter</span></button>
         {showQr && <MyQrCode username={state.account.username} />}
-        {state.account.loyalty
-          ? <RewardsCard loyalty={state.account.loyalty} />
-          : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>}
+        {state.account.loyalty?.birthday && <BirthdayCard birthday={state.account.loyalty.birthday} onAddBirthday={() => go("edit")} />}
+        {state.account.loyalty?.campaign
+          ? <RewardsCard loyalty={{ ...state.account.loyalty, campaign: state.account.loyalty.campaign }} />
+          : state.account.loyalty?.birthday ? null : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>}
         <h3 className="acct-section-title">Your orders</h3>
         {state.account.orders.length === 0
           ? <p className="acct-intro">No orders yet. Orders you place while signed in are saved here.</p>

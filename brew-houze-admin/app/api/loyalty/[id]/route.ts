@@ -13,7 +13,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const id = Number(rawId);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid campaign is required." }, { status: 400 });
   try {
-    const [members, entries, memberSales, rewardResults] = await Promise.all([
+    const [members, entries, memberSales, rewardResults, discountResults, birthdayResults] = await Promise.all([
       pool.query(`
         SELECT c.customer_id, c.full_name, c.username, c.deleted_at IS NOT NULL AS erased,
           SUM(e.stars)::int AS balance,
@@ -59,6 +59,18 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         GROUP BY lr.reward_id, lr.name
         ORDER BY claimed DESC, lr.name
       `, [id]),
+      // Discount rewards used (completed orders only).
+      pool.query(`
+        SELECT lr.reward_id, lr.name, COUNT(*)::int AS uses, COALESCE(SUM(so.discount_amount), 0) AS amount
+        FROM sales_orders so JOIN loyalty_rewards lr ON lr.reward_id = so.discount_reward_id AND lr.campaign_id = $1
+        WHERE so.status = 'completed'
+        GROUP BY lr.reward_id, lr.name ORDER BY uses DESC, lr.name
+      `, [id]),
+      // Birthday treats given, by year.
+      pool.query(`
+        SELECT claim_year, COUNT(*)::int AS treats FROM loyalty_birthday_claims
+        WHERE campaign_id = $1 AND status = 'used' GROUP BY claim_year ORDER BY claim_year DESC
+      `, [id]),
     ]);
     const rewards = rewardResults.rows.map((row) => ({ rewardId: Number(row.reward_id), name: String(row.name), claimed: Number(row.claimed), value: Number(row.value), cost: row.costed ? Number(row.cost) : null }));
     return NextResponse.json({
@@ -70,6 +82,8 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
           rewards,
           rewardValue: rewards.reduce((sum, reward) => sum + reward.value, 0),
           rewardCost: rewards.every((reward) => reward.cost !== null) ? rewards.reduce((sum, reward) => sum + (reward.cost ?? 0), 0) : null,
+          discounts: discountResults.rows.map((row) => ({ rewardId: Number(row.reward_id), name: String(row.name), uses: Number(row.uses), amount: Number(row.amount) })),
+          birthdayTreats: birthdayResults.rows.map((row) => ({ year: Number(row.claim_year), treats: Number(row.treats) })),
         },
         members: members.rows.map((row) => ({
           customerId: Number(row.customer_id), fullName: String(row.full_name), username: (row.username as string | null) ?? null, erased: Boolean(row.erased),

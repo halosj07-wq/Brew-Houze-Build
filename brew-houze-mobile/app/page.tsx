@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { AccountButton, AccountSheet, CartAccountNote, rewardMismatch, useCustomerAccount, type LoyaltyReward } from "./account";
+import { AccountButton, AccountSheet, CartAccountNote, discountText, rewardMismatch, usableRewards, useCustomerAccount, type LoyaltyReward } from "./account";
 
 type Product = {
   id: number;
@@ -20,7 +20,7 @@ type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuan
 type Addition = { id: number; name: string; quantity: number; price: number; unit: string; inventoryId: number; availableQuantity: number };
 type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" | "both" | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
 // rewardId: a loyalty reward line (one item, free, paid with the customer's stars).
-type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; rewardId?: number; rewardName?: string; rewardCost?: number };
+type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
 type OrderStatus = "waiting" | "served" | "flushed";
 type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
 const trackedOrdersStorageKey = "brew-houze-tracked-orders";
@@ -90,6 +90,8 @@ export default function MenuPage() {
   const [claimStart, setClaimStart] = useState(false);
   // The reward whose item the customer is choosing.
   const [rewardPick, setRewardPick] = useState<LoyaltyReward | null>(null);
+  // A discount reward on the order (at most one).
+  const [discountReward, setDiscountReward] = useState<LoyaltyReward | null>(null);
   const rewardLineId = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackedOrdersHydratedRef = useRef(false);
@@ -230,7 +232,7 @@ export default function MenuPage() {
         if (!response.ok || !result) return;
         if (result.status === "completed") {
           window.localStorage.removeItem(pendingPaymentStorageKey);
-          setCart([]);
+          setCart([]); setDiscountReward(null);
           setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting" }]);
           setPaymentCheck(null);
           setOrderPlaced(true);
@@ -302,7 +304,8 @@ export default function MenuPage() {
     return Array.from(groups);
   }, [visibleProducts]);
   const cartCount = cart.reduce((total, item) => total + item.quantity, 0);
-  const cartTotal = cart.reduce((total, item) => total + (item.price + item.additions.reduce((additionTotal, addition) => additionTotal + addition.price, 0)) * item.quantity, 0);
+  // The items in the cart; cartTotal (what the customer pays, after a reward discount) comes after the discount below.
+  const cartItemsTotal = cart.reduce((total, item) => total + (item.price + item.additions.reduce((additionTotal, addition) => additionTotal + addition.price, 0)) * item.quantity, 0);
   const activeOrders = useMemo(() => trackedOrders.filter((order) => order.status !== "flushed"), [trackedOrders]);
   const activeOrder = activeOrders.length > 0;
   const selectedProductVariants = useMemo(() => sortVariants(selectedProduct?.variants ?? []), [selectedProduct]);
@@ -379,31 +382,58 @@ export default function MenuPage() {
 
   // Stars: the customer's balance, what rewards in the cart use, and adding a reward item.
   const loyalty = customer.account?.loyalty ?? null;
-  const starsInCart = cart.reduce((total, item) => total + (item.rewardCost ?? 0), 0);
+  const starsInCart = cart.reduce((total, item) => total + (item.rewardCost ?? 0), 0) + (discountReward && discountReward.kind !== "birthday" ? discountReward.starsCost : 0);
+  const birthdayInCart = cart.some((item) => item.rewardBirthday) || discountReward?.kind === "birthday";
+  const pickableRewards = usableRewards(loyalty).filter((reward) => reward.kind !== "birthday" || !birthdayInCart);
+  // The discount on this cart (the server has the final say): minimum order, the items it
+  // applies to, % or ₱, its cap.
+  const discountPreview = (() => {
+    const reward = discountReward;
+    if (!reward || !reward.discountKind || !reward.discountValue) return { amount: 0, problem: null as string | null };
+    const lineTotal = (item: CartItem) => (item.price + item.additions.reduce((sum, addition) => sum + addition.price, 0)) * item.quantity;
+    const all = cart.reduce((sum, item) => sum + lineTotal(item), 0);
+    if (reward.minOrderAmount && all + 0.005 < reward.minOrderAmount) return { amount: 0, problem: `Needs an order of at least ₱${reward.minOrderAmount.toFixed(2)}.` };
+    const eligible = cart.filter((item) => !item.rewardId && (reward.productId !== null ? item.product.id === reward.productId : !reward.category || item.product.category === reward.category)).reduce((sum, item) => sum + lineTotal(item), 0);
+    if (eligible <= 0) return { amount: 0, problem: `Add ${reward.category ? `a ${reward.category} item` : "an item it applies to"} first.` };
+    let amount = reward.discountKind === "percent" ? eligible * Number(reward.discountValue) / 100 : Number(reward.discountValue);
+    if (reward.maxDiscount) amount = Math.min(amount, Number(reward.maxDiscount));
+    return { amount: Math.round(Math.min(amount, eligible) * 100) / 100, problem: null as string | null };
+  })();
+  const cartTotal = Math.max(0, Math.round((cartItemsTotal - discountPreview.amount) * 100) / 100);
+  function pickReward(reward: LoyaltyReward) {
+    if (reward.rewardType === "discount") setDiscountReward(reward);
+    else setRewardPick(reward);
+  }
   const starsLeft = (loyalty?.balance ?? 0) - starsInCart;
   function addRewardItem(product: Product, variant: Variant, reward: LoyaltyReward) {
     rewardLineId.current += 1;
     const key = `reward-${reward.id}-${variant.id}-${rewardLineId.current}`;
     if (!variant.available || getCartLimit({ ingredients: variant.ingredients, additions: [] }, cart, key) < 1) return;
-    setCart((current) => [...current, { key, product, variantId: variant.id, variantName: variant.size ?? "Regular", price: 0, quantity: 1, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.starsCost }]);
+    setCart((current) => [...current, { key, product, variantId: variant.id, variantName: variant.size ?? "Regular", price: 0, quantity: 1, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.kind === "birthday" ? 0 : reward.starsCost, rewardBirthday: reward.kind === "birthday" }]);
     setRewardPick(null);
   }
 
   // "Use your stars" in the cart (also on an empty cart, for customers who only want their reward).
-  const starsSection = loyalty && loyalty.rewards.length > 0 ? <div className="cart-stars">
-    <div className="cart-stars-head"><strong>Use your stars</strong><span>★ {starsLeft} left</span></div>
-    <div className="cart-stars-list">{loyalty.rewards.map((reward) => <button key={reward.id} type="button" disabled={reward.starsCost > starsLeft} onClick={() => setRewardPick(reward)}><span>{reward.name}</span><b>★ {reward.starsCost}</b></button>)}</div>
+  const starsSection = loyalty && pickableRewards.length + (discountReward ? 1 : 0) > 0 ? <div className="cart-stars">
+    <div className="cart-stars-head"><strong>{loyalty.campaign ? "Use your stars" : "Your birthday treat"}</strong>{loyalty.campaign && <span>★ {starsLeft} left</span>}</div>
+    <div className="cart-stars-list">{pickableRewards.map((reward) => {
+      const birthdayTreat = reward.kind === "birthday";
+      const blocked = reward.rewardType === "discount" && discountReward !== null && discountReward.id !== reward.id;
+      return <button key={reward.id} type="button" disabled={blocked || (!birthdayTreat && reward.starsCost > starsLeft)} onClick={() => pickReward(reward)}><span>{birthdayTreat ? "🎂 " : ""}{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><b>{birthdayTreat ? "Free" : `★ ${reward.starsCost}`}</b></button>;
+    })}</div>
   </div> : null;
 
   async function submitOrder() {
     if (cart.length === 0) return;
     setPlacingOrder(true);
     setOrderError("");
+    if (discountPreview.problem) { setOrderError(discountPreview.problem); setPlacingOrder(false); return; }
     const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), reward_id: item.rewardId ?? null }));
+    const discountRewardId = discountReward?.id ?? null;
     // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
     if (paymentConfig.method === "gcash" && cartTotal > 0) {
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId }) });
         const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
         try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
@@ -418,11 +448,11 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: orderItems }),
+        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
-      setCart([]);
+      setCart([]); setDiscountReward(null);
       setCartOpen(false);
       if (payload.data?.trackingToken) {
         setTrackedOrders((current) => [...current, {
@@ -564,6 +594,7 @@ export default function MenuPage() {
       <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">YOUR TABLE ORDER</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
         {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <><div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div>{starsSection}</> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.rewardId ? `🎁 Free · ${item.rewardName} · ★ ${item.rewardCost}` : `${item.variantName} · ₱${item.price.toFixed(2)}`}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
         {starsSection}
+        {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
         <div className="cart-total"><span>Total</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (paymentConfig.method === "gcash" && cartTotal > 0 && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : cartTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}

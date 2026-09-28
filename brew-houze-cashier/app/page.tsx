@@ -262,6 +262,77 @@ function ConnectionIndicator() {
   </div>;
 }
 
+// The campaigns running now, for every staff member: a chip in the top bar that opens the rules
+// and rewards, so the counter can answer "how do I earn stars?" without asking the owner.
+type CampaignPreviewData = {
+  campaign: { name: string; description: string | null; endsOn: string | null; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; minOrderAmount: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null; rewards: LoyaltyRewardRule[] } | null;
+  birthday: { name: string; description: string | null; window: string; rewards: LoyaltyRewardRule[] } | null;
+};
+
+function campaignRuleText(campaign: NonNullable<CampaignPreviewData["campaign"]>): string {
+  const stars = `${campaign.starsPerUnit} star${campaign.starsPerUnit === 1 ? "" : "s"}`;
+  const from = campaign.categories?.length ? ` from ${campaign.categories.join(" or ")}` : "";
+  const rule = campaign.earnMode === "per_order" ? `${stars} per order${from ? ` with items${from}` : ""}${campaign.minOrderAmount ? ` of ₱${campaign.minOrderAmount.toLocaleString("en-PH")} or more` : ""}`
+    : campaign.earnMode === "per_amount" ? `${stars} for every ₱${(campaign.amountStep ?? 0).toLocaleString("en-PH")} spent${from ? ` on items${from}` : ""}`
+      : `${stars} for every item${from}`;
+  const limits = [campaign.maxPerOrder ? `${campaign.maxPerOrder} per order` : "", campaign.maxPerDay ? `${campaign.maxPerDay} per day` : ""].filter(Boolean);
+  return `${rule}${limits.length ? `, up to ${limits.join(" and ")}` : ""}.`;
+}
+
+function CampaignPreview() {
+  const [data, setData] = useState<CampaignPreviewData | null>(null);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const response = await fetch("/api/loyalty", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = await response.json() as { data?: CampaignPreviewData };
+        if (active && payload.data) setData(payload.data);
+      } catch {
+        // Offline for a moment: keep what is shown.
+      }
+    };
+    const first = window.setTimeout(() => void load(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 120_000);
+    return () => { active = false; window.clearTimeout(first); window.clearInterval(timer); };
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (event: PointerEvent) => { if (wrapRef.current && !wrapRef.current.contains(event.target as Node)) setOpen(false); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("pointerdown", onPointer); document.removeEventListener("keydown", onKey); };
+  }, [open]);
+  if (!data || (!data.campaign && !data.birthday)) return null;
+  const windowText = data.birthday?.window === "day" ? "on their birthday" : data.birthday?.window === "month" ? "during their birthday month" : "within 3 days of their birthday";
+  return <div className="campaign-preview" ref={wrapRef}>
+    <button type="button" className="campaign-chip" onClick={() => setOpen((value) => !value)} aria-expanded={open} title="Loyalty campaigns running now">
+      {data.campaign && <span>★ <b className="campaign-chip-label">{data.campaign.name}</b></span>}
+      {data.birthday && <span>🎂<b className="campaign-chip-label">{data.campaign ? "" : ` ${data.birthday.name}`}</b></span>}
+    </button>
+    {open && <div className="campaign-popover" role="dialog" aria-label="Loyalty campaigns">
+      {data.campaign && <section>
+        <p className="campaign-popover-eyebrow">Running now{data.campaign.endsOn ? ` · until ${new Date(`${data.campaign.endsOn}T00:00:00+08:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}` : ""}</p>
+        <h3>★ {data.campaign.name}</h3>
+        {data.campaign.description && <p className="campaign-popover-copy">{data.campaign.description}</p>}
+        <p className="campaign-popover-rule">Customers earn {campaignRuleText(data.campaign)}</p>
+        {data.campaign.rewards.length > 0 && <ul>{data.campaign.rewards.map((reward) => <li key={reward.id}><span>{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><b>★ {reward.starsCost}</b></li>)}</ul>}
+      </section>}
+      {data.birthday && <section>
+        <p className="campaign-popover-eyebrow">Always on</p>
+        <h3>🎂 {data.birthday.name}</h3>
+        <p className="campaign-popover-rule">One free treat a year, {windowText}. No stars needed. The customer needs their birthday on their profile.</p>
+        {data.birthday.rewards.length > 0 && <ul>{data.birthday.rewards.map((reward) => <li key={reward.id}><span>{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><b>Free</b></li>)}</ul>}
+      </section>}
+      <p className="campaign-popover-foot">Attach the customer to the order to give stars. Customers with the app scan the Stars sign to use rewards.</p>
+    </div>}
+  </div>;
+}
+
 function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onAccount: () => void; onRequestLogout: () => void }) {
   const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : "My Account";
   const isAdmin = user.role.toLowerCase() === "admin";
@@ -271,6 +342,7 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, on
       <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} readOnly={isQueueOnlyRole(user.role)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
     </div>
     <div className="flex items-center gap-2.5">
+      <CampaignPreview />
       <ConnectionIndicator />
       <button type="button" onClick={onAccount} aria-label={`My account: ${user.fullName}`} title="My account" className="topbar-profile" style={{ display: "flex", alignItems: "center", gap: 10, height: 46, padding: "0 12px 0 6px", borderRadius: 13, border: page === "accounts" ? "1px solid #D97706" : "1px solid #E8DDD5", background: page === "accounts" ? "#FFF7ED" : "#FFFFFF", cursor: "pointer", textAlign: "left" }}>
         <UserAvatar name={user.fullName} size={34} />
@@ -545,6 +617,7 @@ type ReceiptData = {
   received: number | null; change: number | null; orderSource: string; returnMethod: string | null;
   createdAt: string; reversedAt: string | null; cashierName: string | null; customerName?: string | null;
   loyalty?: { starsEarned: number; starsUsed?: number; balance: number; campaignName: string } | null;
+  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
@@ -628,6 +701,10 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     y += 0.8;
   }
   rule();
+  if (receipt.discountAmount) {
+    row("Subtotal", money(receipt.subtotal ?? receipt.total + receipt.discountAmount));
+    row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel.replace(/₱/g, "PHP ")}` : ""}`, `-${money(receipt.discountAmount)}`);
+  }
   row("TOTAL", `PHP ${money(receipt.total)}`, { size: base * 1.25, bold: true });
   const isGcash = receipt.paymentProvider === "paymongo_gcash" || receipt.paymentMethod === "online";
   if (receipt.paymentMethod === "split" && receipt.cashPortion !== null) {
@@ -706,6 +783,10 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       </div>;
     })}
     <div className="receipt-rule" />
+    {Boolean(receipt.discountAmount) && <>
+      {row("Subtotal", receiptMoney(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0)))}
+      {row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel}` : ""}`, `-${receiptMoney(receipt.discountAmount ?? 0)}`)}
+    </>}
     {row("TOTAL", `₱${receiptMoney(receipt.total)}`, true)}
     {receipt.paymentMethod === "split" && receipt.cashPortion !== null ? <>
       {row("Cash", receiptMoney(receipt.cashPortion))}
@@ -1044,7 +1125,8 @@ function quickCashAmounts(total: number): number[] {
 // account), so the order shows in their purchases and the café's notes about them ("hot drinks
 // with a straw") reach the cashier and the barista's ticket.
 // stars: balance in the running loyalty campaign (null when none is running).
-type AttachedCustomer = { id: number; fullName: string; username: string | null; notes: string; visits: number; lastVisit: string | null; stars?: number | null };
+// birthdayTreat: a birthday campaign is on and they can have their treat now.
+type AttachedCustomer = { id: number; fullName: string; username: string | null; notes: string; visits: number; lastVisit: string | null; stars?: number | null; birthdayTreat?: boolean };
 
 function customerInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -1184,13 +1266,32 @@ function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: Attached
 // Loyalty at the counter. Customers with the app scan the printed Stars sign and pick a reward
 // on their phone; their claim waits here until the cashier accepts it into the order. Regulars
 // without the app redeem with the cashier confirming their own password.
-type LoyaltyRewardRule = { id: number; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null };
-type CounterClaim = { id: number; rewardId: number | null; customerId: number; fullName: string; username: string | null; notes: string; stars: number; createdAt: string };
-type CounterLoyalty = { campaign: { id: number; name: string } | null; rewards: LoyaltyRewardRule[]; claims: CounterClaim[] };
+// A reward is a free item or a discount off the order; birthday treats cost no stars.
+type LoyaltyRewardRule = {
+  id: number; name: string; starsCost: number; kind?: "seasonal" | "birthday"; rewardType?: "free_item" | "discount";
+  productId: number | null; category: string | null; maxPrice: number | null;
+  discountKind?: "percent" | "fixed" | null; discountValue?: number | null; maxDiscount?: number | null; minOrderAmount?: number | null;
+};
+type CounterClaim = { id: number; rewardId: number | null; customerId: number; fullName: string; username: string | null; notes: string; stars: number; birthdayTreat?: boolean; createdAt: string };
+type CounterLoyalty = { campaign: { id: number; name: string } | null; birthday?: { id: number; name: string; window: string } | null; rewards: LoyaltyRewardRule[]; claims: CounterClaim[] };
+
+// "10% off (up to ₱50)" / "₱30.00 off Pastries".
+function discountText(reward: LoyaltyRewardRule): string {
+  if (!reward.discountKind || !reward.discountValue) return "";
+  const off = reward.discountKind === "percent" ? `${reward.discountValue}% off` : `₱${Number(reward.discountValue).toFixed(2)} off`;
+  return `${off}${reward.category ? ` ${reward.category}` : ""}${reward.discountKind === "percent" && reward.maxDiscount ? ` (up to ₱${Number(reward.maxDiscount).toFixed(2)})` : ""}`;
+}
+
+// "Free drink · ★ 10", "Birthday latte · 🎂", "10% off · ★ 8".
+function rewardLabel(reward: LoyaltyRewardRule): string {
+  const what = reward.rewardType === "discount" ? `${reward.name} (${discountText(reward)})` : reward.name;
+  return `${what} · ${reward.kind === "birthday" ? "🎂 birthday treat" : `★ ${reward.starsCost}`}`;
+}
 const CLAIMS_REFRESH_MS = 5000;
 
 // Why an item cannot be taken as this reward (the server checks the same rules).
 function rewardMismatch(reward: LoyaltyRewardRule, item: { productId: number; category: string | null; price: number }): string | null {
+  if (reward.rewardType === "discount") return "discount";
   if (reward.productId !== null && reward.productId !== item.productId) return "different product";
   if (reward.productId === null && reward.category && reward.category !== (item.category ?? "")) return `only ${reward.category}`;
   if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `over ₱${reward.maxPrice.toFixed(2)}`;
@@ -1205,7 +1306,7 @@ function WaitingClaims({ claims, rewards, busyId, onAccept, onDecline }: { claim
       const reward = rewards.find((item) => item.id === claim.rewardId) ?? null;
       return <div key={claim.id} className="pos-claim">
         <span className="pos-customer-avatar">{customerInitials(claim.fullName)}</span>
-        <span className="pos-customer-result-text"><strong>{claim.fullName}</strong><em>{reward ? `wants ${reward.name} (★ ${reward.starsCost})` : "add me to this order"} · has ★ {claim.stars}</em></span>
+        <span className="pos-customer-result-text"><strong>{claim.fullName}</strong><em>{reward ? `wants ${rewardLabel(reward)}` : "add me to this order"} · has ★ {claim.stars}{claim.birthdayTreat ? " · 🎂 birthday" : ""}</em></span>
         <button type="button" className="pos-claim-accept" disabled={busyId !== null} onClick={() => onAccept(claim)}>{busyId === claim.id ? "…" : "Add"}</button>
         <button type="button" className="pos-claim-decline" disabled={busyId !== null} onClick={() => onDecline(claim)} aria-label={`Decline ${claim.fullName}`} title="Decline">×</button>
       </div>;
@@ -1238,7 +1339,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   // "count" is how many of this add-on go on EACH cup of the line (Double Shot x2 per cup).
   type CartAddition = Addition & { count: number };
   // rewardId: a loyalty reward line (one item, free, paid with stars; its add-ons are still charged).
-  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number };
+  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -1285,6 +1386,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [claimBusyId, setClaimBusyId] = useState<number | null>(null);
   const [rewardChoiceOpen, setRewardChoiceOpen] = useState(false);
   const [rewardForItem, setRewardForItem] = useState<LoyaltyRewardRule | null>(null);
+  // A discount reward on this order (at most one).
+  const [discountReward, setDiscountReward] = useState<LoyaltyRewardRule | null>(null);
   const [rewardPasswordOpen, setRewardPasswordOpen] = useState(false);
   const [rewardPassword, setRewardPassword] = useState("");
   const [rewardPasswordInvalid, setRewardPasswordInvalid] = useState(false);
@@ -1482,15 +1585,42 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     return `${item.rewardId ? "🎁 " : ""}${item.name}${item.size ? ` — ${item.size}` : ""}${item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}`;
   }
 
+  // The discount a discount reward gives on these cart lines (the server works it out the same
+  // way and has the final say): its minimum order, the lines it applies to, % or ₱, its cap.
+  function previewDiscount(items: CartItem[]): { amount: number; problem: string | null } {
+    const reward = discountReward;
+    if (!reward || !reward.discountKind || !reward.discountValue) return { amount: 0, problem: null };
+    const itemsSubtotal = items.reduce((sum, item) => sum + getLineTotal(item), 0);
+    if (reward.minOrderAmount && itemsSubtotal + 0.005 < reward.minOrderAmount) return { amount: 0, problem: `${reward.name} needs an order of at least ${formatPeso(reward.minOrderAmount)}.` };
+    const eligible = items.filter((item) => !item.rewardId).filter((item) => {
+      if (reward.productId !== null) return item.productId === reward.productId;
+      if (!reward.category) return true;
+      return (products.find((product) => product.product_id === item.productId)?.product_category ?? "") === reward.category;
+    }).reduce((sum, item) => sum + getLineTotal(item), 0);
+    if (eligible <= 0) return { amount: 0, problem: `${reward.name} applies to ${reward.category ? `${reward.category} items` : "a product"} that is not in this order.` };
+    let amount = reward.discountKind === "percent" ? eligible * Number(reward.discountValue) / 100 : Number(reward.discountValue);
+    if (reward.maxDiscount) amount = Math.min(amount, Number(reward.maxDiscount));
+    return { amount: Math.round(Math.min(amount, eligible) * 100) / 100, problem: null };
+  }
+
   // Stars left for more rewards in this order (the customer's balance minus rewards in the cart).
-  const starsInCart = cart.reduce((sum, item) => sum + (item.rewardCost ?? 0), 0);
+  const starsInCart = cart.reduce((sum, item) => sum + (item.rewardCost ?? 0), 0) + (discountReward && discountReward.kind !== "birthday" ? discountReward.starsCost : 0);
+  // One birthday treat per order.
+  const birthdayInOrder = cart.some((item) => item.rewardBirthday) || discountReward?.kind === "birthday";
+  const availableRewards = loyalty.rewards.filter((reward) => reward.kind === "birthday" ? Boolean(customer?.birthdayTreat) && !birthdayInOrder : true);
+
+  function chooseReward(reward: LoyaltyRewardRule) {
+    setRewardChoiceOpen(false);
+    if (reward.rewardType === "discount") setDiscountReward(reward);
+    else setRewardForItem(reward);
+  }
   const starsLeft = customer?.stars !== null && customer?.stars !== undefined ? customer.stars - starsInCart : 0;
 
   function addRewardLine(product: Product, variant: Variant, reward: LoyaltyRewardRule) {
     cartLineId.current += 1;
     const key = `${product.product_id}:${variant.product_variant_id}:reward:${cartLineId.current}`;
     if (getCartLimit(variant, cart, key) <= 0) return;
-    setCart((prev) => [...prev, { key, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name, size: variant.size_label, temperature: variant.temperature, isRecipe: product.product_type !== "stock", qty: 1, price: 0, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.starsCost }]);
+    setCart((prev) => [...prev, { key, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name, size: variant.size_label, temperature: variant.temperature, isRecipe: product.product_type !== "stock", qty: 1, price: 0, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.kind === "birthday" ? 0 : reward.starsCost, rewardBirthday: reward.kind === "birthday" }]);
     if (product.product_type !== "stock") setSelectedKey(key);
     setRewardForItem(null);
   }
@@ -1499,6 +1629,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     if (claimId !== null) void fetch("/api/claims", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: claimId, action: "decline" }) }).catch(() => undefined);
     setCustomer(null);
     setClaimId(null);
+    setDiscountReward(null);
     setCart((prev) => prev.filter((item) => !item.rewardId));
   }
 
@@ -1510,10 +1641,14 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not add the customer.");
       // A different customer's rewards leave the cart with them.
-      if (customer && customer.id !== payload.data.customer.id) setCart((prev) => prev.filter((item) => !item.rewardId));
+      if (customer && customer.id !== payload.data.customer.id) { setCart((prev) => prev.filter((item) => !item.rewardId)); setDiscountReward(null); }
       setCustomer(payload.data.customer as AttachedCustomer);
       setClaimId(Number(payload.data.claimId));
-      if (payload.data.reward) setRewardForItem(payload.data.reward as LoyaltyRewardRule);
+      const reward = payload.data.reward as LoyaltyRewardRule | null;
+      if (reward) {
+        if (reward.rewardType === "discount") setDiscountReward(reward);
+        else setRewardForItem(reward);
+      }
       setCartOpen(true);
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Could not add the customer.");
@@ -1538,6 +1673,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     const starNotes = [starsRedeemed > 0 ? `${starsRedeemed} ★ used` : "", starsEarned > 0 ? `+${starsEarned} ★` : ""].filter(Boolean).join(", ");
     setLastPlaced({ orderId, queueNumber, note: "", stars: starNotes && customer ? `${starNotes} for ${customer.fullName.split(" ")[0]}` : undefined });
     setClaimId(null);
+    setDiscountReward(null);
     setRewardPassword("");
     void refreshLoyalty();
     if (receipts.settings.autoPrint) void printPlacedReceipt(orderId, queueNumber);
@@ -1557,15 +1693,18 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
 
   async function checkout(password?: string) {
     if (cart.length === 0 || checkingOut) return;
-    const hasRewards = cart.some((item) => item.rewardId);
+    const hasRewards = cart.some((item) => item.rewardId) || discountReward !== null;
+    const discountCheck = previewDiscount(cart);
+    if (discountCheck.problem) { setCheckoutError(discountCheck.problem); return; }
     // Regulars without the app: the cashier confirms the reward with their own password.
     if (hasRewards && claimId === null && password === undefined) {
       setRewardPasswordInvalid(false);
       setRewardPasswordOpen(true);
       return;
     }
-    const rewardAuth = { claim_id: claimId, ...(password !== undefined ? { reward_password: password } : {}) };
-    const subtotalValue = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
+    const rewardAuth = { claim_id: claimId, discount_reward_id: discountReward?.id ?? null, ...(password !== undefined ? { reward_password: password } : {}) };
+    // What the customer pays: the cart minus a reward discount.
+    const subtotalValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount) * 100) / 100);
     const parsedReceivedAmount = Number.parseFloat(receivedAmount);
     if (paymentMethod === "cash" && subtotalValue > 0) {
       if (!Number.isFinite(parsedReceivedAmount) || parsedReceivedAmount < subtotalValue) {
@@ -1638,7 +1777,10 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const filteredAdditions = additions.filter((addition) => addition.addition_name.toLowerCase().includes(search.toLowerCase().trim()));
   const visibleProducts = searching ? filtered : products.filter((product) => (product.product_category?.trim() || "Other") === currentCategory);
   const visibleAdditions = searching ? filteredAdditions : currentCategory === ADDONS_TAB ? additions : [];
-  const subtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
+  const itemsSubtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
+  const discountPreview = previewDiscount(cart);
+  // What the customer pays (after a reward discount). Every payment figure below uses it.
+  const subtotal = Math.max(0, Math.round((itemsSubtotal - discountPreview.amount) * 100) / 100);
   const parsedReceivedAmount = Number.parseFloat(receivedAmount);
   const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
   // Split ticket figures: the cash part, what GCash charges, and change on the cash part.
@@ -1794,7 +1936,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
             <div key={item.key} onClick={item.isRecipe ? () => setSelectedKey(item.key) : undefined} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "8px 9px", borderRadius: 10, border: isSelected ? "2px solid #D97706" : "1px solid #F0E8E2", background: isSelected ? "#FFF7ED" : "transparent", cursor: item.isRecipe ? "pointer" : "default" }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700 }}>{getLineLabel(item)}</div>
-                <div style={{ fontSize: 12, color: item.rewardId ? "#B45309" : "#9C8278", fontWeight: item.rewardId ? 700 : 400 }}>{item.rewardId ? `Free · ${item.rewardName} · ★ ${item.rewardCost}` : `₱${(item.price).toFixed(2)} • x${item.qty}`}</div>
+                <div style={{ fontSize: 12, color: item.rewardId ? "#B45309" : "#9C8278", fontWeight: item.rewardId ? 700 : 400 }}>{item.rewardId ? `Free · ${item.rewardName} · ${item.rewardBirthday ? "🎂 birthday treat" : `★ ${item.rewardCost}`}` : `₱${(item.price).toFixed(2)} • x${item.qty}`}</div>
                 {item.additions.length > 0 && <div style={{ marginTop: 5, display: "flex", flexDirection: "column", gap: 3 }}>
                   {item.additions.map((addition) => <div key={addition.addition_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, fontSize: 11, color: "#7E22CE" }}>
                     <span>+ {addition.addition_name} ×{addition.count}{item.qty > 1 ? " each" : ""} · ₱{(Number(addition.price) * addition.count).toFixed(2)}</span>
@@ -1813,11 +1955,17 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
         </div>
 
         <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={removeCustomer}
-          onUseReward={customer && loyalty.rewards.length > 0 && customer.stars !== null && customer.stars !== undefined && (claimId !== null || !customer.username) ? () => setRewardChoiceOpen(true) : undefined}
-          rewardNote={customer && loyalty.rewards.length > 0 && customer.username && claimId === null ? "To use their stars, ask them to scan the Stars sign and pick the reward on their phone." : undefined} />
+          onUseReward={customer && availableRewards.length > 0 && ((customer.stars !== null && customer.stars !== undefined) || customer.birthdayTreat) && (claimId !== null || !customer.username) ? () => setRewardChoiceOpen(true) : undefined}
+          rewardNote={customer && availableRewards.length > 0 && customer.username && claimId === null ? `To use ${customer.birthdayTreat ? "their birthday treat or stars" : "their stars"}, ask them to scan the Stars sign and pick it on their phone.` : customer?.birthdayTreat ? "🎂 Birthday treat available today." : undefined} />
         <div style={{ borderTop: "1px solid #E8DDD5", paddingTop: 8, flexShrink: 0 }}>
         {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: "0 0 8px" }}>{checkoutError}</p>}
-          <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>Subtotal</div><div>₱{subtotal.toFixed(2)}</div></div>
+          {discountReward && <div className="pos-discount-row">
+            <span>🎁 {discountReward.name}<em>{discountPreview.problem ?? discountText(discountReward)}</em></span>
+            <strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong>
+            <button type="button" onClick={() => setDiscountReward(null)} aria-label={`Remove ${discountReward.name}`} title="Remove discount">×</button>
+          </div>}
+          {discountReward && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Items</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
+          <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>{discountReward ? "Total after discount" : "Subtotal"}</div><div>₱{subtotal.toFixed(2)}</div></div>
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
@@ -1872,7 +2020,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { removeCustomer(); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button onClick={() => { removeCustomer(); setDiscountReward(null); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
@@ -1887,13 +2035,15 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     </div>}
     {rewardChoiceOpen && customer && <Modal onClose={() => setRewardChoiceOpen(false)} label="Choose a reward">
       <section className="pos-customer-dialog">
-        <div className="pos-customer-dialog-head"><div><p>Rewards · {loyalty.campaign?.name}</p><h3>{customer.fullName.split(" ")[0]} has ★ {starsLeft}{starsInCart ? ` left (★ ${starsInCart} in this order)` : ""}</h3></div><button type="button" onClick={() => setRewardChoiceOpen(false)} aria-label="Close">×</button></div>
+        <div className="pos-customer-dialog-head"><div><p>Rewards{loyalty.campaign ? ` · ${loyalty.campaign.name}` : ""}{customer.birthdayTreat ? " · 🎂 birthday" : ""}</p><h3>{customer.fullName.split(" ")[0]} has ★ {starsLeft}{starsInCart ? ` left (★ ${starsInCart} in this order)` : ""}</h3></div><button type="button" onClick={() => setRewardChoiceOpen(false)} aria-label="Close">×</button></div>
         <div className="pos-customer-results">
-          {loyalty.rewards.map((reward) => {
-            const affordable = reward.starsCost <= starsLeft;
-            return <button key={reward.id} type="button" className="pos-customer-result" disabled={!affordable} style={{ opacity: affordable ? 1 : 0.5 }} onClick={() => { setRewardChoiceOpen(false); setRewardForItem(reward); }}>
-              <span className="pos-customer-avatar" style={{ background: "#F59E0B" }}>★</span>
-              <span className="pos-customer-result-text"><strong>{reward.name}</strong><em>★ {reward.starsCost}{affordable ? "" : ` · needs ${reward.starsCost - starsLeft} more`}</em></span>
+          {availableRewards.map((reward) => {
+            const birthdayTreat = reward.kind === "birthday";
+            const affordable = birthdayTreat || reward.starsCost <= starsLeft;
+            const blocked = reward.rewardType === "discount" && discountReward !== null && discountReward.id !== reward.id;
+            return <button key={reward.id} type="button" className="pos-customer-result" disabled={!affordable || blocked} style={{ opacity: affordable && !blocked ? 1 : 0.5 }} onClick={() => chooseReward(reward)}>
+              <span className="pos-customer-avatar" style={{ background: birthdayTreat ? "#DB2777" : "#F59E0B" }}>{birthdayTreat ? "🎂" : "★"}</span>
+              <span className="pos-customer-result-text"><strong>{reward.name}</strong><em>{reward.rewardType === "discount" ? `${discountText(reward)} · ` : ""}{birthdayTreat ? "Birthday treat, no stars" : `★ ${reward.starsCost}`}{affordable ? "" : ` · needs ${reward.starsCost - starsLeft} more`}{blocked ? " · one discount per order" : ""}</em></span>
             </button>;
           })}
         </div>
@@ -1920,7 +2070,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     </Modal>}
     {rewardPasswordOpen && customer && <Modal onClose={() => setRewardPasswordOpen(false)} label="Confirm the reward">
       <form className="pos-customer-dialog" onSubmit={(event) => { event.preventDefault(); if (rewardPassword) void checkout(rewardPassword); }}>
-        <div className="pos-customer-dialog-head"><div><p>Confirm reward</p><h3>Use ★ {starsInCart} of {customer.fullName.split(" ")[0]}&apos;s stars?</h3></div><button type="button" onClick={() => setRewardPasswordOpen(false)} aria-label="Close">×</button></div>
+        <div className="pos-customer-dialog-head"><div><p>Confirm reward</p><h3>{[starsInCart > 0 ? `Use ★ ${starsInCart} of ${customer.fullName.split(" ")[0]}'s stars` : "", birthdayInOrder ? `${starsInCart > 0 ? "and give" : `Give ${customer.fullName.split(" ")[0]}`} their birthday treat` : ""].filter(Boolean).join(" ")}?</h3></div><button type="button" onClick={() => setRewardPasswordOpen(false)} aria-label="Close">×</button></div>
         <p className="pos-customer-empty" style={{ margin: 0 }}>{customer.fullName} has no app account, so you confirm the reward with your password. It is recorded under your name.</p>
         <ConfirmPasswordField value={rewardPassword} onChange={(value) => { setRewardPassword(value); setRewardPasswordInvalid(false); }} userName={userName} invalid={rewardPasswordInvalid} autoFocus />
         <button type="submit" className="pos-reward-button" disabled={!rewardPassword || checkingOut}>{checkingOut ? "Placing the order…" : "Confirm and check out"}</button>

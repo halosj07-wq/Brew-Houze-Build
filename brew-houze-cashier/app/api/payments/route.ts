@@ -20,20 +20,22 @@ export async function POST(request: Request) {
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   if (!paymongoConfigured()) return NextResponse.json({ error: "GCash is not set up on this server." }, { status: 503 });
   try {
-    const body = await request.json() as { items?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown };
+    const body = await request.json() as { items?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown };
     const items = parseOrderItems(body.items);
     if (items.length === 0) return NextResponse.json({ error: "At least one valid cart item is required." }, { status: 400 });
     const customerId = await linkableCustomerId(body.customer_id);
     if (customerId === null) return NextResponse.json({ error: CUSTOMER_UNAVAILABLE }, { status: 400 });
     const rewards = await authorizeCounterRewards(items, customerId, session.adminId, body);
     if (!rewards.ok) return NextResponse.json({ error: rewards.error, code: rewards.code }, { status: rewards.status });
+    const rawDiscount = Number(body.discount_reward_id);
+    const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
     // After paying, the customer's phone lands on a public page of this app (no sign-in needed).
     const origin = process.env.APP_URL?.replace(/\/$/, "") || new URL(request.url).origin;
     // Split ticket: the cash part is collected at the counter, GCash charges the rest.
     const split = body.split ? { cashAmount: Number(body.split.cash_amount), receivedAmount: Number(body.split.received_amount) } : null;
     // The claim stays open (it expires on its own), so a cancelled GCash payment can be retried.
     // The stars are only spent when the payment goes through and the order is placed.
-    const started = await startCheckout({ source: "cashier", items, cashierAdminId: session.adminId, customerId: customerId ?? null, rewardsAuthorized: rewards.authorized, returnUrl: (token) => `${origin}/pay/done?ref=${token}`, split });
+    const started = await startCheckout({ source: "cashier", items, cashierAdminId: session.adminId, customerId: customerId ?? null, rewardsAuthorized: rewards.authorized, discountRewardId, returnUrl: (token) => `${origin}/pay/done?ref=${token}`, split });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
     console.error("POST /api/payments failed:", error);

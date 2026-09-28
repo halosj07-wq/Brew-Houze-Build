@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown };
+    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown };
     // Cash only: GCash, the only online payment, goes through /api/payments (paid before the order).
     if (body.payment_method !== undefined && body.payment_method !== "cash") return NextResponse.json({ error: "Only cash orders are punched here. Use GCash for online payments." }, { status: 400 });
     const paymentMethod = "cash";
@@ -25,6 +25,8 @@ export async function POST(request: Request) {
     // Rewards need the customer's claim from the Stars sign (or, without an app, the cashier's password).
     const rewards = await authorizeCounterRewards(items, customerId, session.adminId, body);
     if (!rewards.ok) return NextResponse.json({ error: rewards.error, code: rewards.code }, { status: rewards.status });
+    const rawDiscount = Number(body.discount_reward_id);
+    const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
 
     await client.query("BEGIN");
     const placed = await placeOrder(client, {
@@ -35,6 +37,7 @@ export async function POST(request: Request) {
       receivedAmount: Number(body.received_amount),
       customerId: customerId ?? null,
       rewardsAuthorized: rewards.authorized,
+      discountRewardId,
     });
     await markClaimUsed(client, rewards.claimId, placed.orderId);
     await client.query("COMMIT");

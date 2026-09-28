@@ -3,30 +3,46 @@ import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 
-// Loyalty campaigns (see loyalty-campaigns-migration.sql). Brew Houze runs its loyalty program in
-// seasons: each campaign sets how stars are earned, limits, what happens to stars when it ends,
-// and the rewards. At most one campaign is switched on; it earns stars while today is within its
-// dates. Status shown to the admin:
+// Loyalty campaigns (see loyalty-campaigns-migration.sql and loyalty-extras-migration.sql).
+//   seasonal  Brew Houze runs its loyalty program in seasons: each campaign sets how stars are
+//             earned (per item, per amount spent or per order), limits, what happens to stars when
+//             it ends, and the rewards. At most one is switched on; it earns stars while today is
+//             within its dates.
+//   birthday  one free treat a year per customer around their birthday, no stars. No dates: it is
+//             switched on and off (paused) at any time. At most one is switched on.
+// Rewards are free items or discounts. Status shown to the admin:
 //   draft      saved, never started
-//   scheduled  switched on, starts later
+//   scheduled  switched on, starts later (seasonal)
 //   running    switched on and within its dates
-//   ended      ended by the admin, or past its end date
+//   paused     a birthday campaign switched off
+//   ended      a seasonal campaign ended by the admin, or past its end date
 // Ended campaigns are read-only: their star history is the record of what customers earned.
 
 const TODAY = "(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Manila')::date";
 const TZ = "Asia/Manila";
 type Db = PoolClient | typeof pool;
 
-type RewardInput = { id?: unknown; name?: unknown; starsCost?: unknown; productId?: unknown; category?: unknown; maxPrice?: unknown };
+type RewardInput = { id?: unknown; name?: unknown; starsCost?: unknown; productId?: unknown; category?: unknown; maxPrice?: unknown; rewardType?: unknown; discountKind?: unknown; discountValue?: unknown; maxDiscount?: unknown; minOrderAmount?: unknown };
 type CampaignInput = {
   name?: unknown; description?: unknown; startsOn?: unknown; endsOn?: unknown; earnMode?: unknown; starsPerUnit?: unknown; amountStep?: unknown;
-  categories?: unknown; maxPerOrder?: unknown; maxPerDay?: unknown; carryOver?: unknown; rewards?: unknown;
+  categories?: unknown; maxPerOrder?: unknown; maxPerDay?: unknown; carryOver?: unknown; rewards?: unknown; kind?: unknown; birthdayWindow?: unknown; minOrderAmount?: unknown;
 };
-type CleanReward = { id: number | null; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null };
+type CleanReward = {
+  id: number | null; name: string; starsCost: number; productId: number | null; category: string | null; maxPrice: number | null;
+  rewardType: "free_item" | "discount"; discountKind: "percent" | "fixed" | null; discountValue: number | null; maxDiscount: number | null; minOrderAmount: number | null;
+};
+type CampaignKind = "seasonal" | "birthday";
 type CleanCampaign = {
-  name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount"; starsPerUnit: number; amountStep: number | null;
+  kind: CampaignKind; birthdayWindow: "day" | "week" | "month" | null;
+  name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; minOrderAmount: number | null;
   categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null; carryOver: boolean; rewards: CleanReward[];
 };
+const optionalMoney = (value: unknown): number | null | "bad" => {
+  if (value === null || value === undefined || value === "") return null;
+  const amount = Math.round(Number(value) * 100) / 100;
+  return Number.isFinite(amount) && amount >= 0 && amount <= 100000 ? amount : "bad";
+};
+const manilaToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 
 async function requireAdmin() {
   const session = await getSession();
@@ -42,13 +58,18 @@ const optionalPositiveInt = (value: unknown, max: number): number | null | "bad"
   return Number.isInteger(number) && number > 0 && number <= max ? number : "bad";
 };
 
-function cleanCampaign(body: CampaignInput): CleanCampaign | { error: string } {
+function cleanCampaign(body: CampaignInput, kind: CampaignKind): CleanCampaign | { error: string } {
+  const birthday = kind === "birthday";
   const name = String(body.name ?? "").trim().replace(/\s+/g, " ").slice(0, 80);
   const description = String(body.description ?? "").trim().slice(0, 400) || null;
-  const startsOn = String(body.startsOn ?? "").trim();
-  const endsOn = String(body.endsOn ?? "").trim() || null;
-  const earnMode = body.earnMode === "per_amount" ? "per_amount" : body.earnMode === "per_item" ? "per_item" : null;
-  const starsPerUnit = Number(body.starsPerUnit);
+  // A birthday campaign has no dates or earning rules: it only gives its treat.
+  const startsOn = birthday ? manilaToday() : String(body.startsOn ?? "").trim();
+  const endsOn = birthday ? null : String(body.endsOn ?? "").trim() || null;
+  const earnMode = birthday ? "per_item" : body.earnMode === "per_amount" ? "per_amount" : body.earnMode === "per_order" ? "per_order" : body.earnMode === "per_item" ? "per_item" : null;
+  const birthdayWindow = body.birthdayWindow === "day" || body.birthdayWindow === "month" ? body.birthdayWindow : "week";
+  const minOrderAmount = birthday ? null : optionalMoney(body.minOrderAmount);
+  if (minOrderAmount === "bad") return { error: "The minimum order must be ₱0 or more." };
+  const starsPerUnit = birthday ? 1 : Number(body.starsPerUnit);
   const amountStep = body.amountStep === null || body.amountStep === undefined || body.amountStep === "" ? null : Math.round(Number(body.amountStep) * 100) / 100;
   const maxPerOrder = optionalPositiveInt(body.maxPerOrder, 1000);
   const maxPerDay = optionalPositiveInt(body.maxPerDay, 1000);
@@ -72,13 +93,31 @@ function cleanCampaign(body: CampaignInput): CleanCampaign | { error: string } {
     const category = String(raw.category ?? "").trim() || null;
     const maxPrice = raw.maxPrice === null || raw.maxPrice === undefined || raw.maxPrice === "" ? null : Math.round(Number(raw.maxPrice) * 100) / 100;
     const id = raw.id === null || raw.id === undefined || raw.id === "" ? null : Number(raw.id);
+    const rewardType = raw.rewardType === "discount" ? "discount" : "free_item";
+    const discountKind = raw.discountKind === "fixed" ? "fixed" : "percent";
+    const discountValue = rewardType === "discount" ? Math.round(Number(raw.discountValue) * 100) / 100 : null;
+    const maxDiscount = rewardType === "discount" && discountKind === "percent" ? optionalMoney(raw.maxDiscount) : null;
+    const rewardMinOrder = rewardType === "discount" ? optionalMoney(raw.minOrderAmount) : null;
     if (!rewardName) return { error: "Every reward needs a name." };
-    if (!Number.isInteger(starsCost) || starsCost < 1 || starsCost > 1000) return { error: `Set how many stars "${rewardName}" costs (1 to 1000).` };
+    if (!birthday && (!Number.isInteger(starsCost) || starsCost < 1 || starsCost > 1000)) return { error: `Set how many stars "${rewardName}" costs (1 to 1000).` };
+    if (rewardType === "discount") {
+      if (discountValue === null || !Number.isFinite(discountValue) || discountValue <= 0 || (discountKind === "percent" && discountValue > 100) || discountValue > 100000) return { error: `Set the discount of "${rewardName}" (1 to 100% or a peso amount).` };
+      if (maxDiscount === "bad" || rewardMinOrder === "bad") return { error: `The limits of "${rewardName}" must be ₱0 or more.` };
+    }
     if (productId !== null && (!Number.isInteger(productId) || productId <= 0)) return { error: `Choose a valid product for "${rewardName}".` };
     if (maxPrice !== null && (!Number.isFinite(maxPrice) || maxPrice < 0)) return { error: `The price limit of "${rewardName}" must be ₱0 or more.` };
-    rewards.push({ id: id !== null && Number.isInteger(id) && id > 0 ? id : null, name: rewardName, starsCost, productId, category, maxPrice });
+    rewards.push({
+      id: id !== null && Number.isInteger(id) && id > 0 ? id : null, name: rewardName, starsCost: birthday ? 0 : starsCost, productId, category,
+      maxPrice: rewardType === "free_item" ? maxPrice : null, rewardType,
+      discountKind: rewardType === "discount" ? discountKind : null, discountValue, maxDiscount: maxDiscount === "bad" ? null : maxDiscount, minOrderAmount: rewardMinOrder === "bad" ? null : rewardMinOrder,
+    });
   }
-  return { name, description, startsOn, endsOn, earnMode, starsPerUnit, amountStep: earnMode === "per_amount" ? amountStep : null, categories: categories.length ? categories : null, maxPerOrder, maxPerDay, carryOver: body.carryOver === true, rewards };
+  if (birthday && rewards.length === 0) return { error: "Add the birthday treat (a free item or a discount)." };
+  return {
+    kind, birthdayWindow: birthday ? birthdayWindow : null,
+    name, description, startsOn, endsOn, earnMode, starsPerUnit, amountStep: earnMode === "per_amount" ? amountStep : null, minOrderAmount: earnMode === "per_order" ? minOrderAmount : null,
+    categories: categories.length ? categories : null, maxPerOrder: birthday ? null : maxPerOrder, maxPerDay: birthday ? null : maxPerDay, carryOver: !birthday && body.carryOver === true, rewards,
+  };
 }
 
 async function saveRewards(client: PoolClient, campaignId: number, rewards: CleanReward[]) {
@@ -88,15 +127,22 @@ async function saveRewards(client: PoolClient, campaignId: number, rewards: Clea
   for (const [index, reward] of rewards.entries()) {
     if (reward.id !== null && existingIds.has(reward.id)) {
       kept.add(reward.id);
-      await client.query("UPDATE loyalty_rewards SET name = $2, stars_cost = $3, product_id = $4, category = $5, max_price = $6, sort_order = $7, is_active = TRUE WHERE reward_id = $1", [reward.id, reward.name, reward.starsCost, reward.productId, reward.category, reward.maxPrice, index]);
+      await client.query(`
+        UPDATE loyalty_rewards SET name = $2, stars_cost = $3, product_id = $4, category = $5, max_price = $6, sort_order = $7, is_active = TRUE,
+          reward_type = $8, discount_kind = $9, discount_value = $10, max_discount = $11, min_order_amount = $12
+        WHERE reward_id = $1
+      `, [reward.id, reward.name, reward.starsCost, reward.productId, reward.category, reward.maxPrice, index, reward.rewardType, reward.discountKind, reward.discountValue, reward.maxDiscount, reward.minOrderAmount]);
     } else {
-      await client.query("INSERT INTO loyalty_rewards (campaign_id, name, stars_cost, product_id, category, max_price, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7)", [campaignId, reward.name, reward.starsCost, reward.productId, reward.category, reward.maxPrice, index]);
+      await client.query(`
+        INSERT INTO loyalty_rewards (campaign_id, name, stars_cost, product_id, category, max_price, sort_order, reward_type, discount_kind, discount_value, max_discount, min_order_amount)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      `, [campaignId, reward.name, reward.starsCost, reward.productId, reward.category, reward.maxPrice, index, reward.rewardType, reward.discountKind, reward.discountValue, reward.maxDiscount, reward.minOrderAmount]);
     }
   }
   // Removed rewards: deleted unless a customer already claimed one (then only switched off).
   for (const id of existingIds) {
     if (kept.has(id)) continue;
-    const used = await client.query("SELECT 1 FROM loyalty_star_entries WHERE reward_id = $1 LIMIT 1", [id]);
+    const used = await client.query("SELECT 1 FROM loyalty_star_entries WHERE reward_id = $1 UNION ALL SELECT 1 FROM loyalty_birthday_claims WHERE reward_id = $1 UNION ALL SELECT 1 FROM sales_order_items WHERE reward_id = $1 UNION ALL SELECT 1 FROM sales_orders WHERE discount_reward_id = $1 LIMIT 1", [id]);
     if (used.rowCount) await client.query("UPDATE loyalty_rewards SET is_active = FALSE WHERE reward_id = $1", [id]);
     else await client.query("DELETE FROM loyalty_rewards WHERE reward_id = $1", [id]);
   }
@@ -106,18 +152,20 @@ async function saveRewards(client: PoolClient, campaignId: number, rewards: Clea
 // When the campaign that ended last was set to carry over, each customer's remaining stars move
 // into this one (once: a campaign is only carried out of once).
 async function activateCampaign(client: PoolClient, campaignId: number, adminId: number): Promise<{ carried: number } | { error: string; status: number }> {
-  const target = await client.query("SELECT is_active, ended_at FROM loyalty_campaigns WHERE campaign_id = $1 FOR UPDATE", [campaignId]);
+  const target = await client.query("SELECT is_active, ended_at, kind FROM loyalty_campaigns WHERE campaign_id = $1 FOR UPDATE", [campaignId]);
   if (target.rowCount === 0) return { error: "Campaign not found.", status: 404 };
+  const kind = String(target.rows[0].kind) as CampaignKind;
   if (target.rows[0].ended_at !== null) return { error: "Ended campaigns cannot be restarted. Make a new campaign instead.", status: 409 };
   if (target.rows[0].is_active) return { carried: 0 };
-  await client.query(`UPDATE loyalty_campaigns SET is_active = FALSE, ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE is_active AND ends_on IS NOT NULL AND ends_on < ${TODAY}`);
-  const other = await client.query("SELECT name FROM loyalty_campaigns WHERE is_active LIMIT 1");
-  if (other.rowCount) return { error: `"${other.rows[0].name}" is still switched on. End it first, since only one campaign runs at a time.`, status: 409 };
+  await client.query(`UPDATE loyalty_campaigns SET is_active = FALSE, ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE kind = 'seasonal' AND is_active AND ends_on IS NOT NULL AND ends_on < ${TODAY}`);
+  const other = await client.query("SELECT name FROM loyalty_campaigns WHERE is_active AND kind = $1 LIMIT 1", [kind]);
+  if (other.rowCount) return { error: kind === "birthday" ? `"${other.rows[0].name}" is already the birthday campaign. Switch it off first.` : `"${other.rows[0].name}" is still switched on. End it first, since only one campaign runs at a time.`, status: 409 };
   await client.query("UPDATE loyalty_campaigns SET is_active = TRUE, activated_at = COALESCE(activated_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE campaign_id = $1", [campaignId]);
+  if (kind === "birthday") return { carried: 0 };
 
   const previous = await client.query(`
     SELECT campaign_id, name, carry_over FROM loyalty_campaigns
-    WHERE campaign_id <> $1 AND ended_at IS NOT NULL
+    WHERE campaign_id <> $1 AND ended_at IS NOT NULL AND kind = 'seasonal'
     ORDER BY ended_at DESC LIMIT 1
   `, [campaignId]);
   const prior = previous.rows[0];
@@ -142,10 +190,13 @@ async function loadCampaigns(db: Db) {
   const campaigns = await db.query(`
     SELECT c.campaign_id, c.name, c.description, TO_CHAR(c.starts_on, 'YYYY-MM-DD') AS starts_on, TO_CHAR(c.ends_on, 'YYYY-MM-DD') AS ends_on,
       c.is_active, c.earn_mode, c.stars_per_unit, c.amount_step, c.eligible_categories, c.max_stars_per_order, c.max_stars_per_day, c.carry_over,
+      c.kind, c.birthday_window, c.min_order_amount,
+      (SELECT COUNT(*)::int FROM loyalty_birthday_claims b WHERE b.campaign_id = c.campaign_id AND b.status = 'used' AND b.claim_year = EXTRACT(YEAR FROM ${TODAY})::int) AS birthday_claims,
       TO_CHAR(c.activated_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS activated_at,
       TO_CHAR(c.ended_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS ended_at,
       TO_CHAR(c.created_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
       CASE
+        WHEN c.kind = 'birthday' THEN CASE WHEN c.is_active THEN 'running' WHEN c.activated_at IS NULL THEN 'draft' ELSE 'paused' END
         WHEN c.ended_at IS NOT NULL OR (c.is_active AND c.ends_on IS NOT NULL AND c.ends_on < ${TODAY}) THEN 'ended'
         WHEN c.is_active AND c.starts_on > ${TODAY} THEN 'scheduled'
         WHEN c.is_active THEN 'running'
@@ -170,7 +221,8 @@ async function loadCampaigns(db: Db) {
     ORDER BY (c.is_active AND c.ended_at IS NULL) DESC, COALESCE(c.activated_at, c.created_at) DESC
   `);
   const rewards = await db.query(`
-    SELECT r.reward_id, r.campaign_id, r.name, r.stars_cost, r.product_id, p.product_name, r.category, r.max_price
+    SELECT r.reward_id, r.campaign_id, r.name, r.stars_cost, r.product_id, p.product_name, r.category, r.max_price,
+      r.reward_type, r.discount_kind, r.discount_value, r.max_discount, r.min_order_amount
     FROM loyalty_rewards r LEFT JOIN products p ON p.product_id = r.product_id
     WHERE r.is_active ORDER BY r.stars_cost, r.sort_order, r.reward_id
   `);
@@ -180,9 +232,13 @@ async function loadCampaigns(db: Db) {
     description: (row.description as string | null) ?? "",
     startsOn: String(row.starts_on),
     endsOn: (row.ends_on as string | null) ?? null,
-    status: String(row.status) as "draft" | "scheduled" | "running" | "ended",
+    status: String(row.status) as "draft" | "scheduled" | "running" | "paused" | "ended",
+    kind: row.kind === "birthday" ? "birthday" : "seasonal",
+    birthdayWindow: (row.birthday_window as string | null) ?? null,
+    minOrderAmount: row.min_order_amount === null ? null : Number(row.min_order_amount),
+    birthdayClaims: Number(row.birthday_claims ?? 0),
     isActive: Boolean(row.is_active),
-    earnMode: row.earn_mode === "per_amount" ? "per_amount" : "per_item",
+    earnMode: row.earn_mode === "per_amount" ? "per_amount" : row.earn_mode === "per_order" ? "per_order" : "per_item",
     starsPerUnit: Number(row.stars_per_unit),
     amountStep: row.amount_step === null ? null : Number(row.amount_step),
     categories: Array.isArray(row.eligible_categories) ? row.eligible_categories.map(String) : [],
@@ -200,6 +256,11 @@ async function loadCampaigns(db: Db) {
       id: Number(reward.reward_id), name: String(reward.name), starsCost: Number(reward.stars_cost),
       productId: reward.product_id === null ? null : Number(reward.product_id), productName: (reward.product_name as string | null) ?? null,
       category: (reward.category as string | null) ?? null, maxPrice: reward.max_price === null ? null : Number(reward.max_price),
+      rewardType: reward.reward_type === "discount" ? "discount" : "free_item",
+      discountKind: (reward.discount_kind as string | null) ?? null,
+      discountValue: reward.discount_value === null ? null : Number(reward.discount_value),
+      maxDiscount: reward.max_discount === null ? null : Number(reward.max_discount),
+      minOrderAmount: reward.min_order_amount === null ? null : Number(reward.min_order_amount),
     })),
   }));
 }
@@ -225,16 +286,16 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Fill in the campaign." }, { status: 400 });
   }
-  const campaign = cleanCampaign(body);
+  const campaign = cleanCampaign(body, body.kind === "birthday" ? "birthday" : "seasonal");
   if ("error" in campaign) return NextResponse.json({ error: campaign.error }, { status: 400 });
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
     const inserted = await client.query(`
-      INSERT INTO loyalty_campaigns (name, description, starts_on, ends_on, earn_mode, stars_per_unit, amount_step, eligible_categories, max_stars_per_order, max_stars_per_day, carry_over, created_by_admin_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      INSERT INTO loyalty_campaigns (name, description, starts_on, ends_on, earn_mode, stars_per_unit, amount_step, eligible_categories, max_stars_per_order, max_stars_per_day, carry_over, created_by_admin_id, kind, birthday_window, min_order_amount)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING campaign_id
-    `, [campaign.name, campaign.description, campaign.startsOn, campaign.endsOn, campaign.earnMode, campaign.starsPerUnit, campaign.amountStep, campaign.categories, campaign.maxPerOrder, campaign.maxPerDay, campaign.carryOver, auth.session.adminId]);
+    `, [campaign.name, campaign.description, campaign.startsOn, campaign.endsOn, campaign.earnMode, campaign.starsPerUnit, campaign.amountStep, campaign.categories, campaign.maxPerOrder, campaign.maxPerDay, campaign.carryOver, auth.session.adminId, campaign.kind, campaign.birthdayWindow, campaign.minOrderAmount]);
     const campaignId = Number(inserted.rows[0].campaign_id);
     await saveRewards(client, campaignId, campaign.rewards);
     let carried = 0;
@@ -271,13 +332,20 @@ export async function PATCH(request: Request) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const current = await client.query(`SELECT ended_at IS NOT NULL OR (is_active AND ends_on IS NOT NULL AND ends_on < ${TODAY}) AS ended, is_active FROM loyalty_campaigns WHERE campaign_id = $1 FOR UPDATE`, [id]);
+    const current = await client.query(`SELECT kind = 'seasonal' AND (ended_at IS NOT NULL OR (is_active AND ends_on IS NOT NULL AND ends_on < ${TODAY})) AS ended, is_active, kind FROM loyalty_campaigns WHERE campaign_id = $1 FOR UPDATE`, [id]);
     if (current.rowCount === 0) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "Campaign not found." }, { status: 404 });
     }
     const ended = Boolean(current.rows[0].ended);
+    const kind = String(current.rows[0].kind) as CampaignKind;
 
+    // A birthday campaign is paused, not ended: it can be switched on again any time.
+    if (body.action === "end" && kind === "birthday") {
+      await client.query("UPDATE loyalty_campaigns SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE campaign_id = $1", [id]);
+      await client.query("COMMIT");
+      return NextResponse.json({ data: { paused: true } });
+    }
     if (body.action === "end") {
       await client.query("UPDATE loyalty_campaigns SET is_active = FALSE, ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP), updated_at = CURRENT_TIMESTAMP WHERE campaign_id = $1", [id]);
       await client.query("COMMIT");
@@ -297,17 +365,17 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ data: activated });
     }
     if (body.action === "update") {
-      const campaign = cleanCampaign(body);
+      const campaign = cleanCampaign(body, kind);
       if ("error" in campaign) {
         await client.query("ROLLBACK");
         return NextResponse.json({ error: campaign.error }, { status: 400 });
       }
       await client.query(`
         UPDATE loyalty_campaigns
-        SET name = $2, description = $3, starts_on = $4, ends_on = $5, earn_mode = $6, stars_per_unit = $7, amount_step = $8, eligible_categories = $9,
-          max_stars_per_order = $10, max_stars_per_day = $11, carry_over = $12, updated_at = CURRENT_TIMESTAMP
+        SET name = $2, description = $3, starts_on = CASE WHEN kind = 'birthday' THEN starts_on ELSE $4::date END, ends_on = $5, earn_mode = $6, stars_per_unit = $7, amount_step = $8, eligible_categories = $9,
+          max_stars_per_order = $10, max_stars_per_day = $11, carry_over = $12, birthday_window = $13, min_order_amount = $14, updated_at = CURRENT_TIMESTAMP
         WHERE campaign_id = $1
-      `, [id, campaign.name, campaign.description, campaign.startsOn, campaign.endsOn, campaign.earnMode, campaign.starsPerUnit, campaign.amountStep, campaign.categories, campaign.maxPerOrder, campaign.maxPerDay, campaign.carryOver]);
+      `, [id, campaign.name, campaign.description, campaign.startsOn, campaign.endsOn, campaign.earnMode, campaign.starsPerUnit, campaign.amountStep, campaign.categories, campaign.maxPerOrder, campaign.maxPerDay, campaign.carryOver, campaign.birthdayWindow, campaign.minOrderAmount]);
       await saveRewards(client, id, campaign.rewards);
       await client.query("COMMIT");
       return NextResponse.json({ data: { id } });

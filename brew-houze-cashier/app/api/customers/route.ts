@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { runningCampaign } from "@/lib/loyalty";
+import { birthdayStatus, runningCampaign } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Finds a customer to attach to the order at the counter: by name or username (?q=), or by the
@@ -46,6 +46,13 @@ export async function GET(request: Request) {
       );
       stars.rows.forEach((row) => balances.set(Number(row.customer_id), Number(row.balance)));
     }
+    // Whether each customer can have their birthday treat now (a birthday campaign is on).
+    const treats = new Map<number, boolean>();
+    for (const row of result.rows) {
+      const status = await birthdayStatus(Number(row.customer_id)).catch(() => null);
+      if (!status) break;
+      treats.set(Number(row.customer_id), status.eligible && !status.claimed);
+    }
     return NextResponse.json({
       data: result.rows.map((row) => ({
         id: Number(row.customer_id),
@@ -55,6 +62,7 @@ export async function GET(request: Request) {
         visits: Number(row.visits),
         lastVisit: (row.last_visit as string | null) ?? null,
         stars: campaign ? balances.get(Number(row.customer_id)) ?? 0 : null,
+        birthdayTreat: treats.get(Number(row.customer_id)) ?? false,
       })),
       campaign: campaign ? { name: campaign.name } : null,
     }, { headers: { "Cache-Control": "no-store" } });

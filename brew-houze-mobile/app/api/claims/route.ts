@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getCustomerSession } from "@/lib/customers";
-import { runningCampaign, runningRewards, starBalance } from "@/lib/loyalty";
+import { customerLoyalty, runningCampaign } from "@/lib/loyalty";
 
 // The customer's side of the printed Stars sign. After scanning it (signed in), they pick a
 // reward or just ask to be added to their counter order. The claim waits for the cashier (staff
@@ -61,11 +61,13 @@ export async function POST(request: Request) {
   try {
     const campaign = await runningCampaign(client);
     if (rewardId !== null) {
-      if (!campaign) return NextResponse.json({ error: "No rewards campaign is running right now." }, { status: 409 });
-      const reward = (await runningRewards(campaign.id, client)).find((item) => item.id === rewardId);
-      if (!reward) return NextResponse.json({ error: "That reward is no longer available." }, { status: 409 });
-      const balance = await starBalance(session.customerId, campaign.id, client);
-      if (balance < reward.starsCost) return NextResponse.json({ error: `You need ${reward.starsCost - balance} more stars for ${reward.name}.` }, { status: 409 });
+      // A star reward of the running campaign, or the birthday treat.
+      const loyalty = await customerLoyalty(session.customerId, client);
+      const starReward = loyalty?.rewards.find((item) => item.id === rewardId) ?? null;
+      const birthdayReward = loyalty?.birthday?.rewards.find((item) => item.id === rewardId) ?? null;
+      if (!starReward && !birthdayReward) return NextResponse.json({ error: "That reward is no longer available." }, { status: 409 });
+      if (starReward && (loyalty?.balance ?? 0) < starReward.starsCost) return NextResponse.json({ error: `You need ${starReward.starsCost - (loyalty?.balance ?? 0)} more stars for ${starReward.name}.` }, { status: 409 });
+      if (birthdayReward && !(loyalty?.birthday?.eligible && !loyalty.birthday.claimed)) return NextResponse.json({ error: "Your birthday treat is not available right now." }, { status: 409 });
     }
     await client.query("BEGIN");
     await client.query("UPDATE loyalty_claims SET status = 'cancelled', closed_at = CURRENT_TIMESTAMP WHERE customer_id = $1 AND status IN ('pending', 'accepted')", [session.customerId]);

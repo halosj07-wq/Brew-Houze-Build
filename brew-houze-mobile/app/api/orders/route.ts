@@ -12,22 +12,24 @@ import { getCustomerSession } from "@/lib/customers";
 export async function POST(request: Request) {
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown };
+    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown };
     // Each add-on is once per cup on the mobile menu.
     const items = parseOrderItems(body.items).map((item) => ({ ...item, additionIds: Array.from(new Set(item.additionIds)) }));
     if (items.length === 0) return NextResponse.json({ error: "At least one valid order item is required." }, { status: 400 });
     const customerToken = randomUUID();
     // Signed-in customers get the order saved to their account, and can use their own stars.
     const customer = await getCustomerSession();
-    if (items.some((item) => item.rewardId) && !customer) return NextResponse.json({ error: "Sign in to use your rewards." }, { status: 401 });
+    const rawDiscount = Number(body.discount_reward_id);
+    const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
+    if ((items.some((item) => item.rewardId) || discountRewardId !== null) && !customer) return NextResponse.json({ error: "Sign in to use your rewards." }, { status: 401 });
     await client.query("BEGIN");
-    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod: "online", customerToken, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer) });
+    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod: "online", customerToken, customerId: customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId });
     if (paymongoConfigured() && placed.total > 0) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "Please pay with GCash to place your order." }, { status: 409 });
     }
     await client.query("COMMIT");
-    return NextResponse.json({ data: { orderId: placed.orderId, queueNumber: placed.queueNumber, trackingToken: customerToken, total: placed.total, createdAt: placed.createdAt, starsRedeemed: placed.starsRedeemed } }, { status: 201 });
+    return NextResponse.json({ data: { orderId: placed.orderId, queueNumber: placed.queueNumber, trackingToken: customerToken, total: placed.total, createdAt: placed.createdAt, starsRedeemed: placed.starsRedeemed, discountAmount: placed.discountAmount } }, { status: 201 });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     console.error("POST /api/orders failed:", error);

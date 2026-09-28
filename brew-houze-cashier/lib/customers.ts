@@ -23,8 +23,8 @@ export const CUSTOMER_UNAVAILABLE = "That customer can no longer be linked (deac
 // the claim can be closed once the order is placed.
 export type RewardAuthorization = { ok: true; authorized: boolean; claimId: number | null } | { ok: false; error: string; status: number; code?: string };
 
-export async function authorizeCounterRewards(items: OrderItemInput[], customerId: number | undefined, adminId: number, body: { claim_id?: unknown; reward_password?: unknown }): Promise<RewardAuthorization> {
-  const hasRewards = items.some((item) => item.rewardId);
+export async function authorizeCounterRewards(items: OrderItemInput[], customerId: number | undefined, adminId: number, body: { claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown }): Promise<RewardAuthorization> {
+  const hasRewards = items.some((item) => item.rewardId) || (body.discount_reward_id !== undefined && body.discount_reward_id !== null && body.discount_reward_id !== "");
   const rawClaim = Number(body.claim_id);
   const claimId = Number.isInteger(rawClaim) && rawClaim > 0 ? rawClaim : null;
   if (claimId !== null) {

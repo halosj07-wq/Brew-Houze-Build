@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { runningCampaign, runningRewards, starBalance } from "@/lib/loyalty";
+import { activeBirthdayCampaign, birthdayStatus, runningCampaign, runningRewards, starBalance } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Claims from the printed Stars sign: a customer scanned it with their signed-in phone and
@@ -19,8 +19,8 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   try {
-    const campaign = await runningCampaign();
-    if (!campaign) return NextResponse.json({ data: { campaign: null, claims: [], rewards: [] } }, { headers: { "Cache-Control": "no-store" } });
+    const [campaign, birthday] = await Promise.all([runningCampaign(), activeBirthdayCampaign()]);
+    if (!campaign && !birthday) return NextResponse.json({ data: { campaign: null, birthday: null, claims: [], rewards: [] } }, { headers: { "Cache-Control": "no-store" } });
     await expireOldClaims();
     const [claims, rewards] = await Promise.all([
       pool.query(`
@@ -30,12 +30,19 @@ export async function GET() {
         FROM loyalty_claims lc JOIN customers c ON c.customer_id = lc.customer_id AND c.is_active AND c.deleted_at IS NULL
         WHERE lc.status = 'pending'
         ORDER BY lc.created_at
-      `, [campaign.id]),
-      runningRewards(campaign.id),
+      `, [campaign?.id ?? 0]),
+      Promise.all([campaign ? runningRewards(campaign.id) : [], birthday ? runningRewards(birthday.id) : []]).then(([seasonal, treats]) => [...seasonal, ...treats]),
     ]);
+    // Whether each waiting customer can have their birthday treat now.
+    const treats = new Map<number, boolean>();
+    for (const row of claims.rows) {
+      const status = birthday ? await birthdayStatus(Number(row.customer_id)) : null;
+      treats.set(Number(row.customer_id), Boolean(status?.eligible && !status.claimed));
+    }
     return NextResponse.json({
       data: {
-        campaign: { id: campaign.id, name: campaign.name },
+        campaign: campaign ? { id: campaign.id, name: campaign.name } : null,
+        birthday: birthday ? { id: birthday.id, name: birthday.name, window: birthday.window } : null,
         rewards,
         claims: claims.rows.map((row) => ({
           id: Number(row.claim_id),
@@ -45,6 +52,7 @@ export async function GET() {
           username: (row.username as string | null) ?? null,
           notes: String(row.notes ?? ""),
           stars: Number(row.stars),
+          birthdayTreat: treats.get(Number(row.customer_id)) ?? false,
           createdAt: String(row.created_at),
         })),
       },
@@ -89,13 +97,15 @@ export async function PATCH(request: Request) {
       FROM customers c WHERE c.customer_id = $1
     `, [claim.customer_id]);
     const row = customer.rows[0];
-    const rewards = claim.campaign_id ? await runningRewards(Number(claim.campaign_id)) : [];
+    const [seasonal, birthdayNow] = await Promise.all([runningCampaign(), birthdayStatus(Number(row.customer_id))]);
+    const rewards = [...(seasonal ? await runningRewards(seasonal.id) : []), ...(birthdayNow?.rewards ?? [])];
     return NextResponse.json({
       data: {
         claimId: id,
         customer: {
           id: Number(row.customer_id), fullName: String(row.full_name), username: (row.username as string | null) ?? null, notes: String(row.notes ?? ""),
-          visits: Number(row.visits), lastVisit: null, stars: claim.campaign_id ? await starBalance(Number(row.customer_id), Number(claim.campaign_id)) : null,
+          visits: Number(row.visits), lastVisit: null, stars: seasonal ? await starBalance(Number(row.customer_id), seasonal.id) : null,
+          birthdayTreat: Boolean(birthdayNow?.eligible && !birthdayNow.claimed),
         },
         reward: rewards.find((reward) => reward.id === Number(claim.reward_id)) ?? null,
       },

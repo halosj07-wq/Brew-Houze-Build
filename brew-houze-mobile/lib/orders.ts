@@ -1,11 +1,12 @@
 import type { PoolClient } from "pg";
-import { awardOrderStarsSafely, checkRewardLines, recordRedemptions, type RewardLine } from "@/lib/loyalty";
+import { awardOrderStarsSafely, computeDiscount, discountText, planRewards, recordRewardUse, type RewardLine, type RewardPlan } from "@/lib/loyalty";
 
 // Creating a sales order, shared by the cashier checkout, the mobile menu and GCash payments
 // (brew-houze-cashier and brew-houze-mobile keep identical copies of this file). Everything runs
 // on the caller's transaction: the caller BEGINs and COMMITs (or ROLLs BACK for a price check).
 
-// rewardId: the line is a loyalty reward (one item, priced at 0, paid for with stars).
+// rewardId: the line is a loyalty reward (one item, priced at 0, paid for with stars or a
+// birthday treat).
 export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null };
 export type OrderSource = "cashier" | "mobile";
 export type PlaceOrderInput = {
@@ -23,12 +24,15 @@ export type PlaceOrderInput = {
   // Reward lines are only accepted when the caller has confirmed the customer (their signed-in
   // phone on the mobile menu, an accepted claim from the Stars sign, or the cashier's password).
   rewardsAuthorized?: boolean;
+  // A discount reward on the whole order (at most one).
+  discountRewardId?: number | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
 // starsEarned: loyalty stars the linked customer got for this order (0 without a customer or campaign).
-// starsRedeemed: stars spent on reward lines in this order.
-export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
+// starsRedeemed: stars spent on rewards in this order. total is what the customer pays, after
+// discountAmount is taken off subtotal.
+export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; subtotal: number; discountAmount: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
 
 // Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
 // what it draws from its source, which is the stock actually deducted at checkout.
@@ -77,7 +81,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const quantities = new Map<number, number>();
   // Lines with the same variant and the same add-on counts are merged into one sales line.
-  const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number>; rewardId: number | null }>();
+  const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number>; rewardId: number | null; additionAmount: number }>();
   for (const item of input.items) {
     quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
     const additionCounts = new Map<number, number>();
@@ -88,7 +92,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     const current = groupedItems.get(groupKey);
     groupedItems.set(groupKey, current
       ? { ...current, quantity: current.quantity + item.quantity }
-      : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts, rewardId: item.rewardId ?? null });
+      : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts, rewardId: item.rewardId ?? null, additionAmount: 0 });
   }
 
   // Sales belong to the open shift. The share lock keeps the shift from being closed while
@@ -117,11 +121,12 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     const variant = variantById.get(group.productVariantId);
     return { rewardId: Number(group.rewardId), productId: Number(variant?.product_id), category: (variant?.product_category as string | null) ?? null, price: Number(variant?.price ?? 0), name: String(variant?.product_name ?? "item") };
   });
-  let rewardCheck: Awaited<ReturnType<typeof checkRewardLines>> | null = null;
-  if (rewardLines.length > 0) {
+  const discountRewardId = input.discountRewardId ?? null;
+  let rewardPlan: RewardPlan | null = null;
+  if (rewardLines.length > 0 || discountRewardId !== null) {
     if (!input.customerId) throw new Error("Attach the customer before using a reward.");
     if (!input.rewardsAuthorized) throw new Error("The customer has to confirm the reward first (scan the Stars sign, or the cashier confirms with their password).");
-    rewardCheck = await checkRewardLines(client, input.customerId, rewardLines);
+    rewardPlan = await planRewards(client, input.customerId, rewardLines, discountRewardId);
   }
 
   // Cost snapshot per variant: NULL when any component has no cost entered yet.
@@ -159,6 +164,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
       for (const addition of additionsResult.rows) {
         const servings = (group.additionCounts.get(Number(addition.addition_id)) ?? 1) * group.quantity;
         additionTotal += Number(addition.price) * servings;
+        group.additionAmount += Number(addition.price) * servings;
         const inventoryId = Number(addition.inventory_id);
         deductions.set(inventoryId, (deductions.get(inventoryId) ?? 0) + Number(addition.quantity) * servings);
       }
@@ -189,8 +195,14 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   await client.query("SELECT pg_advisory_xact_lock(hashtext('brew-houze-queue-shift-' || $1::text))", [shiftId]);
   const queueResult = await client.query("SELECT COALESCE(MAX(queue_number), 0) + 1 AS queue_number FROM sales_orders WHERE shift_id = $1", [shiftId]);
   const queueNumber = Number(queueResult.rows[0].queue_number);
-  // Reward lines cost nothing (their add-ons are still charged).
-  const total = Math.round((Array.from(groupedItems.values()).reduce((sum, group) => sum + (group.rewardId ? 0 : Number(variantById.get(group.productVariantId)?.price ?? 0)) * group.quantity, 0) + additionTotal) * 100) / 100;
+  // Reward lines cost nothing (their add-ons are still charged). A discount comes off after.
+  const subtotal = Math.round((Array.from(groupedItems.values()).reduce((sum, group) => sum + (group.rewardId ? 0 : Number(variantById.get(group.productVariantId)?.price ?? 0)) * group.quantity, 0) + additionTotal) * 100) / 100;
+  const discount = rewardPlan?.discount ?? null;
+  const discountAmount = discount ? computeDiscount(discount, Array.from(groupedItems.values()).filter((group) => !group.rewardId).map((group) => {
+    const variant = variantById.get(group.productVariantId);
+    return { productId: Number(variant?.product_id), category: (variant?.product_category as string | null) ?? null, amount: Number(variant?.price ?? 0) * group.quantity + group.additionAmount };
+  }), subtotal) : 0;
+  const total = Math.round((subtotal - discountAmount) * 100) / 100;
 
   let receivedAmount = total;
   let changeAmount = 0;
@@ -209,11 +221,13 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   }
 
   const order = await client.query(`
-    INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id)
-    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+    INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id,
+      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id)
+    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
-  `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null]);
+  `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null,
+    subtotal, discountAmount, discount ? `${discount.name} (${discountText(discount)})` : null, discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null]);
   const orderId = Number(order.rows[0].order_id);
 
   for (const [inventoryId, detail] of deductionDetails) {
@@ -243,9 +257,9 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     }
   }
 
-  const starsRedeemed = rewardCheck && input.customerId ? await recordRedemptions(client, orderId, input.customerId, rewardCheck.campaignId, rewardCheck.rewards, rewardLines) : 0;
+  const starsRedeemed = rewardPlan && input.customerId ? await recordRewardUse(client, orderId, input.customerId, rewardPlan) : 0;
   const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
-  return { orderId, queueNumber, shiftId, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
+  return { orderId, queueNumber, shiftId, subtotal, discountAmount, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
 }
 
 // The exact total the order would have right now (prices, stock and the open shift all

@@ -184,3 +184,10 @@ button { cursor: pointer; }
 .reward-option small { color: var(--muted); font-size: 11px; }
 .reward-option b { color: var(--teal); font-size: 13px; }
 .reward-option:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Discount reward in the cart */
+.cart-discount { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; background: #fff8ee; border: 1px solid #f0c58e; border-radius: 12px; font-size: 12.5px; }
+.cart-discount span { flex: 1; display: flex; flex-direction: column; gap: 2px; font-weight: 700; min-width: 0; }
+.cart-discount small { color: #b45309; font-size: 11px; font-weight: 500; }
+.cart-discount strong { color: #b45309; white-space: nowrap; }
+.cart-discount button { width: 26px; height: 26px; color: #b45309; background: #fff; border: 1px solid #f0c58e; border-radius: 8px; }

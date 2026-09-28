@@ -106,7 +106,7 @@ async function totals(start: string, end: string) {
 // (reward_value) is what the customer got, and its cost is already in the cost of goods, so
 // gross profit shows the true effect of the program.
 async function loyaltyFigures(start: string, end: string) {
-  const [orders, rewards, stars] = await Promise.all([
+  const [orders, rewards, stars, discounts] = await Promise.all([
     pool.query(`
       WITH ${ordersCte}
       SELECT COUNT(*) FILTER (WHERE customer_id IS NOT NULL)::int AS member_orders,
@@ -132,6 +132,13 @@ async function loyaltyFigures(start: string, end: string) {
       FROM loyalty_star_entries
       WHERE (created_at AT TIME ZONE '${TZ}')::date BETWEEN $1::date AND $2::date
     `, [start, end]),
+    // Discounts taken off completed orders (rewards and birthday treats now; PWD and senior later).
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT COALESCE(discount_source, 'other') AS source, COUNT(*)::int AS orders, COALESCE(SUM(discount_amount), 0) AS amount
+      FROM o WHERE NOT o.reversed AND o.bd BETWEEN $1::date AND $2::date AND COALESCE(discount_amount, 0) > 0
+      GROUP BY 1 ORDER BY amount DESC
+    `, [start, end]),
   ]);
   const rewardRows = rewards.rows.map((row) => ({ name: String(row.name), claimed: n(row.claimed), value: n(row.value), cost: row.costed ? n(row.cost) : null }));
   return {
@@ -145,6 +152,8 @@ async function loyaltyFigures(start: string, end: string) {
     rewardValue: rewardRows.reduce((sum, row) => sum + row.value, 0),
     rewardCost: rewardRows.every((row) => row.cost !== null) ? rewardRows.reduce((sum, row) => sum + (row.cost ?? 0), 0) : null,
     rewards: rewardRows,
+    discounts: discounts.rows.map((row) => ({ source: String(row.source), orders: n(row.orders), amount: n(row.amount) })),
+    discountTotal: discounts.rows.reduce((sum, row) => sum + n(row.amount), 0),
   };
 }
 
@@ -170,7 +179,7 @@ export async function GET(request: Request) {
           TO_CHAR(o.reversed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
           COALESCE(cashier.full_name, CASE WHEN o.order_source = 'online' THEN 'Mobile order' ELSE 'Unknown' END) AS punched_by,
           reverser.full_name AS reversed_by,
-          cu.full_name AS customer_name,
+          cu.full_name AS customer_name, o.subtotal_amount, o.discount_amount, o.discount_label,
           COALESCE(lines.items, '[]'::json) AS items,
           lines.cost AS cost
         FROM o
@@ -230,6 +239,9 @@ export async function GET(request: Request) {
           punchedBy: row.punched_by,
           reversedBy: row.reversed_by ?? null,
           customerName: row.customer_name ?? null,
+          subtotal: row.subtotal_amount === null || row.subtotal_amount === undefined ? null : n(row.subtotal_amount),
+          discountAmount: n(row.discount_amount),
+          discountLabel: row.discount_label ?? null,
           paymentProvider: row.payment_provider ?? null,
           cashPortion: row.cash_portion === null || row.cash_portion === undefined ? null : n(row.cash_portion),
           returnMethod: row.return_method ?? null,
