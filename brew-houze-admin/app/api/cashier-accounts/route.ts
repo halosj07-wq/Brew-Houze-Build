@@ -25,7 +25,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
-      SELECT u.admin_id, u.full_name, u.email, u.role, u.is_active, u.can_void_orders, u.can_refund_orders, u.can_open_shift,
+      SELECT u.admin_id, u.full_name, u.email, u.role, u.is_active, u.can_void_orders, u.can_refund_orders, u.can_open_shift, u.can_close_shift,
         ${iso("u.created_at AT TIME ZONE 'UTC'")} AS created_at,
         (SELECT ${iso("t.time_in")} FROM employee_time_logs t WHERE t.admin_id = u.admin_id AND t.time_out IS NULL AND t.is_archived = FALSE ORDER BY t.time_in DESC LIMIT 1) AS on_duty_since,
         (SELECT ${iso("MAX(s.last_seen_at)")} FROM user_sessions s WHERE s.admin_id = u.admin_id) AS last_seen_at,
@@ -101,6 +101,7 @@ export async function GET() {
           canVoidOrders: Boolean(account.can_void_orders),
           canRefundOrders: Boolean(account.can_refund_orders),
           canOpenShift: Boolean(account.can_open_shift),
+          canCloseShift: Boolean(account.can_close_shift),
           createdAt: account.created_at,
           onDutySince: account.on_duty_since ?? null,
           lastSeenAt: account.last_seen_at ?? null,
@@ -140,7 +141,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
-    const body = await request.json() as { fullName?: unknown; email?: unknown; password?: unknown; role?: unknown; canOpenShift?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
+    const body = await request.json() as { fullName?: unknown; email?: unknown; password?: unknown; role?: unknown; canOpenShift?: unknown; canCloseShift?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
     const fullName = String(body.fullName ?? "").trim().slice(0, 120);
     const email = String(body.email ?? "").trim().toLowerCase();
     const password = String(body.password ?? "");
@@ -153,10 +154,10 @@ export async function POST(request: Request) {
     const cashier = role === "cashier";
 
     const result = await pool.query(`
-      INSERT INTO admin_users (full_name, email, password_hash, role, is_active, can_void_orders, can_refund_orders, can_open_shift)
-      VALUES ($1, $2, crypt($3, gen_salt('bf')), $7, TRUE, $4, $5, $6)
+      INSERT INTO admin_users (full_name, email, password_hash, role, is_active, can_void_orders, can_refund_orders, can_open_shift, can_close_shift)
+      VALUES ($1, $2, crypt($3, gen_salt('bf')), $7, TRUE, $4, $5, $6, $8)
       RETURNING admin_id
-    `, [fullName, email, password, cashier && body.canVoidOrders === true, cashier && body.canRefundOrders === true, cashier && body.canOpenShift === true, role]);
+    `, [fullName, email, password, cashier && body.canVoidOrders === true, cashier && body.canRefundOrders === true, cashier && body.canOpenShift === true, role, cashier && body.canCloseShift === true]);
     return NextResponse.json({ data: { id: Number(result.rows[0].admin_id) } }, { status: 201 });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: "Another account already uses this email." }, { status: 409 });
@@ -172,7 +173,7 @@ export async function PATCH(request: Request) {
   }
 
   try {
-    const body = await request.json() as { id?: unknown; action?: unknown; role?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
+    const body = await request.json() as { id?: unknown; action?: unknown; role?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; canCloseShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid employee account is required." }, { status: 400 });
     const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista')", [id]);
@@ -190,12 +191,13 @@ export async function PATCH(request: Request) {
           can_void_orders = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_void_orders END,
           can_refund_orders = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_refund_orders END,
           can_open_shift = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_open_shift END,
+          can_close_shift = CASE WHEN $2::text = 'barista' THEN FALSE ELSE can_close_shift END,
           updated_at = CURRENT_TIMESTAMP
         WHERE admin_id = $1
-        RETURNING role, can_void_orders, can_refund_orders, can_open_shift
+        RETURNING role, can_void_orders, can_refund_orders, can_open_shift, can_close_shift
       `, [id, role]);
       const row = result.rows[0];
-      return NextResponse.json({ data: { role: String(row.role), canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift) } });
+      return NextResponse.json({ data: { role: String(row.role), canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift), canCloseShift: Boolean(row.can_close_shift) } });
     }
 
     // Ends every signed-in device of the account (e.g. a lost phone or an employee leaving).
@@ -240,12 +242,13 @@ export async function PATCH(request: Request) {
       SET can_void_orders = COALESCE($2, can_void_orders),
         can_refund_orders = COALESCE($3, can_refund_orders),
         can_open_shift = COALESCE($4, can_open_shift),
+        can_close_shift = COALESCE($5, can_close_shift),
         updated_at = CURRENT_TIMESTAMP
       WHERE admin_id = $1
-      RETURNING can_void_orders, can_refund_orders, can_open_shift
-    `, [id, flag(body.canVoidOrders), flag(body.canRefundOrders), flag(body.canOpenShift)]);
+      RETURNING can_void_orders, can_refund_orders, can_open_shift, can_close_shift
+    `, [id, flag(body.canVoidOrders), flag(body.canRefundOrders), flag(body.canOpenShift), flag(body.canCloseShift)]);
     const row = result.rows[0];
-    return NextResponse.json({ data: { canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift) } });
+    return NextResponse.json({ data: { canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift), canCloseShift: Boolean(row.can_close_shift) } });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: "Another account already uses this email." }, { status: 409 });
     console.error("PATCH /api/cashier-accounts failed:", error);

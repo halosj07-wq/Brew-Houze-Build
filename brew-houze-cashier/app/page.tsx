@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import Image from "next/image";
 
 type Page = "pos" | "queue" | "reversals" | "accounts";
-type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean };
+type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean };
 
 // Baristas only see and manage the queue (the server refuses them everything else too).
 const QUEUE_ONLY_PAGES: Page[] = ["queue", "accounts"];
@@ -336,7 +336,7 @@ function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, on
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
       <span className="topbar-title" style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F", whiteSpace: "nowrap" }}>{title}</span>
-      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} readOnly={isQueueOnlyRole(user.role)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
+      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} canCloseShift={Boolean(user.canCloseShift)} readOnly={isQueueOnlyRole(user.role)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
     </div>
     <div className="flex items-center gap-2.5">
       <CampaignPreview />
@@ -538,6 +538,7 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
             {permission("Void orders", Boolean(user.canVoidOrders))}
             {permission("Refund orders", Boolean(user.canRefundOrders))}
             {permission("Open the store", Boolean(user.canOpenShift))}
+            {permission("Close the shift", Boolean(user.canCloseShift))}
           </div>
           {!isAdmin && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Permissions are set by an admin in the admin portal.</p>}
         </AccountSection>
@@ -2899,7 +2900,7 @@ function formatClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 }
 
-function ShiftChip({ shift, canOpenShift, readOnly = false, onOpenShift, onCloseShift, onCashDrawer }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; readOnly?: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void }) {
+function ShiftChip({ shift, canOpenShift, canCloseShift = false, readOnly = false, onOpenShift, onCloseShift, onCashDrawer }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; canCloseShift?: boolean; readOnly?: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void }) {
   if (shift === undefined) return null;
   const chipButton: React.CSSProperties = { border: "none", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" };
   if (shift === null) {
@@ -2914,7 +2915,7 @@ function ShiftChip({ shift, canOpenShift, readOnly = false, onOpenShift, onClose
     <span style={{ width: 8, height: 8, borderRadius: "50%", background: longShift ? "#F59E0B" : "#22C55E" }} />
     <span className="shift-chip-text">Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
     {!readOnly && <button type="button" onClick={onCashDrawer} title="Cash in, cash out or cash drop" style={{ ...chipButton, background: "#FFFFFF", color: "#3D2B1F", border: "1px solid #E8DDD5" }}>Drawer</button>}
-    {!readOnly && <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>}
+    {!readOnly && canCloseShift && <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>}
   </div>;
 }
 

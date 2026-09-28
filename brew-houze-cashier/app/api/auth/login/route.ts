@@ -13,7 +13,8 @@ export async function POST(request: Request) {
       SELECT admin_id, full_name, email, role,
         COALESCE(can_void_orders, FALSE) AS can_void_orders,
         COALESCE(can_refund_orders, FALSE) AS can_refund_orders,
-        COALESCE(can_open_shift, FALSE) AS can_open_shift
+        COALESCE(can_open_shift, FALSE) AS can_open_shift,
+        COALESCE(can_close_shift, FALSE) AS can_close_shift
       FROM admin_users
       WHERE LOWER(email) = $1
         AND password_hash = crypt($2, password_hash)
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       canVoidOrders: isAdmin ? true : !isBarista && Boolean(admin.can_void_orders),
       canRefundOrders: isAdmin ? true : !isBarista && Boolean(admin.can_refund_orders),
       canOpenShift: isAdmin ? true : !isBarista && Boolean(admin.can_open_shift),
+      canCloseShift: isAdmin ? true : !isBarista && Boolean(admin.can_close_shift),
     };
     await pool.query(`
       INSERT INTO employee_time_logs (admin_id)

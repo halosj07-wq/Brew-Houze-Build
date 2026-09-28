@@ -5812,7 +5812,7 @@ type ArchivingLogEntry = { kind: string; name: string; archivedAt: string };
 type EmployeeStats = { hoursThisWeek: number; hours30d: number; shifts30d: number; orders30d: number; sales30d: number; reversals30d: number };
 type CashierAccount = {
   id: number; fullName: string; email: string; role: string; isActive: boolean;
-  canVoidOrders: boolean; canRefundOrders: boolean; canOpenShift: boolean;
+  canVoidOrders: boolean; canRefundOrders: boolean; canOpenShift: boolean; canCloseShift: boolean;
   createdAt?: string; onDutySince: string | null; lastSeenAt: string | null; stats: EmployeeStats;
   timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[]; sessions?: AccountDevice[];
 };
@@ -5923,7 +5923,7 @@ function AccountDevicesPanel({ account, onSignedOut }: { account: CashierAccount
 }
 
 function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => Promise<void> }) {
-  const [draft, setDraft] = useState({ fullName: "", email: "", password: "", role: "cashier" as StaffRole, canOpenShift: false, canVoidOrders: false, canRefundOrders: false });
+  const [draft, setDraft] = useState({ fullName: "", email: "", password: "", role: "cashier" as StaffRole, canOpenShift: false, canCloseShift: false, canVoidOrders: false, canRefundOrders: false });
   const [showPassword, setShowPassword] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -5936,7 +5936,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim(), ...(draft.role === "barista" ? { canOpenShift: false, canVoidOrders: false, canRefundOrders: false } : {}) }) });
+      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim(), ...(draft.role === "barista" ? { canOpenShift: false, canCloseShift: false, canVoidOrders: false, canRefundOrders: false } : {}) }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not add the employee.");
       setCreated({ name: draft.fullName.trim(), email: draft.email.trim().toLowerCase(), password: draft.password });
@@ -5979,6 +5979,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
         <WizardField label="Role"><RolePicker value={draft.role} onChange={(role) => setDraft((current) => ({ ...current, role }))} /></WizardField>
         {draft.role === "cashier" && <div className="acc-switches">
           <PermissionSwitch checked={draft.canOpenShift} title="Open the store" description="Start the shift and enter the starting cash. Otherwise an admin opens it." onChange={(checked) => setDraft((current) => ({ ...current, canOpenShift: checked }))} />
+          <PermissionSwitch checked={draft.canCloseShift} title="Close the shift" description="Count the drawer, end the business day and sign everyone out. Otherwise an admin closes it." onChange={(checked) => setDraft((current) => ({ ...current, canCloseShift: checked }))} />
           <PermissionSwitch checked={draft.canVoidOrders} title="Void orders" description="Cancel an order and return its stock." onChange={(checked) => setDraft((current) => ({ ...current, canVoidOrders: checked }))} />
           <PermissionSwitch checked={draft.canRefundOrders} title="Refund orders" description="Give money back for a completed order." onChange={(checked) => setDraft((current) => ({ ...current, canRefundOrders: checked }))} />
         </div>}
@@ -6049,7 +6050,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
     }
   }
 
-  async function setPermission(key: "canOpenShift" | "canVoidOrders" | "canRefundOrders", value: boolean) {
+  async function setPermission(key: "canOpenShift" | "canCloseShift" | "canVoidOrders" | "canRefundOrders", value: boolean) {
     const previous = account;
     onChanged({ ...account, [key]: value });
     const saved = await patch({ [key]: value }, key, "Could not change the permission.");
@@ -6060,7 +6061,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
     if (role === staffRoleOf(account.role)) return;
     if (role === "barista" && !(await confirmAction({ title: `Make ${account.fullName} a barista?`, message: "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: "Make barista", tone: "default" }))) return;
     const saved = await patch({ action: "set_role", role }, "role", "Could not change the role.");
-    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : "Now a cashier. Turn on any permissions they need."); }
+    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : "Now a cashier. Turn on any permissions they need."); }
   }
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
@@ -6115,7 +6116,8 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
           {staffRoleOf(account.role) === "cashier" && <section className="acc-block">
             <header className="acc-block-head"><div><h3>Permissions</h3><p>Changes apply right away, even on a signed-in tablet.</p></div></header>
             <div className="acc-switches">
-              <PermissionSwitch checked={account.canOpenShift} disabled={working === "canOpenShift" || !account.isActive} title="Open the store" description="Start the shift and enter the starting cash. Without this, an admin opens the store. Any cashier can close it." onChange={(checked) => void setPermission("canOpenShift", checked)} />
+              <PermissionSwitch checked={account.canOpenShift} disabled={working === "canOpenShift" || !account.isActive} title="Open the store" description="Start the shift and enter the starting cash. Without this, an admin opens the store." onChange={(checked) => void setPermission("canOpenShift", checked)} />
+              <PermissionSwitch checked={account.canCloseShift} disabled={working === "canCloseShift" || !account.isActive} title="Close the shift" description="Count the drawer, end the business day and sign everyone out. Without this, an admin (or a cashier allowed) closes it." onChange={(checked) => void setPermission("canCloseShift", checked)} />
               <PermissionSwitch checked={account.canVoidOrders} disabled={working === "canVoidOrders" || !account.isActive} title="Void orders" description="Cancel an order and return its stock." onChange={(checked) => void setPermission("canVoidOrders", checked)} />
               <PermissionSwitch checked={account.canRefundOrders} disabled={working === "canRefundOrders" || !account.isActive} title="Refund orders" description="Give money back for a completed order." onChange={(checked) => void setPermission("canRefundOrders", checked)} />
             </div>
@@ -7423,6 +7425,7 @@ function Accounts() {
           [],
           ["Permissions"],
           ["Can open the store", account.canOpenShift ? "Yes" : "No"],
+          ["Can close the shift", account.canCloseShift ? "Yes" : "No"],
           ["Can void orders", account.canVoidOrders ? "Yes" : "No"],
           ["Can refund orders", account.canRefundOrders ? "Yes" : "No"],
           [],
@@ -7479,6 +7482,7 @@ function Accounts() {
           { header: "Role", value: (account) => staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier" },
           { header: "Status", value: (account) => account.isActive ? "Active" : "Deactivated" },
           { header: "Can open the store", value: (account) => account.canOpenShift ? "Yes" : "No" },
+          { header: "Can close the shift", value: (account) => account.canCloseShift ? "Yes" : "No" },
           { header: "Can void", value: (account) => account.canVoidOrders ? "Yes" : "No" },
           { header: "Can refund", value: (account) => account.canRefundOrders ? "Yes" : "No" },
           { header: "Hours this week", value: (account) => Math.round(account.stats.hoursThisWeek * 100) / 100, kind: "hours" },
@@ -7516,7 +7520,7 @@ function Accounts() {
         <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active staff</span><strong>{active.length}</strong><em>{accounts.length - active.length} deactivated</em></button>
         <button type="button" className="inv-stat" aria-pressed={statusFilter === "duty"} onClick={() => setStatusFilter(statusFilter === "duty" ? "active" : "duty")}><span>On duty now</span><strong style={{ color: onDuty.length ? "#15803D" : undefined }}>{onDuty.length}</strong><em>{onDuty.length ? onDuty.map((account) => account.fullName.split(/\s+/)[0]).join(", ") : "Nobody is clocked in"}</em></button>
         <div className="inv-stat is-static"><span>Hours this week</span><strong>{formatHours(active.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0))}</strong><em>all staff, since Monday</em></div>
-        <div className="inv-stat is-static"><span>Can open the store</span><strong>{active.filter((account) => account.canOpenShift).length}</strong><em>plus every admin</em></div>
+        <div className="inv-stat is-static"><span>Can open the store</span><strong>{active.filter((account) => account.canOpenShift).length}</strong><em>{active.filter((account) => account.canCloseShift).length} can close the shift · plus every admin</em></div>
       </div>
 
       <div className="inv-toolbar">
@@ -7550,7 +7554,7 @@ function Accounts() {
                   <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{!account.isActive ? "Deactivated" : account.onDutySince ? `On duty · ${clockTime(account.onDutySince)}` : "Off duty"}</span>
                 </span>
                 <span className="acc-perms">
-                  {staffRoleOf(account.role) === "barista" ? <span className="acc-perm is-on">✓ Queue only</span> : ([["Open store", account.canOpenShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
+                  {staffRoleOf(account.role) === "barista" ? <span className="acc-perm is-on">✓ Queue only</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
                 </span>
                 <span className="acc-card-stats">
                   <span><em>This week</em><strong>{formatHours(account.stats.hoursThisWeek)}</strong></span>

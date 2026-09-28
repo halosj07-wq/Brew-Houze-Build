@@ -93,6 +93,9 @@ export async function POST(request: Request) {
   if (body.action === "open" && !session.canOpenShift) {
     return NextResponse.json({ error: "Only an admin, or a cashier an admin has allowed, can open the store." }, { status: 403 });
   }
+  if (body.action === "close" && !session.canCloseShift) {
+    return NextResponse.json({ error: "Only an admin, or a cashier an admin has allowed, can close the shift." }, { status: 403 });
+  }
   // Opening and closing the store are confirmed with the signed-in account's password.
   if (!(await confirmPassword(session.adminId, body.password))) return NextResponse.json(WRONG_PASSWORD, { status: 403 });
 
