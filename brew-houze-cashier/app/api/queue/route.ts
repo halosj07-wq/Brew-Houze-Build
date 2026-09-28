@@ -29,6 +29,8 @@ export async function GET(request: Request) {
         so.service_type,
         cu.full_name AS customer_name,
         cu.notes AS customer_notes,
+        -- A mobile order with an ID discount (senior, PWD...): the barista checks the real ID at pickup.
+        (SELECT STRING_AGG(DISTINCT od.type_name, ', ') FROM order_discounts od WHERE od.order_id = so.order_id AND so.order_source = 'online') AS id_check,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         COALESCE((
           SELECT json_agg(json_build_object(

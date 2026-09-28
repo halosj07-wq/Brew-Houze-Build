@@ -382,6 +382,7 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .queue-customer { display: flex; flex-direction: column; gap: 5px; padding: 8px 14px; border-bottom: 1px dashed #E8DDD5; background: #FFFBEB; }
 .queue-customer-name { color: #6B4C3B; font-size: 12.5px; }
 .queue-customer-name strong { color: #3D2B1F; font-size: 14px; }
+.queue-id-check { margin: 8px 12px 0; padding: 7px 10px; border-radius: 9px; border: 1.5px solid #1D4ED8; background: #EFF6FF; color: #1E3A8A; font-size: 13px; font-weight: 800; line-height: 1.35; }
 .queue-customer-note { padding: 6px 9px; border-radius: 8px; border: 1px solid #FCD34D; background: #FEF3C7; color: #92400E; font-size: 13px; font-weight: 700; line-height: 1.4; }
 
 /* Loyalty at the counter: claims from the Stars sign and rewards in the cart */
@@ -397,6 +398,33 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-sent .pos-claim { border-color: #BFDBFE; }
 .pos-sent .pos-claim-accept { background: #1D4ED8; }
 .pos-sent-code { flex-shrink: 0; display: grid; place-items: center; min-width: 52px; height: 34px; padding: 0 6px; border-radius: 8px; background: #1E3A8A; color: #FFFFFF; font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 800; letter-spacing: 0.06em; }
+/* ID photos from the mobile menu, checked at the counter. */
+.pos-idcheck { border-color: #A5B4FC; background: #EEF2FF; }
+.pos-idcheck .pos-claims-title { color: #3730A3; }
+.pos-idcheck .pos-claim { border-color: #C7D2FE; }
+.pos-idcheck .pos-claim-accept { background: #4338CA; }
+.pos-idcheck-notice { margin: 0; padding: 6px 8px; border-radius: 8px; background: #FFFFFF; color: #15803D; font-size: 12px; font-weight: 700; line-height: 1.4; }
+.pos-idcheck-dialog { width: min(100%, 540px); }
+.pos-idcheck-photo { position: relative; display: block; width: 100%; padding: 0; border: 1px solid #E8DDD5; border-radius: 12px; background: #1F1611; overflow: hidden; cursor: zoom-in; }
+.pos-idcheck-photo img { display: block; width: 100%; height: auto; max-height: 240px; object-fit: contain; }
+.pos-idcheck-photo.is-zoomed { cursor: zoom-out; }
+.pos-idcheck-photo.is-zoomed img { max-height: none; }
+.pos-idcheck-photo span { position: absolute; right: 8px; bottom: 8px; padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,0.6); color: #FFFFFF; font-size: 11px; font-weight: 700; }
+.pos-idcheck-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.pos-idcheck-facts span { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 7px 9px; border-radius: 9px; background: #F3EDE5; }
+.pos-idcheck-facts em { color: #9C8278; font-size: 10.5px; font-style: normal; font-weight: 700; }
+.pos-idcheck-facts strong { color: #3D2B1F; font-size: 13px; overflow-wrap: anywhere; }
+.pos-idcheck-remember { margin: 0; padding: 7px 10px; border-radius: 9px; background: #EEF2FF; color: #3730A3; font-size: 12px; line-height: 1.45; }
+.pos-idcheck-reject { display: flex; flex-direction: column; gap: 7px; padding: 10px; border: 1px solid #FECACA; border-radius: 10px; background: #FEF2F2; color: #991B1B; font-size: 12.5px; font-weight: 700; }
+.pos-idcheck-reasons { display: flex; flex-wrap: wrap; gap: 5px; }
+.pos-idcheck-reasons button { padding: 6px 10px; border: 1px solid #FECACA; border-radius: 999px; background: #FFFFFF; color: #991B1B; font-size: 12px; font-weight: 600; cursor: pointer; }
+.pos-idcheck-reasons button.is-on { border-color: #B91C1C; background: #B91C1C; color: #FFFFFF; }
+.pos-idcheck-reject input { padding: 8px 10px; border: 1px solid #FECACA; border-radius: 8px; background: #FFFFFF; color: #3D2B1F; font-size: 13px; outline: none; }
+.pos-idcheck-actions { display: flex; gap: 8px; }
+.pos-idcheck-actions .pos-reward-button { flex: 1; }
+.pos-idcheck-secondary { height: 40px; padding: 0 14px; border: 1px solid #E8DDD5; border-radius: 10px; background: #FFFFFF; color: #6B4C3B; font-weight: 800; cursor: pointer; }
+.pos-idcheck-reject-button { background: #B91C1C; }
+@media (max-width: 520px) { .pos-idcheck-facts { grid-template-columns: 1fr; } }
 .pos-sent-loaded { flex-shrink: 0; margin: 0; padding: 7px 10px; border-radius: 9px; background: #EFF6FF; color: #1E3A8A; font-size: 12px; font-weight: 600; line-height: 1.4; }
 .pos-reward-button { width: 100%; height: 40px; border: 0; border-radius: 10px; background: #3D2B1F; color: #FDF9F5; font-weight: 800; cursor: pointer; }
 .pos-reward-button:disabled { opacity: 0.55; cursor: default; }

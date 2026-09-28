@@ -22,11 +22,12 @@ export type DiscountTypeRule = {
 };
 export type VatSettings = { registered: boolean; rate: number };
 // lines: indexes into the order's items, with how many units of each line the holder had.
-// null means a shared bill split by groupSize.
-export type IdDiscountInput = { typeId: number; holderName: string; idNumber: string | null; lines: { line: number; quantity: number }[] | null; groupSize: number | null };
+// null means a shared bill split by groupSize. recordedBy: the staff member who checked the ID
+// when it was not the one placing the order (a mobile ID check approved on the POS).
+export type IdDiscountInput = { typeId: number; holderName: string; idNumber: string | null; lines: { line: number; quantity: number }[] | null; groupSize: number | null; recordedBy?: number | null };
 export type PlannedIdDiscount = {
   rule: DiscountTypeRule; holderName: string; idNumber: string | null; lines: { line: number; quantity: number }[] | null; groupSize: number | null;
-  coveredAmount: number; vatExempt: number; discount: number;
+  coveredAmount: number; vatExempt: number; discount: number; recordedBy: number | null;
 };
 
 const MAX_HOLDERS = 20;
@@ -158,7 +159,7 @@ export async function planIdDiscounts(client: PoolClient, inputs: IdDiscountInpu
     coveredAmount = round2(coveredAmount);
     if (coveredAmount <= 0) throw new Error(`${input.holderName}'s discount does not cover anything that is charged.`);
     const amounts = idDiscountAmounts(rule, coveredAmount, vat);
-    return { rule, holderName: input.holderName, idNumber, lines, groupSize: input.lines === null ? groupSize : null, coveredAmount, ...amounts };
+    return { rule, holderName: input.holderName, idNumber, lines, groupSize: input.lines === null ? groupSize : null, coveredAmount, ...amounts, recordedBy: input.recordedBy ?? null };
   });
 }
 

@@ -107,3 +107,10 @@
 .acct-birthday strong { color: #9d174d; font-size: 14px; }
 .acct-birthday span { color: #6b4c3b; font-size: 12.5px; line-height: 1.45; }
 .acct-birthday button { padding: 0; color: #be185d; background: none; border: 0; font-weight: 800; text-decoration: underline; }
+
+/* A discount ID the café checked and the customer asked to remember. */
+.acct-saved-id { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 11px 12px; border: 1px solid #bfdbfe; border-radius: 12px; background: #eff6ff; }
+.acct-saved-id div { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.acct-saved-id strong { color: #1e3a8a; font-size: 13.5px; }
+.acct-saved-id span { color: #3b82f6; font-size: 11.5px; line-height: 1.4; }
+.acct-saved-id button { flex-shrink: 0; padding: 7px 12px; color: #1e3a8a; background: #fff; border: 1px solid #bfdbfe; border-radius: 9px; font-size: 12px; font-weight: 700; }

@@ -51,7 +51,9 @@ export function rewardMismatch(reward: LoyaltyReward, item: { productId: number;
   if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `up to ₱${reward.maxPrice.toFixed(2)}`;
   return null;
 }
-export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[]; loyalty?: CustomerLoyalty | null };
+export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[]; loyalty?: CustomerLoyalty | null;
+  // A senior, PWD or other ID the café checked and the customer asked to remember (see ./id-discount.tsx).
+  savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null } | null };
 
 // Rewards can be claimed in the cart (mobile orders) and with the Stars sign (counter orders).
 const REWARDS_CLAIMABLE = true;
@@ -103,6 +105,8 @@ export function useCustomerAccount() {
     register: async (form: { fullName: string; username: string; password: string; email: string; birthday: string; consent: boolean }) => afterSignIn(await send("/api/account/register", "POST", form)),
     signOut: async () => { const result = await send("/api/account/logout", "POST"); if (result.ok) setAccount(null); return result; },
     updateProfile: async (form: { fullName: string; email: string; birthday: string }) => afterSignIn(await send("/api/account", "PATCH", { action: "update_profile", ...form })),
+    // Removes the senior, PWD or other ID the café remembered for discounts.
+    forgetSavedId: async () => afterSignIn(await send("/api/account", "PATCH", { action: "forget_id" })),
     changePassword: async (currentPassword: string, newPassword: string) => send("/api/account", "PATCH", { action: "change_password", currentPassword, newPassword }),
     deleteAccount: async (password: string) => { const result = await send("/api/account", "DELETE", { password }); if (result.ok) setAccount(null); return result; },
     forgotPassword: async (login: string) => send("/api/account/forgot-password", "POST", { login }),
@@ -457,6 +461,10 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         {state.account.loyalty?.campaign
           ? <RewardsCard loyalty={{ ...state.account.loyalty, campaign: state.account.loyalty.campaign }} />
           : state.account.loyalty?.birthday ? null : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>}
+        {state.account.savedId && <div className="acct-saved-id">
+          <div><strong>🪪 {state.account.savedId.typeName} discount saved</strong><span>{state.account.savedId.holderName}{state.account.savedId.idEnding ? ` · ID ending ${state.account.savedId.idEnding}` : ""}. Checked by the café, no photo kept. Show your ID at pickup.</span></div>
+          <button type="button" disabled={busy} onClick={() => void run(state.forgetSavedId, () => setNotice("Your saved ID was removed."))}>Forget</button>
+        </div>}
         <h3 className="acct-section-title">Your orders</h3>
         {state.account.orders.length === 0
           ? <p className="acct-intro">No orders yet. Orders you place while signed in are saved here.</p>

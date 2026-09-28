@@ -70,9 +70,13 @@ export async function GET() {
         COALESCE(o.visits, 0) AS visits, COALESCE(o.spent, 0) AS spent, COALESCE(o.visits_30d, 0) AS visits_30d,
         TO_CHAR(o.last_visit AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS last_visit,
         fav.product_name AS favourite,
-        (SELECT COUNT(*)::int FROM customer_sessions s WHERE s.customer_id = c.customer_id AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP) AS devices
+        (SELECT COUNT(*)::int FROM customer_sessions s WHERE s.customer_id = c.customer_id AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP) AS devices,
+        saved_type.name AS saved_id_type, c.id_discount_name, c.id_discount_number, verifier.full_name AS id_verified_by,
+        TO_CHAR(c.id_verified_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS id_verified_at
       FROM customers c
       LEFT JOIN admin_users creator ON creator.admin_id = c.created_by_admin_id
+      LEFT JOIN discount_types saved_type ON saved_type.discount_type_id = c.id_discount_type_id
+      LEFT JOIN admin_users verifier ON verifier.admin_id = c.id_verified_by
       LEFT JOIN LATERAL (
         SELECT COUNT(*)::int AS visits, SUM(so.total_amount) AS spent, MAX(so.created_at) AS last_visit,
           COUNT(*) FILTER (WHERE so.created_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '30 days')::int AS visits_30d
@@ -116,6 +120,8 @@ export async function GET() {
         lastVisit: (row.last_visit as string | null) ?? null,
         favourite: (row.favourite as string | null) ?? null,
         devices: Number(row.devices),
+        // A senior, PWD or other ID the café checked and remembered (from the mobile menu).
+        savedId: row.id_verified_at && row.id_discount_name ? { typeName: String(row.saved_id_type ?? "Discount"), holderName: String(row.id_discount_name), idNumber: (row.id_discount_number as string | null) ?? null, verifiedAt: String(row.id_verified_at), verifiedBy: (row.id_verified_by as string | null) ?? null } : null,
       })),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
@@ -229,6 +235,12 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ data: { stars: Number(balance.rows[0].balance) } });
     }
 
+    // Removes the ID remembered for discounts (the customer can do this themselves too).
+    if (body.action === "forget_id") {
+      await pool.query("UPDATE customers SET id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [id]);
+      return NextResponse.json({ data: { savedId: null } });
+    }
+
     if (body.action === "sign_out_everywhere") {
       return NextResponse.json({ data: { signedOutDevices: await endCustomerSessions(id, "signed_out_by_admin") } });
     }
@@ -250,6 +262,7 @@ export async function PATCH(request: Request) {
         await client.query(`
           UPDATE customers
           SET username = NULL, full_name = 'Deleted customer', email = NULL, password_hash = NULL, birthday = NULL, notes = NULL,
+            id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL,
             is_active = FALSE, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
           WHERE customer_id = $1
         `, [id]);

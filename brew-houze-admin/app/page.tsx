@@ -6246,6 +6246,8 @@ type Customer = {
   id: number; username: string | null; fullName: string; email: string | null; birthday: string | null; notes: string;
   isActive: boolean; hasLogin: boolean; consented: boolean; createdAt: string; createdBy: string | null;
   visits: number; visits30d: number; spent: number; lastVisit: string | null; favourite: string | null; devices: number;
+  // A senior, PWD or other ID the café checked and remembered for discounts (never a photo).
+  savedId?: { typeName: string; holderName: string; idNumber: string | null; verifiedAt: string; verifiedBy: string | null } | null;
   // Stars in the running loyalty campaign (null when none is running).
   stars: number | null;
 };
@@ -6500,6 +6502,12 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
             <div style={{ marginTop: 12 }}><WizardField label="Email"><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} style={packagingInput} /></WizardField></div>
             <div className="flex justify-end" style={{ marginTop: 12 }}><button type="submit" className="ui-button ui-button-primary" disabled={!profileChanged || !profile.fullName.trim() || working !== null}>{working === "profile" ? "Saving…" : "Save details"}</button></div>
           </form>
+
+          {customer.savedId && <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Saved discount ID</h3><p>{customer.savedId.typeName} · {customer.savedId.holderName}{customer.savedId.idNumber ? ` · ID ${customer.savedId.idNumber}` : ""}. Checked{customer.savedId.verifiedBy ? ` by ${customer.savedId.verifiedBy}` : ""} on {shiftTime(customer.savedId.verifiedAt)}. Their mobile orders get this discount without a photo; the barista checks the ID at pickup.</p></div>
+              <button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ savedId: null }>("forget_id", { action: "forget_id" }, "Could not remove the saved ID.", () => { onChanged({ ...customer, savedId: null }); setNotice("Saved ID removed. Their next discount needs a photo or the counter."); })}>{working === "forget_id" ? "Removing…" : "Remove"}</button>
+            </header>
+          </section>}
 
           <section className="acc-block">
             <header className="acc-block-head"><div><h3>Mobile menu login</h3><p>{customer.hasLogin ? `@${customer.username} · ${customer.devices ? `signed in on ${customer.devices} phone${customer.devices === 1 ? "" : "s"}` : "not signed in anywhere"}` : "No login yet. Give them one so their mobile orders are saved to this profile."}</p></div></header>

@@ -294,7 +294,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     await client.query(`
       INSERT INTO order_discounts (order_id, discount_type_id, type_code, type_name, holder_name, id_number, coverage, group_size, covered_items, covered_amount, vat_exempt_amount, discount_amount, recorded_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)
-    `, [orderId, entry.rule.id, entry.rule.code, entry.rule.name, entry.holderName, entry.idNumber, entry.lines === null ? "shared" : "items", entry.groupSize, coveredItems === null ? null : JSON.stringify(coveredItems), entry.coveredAmount, entry.vatExempt, entry.discount, input.cashierAdminId]);
+    `, [orderId, entry.rule.id, entry.rule.code, entry.rule.name, entry.holderName, entry.idNumber, entry.lines === null ? "shared" : "items", entry.groupSize, coveredItems === null ? null : JSON.stringify(coveredItems), entry.coveredAmount, entry.vatExempt, entry.discount, entry.recordedBy ?? input.cashierAdminId]);
   }
 
   const starsRedeemed = rewardPlan && input.customerId ? await recordRewardUse(client, orderId, input.customerId, rewardPlan) : 0;
@@ -305,10 +305,16 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 // The exact total the order would have right now (prices, stock and the open shift all
 // checked), without keeping anything: the whole order is built and then rolled back.
 export async function quoteOrder(client: PoolClient, input: Omit<PlaceOrderInput, "paymentMethod" | "receivedAmount">): Promise<number> {
+  return (await quoteOrderBreakdown(client, input)).total;
+}
+
+// The same, with the parts of the total: items, discount and VAT exempted (shown to a customer
+// before they pay an ID discount).
+export async function quoteOrderBreakdown(client: PoolClient, input: Omit<PlaceOrderInput, "paymentMethod" | "receivedAmount">): Promise<{ subtotal: number; discountAmount: number; vatExemptAmount: number; total: number }> {
   await client.query("BEGIN");
   try {
     const placed = await placeOrder(client, { ...input, paymentMethod: "online" });
-    return placed.total;
+    return { subtotal: placed.subtotal, discountAmount: placed.discountAmount, vatExemptAmount: placed.vatExemptAmount, total: placed.total };
   } finally {
     await client.query("ROLLBACK");
   }

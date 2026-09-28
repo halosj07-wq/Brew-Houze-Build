@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AccountButton, AccountSheet, CartAccountNote, discountText, rewardMismatch, usableRewards, useCustomerAccount, type LoyaltyReward } from "./account";
+import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, type IdDiscountRule, type VatSetting } from "./id-discount";
 
 type Product = {
   id: number;
@@ -30,9 +31,11 @@ type PaymentConfig = { method: "gcash" | "none"; testMode?: boolean; minimumAmou
 type PaymentCheck = { token: string; state: "checking" | "slow" | "failed"; message?: string; cart: CartItem[] };
 // ID discounts (senior, PWD and others) are checked at the counter: the customer sends their cart
 // there with a 4-digit code and pays the cashier. Kept in storage so a reload keeps the code.
-type IdDiscountOption = { id: number; code: string; name: string; requiresId: boolean };
+type IdDiscountOption = IdDiscountRule;
 type SentCart = { token: string; code: string; expiresAt: string; discountName: string; status: "waiting" | "expired" | "cancelled" };
 const sentCartStorageKey = "brew-houze-sent-cart";
+// An ID photo the café is checking (or approved), so a reload keeps following it.
+const idCheckStorageKey = "brew-houze-id-check";
 
 function sortVariants(variants: Variant[]): Variant[] {
   const sizeOrder = new Map([["8 oz", 0], ["12 oz", 1], ["16 oz", 2], ["22 oz", 3]]);
@@ -105,6 +108,13 @@ export default function MenuPage() {
   const [claimIdType, setClaimIdType] = useState<number | null>(null);
   const [sentCart, setSentCart] = useState<SentCart | null>(null);
   const [sentCartBusy, setSentCartBusy] = useState(false);
+  const [idVat, setIdVat] = useState<VatSetting>({ registered: true, rate: 12 });
+  // How the customer claims it: a photo checked by the café (pay here), the ID saved on their
+  // account, or at the counter. idSheet: the step choosing items (and the photo) is open.
+  const [claimMode, setClaimMode] = useState<"photo" | "saved" | "counter">("photo");
+  const [idSheet, setIdSheet] = useState<"photo" | "saved" | null>(null);
+  const [idCheck, setIdCheck] = useState<IdCheckState | null>(null);
+  const [idPaying, setIdPaying] = useState(false);
   const rewardLineId = useRef(0);
   const audioContextRef = useRef<AudioContext | null>(null);
   const trackedOrdersHydratedRef = useRef(false);
@@ -245,6 +255,8 @@ export default function MenuPage() {
         if (!response.ok || !result) return;
         if (result.status === "completed") {
           window.localStorage.removeItem(pendingPaymentStorageKey);
+          try { window.localStorage.removeItem(idCheckStorageKey); } catch { /* storage unavailable */ }
+          setIdCheck(null); setClaimIdType(null);
           setCart([]); setDiscountReward(null); setServiceType("dine_in");
           setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting" }]);
           setPaymentCheck(null);
@@ -280,7 +292,7 @@ export default function MenuPage() {
     let active = true;
     fetch("/api/discounts", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
-      .then((payload: { data?: IdDiscountOption[] } | null) => { if (active && payload?.data) setIdDiscountOptions(payload.data); })
+      .then((payload: { data?: IdDiscountOption[]; vat?: VatSetting } | null) => { if (active && payload?.data) { setIdDiscountOptions(payload.data); if (payload.vat) setIdVat(payload.vat); } })
       .catch(() => undefined);
     let restored: SentCart | null = null;
     try {
@@ -290,9 +302,40 @@ export default function MenuPage() {
     } catch {
       // Storage unavailable: nothing to restore.
     }
-    const timer = restored ? window.setTimeout(() => setSentCart(restored), 0) : undefined;
+    let restoredCheck: string | null = null;
+    try { restoredCheck = window.localStorage.getItem(idCheckStorageKey); } catch { /* storage unavailable */ }
+    const timer = restored || restoredCheck ? window.setTimeout(() => {
+      if (restored) setSentCart(restored);
+      if (restoredCheck && /^[0-9a-f-]{36}$/i.test(restoredCheck)) setIdCheck({ token: restoredCheck, status: "pending", rejectReason: null, discountName: null, holderName: null, breakdown: null, problem: null });
+    }, 0) : undefined;
     return () => { active = false; if (timer) window.clearTimeout(timer); };
   }, []);
+
+  // Follows an ID photo until the café decides (a restored one is asked once to learn where it is).
+  const checkingIdToken = idCheck?.status === "pending" ? idCheck.token : null;
+  useEffect(() => {
+    if (!checkingIdToken) return;
+    let active = true;
+    const check = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const response = await fetch(`/api/id-verifications/${checkingIdToken}`, { cache: "no-store" });
+        if (!active) return;
+        if (response.status === 404) { try { window.localStorage.removeItem(idCheckStorageKey); } catch { /* storage unavailable */ } setIdCheck(null); return; }
+        const payload = await response.json() as { data?: Omit<IdCheckState, "token"> };
+        if (!response.ok || !payload.data) return;
+        const result = payload.data;
+        if (result.status !== "pending" && result.status !== "approved") { try { window.localStorage.removeItem(idCheckStorageKey); } catch { /* storage unavailable */ } }
+        if (result.status === "used") { setIdCheck(null); return; }
+        setIdCheck((current) => current && current.token === checkingIdToken ? { ...current, ...result } : current);
+      } catch (checkError) {
+        console.error("Mobile menu: ID check status failed", checkError);
+      }
+    };
+    void check();
+    const intervalId = window.setInterval(() => void check(), 3000);
+    return () => { active = false; window.clearInterval(intervalId); };
+  }, [checkingIdToken]);
 
   // Follows a cart sent to the counter until the cashier makes it an order (then it is tracked
   // like any order), or it is cancelled or expires.
@@ -514,6 +557,75 @@ export default function MenuPage() {
     }
   }
 
+  const savedId = customer.account?.savedId ?? null;
+  const savedIdUsable = savedId !== null && idDiscountOptions.some((option) => option.id === savedId.typeId);
+  const idMode = claimMode === "saved" && !savedIdUsable ? "photo" : claimMode;
+  const activeIdRule = idDiscountOptions.find((option) => option.id === (idMode === "saved" && savedId ? savedId.typeId : claimIdType)) ?? null;
+  const idPayLabel = paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order";
+  const idOrderItems = () => cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) }));
+  const idSheetLines = cart.filter((item) => item.variantId !== null).map((item) => ({ label: `${item.product.name} · ${item.variantName}${item.additions.length ? ` + ${item.additions.map((addition) => addition.name).join(", ")}` : ""}`, qty: item.quantity, unit: item.price + item.additions.reduce((sum, addition) => sum + addition.price, 0) }));
+
+  function forgetIdCheck() {
+    try { window.localStorage.removeItem(idCheckStorageKey); } catch { /* storage unavailable */ }
+    setIdCheck(null);
+  }
+
+  // Pays an order with an ID discount the café approved (verification_token) or the saved ID
+  // (saved_id): GCash when it is set up, otherwise the order goes straight to the café.
+  async function payWithIdDiscount(extra: { verification_token: string } | { saved_id: IdCoverage }) {
+    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, ...extra });
+    if (paymentConfig.method === "gcash") {
+      const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
+      if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
+      try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
+      window.location.assign(payload.data.redirectUrl);
+      return;
+    }
+    const response = await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
+    if (!response.ok || !payload.data) throw new Error(payload.error || "Unable to place order.");
+    const placed = payload.data;
+    setCart([]); setClaimIdType(null); setServiceType("dine_in"); setCartOpen(false); setIdSheet(null);
+    forgetIdCheck();
+    setTrackedOrders((current) => [...current, { trackingToken: placed.trackingToken, queueNumber: placed.queueNumber, status: "waiting" }]);
+    setOrderPlaced(true);
+    void refreshAccount();
+  }
+
+  async function sendIdPhoto(details: { holderName: string; idNumber: string; coverage: IdCoverage; photo: string; remember: boolean }) {
+    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, coverage: details.coverage, remember: details.remember, consent: true, photo: details.photo }) });
+    const payload = await response.json() as { data?: { token: string }; error?: string };
+    if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your ID.");
+    try { window.localStorage.setItem(idCheckStorageKey, payload.data.token); } catch { /* storage unavailable: followed until the page is closed */ }
+    setIdSheet(null);
+    setCartOpen(false);
+    setIdCheck({ token: payload.data.token, status: "pending", rejectReason: null, discountName: activeIdRule?.name ?? null, holderName: details.holderName, breakdown: null, problem: null });
+  }
+
+  async function payApproved() {
+    if (!idCheck) return;
+    setIdPaying(true);
+    try {
+      await payWithIdDiscount({ verification_token: idCheck.token });
+    } catch (payError) {
+      setIdCheck((current) => current ? { ...current, problem: payError instanceof Error ? payError.message : "Could not start the payment." } : current);
+    } finally {
+      setIdPaying(false);
+    }
+  }
+
+  async function cancelIdCheck(then: "cart" | "counter" | "retry" | "plain") {
+    if (idCheck && (idCheck.status === "pending" || idCheck.status === "approved")) {
+      await fetch(`/api/id-verifications/${idCheck.token}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) }).catch(() => undefined);
+    }
+    forgetIdCheck();
+    if (then === "counter") { setClaimMode("counter"); setCartOpen(true); }
+    else if (then === "retry") { setClaimMode("photo"); setIdSheet("photo"); }
+    else if (then === "plain") { setClaimIdType(null); setCartOpen(true); }
+    else setCartOpen(true);
+  }
+
   async function cancelSentCart() {
     if (!sentCart) return;
     setSentCartBusy(true);
@@ -530,7 +642,11 @@ export default function MenuPage() {
 
   async function submitOrder() {
     if (cart.length === 0) return;
-    if (claiming) { await sendToCounter(); return; }
+    if (claiming) {
+      if (idMode === "counter") await sendToCounter();
+      else setIdSheet(idMode);
+      return;
+    }
     setPlacingOrder(true);
     setOrderError("");
     if (discountPreview.problem) { setOrderError(discountPreview.problem); setPlacingOrder(false); return; }
@@ -706,18 +822,27 @@ export default function MenuPage() {
         </div>
         {idDiscountOptions.length > 0 && <div className={`cart-id-claim${claiming ? " is-on" : ""}`}>
           <label className="cart-id-toggle">
-            <input type="checkbox" checked={claiming} disabled={rewardsInCart} onChange={(event) => setClaimIdType(event.target.checked ? idDiscountOptions[0].id : null)} />
-            <span><strong>I have a discount ID</strong><small>{idDiscountOptions.map((option) => option.name).join(" · ")}</small></span>
+            <input type="checkbox" checked={claiming} disabled={rewardsInCart} onChange={(event) => {
+              const on = event.target.checked;
+              setClaimIdType(on ? (savedIdUsable && savedId ? savedId.typeId : idDiscountOptions[0].id) : null);
+              if (on) setClaimMode(savedIdUsable ? "saved" : "photo");
+            }} />
+            <span><strong>{savedIdUsable && savedId ? `Use my ${savedId.typeName} discount` : "I have a discount ID"}</strong><small>{idDiscountOptions.map((option) => option.name).join(" · ")}</small></span>
           </label>
           {rewardsInCart ? <p className="cart-id-note">To use an ID discount, remove your star rewards first. One discount per order.</p>
             : claiming && <>
-              <div className="cart-id-types" role="radiogroup" aria-label="Which discount">
-                {idDiscountOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={claimIdType === option.id} onClick={() => setClaimIdType(option.id)}>{option.name}</button>)}
+              <div className="cart-id-modes" role="radiogroup" aria-label="How to claim it">
+                {savedIdUsable && savedId && <button type="button" role="radio" aria-checked={idMode === "saved"} onClick={() => { setClaimMode("saved"); setClaimIdType(savedId.typeId); }}><strong>✓ My saved ID</strong><span>{savedId.holderName}{savedId.idEnding ? ` · ending ${savedId.idEnding}` : ""}</span></button>}
+                <button type="button" role="radio" aria-checked={idMode === "photo"} onClick={() => setClaimMode("photo")}><strong>📷 Photo of my ID</strong><span>The café checks it, you pay here</span></button>
+                <button type="button" role="radio" aria-checked={idMode === "counter"} onClick={() => setClaimMode("counter")}><strong>At the counter</strong><span>Show your ID, pay there</span></button>
               </div>
-              <p className="cart-id-note">Your ID has to be seen, so this order is paid at the counter. Send it, then show your code and your ID to the cashier. The discount covers your own food and drinks.</p>
+              {idMode !== "saved" && <div className="cart-id-types" role="radiogroup" aria-label="Which discount">
+                {idDiscountOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={claimIdType === option.id} onClick={() => setClaimIdType(option.id)}>{option.name}</button>)}
+              </div>}
+              <p className="cart-id-note">{idMode === "saved" ? "No photo needed. Show your ID when you pick up your order." : idMode === "photo" ? "Take a photo of your ID. The café checks it, usually within a minute, then you pay here. Show your ID when you pick up." : "Send your order to the counter, then show your code and your ID to the cashier and pay there."} The discount covers your own food and drinks.</p>
             </>}
         </div>}
-        <div className="cart-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{claiming ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (!claiming && paymentConfig.method === "gcash" && cartTotal > 0 && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : claiming ? (placingOrder ? "Sending to the counter..." : "Send to the counter") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : cartTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
+        <div className="cart-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (!claiming && paymentConfig.method === "gcash" && cartTotal > 0 && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter..." : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : cartTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
       </section>
     </div>}
     {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
@@ -742,6 +867,10 @@ export default function MenuPage() {
     </div>}
     {/* From the Stars sign, wait until the account has loaded so a signed-in customer goes straight to their stars. */}
     {accountOpen && !(claimStart && customer.loading) && <AccountSheet state={customer} resetToken={resetToken} startClaim={claimStart} onClose={() => { setAccountOpen(false); setResetToken(null); setClaimStart(false); }} onResetDone={() => setResetToken(null)} />}
+    {idSheet && activeIdRule && <IdDiscountSheet mode={idSheet} rule={activeIdRule} vat={idVat} lines={idSheetLines} saved={savedId} signedIn={Boolean(customer.account)} payLabel={idPayLabel}
+      onSendPhoto={sendIdPhoto} onPaySaved={(coverage) => payWithIdDiscount({ saved_id: coverage })} onClose={() => setIdSheet(null)} />}
+    {idCheck && !paymentCheck && <IdCheckStatus check={idCheck} payLabel={idPayLabel} paying={idPaying} onPay={() => void payApproved()}
+      onCancel={() => void cancelIdCheck("cart")} onRetry={() => void cancelIdCheck("retry")} onCounter={() => void cancelIdCheck("counter")} onClose={() => void cancelIdCheck(idCheck.status === "rejected" ? "plain" : "cart")} />}
     {sentCart && <div className="modal-backdrop">
       <section className="confirmation-modal sent-cart" role="status" aria-live="polite">
         {sentCart.status === "waiting" ? <>

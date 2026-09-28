@@ -6,6 +6,7 @@ import {
 } from "@/lib/customers";
 import { cookies } from "next/headers";
 import { customerLoyalty } from "@/lib/loyalty";
+import { savedIdDiscount } from "@/lib/id-verifications";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -46,6 +47,8 @@ export async function GET() {
     } catch (loyaltyError) {
       console.error("GET /api/account: could not read loyalty stars:", loyaltyError);
     }
+    // A senior, PWD or other ID the café checked and the customer asked to remember (no photo is kept).
+    const savedId = await savedIdDiscount(session.customerId).catch(() => null);
     return NextResponse.json({
       data: {
         username: session.username,
@@ -54,6 +57,7 @@ export async function GET() {
         birthday: session.birthday,
         orderCount: Number(totals.rows[0]?.orders ?? 0),
         loyalty,
+        savedId: savedId ? { typeId: savedId.typeId, typeName: savedId.typeName, holderName: savedId.holderName, idEnding: savedId.idNumber ? savedId.idNumber.slice(-4) : null } : null,
         orders: orders.rows.map((row) => ({
           id: Number(row.order_id),
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),
@@ -72,7 +76,7 @@ export async function GET() {
   }
 }
 
-// Edit details or change the password.
+// Edit details, change the password, or forget a remembered discount ID (forget_id).
 export async function PATCH(request: Request) {
   const session = await getCustomerSession();
   if (!session) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
@@ -102,6 +106,10 @@ export async function PATCH(request: Request) {
       await endCustomerSessions(session.customerId, "password_changed", pool, true);
       return NextResponse.json({ data: { ok: true } });
     }
+    if (body.action === "forget_id") {
+      await pool.query("UPDATE customers SET id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId]);
+      return NextResponse.json({ data: { ok: true } });
+    }
     return NextResponse.json({ error: "Unknown action." }, { status: 400 });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: "Another account already uses this email." }, { status: 409 });
@@ -128,6 +136,7 @@ export async function DELETE(request: Request) {
     await client.query(`
       UPDATE customers
       SET username = NULL, full_name = 'Deleted customer', email = NULL, password_hash = NULL, birthday = NULL, notes = NULL,
+        id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL,
         is_active = FALSE, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE customer_id = $1
     `, [session.customerId]);

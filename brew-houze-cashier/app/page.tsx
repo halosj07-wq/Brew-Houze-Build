@@ -17,7 +17,7 @@ function roleLabel(role: string): string {
 }
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; service_type?: "dine_in" | "take_out" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null };
 
 
 function IconGrid({ size = 20 }: IconProps) {
@@ -1479,6 +1479,116 @@ function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSiz
   </Modal>;
 }
 
+// ID photos sent from the mobile menu, waiting for the counter to check them. Approving lets the
+// customer pay with GCash on their phone; the photo is deleted either way.
+type PendingIdCheck = {
+  id: number; holderName: string; idNumber: string | null; items: { productVariantId: number; quantity: number; additionIds: number[] }[];
+  lines: { line: number; quantity: number }[] | null; groupSize: number | null; serviceType: "dine_in" | "take_out"; remember: boolean;
+  discountTypeId: number | null; discountName: string; discountCode: string; idLabel: string | null; hasPhoto: boolean;
+  customerName: string | null; username: string | null; createdAt: string; expiresAt: string;
+};
+const ID_REJECT_REASONS = ["The photo is blurry or cut off", "The ID has expired", "The name doesn't match", "This isn't a valid ID for this discount"];
+
+function WaitingIdChecks({ checks, notice, onOpen }: { checks: PendingIdCheck[]; notice: string; onOpen: (check: PendingIdCheck) => void }) {
+  if (checks.length === 0 && !notice) return null;
+  return <div className="pos-claims pos-idcheck" role="region" aria-label="ID photos waiting to be checked">
+    <p className="pos-claims-title">🪪 Check ID{checks.length > 1 ? ` · ${checks.length} waiting` : ""}</p>
+    {notice && <p className="pos-idcheck-notice">{notice}</p>}
+    {checks.map((check) => {
+      const units = check.items.reduce((sum, item) => sum + item.quantity, 0);
+      const minutes = Math.max(0, Math.round((new Date().getTime() - new Date(check.createdAt).getTime()) / 60_000));
+      return <div key={check.id} className="pos-claim">
+        <span className="pos-customer-avatar" style={{ background: "#1D4ED8" }}>🪪</span>
+        <span className="pos-customer-result-text"><strong>{check.discountName} · {check.holderName}</strong><em>{units} item{units === 1 ? "" : "s"} · mobile menu · {minutes < 1 ? "just now" : `${minutes} min ago`}</em></span>
+        <button type="button" className="pos-claim-accept" onClick={() => onOpen(check)}>Check</button>
+      </div>;
+    })}
+  </div>;
+}
+
+// lines: the order's items as the POS menu knows them, with how many units are the holder's own.
+type IdCheckLine = { label: string; qty: number; unit: number; covered: number };
+
+function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
+  check: PendingIdCheck; lines: IdCheckLine[]; types: CounterDiscountType[]; vat: CounterVat;
+  onDecided: (message: string) => void; onClose: () => void;
+}) {
+  const [confirmed, setConfirmed] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [zoomed, setZoomed] = useState(false);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const orderAmount = lines.reduce((sum, line) => sum + line.unit * line.qty, 0);
+  const coveredAmount = check.groupSize ? orderAmount / check.groupSize : lines.reduce((sum, line) => sum + line.unit * line.covered, 0);
+  const type = types.find((entry) => entry.id === check.discountTypeId) ?? null;
+  const amounts = type ? idDiscountAmounts(type, coveredAmount, vat) : null;
+
+  async function decide(action: "approve" | "reject") {
+    setWorking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/id-verifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: check.id, action, reason }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the decision.");
+      onDecided(action === "approve" ? `Approved ${check.holderName}'s ${check.discountName} ID. They can pay on their phone now.` : `Rejected ${check.holderName}'s ID. They were told why.`);
+    } catch (decideError) {
+      setError(decideError instanceof Error ? decideError.message : "Could not save the decision.");
+      setWorking(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={working} label={`Check ${check.holderName}'s ID`}>
+    <section className="pos-customer-dialog pos-idd pos-idcheck-dialog">
+      <div className="pos-customer-dialog-head"><div><p>Check ID · {check.discountName} · mobile menu</p><h3>{check.holderName}</h3></div><button type="button" onClick={onClose} disabled={working} aria-label="Close">×</button></div>
+      <div className="pos-idd-scroll">
+        {check.hasPhoto && !photoFailed
+          ? <button type="button" className={`pos-idcheck-photo${zoomed ? " is-zoomed" : ""}`} onClick={() => setZoomed((value) => !value)} aria-label={zoomed ? "Make the photo smaller" : "Make the photo bigger"}>
+            <Image src={`/api/id-verifications/${check.id}/photo`} alt={`${check.discountName} ID sent by ${check.holderName}`} width={640} height={400} unoptimized onError={() => setPhotoFailed(true)} />
+            <span>{zoomed ? "Tap to make smaller" : "Tap to zoom"}</span>
+          </button>
+          : <p className="pos-idd-problem">The photo is no longer available (the request may have expired or been cancelled).</p>}
+        <div className="pos-idcheck-facts">
+          <span><em>Name typed</em><strong>{check.holderName}</strong></span>
+          <span><em>{check.idLabel ?? "ID no."}</em><strong>{check.idNumber ?? "—"}</strong></span>
+          <span><em>Order</em><strong>{check.serviceType === "take_out" ? "Take out" : "Dine in"}{check.customerName ? ` · ${check.customerName}` : " · guest"}</strong></span>
+        </div>
+        {check.remember && check.username && <p className="pos-idcheck-remember">They asked to remember this ID on their account (@{check.username}), so their next orders get the discount without a photo. Only the name and ID number are saved.</p>}
+        <div className="pos-idd-lines">
+          {lines.map((line, index) => <div key={index} className={`pos-idd-line${check.groupSize || line.covered > 0 ? " is-on" : ""}`}>
+            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}><strong style={{ color: "#3D2B1F", fontSize: 12.5 }}>{line.qty} × {line.label}</strong><em style={{ color: "#9C8278", fontSize: 11, fontStyle: "normal" }}>₱{line.unit.toFixed(2)} each{check.groupSize ? "" : line.covered > 0 ? ` · ${line.covered} theirs` : " · not theirs"}</em></span>
+          </div>)}
+        </div>
+        {amounts && <div className="pos-idd-summary">
+          <div><span>{check.groupSize ? `Their share (1 of ${check.groupSize})` : "Their items"}</span><b>₱{coveredAmount.toFixed(2)}</b></div>
+          {amounts.vatExempt > 0 && <div><span>Less VAT ({vat.rate}%)</span><b>−₱{amounts.vatExempt.toFixed(2)}</b></div>}
+          <div><span>Less discount</span><b>−₱{amounts.discount.toFixed(2)}</b></div>
+          <div className="is-total"><span>Order total after the discount</span><b>₱{Math.max(0, orderAmount - amounts.vatExempt - amounts.discount).toFixed(2)}</b></div>
+        </div>}
+        {rejecting ? <div className="pos-idcheck-reject">
+          <span>Why? The customer sees this.</span>
+          <div className="pos-idcheck-reasons">{ID_REJECT_REASONS.map((option) => <button key={option} type="button" className={reason === option ? "is-on" : ""} onClick={() => setReason(option)}>{option}</button>)}</div>
+          <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={160} placeholder="Or type a reason" />
+        </div> : <label className="pos-idd-check">
+          <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+          <span>The photo shows a valid {check.discountName} ID, and the name and number match what they typed. The barista will still check the real ID at pickup.</span>
+        </label>}
+      </div>
+      {error && <p className="pos-idd-problem">{error}</p>}
+      {rejecting
+        ? <div className="pos-idcheck-actions">
+          <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={() => setRejecting(false)}>Back</button>
+          <button type="button" className="pos-reward-button pos-idcheck-reject-button" disabled={working || !reason.trim()} onClick={() => void decide("reject")}>{working ? "Saving…" : "Reject ID"}</button>
+        </div>
+        : <div className="pos-idcheck-actions">
+          <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={() => setRejecting(true)}>Reject…</button>
+          <button type="button" className="pos-reward-button" disabled={working || !confirmed} onClick={() => void decide("approve")}>{working ? "Saving…" : "Approve"}</button>
+        </div>}
+    </section>
+  </Modal>;
+}
+
 // Carts customers sent from the mobile menu to claim an ID discount: the cashier loads one into
 // the POS, checks the ID, and takes payment.
 type CounterCart = {
@@ -1591,6 +1701,30 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   // Carts sent from the mobile menu, and the one loaded into this order.
   const [counterCarts, setCounterCarts] = useState<CounterCart[]>([]);
   const [counterCartId, setCounterCartId] = useState<number | null>(null);
+  // ID photos sent from the mobile menu, the one being checked, and the last decision made.
+  const [idChecks, setIdChecks] = useState<PendingIdCheck[]>([]);
+  const [idCheckOpen, setIdCheckOpen] = useState<PendingIdCheck | null>(null);
+  const [idCheckNotice, setIdCheckNotice] = useState("");
+  const refreshIdChecks = useCallback(async () => {
+    try {
+      const response = await fetch("/api/id-verifications", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json() as { data?: PendingIdCheck[] };
+      if (payload.data) setIdChecks(payload.data);
+    } catch {
+      // Offline for a moment: the next refresh catches up.
+    }
+  }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void refreshIdChecks(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshIdChecks(); }, CLAIMS_REFRESH_MS);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [refreshIdChecks]);
+  useEffect(() => {
+    if (!idCheckNotice) return;
+    const timer = window.setTimeout(() => setIdCheckNotice(""), 12_000);
+    return () => window.clearTimeout(timer);
+  }, [idCheckNotice]);
   const refreshCounterCarts = useCallback(async () => {
     try {
       const response = await fetch("/api/counter-carts", { cache: "no-store" });
@@ -1886,6 +2020,19 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setClaimId(null);
     setDiscountReward(null);
     setCart((prev) => prev.filter((item) => !item.rewardId));
+  }
+
+  // The items of an ID check as this menu knows them, with how many units are the holder's own.
+  function idCheckLines(check: PendingIdCheck): IdCheckLine[] {
+    const variants = products.flatMap((product) => product.variants.map((variant) => ({ product, variant })));
+    return check.items.map((item, index) => {
+      const match = variants.find(({ variant }) => Number(variant.product_variant_id) === item.productVariantId);
+      const extras = additions.filter((addition) => item.additionIds.includes(addition.addition_id));
+      const unit = Number(match?.variant.price ?? 0) + extras.reduce((sum, addition) => sum + Number(addition.price), 0);
+      const covered = check.lines === null ? 0 : check.lines.filter((entry) => entry.line === index).reduce((sum, entry) => sum + entry.quantity, 0);
+      const label = match ? `${match.product.product_name}${match.variant.size_label ? ` — ${match.variant.size_label}` : ""}${extras.length ? ` + ${extras.map((addition) => addition.addition_name).join(", ")}` : ""}` : "An item no longer on the menu";
+      return { label, qty: item.quantity, unit, covered };
+    });
   }
 
   // Puts a sent cart into the POS (the current order must be empty), then asks for the ID.
@@ -2234,6 +2381,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           <button type="button" className="pos-cart-close" onClick={() => setCartOpen(false)}>‹ Add more</button>
         </div>
         <WaitingClaims claims={loyalty.claims} rewards={loyalty.rewards} busyId={claimBusyId} onAccept={(claim) => void acceptClaim(claim)} onDecline={(claim) => void declineClaim(claim)} />
+        <WaitingIdChecks checks={idChecks} notice={idCheckNotice} onOpen={(check) => { void loadIdDiscountSetup(); setIdCheckOpen(check); }} />
         <WaitingCounterCarts carts={counterCarts} loadedId={counterCartId} onLoad={loadCounterCart} onDismiss={(sent) => void dismissCounterCart(sent)} />
         {counterCartId !== null && <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu. The customer&apos;s phone follows this order once it is paid.</p>}
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
@@ -2402,6 +2550,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       taken={Object.fromEntries(idPreview.used)} existing={idDiscounts.length} initialTypeId={idDiscounts.length === 0 ? idDiscountInitialType : null}
       lockedMode={idDiscounts.length === 0 ? null : idDiscounts[0].lines === null ? "shared" : "items"} lockedGroupSize={idDiscounts.length > 0 && idDiscounts[0].lines === null ? idDiscounts[0].groupSize : null}
       onAdd={(entry) => { setIdDiscounts((current) => [...current, entry]); setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); if (checkoutError) setCheckoutError(""); }} onClose={() => { setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); }} />}
+    {idCheckOpen && <IdCheckDialog key={idCheckOpen.id} check={idCheckOpen} lines={idCheckLines(idCheckOpen)} types={idDiscountSetup.types} vat={idDiscountSetup.vat}
+      onDecided={(message) => { setIdCheckOpen(null); setIdCheckNotice(message); void refreshIdChecks(); }} onClose={() => { setIdCheckOpen(null); void refreshIdChecks(); }} />}
     {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { if (customer && customer.id !== picked.id) removeCustomer(); setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
@@ -2579,6 +2729,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
                 </div>
               </header>
+              {order.id_check && <div className="queue-id-check">🪪 {order.id_check} discount · check the ID at pickup</div>}
               {order.customer_name && <div className="queue-customer">
                 <span className="queue-customer-name">For <strong>{order.customer_name}</strong></span>
                 {order.customer_notes && <span className="queue-customer-note">📝 {order.customer_notes}</span>}
