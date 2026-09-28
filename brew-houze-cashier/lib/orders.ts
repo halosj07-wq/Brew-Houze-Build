@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { awardOrderStarsSafely } from "@/lib/loyalty";
 
 // Creating a sales order, shared by the cashier checkout, the mobile menu and GCash payments
 // (brew-houze-cashier and brew-houze-mobile keep identical copies of this file). Everything runs
@@ -21,7 +22,8 @@ export type PlaceOrderInput = {
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
-export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string };
+// starsEarned: loyalty stars the linked customer got for this order (0 without a customer or campaign).
+export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number };
 
 // Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
 // what it draws from its source, which is the stock actually deducted at checkout.
@@ -219,7 +221,8 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     }
   }
 
-  return { orderId, queueNumber, shiftId, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at };
+  const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
+  return { orderId, queueNumber, shiftId, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned };
 }
 
 // The exact total the order would have right now (prices, stock and the open shift all

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { starBalance } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Everything a printed receipt shows, read back from the saved order, so a first print and a
@@ -18,7 +19,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         so.payment_reference, so.cash_portion, so.received_amount, so.change_amount, so.order_source, so.return_method,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
-        cashier.full_name AS cashier_name, cu.full_name AS customer_name
+        cashier.full_name AS cashier_name, cu.full_name AS customer_name, so.customer_id
       FROM sales_orders so
       LEFT JOIN admin_users cashier ON cashier.admin_id = so.cashier_admin_id
       LEFT JOIN customers cu ON cu.customer_id = so.customer_id AND cu.deleted_at IS NULL
@@ -41,6 +42,22 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
       ORDER BY soi.order_item_id
     `, [orderId]);
 
+    // Loyalty stars this order earned, and the customer's balance in that campaign now.
+    let loyalty: { starsEarned: number; balance: number; campaignName: string } | null = null;
+    if (order.customer_id !== null && order.customer_name) {
+      try {
+        const earned = await pool.query(`
+          SELECT e.stars, e.campaign_id, c.name FROM loyalty_star_entries e JOIN loyalty_campaigns c ON c.campaign_id = e.campaign_id
+          WHERE e.order_id = $1 AND e.kind = 'earned'
+        `, [orderId]);
+        if (earned.rows[0]) {
+          loyalty = { starsEarned: Number(earned.rows[0].stars), balance: await starBalance(Number(order.customer_id), Number(earned.rows[0].campaign_id)), campaignName: String(earned.rows[0].name) };
+        }
+      } catch (loyaltyError) {
+        console.error("Receipt: could not read loyalty stars:", loyaltyError);
+      }
+    }
+
     const optional = (value: unknown) => (value === null || value === undefined ? null : Number(value));
     return NextResponse.json({
       data: {
@@ -61,6 +78,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         reversedAt: (order.reversed_at as string | null) ?? null,
         cashierName: (order.cashier_name as string | null) ?? null,
         customerName: (order.customer_name as string | null) ?? null,
+        loyalty,
         items: itemsResult.rows.map((row) => ({
           name: String(row.product_name),
           size: (row.size_label as string | null) ?? null,

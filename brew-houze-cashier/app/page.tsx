@@ -544,6 +544,7 @@ type ReceiptData = {
   paymentMethod: string; paymentProvider: string | null; paymentReference: string | null; cashPortion: number | null;
   received: number | null; change: number | null; orderSource: string; returnMethod: string | null;
   createdAt: string; reversedAt: string | null; cashierName: string | null; customerName?: string | null;
+  loyalty?: { starsEarned: number; balance: number; campaignName: string } | null;
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
 
@@ -640,6 +641,12 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     if (receipt.change !== null) row("Change", money(receipt.change));
   }
   if (isGcash && receipt.paymentReference) row(`Payment ref ${receipt.paymentReference}`, "", { size: base * 0.85 });
+  if (receipt.loyalty) {
+    rule();
+    row("Stars earned", `+${receipt.loyalty.starsEarned}`);
+    row("Your stars", String(receipt.loyalty.balance));
+    text(receipt.loyalty.campaignName, base * 0.85);
+  }
   rule();
   text(`Thank you!${receipt.queueNumber !== null ? " Please wait for your number." : ""}`);
   text("THIS IS NOT AN OFFICIAL RECEIPT", base * 0.85, true);
@@ -709,6 +716,12 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
         {receipt.change !== null && row("Change", receiptMoney(receipt.change))}
       </>}
     {isGcash && receipt.paymentReference && <div className="receipt-small">Payment ref {receipt.paymentReference}</div>}
+    {receipt.loyalty && <>
+      <div className="receipt-rule" />
+      {row("Stars earned", `+${receipt.loyalty.starsEarned}`)}
+      {row("Your stars", String(receipt.loyalty.balance))}
+      <div className="receipt-center receipt-small">{receipt.loyalty.campaignName}</div>
+    </>}
     <div className="receipt-rule" />
     <div className="receipt-center">
       <div>Thank you!{receipt.queueNumber !== null ? " Please wait for your number." : ""}</div>
@@ -1027,7 +1040,8 @@ function quickCashAmounts(total: number): number[] {
 // The cashier can attach a customer to the order (search, or scan the QR in their mobile menu
 // account), so the order shows in their purchases and the café's notes about them ("hot drinks
 // with a straw") reach the cashier and the barista's ticket.
-type AttachedCustomer = { id: number; fullName: string; username: string | null; notes: string; visits: number; lastVisit: string | null };
+// stars: balance in the running loyalty campaign (null when none is running).
+type AttachedCustomer = { id: number; fullName: string; username: string | null; notes: string; visits: number; lastVisit: string | null; stars?: number | null };
 
 function customerInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -1154,7 +1168,7 @@ function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: Attached
                   <span className="pos-customer-avatar">{customerInitials(customer.fullName)}</span>
                   <span className="pos-customer-result-text">
                     <strong>{customer.fullName}</strong>
-                    <em>{customer.username ? `@${customer.username}` : "No app account"} · {customer.visits} visit{customer.visits === 1 ? "" : "s"}</em>
+                    <em>{customer.username ? `@${customer.username}` : "No app account"} · {customer.visits} visit{customer.visits === 1 ? "" : "s"}{customer.stars !== null && customer.stars !== undefined ? ` · ★ ${customer.stars}` : ""}</em>
                     {customer.notes && <small>📝 {customer.notes}</small>}
                   </span>
                 </button>)}
@@ -1171,6 +1185,7 @@ function CartCustomerSlot({ customer, onAdd, onRemove }: { customer: AttachedCus
     <div className="pos-customer-slot-top">
       <span className="pos-customer-avatar">{customerInitials(customer.fullName)}</span>
       <span className="pos-customer-result-text"><strong>{customer.fullName}</strong><em>{customer.username ? `@${customer.username}` : "No app account"} · {customer.visits} visit{customer.visits === 1 ? "" : "s"}</em></span>
+      {customer.stars !== null && customer.stars !== undefined && <span className="pos-customer-stars" title="Stars in the running loyalty campaign">★ {customer.stars}</span>}
       <button type="button" onClick={onRemove} aria-label={`Remove ${customer.fullName} from this order`} title="Remove customer">×</button>
     </div>
     {customer.notes && <p className="pos-customer-note">📝 {customer.notes}</p>}
@@ -1198,14 +1213,15 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   const [cartOpen, setCartOpen] = useState(false);
   // The order just placed, with a button to print its receipt (or printing it right away).
   const receipts = useContext(ReceiptContext);
-  const [lastPlaced, setLastPlaced] = useState<{ orderId: number; queueNumber: number; note: string } | null>(null);
+  // stars: "+2 ★ for Maria" when the attached customer earned loyalty stars.
+  const [lastPlaced, setLastPlaced] = useState<{ orderId: number; queueNumber: number; note: string; stars?: string } | null>(null);
   useEffect(() => {
     if (!lastPlaced) return;
     const timer = window.setTimeout(() => setLastPlaced(null), 20_000);
     return () => window.clearTimeout(timer);
   }, [lastPlaced]);
   async function printPlacedReceipt(orderId: number, queueNumber: number) {
-    setLastPlaced({ orderId, queueNumber, note: receipts.settings.output === "pdf" ? "Downloading the receipt PDF…" : "Opening the print window…" });
+    setLastPlaced((current) => ({ orderId, queueNumber, stars: current?.orderId === orderId ? current.stars : undefined, note: receipts.settings.output === "pdf" ? "Downloading the receipt PDF…" : "Opening the print window…" }));
     const problem = await receipts.printReceipt(orderId);
     setLastPlaced((current) => current && current.orderId === orderId ? { ...current, note: problem ?? (receipts.settings.output === "pdf" ? "Receipt PDF downloaded" : "") } : current);
   }
@@ -1402,8 +1418,8 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
   }
 
   // Clears the cart and refreshes stock once an order is in the queue (cash or GCash).
-  async function afterOrderPlaced(orderId: number, queueNumber: number, shiftId: number) {
-    setLastPlaced({ orderId, queueNumber, note: "" });
+  async function afterOrderPlaced(orderId: number, queueNumber: number, shiftId: number, starsEarned = 0) {
+    setLastPlaced({ orderId, queueNumber, note: "", stars: starsEarned > 0 && customer ? `+${starsEarned} ★ for ${customer.fullName.split(" ")[0]}` : undefined });
     if (receipts.settings.autoPrint) void printPlacedReceipt(orderId, queueNumber);
     setCart([]);
     setReceivedAmount("");
@@ -1476,7 +1492,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to complete checkout.");
-      await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId));
+      await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId), Number(payload.data.starsEarned ?? 0));
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Unable to complete checkout.");
     } finally {
@@ -1732,7 +1748,7 @@ function POSPage({ onQueueAssigned }: { onQueueAssigned: (queueNumber: number, s
     {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => { if ((gcashCheckout.cashAmount ?? 0) > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${(gcashCheckout.cashAmount ?? 0).toFixed(2)} cash part.`); setGcashCheckout(null); }} onPaid={(view) => { setGcashCheckout(null); if (view.orderId !== null && view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.orderId, view.queueNumber, view.shiftId); }} />}
     {lastPlaced && <div className="pos-placed" role="status">
       <span className="pos-placed-number">#{lastPlaced.queueNumber}</span>
-      <span className="pos-placed-text"><strong>Order sent to the queue</strong>{lastPlaced.note && <em>{lastPlaced.note}</em>}</span>
+      <span className="pos-placed-text"><strong>Order sent to the queue</strong>{lastPlaced.stars && <em className="pos-placed-stars">{lastPlaced.stars}</em>}{lastPlaced.note && <em>{lastPlaced.note}</em>}</span>
       <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />{receipts.settings.output === "pdf" ? "Receipt PDF" : "Receipt"}</button>
       <button type="button" className="pos-placed-close" onClick={() => setLastPlaced(null)} aria-label="Dismiss">×</button>
     </div>}

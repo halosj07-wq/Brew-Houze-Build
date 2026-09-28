@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { runningCampaign } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 
 // Finds a customer to attach to the order at the counter: by name or username (?q=), or by the
@@ -35,6 +36,16 @@ export async function GET(request: Request) {
       ORDER BY ${username ? "c.customer_id" : "(LOWER(c.username) = LOWER($1)) DESC, o.last_visit DESC NULLS LAST, c.full_name"}
       LIMIT ${MAX_RESULTS}
     `, [username || escaped]);
+    // Stars in the running loyalty campaign (null when none is running).
+    const campaign = await runningCampaign().catch(() => null);
+    const balances = new Map<number, number>();
+    if (campaign && result.rows.length > 0) {
+      const stars = await pool.query(
+        "SELECT customer_id, COALESCE(SUM(stars), 0)::int AS balance FROM loyalty_star_entries WHERE campaign_id = $1 AND customer_id = ANY($2::int[]) GROUP BY customer_id",
+        [campaign.id, result.rows.map((row) => Number(row.customer_id))]
+      );
+      stars.rows.forEach((row) => balances.set(Number(row.customer_id), Number(row.balance)));
+    }
     return NextResponse.json({
       data: result.rows.map((row) => ({
         id: Number(row.customer_id),
@@ -43,7 +54,9 @@ export async function GET(request: Request) {
         notes: String(row.notes ?? ""),
         visits: Number(row.visits),
         lastVisit: (row.last_visit as string | null) ?? null,
+        stars: campaign ? balances.get(Number(row.customer_id)) ?? 0 : null,
       })),
+      campaign: campaign ? { name: campaign.name } : null,
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET /api/customers (staff) failed:", error);

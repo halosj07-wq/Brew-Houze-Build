@@ -34,8 +34,27 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       FROM customer_sessions WHERE customer_id = $1 AND ended_at IS NULL AND expires_at > CURRENT_TIMESTAMP
       ORDER BY last_seen_at DESC
     `, [id]);
+    // Star history across every campaign (empty when loyalty is not set up yet).
+    const stars = await pool.query(`
+      SELECT e.entry_id, e.kind, e.stars, e.order_id, so.queue_number, e.reason, a.full_name AS admin_name, r.name AS reward_name, lc.campaign_id, lc.name AS campaign_name,
+        TO_CHAR(e.created_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
+      FROM loyalty_star_entries e
+      JOIN loyalty_campaigns lc ON lc.campaign_id = e.campaign_id
+      LEFT JOIN sales_orders so ON so.order_id = e.order_id
+      LEFT JOIN admin_users a ON a.admin_id = e.admin_id
+      LEFT JOIN loyalty_rewards r ON r.reward_id = e.reward_id
+      WHERE e.customer_id = $1
+      ORDER BY e.created_at DESC, e.entry_id DESC
+      LIMIT 300
+    `, [id]).catch(() => ({ rows: [] as Record<string, unknown>[] }));
     return NextResponse.json({
       data: {
+        starEntries: stars.rows.map((row) => ({
+          id: Number(row.entry_id), kind: String(row.kind), stars: Number(row.stars), orderId: row.order_id === null ? null : Number(row.order_id),
+          queueNumber: row.queue_number === null ? null : Number(row.queue_number), reason: (row.reason as string | null) ?? null,
+          adminName: (row.admin_name as string | null) ?? null, rewardName: (row.reward_name as string | null) ?? null,
+          campaignId: Number(row.campaign_id), campaignName: String(row.campaign_name), createdAt: String(row.created_at),
+        })),
         orders: orders.rows.map((row) => ({
           id: Number(row.order_id),
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),

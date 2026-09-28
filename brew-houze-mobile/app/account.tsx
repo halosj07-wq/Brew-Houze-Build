@@ -12,7 +12,12 @@ import "./account.css";
 // classes, so a new layout can restyle or replace them without touching the logic.
 
 export type CustomerOrder = { id: number; queueNumber: number | null; status: string; total: number; source: "mobile" | "counter"; createdAt: string; items: string };
-export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[] };
+export type LoyaltyCampaign = { id: number; name: string; description: string | null; startsOn: string; endsOn: string | null; earnMode: "per_item" | "per_amount"; starsPerUnit: number; amountStep: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null };
+export type CustomerLoyalty = { campaign: LoyaltyCampaign; balance: number; rewards: { id: number; name: string; starsCost: number }[]; history: { kind: string; stars: number; createdAt: string; orderQueue: number | null }[] };
+export type CustomerAccount = { username: string; fullName: string; email: string | null; birthday: string | null; orderCount: number; orders: CustomerOrder[]; loyalty?: CustomerLoyalty | null };
+
+// Claiming rewards arrives with the next update; until then the rewards card says it opens soon.
+const REWARDS_CLAIMABLE = false;
 type Result = { ok: true } | { ok: false; error: string; field?: string };
 
 async function send(url: string, method: string, body?: unknown): Promise<Result & { data?: unknown }> {
@@ -99,6 +104,48 @@ export function CartAccountNote({ state, onOpen }: { state: CustomerAccountState
 }
 
 type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete";
+
+function pluralStars(count: number): string {
+  return `${count} star${Math.abs(count) === 1 ? "" : "s"}`;
+}
+
+// "Earn 1 star for every drink from Coffee or Tea. Up to 3 stars per order."
+export function earnRuleText(campaign: LoyaltyCampaign): string {
+  const from = campaign.categories?.length ? ` from ${campaign.categories.join(" or ")}` : "";
+  const rule = campaign.earnMode === "per_amount"
+    ? `Earn ${pluralStars(campaign.starsPerUnit)} for every ₱${(campaign.amountStep ?? 0).toLocaleString("en-PH")} you spend${from ? ` on items${from}` : ""}.`
+    : `Earn ${pluralStars(campaign.starsPerUnit)} for every item${from} you order.`;
+  const limits = [campaign.maxPerOrder ? `${pluralStars(campaign.maxPerOrder)} per order` : "", campaign.maxPerDay ? `${pluralStars(campaign.maxPerDay)} per day` : ""].filter(Boolean);
+  return limits.length ? `${rule} Up to ${limits.join(" and ")}.` : rule;
+}
+
+const STAR_ENTRY_LABELS: Record<string, string> = { earned: "Earned", reversed: "Order cancelled", adjusted: "Added by the café", carried_in: "Carried over", carried_out: "Moved to the next campaign", redeemed: "Reward claimed", restored: "Reward returned" };
+
+function RewardsCard({ loyalty }: { loyalty: CustomerLoyalty }) {
+  const { campaign, balance, rewards } = loyalty;
+  const next = rewards.find((reward) => reward.starsCost > balance) ?? null;
+  const affordable = rewards.filter((reward) => reward.starsCost <= balance);
+  const target = next?.starsCost ?? rewards[rewards.length - 1]?.starsCost ?? 0;
+  const endLabel = campaign.endsOn ? `Until ${new Date(`${campaign.endsOn}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "long", day: "numeric" })}` : "Ongoing";
+  return <section className="acct-rewards">
+    <div className="acct-rewards-head">
+      <div><p>REWARDS · {endLabel.toUpperCase()}</p><h3>{campaign.name}</h3></div>
+      <strong aria-label={pluralStars(balance)}>★ {balance}</strong>
+    </div>
+    {campaign.description && <p className="acct-rewards-copy">{campaign.description}</p>}
+    {rewards.length > 0 && <div className="acct-rewards-progress" aria-hidden="true"><span style={{ width: `${target ? Math.min(100, (Math.max(0, balance) / target) * 100) : 0}%` }} /></div>}
+    <p className="acct-rewards-next">{next ? `${pluralStars(next.starsCost - Math.max(0, balance))} more for ${next.name}.` : affordable.length ? "You have enough stars for every reward!" : "Stars add up with every order while you are signed in."}</p>
+    {rewards.length > 0 && <ul className="acct-rewards-list">
+      {rewards.map((reward) => <li key={reward.id} className={reward.starsCost <= balance ? "is-ready" : ""}><span>{reward.starsCost <= balance ? "✓ " : ""}{reward.name}</span><strong>★ {reward.starsCost}</strong></li>)}
+    </ul>}
+    {affordable.length > 0 && <p className="acct-rewards-claim">{REWARDS_CLAIMABLE ? "Tell the cashier you want to use your stars." : "Claiming rewards opens soon. Your stars are saved."}</p>}
+    <p className="acct-rewards-rule">{earnRuleText(campaign)} Counter orders count too: show your QR code to the cashier.</p>
+    {loyalty.history.length > 0 && <details className="acct-rewards-history">
+      <summary>Star history</summary>
+      <ul>{loyalty.history.map((entry, index) => <li key={index}><span>{STAR_ENTRY_LABELS[entry.kind] ?? entry.kind}{entry.orderQueue ? ` · order #${entry.orderQueue}` : ""}<small>{formatDate(entry.createdAt)}</small></span><strong className={entry.stars < 0 ? "is-minus" : ""}>{entry.stars > 0 ? "+" : ""}{entry.stars}</strong></li>)}</ul>
+    </details>}
+  </section>;
+}
 
 // The code the counter scans to attach this account to an order (the staff app reads the same
 // "brewhouze:customer:<username>" format). It only identifies the customer: it signs nobody in.
@@ -269,7 +316,9 @@ export function AccountSheet({ state, resetToken, onClose, onResetDone }: { stat
         </div>
         <button type="button" className="acct-qr-toggle" aria-expanded={showQr} onClick={() => setShowQr((current) => !current)}>{showQr ? "Hide my QR code" : "My QR code"} <span>for ordering at the counter</span></button>
         {showQr && <MyQrCode username={state.account.username} />}
-        <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>
+        {state.account.loyalty
+          ? <RewardsCard loyalty={state.account.loyalty} />
+          : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>}
         <h3 className="acct-section-title">Your orders</h3>
         {state.account.orders.length === 0
           ? <p className="acct-intro">No orders yet. Orders you place while signed in are saved here.</p>

@@ -4,7 +4,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, u
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "loyalty" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -302,6 +302,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "products", label: "Menu", short: "Menu", Icon: IconCoffee },
   { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
   { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
+  { id: "loyalty", label: "Loyalty", short: "Loyalty", Icon: IconStar },
   { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
   { id: "archives", label: "Archives", short: "Archives", Icon: IconArchive },
 ];
@@ -309,7 +310,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "customers", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "customers", "loyalty", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -6155,9 +6156,11 @@ type Customer = {
   id: number; username: string | null; fullName: string; email: string | null; birthday: string | null; notes: string;
   isActive: boolean; hasLogin: boolean; consented: boolean; createdAt: string; createdBy: string | null;
   visits: number; visits30d: number; spent: number; lastVisit: string | null; favourite: string | null; devices: number;
+  // Stars in the running loyalty campaign (null when none is running).
+  stars: number | null;
 };
 type CustomerOrder = { id: number; queueNumber: number | null; shiftId: number | null; status: string; total: number; paymentMethod: string; source: "mobile" | "counter"; createdAt: string; punchedBy: string; items: string };
-type CustomerDetail = { orders: CustomerOrder[]; devices: { device: string; signedInAt: string; lastSeenAt: string }[] };
+type CustomerDetail = { orders: CustomerOrder[]; devices: { device: string; signedInAt: string; lastSeenAt: string }[]; starEntries: StarEntry[] };
 type CustomerFilter = "active" | "app" | "profile" | "inactive";
 type CustomerSort = "name" | "recent" | "visits" | "spent";
 
@@ -6209,6 +6212,7 @@ function customerListColumns(): ExcelColumn<Customer>[] {
     { header: "Visits, 30 days", value: (customer) => customer.visits30d, kind: "count" },
     { header: "Total spent", value: (customer) => customer.spent, kind: "money" },
     { header: "Favourite", value: (customer) => customer.favourite ?? "" },
+    { header: "Stars now", value: (customer) => customer.stars ?? "" },
     { header: "Last visit", value: (customer) => excelDateTime(customer.lastVisit) },
     { header: "Notes", value: (customer) => customer.notes },
     { header: "Added", value: (customer) => excelDateTime(customer.createdAt) },
@@ -6314,8 +6318,10 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
 
 function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: Customer; onClose: () => void; onChanged: (customer: Customer) => void; onReload: () => Promise<void> }) {
   const confirmAction = useConfirm();
-  const [tab, setTab] = useState<"profile" | "purchases">("profile");
+  const [tab, setTab] = useState<"profile" | "purchases" | "stars">("profile");
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
+  const [detailVersion, setDetailVersion] = useState(0);
+  const [adjust, setAdjust] = useState({ stars: "", reason: "" });
   const [detailError, setDetailError] = useState("");
   const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "" });
   const [notes, setNotes] = useState(customer.notes);
@@ -6336,7 +6342,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
       })
       .catch((loadError) => { if (active) setDetailError(loadError instanceof Error ? loadError.message : "Could not load the purchases."); });
     return () => { active = false; };
-  }, [customer.id]);
+  }, [customer.id, detailVersion]);
 
   async function act<T>(key: string, body: Record<string, unknown>, fallback: string, onDone: (data: T) => void) {
     setWorking(key);
@@ -6380,7 +6386,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
         </div>
       </header>
       <div className="acc-tabs" role="tablist" aria-label="Customer sections">
-        {([["profile", "Profile & notes"], ["purchases", `Purchases${detail ? ` (${detail.orders.length})` : ""}`]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        {([["profile", "Profile & notes"], ["purchases", `Purchases${detail ? ` (${detail.orders.length})` : ""}`], ["stars", customer.stars !== null ? `Stars (★ ${customer.stars})` : "Stars"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         {notice && <div className="acc-notice" role="status">{notice}</div>}
@@ -6424,6 +6430,26 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
               <button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ isActive: boolean }>("active", { action: "set_active", isActive: !customer.isActive }, "Could not change the status.", (data) => { onChanged({ ...customer, isActive: data.isActive, devices: data.isActive ? customer.devices : 0 }); setNotice(data.isActive ? "Reactivated." : "Deactivated and signed out."); })}>{customer.isActive ? "Deactivate" : "Reactivate"}</button>
               <button type="button" className="ui-button ui-button-secondary" style={{ color: "#B91C1C" }} disabled={working !== null} onClick={() => void erase()}>Erase personal details…</button>
             </div>
+          </section>
+        </>}
+
+        {tab === "stars" && <>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>{customer.stars !== null ? `★ ${customer.stars} in the running campaign` : "No campaign is running"}</h3><p>{customer.stars !== null ? "Add stars (for example from their paper card) or remove them. Every change is kept with its reason." : "Start a campaign in Loyalty to give or adjust stars."}</p></div></header>
+            {customer.stars !== null && <form className="loy-adjust" onSubmit={(event) => { event.preventDefault(); void act<{ stars: number }>("stars", { action: "adjust_stars", stars: Number(adjust.stars), reason: adjust.reason }, "Could not adjust the stars.", (data) => { onChanged({ ...customer, stars: data.stars }); setNotice(`Stars updated. ${customer.fullName.split(" ")[0]} now has ★ ${data.stars}.`); setAdjust({ stars: "", reason: "" }); setDetailVersion((version) => version + 1); }); }}>
+              <label className="loy-stars-input"><IconStar size={13} /><input type="number" step={1} min={-1000} max={1000} value={adjust.stars} onChange={(event) => setAdjust((current) => ({ ...current, stars: event.target.value }))} placeholder="+5 or -2" aria-label="Stars to add or remove" /></label>
+              <input value={adjust.reason} onChange={(event) => setAdjust((current) => ({ ...current, reason: event.target.value }))} placeholder="Reason, e.g. stars from their paper card" maxLength={200} style={{ ...packagingInput, flex: 1, minWidth: 180 }} aria-label="Reason" />
+              <button type="submit" className="ui-button ui-button-primary" disabled={working !== null || !Number.isInteger(Number(adjust.stars)) || Number(adjust.stars) === 0 || !adjust.reason.trim()}>{working === "stars" ? "Saving…" : "Save"}</button>
+            </form>}
+          </section>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Star history</h3><p>Every campaign, newest first.</p></div></header>
+            {!detail ? <p className="inv-hint">Loading…</p> : detail.starEntries.length === 0 ? <p className="inv-hint">No stars yet.</p> : <ul className="acc-list">
+              {detail.starEntries.map((entry) => <li key={entry.id}>
+                <span><strong>{starEntryLabels[entry.kind] ?? entry.kind}</strong><em>{shiftTime(entry.createdAt)} · {entry.campaignName}{entry.orderId ? ` · Order ${entry.orderId}` : ""}{entry.reason ? ` · ${entry.reason}` : ""}{entry.adminName ? ` · by ${entry.adminName}` : ""}</em></span>
+                <span className="acc-list-end"><strong className={entry.stars < 0 ? "dash-down" : "loy-plus"}>{entry.stars > 0 ? "+" : ""}{entry.stars}</strong></span>
+              </li>)}
+            </ul>}
           </section>
         </>}
 
@@ -6558,6 +6584,7 @@ function Customers() {
                   <span className="acc-card-top">
                     <UserAvatar name={customer.fullName} size={44} />
                     <span className="acc-card-name"><strong>{customer.fullName}</strong><em>{customer.username ? `@${customer.username}` : customer.email ?? "No login"}</em><span className={`acc-role ${customer.hasLogin ? "is-barista" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span></span>
+                    {customer.stars !== null && customer.isActive && <span className="loy-cost" title="Stars in the running campaign">★ {customer.stars}</span>}
                     {!customer.isActive ? <span className="acc-status is-off"><i />Deactivated</span> : birthdayThisMonth(customer.birthday) ? <span className="acc-status is-on">🎂 {birthdayLabel(customer.birthday)}</span> : null}
                   </span>
                   {customer.notes && <span className="cust-note">{customer.notes}</span>}
@@ -6574,6 +6601,474 @@ function Customers() {
     </div>
     {adding && <AddCustomerDialog onClose={() => setAdding(false)} onCreated={loadCustomers} />}
     {selected && <CustomerDialog key={selected.id} customer={selected} onClose={() => setSelectedId(null)} onChanged={(changed) => setCustomers((current) => current.map((customer) => customer.id === changed.id ? changed : customer))} onReload={loadCustomers} />}
+  </div>;
+}
+
+// ─── Loyalty campaigns ─────────────────────────────────────────────────────────────────────────
+// Brew Houze runs its loyalty program in seasons. Each campaign sets how customers earn stars
+// (per item or per amount spent, which categories count), limits per order and per day, what
+// happens to stars when it ends, and the rewards. One campaign runs at a time. Stars are a
+// ledger (see /api/loyalty): nothing is edited or deleted, the admin adds adjustments instead.
+
+type LoyaltyReward = { id: number; name: string; starsCost: number; productId: number | null; productName: string | null; category: string | null; maxPrice: number | null };
+type LoyaltyStatus = "draft" | "scheduled" | "running" | "ended";
+type LoyaltyCampaign = {
+  id: number; name: string; description: string; startsOn: string; endsOn: string | null; status: LoyaltyStatus; isActive: boolean;
+  earnMode: "per_item" | "per_amount"; starsPerUnit: number; amountStep: number | null; categories: string[]; maxPerOrder: number | null; maxPerDay: number | null;
+  carryOver: boolean; activatedAt: string | null; endedAt: string | null; createdAt: string;
+  stats: { members: number; earned: number; reversed: number; adjusted: number; carriedIn: number; redeemed: number; rewardsClaimed: number; outstanding: number; orders: number };
+  rewards: LoyaltyReward[];
+};
+type CampaignMember = { customerId: number; fullName: string; username: string | null; erased: boolean; balance: number; earned: number; orders: number; rewards: number; lastActivity: string };
+type StarEntry = { id: number; kind: string; stars: number; orderId: number | null; queueNumber: number | null; reason: string | null; customerName?: string; adminName: string | null; rewardName: string | null; createdAt: string; campaignId?: number; campaignName?: string };
+type CampaignDetail = { members: CampaignMember[]; entries: StarEntry[] };
+type CampaignRules = Pick<LoyaltyCampaign, "earnMode" | "starsPerUnit" | "amountStep" | "categories" | "maxPerOrder" | "maxPerDay">;
+
+const loyaltyStatusLabels: Record<LoyaltyStatus, string> = { draft: "Draft", scheduled: "Scheduled", running: "Running", ended: "Ended" };
+const starEntryLabels: Record<string, string> = { earned: "Earned", reversed: "Taken back (void/refund)", adjusted: "Adjusted by admin", carried_out: "Moved to next campaign", carried_in: "Carried over", redeemed: "Reward claimed", restored: "Reward returned" };
+
+function IconStar({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>;
+}
+
+function starsText(count: number): string {
+  return `${count.toLocaleString("en-PH")} star${Math.abs(count) === 1 ? "" : "s"}`;
+}
+
+function campaignRuleText(rules: CampaignRules): string {
+  const from = rules.categories.length ? ` from ${rules.categories.join(" or ")}` : "";
+  const rule = rules.earnMode === "per_amount"
+    ? `${starsText(rules.starsPerUnit)} for every ${peso(rules.amountStep ?? 0)} spent${from ? ` on items${from}` : ""}`
+    : `${starsText(rules.starsPerUnit)} for every item${from}`;
+  const limits = [rules.maxPerOrder ? `${starsText(rules.maxPerOrder)} per order` : "", rules.maxPerDay ? `${starsText(rules.maxPerDay)} per day` : ""].filter(Boolean);
+  return `${rule}${limits.length ? `, up to ${limits.join(" and ")}` : ""}.`;
+}
+
+function campaignDateText(campaign: Pick<LoyaltyCampaign, "startsOn" | "endsOn">): string {
+  const format = (value: string) => new Date(`${value}T00:00:00Z`).toLocaleDateString("en-PH", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+  return campaign.endsOn ? `${format(campaign.startsOn)} – ${format(campaign.endsOn)}` : `From ${format(campaign.startsOn)}, no end date`;
+}
+
+function rewardCoverage(reward: Pick<LoyaltyReward, "productName" | "category" | "maxPrice">): string {
+  const parts = [reward.productName ?? (reward.category ? `any ${reward.category} item` : "any item"), reward.maxPrice !== null ? `up to ${peso(reward.maxPrice)}` : ""].filter(Boolean);
+  return parts.join(", ");
+}
+
+function LoyaltyStatusChip({ status }: { status: LoyaltyStatus }) {
+  return <span className={`loy-status is-${status}`}><i />{loyaltyStatusLabels[status]}</span>;
+}
+
+function exportCampaignReport(campaign: LoyaltyCampaign, detail: CampaignDetail) {
+  const safeName = campaign.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "campaign";
+  saveWorkbook([
+    ["Summary", excelInfo([
+      [`Brew Houze loyalty campaign: ${campaign.name}`],
+      ["Status", loyaltyStatusLabels[campaign.status]],
+      ["Dates", campaignDateText(campaign)],
+      ["How stars are earned", campaignRuleText(campaign)],
+      ["When it ends", campaign.carryOver ? "Stars carry over to the next campaign" : "Stars expire"],
+      ["Generated", excelNow()],
+      [],
+      ["Results"],
+      ["Members", campaign.stats.members],
+      ["Orders that earned stars", campaign.stats.orders],
+      ["Stars earned", campaign.stats.earned],
+      ["Stars taken back (voids and refunds)", campaign.stats.reversed],
+      ["Stars adjusted by admin (net)", campaign.stats.adjusted],
+      ["Stars carried in", campaign.stats.carriedIn],
+      ["Stars spent on rewards", campaign.stats.redeemed],
+      ["Rewards claimed", campaign.stats.rewardsClaimed],
+      ["Stars not yet spent", campaign.stats.outstanding],
+    ], ["Members", "Orders that earned stars", "Stars earned", "Stars taken back (voids and refunds)", "Stars adjusted by admin (net)", "Stars carried in", "Stars spent on rewards", "Rewards claimed", "Stars not yet spent"])],
+    ["Rewards", campaign.rewards.length ? excelTable(campaign.rewards, [
+      { header: "Reward", value: (reward) => reward.name },
+      { header: "Stars", value: (reward) => reward.starsCost, kind: "count" },
+      { header: "Covers", value: (reward) => rewardCoverage(reward) },
+    ]) : null],
+    ["Members", detail.members.length ? excelTable(detail.members, [
+      { header: "Customer", value: (member) => member.erased ? "Erased customer" : member.fullName },
+      { header: "Username", value: (member) => member.username ? `@${member.username}` : "" },
+      { header: "Stars now", value: (member) => member.balance, kind: "count" },
+      { header: "Stars earned", value: (member) => member.earned, kind: "count" },
+      { header: "Orders", value: (member) => member.orders, kind: "count" },
+      { header: "Rewards claimed", value: (member) => member.rewards, kind: "count" },
+      { header: "Last activity", value: (member) => excelDateTime(member.lastActivity) },
+    ]) : null],
+    ["Star history", detail.entries.length ? excelTable(detail.entries, [
+      { header: "Date and time", value: (entry) => excelDateTime(entry.createdAt) },
+      { header: "Customer", value: (entry) => entry.customerName ?? "" },
+      { header: "What happened", value: (entry) => starEntryLabels[entry.kind] ?? entry.kind },
+      { header: "Stars", value: (entry) => entry.stars, kind: "count" },
+      { header: "Order", value: (entry) => entry.orderId ?? "" },
+      { header: "Reward", value: (entry) => entry.rewardName ?? "" },
+      { header: "Reason", value: (entry) => entry.reason ?? "" },
+      { header: "By", value: (entry) => entry.adminName ?? "" },
+    ]) : null],
+  ], `brew-houze-loyalty-${safeName}-${getFinanceDateStamp()}.xlsx`);
+}
+
+// Keys that tell the reward rows of the form apart (React list keys only).
+let rewardKeySeed = 0;
+const nextRewardKey = () => ++rewardKeySeed;
+
+type RewardDraft = { key: number; id: number | null; name: string; starsCost: string; productId: string; category: string; maxPrice: string };
+type CampaignDraft = {
+  name: string; description: string; startsOn: string; endsOn: string; earnMode: "per_item" | "per_amount"; starsPerUnit: string; amountStep: string;
+  categories: string[]; maxPerOrder: string; maxPerDay: string; carryOver: boolean; rewards: RewardDraft[];
+};
+
+function CampaignFormDialog({ campaign, products, categories, onClose, onSaved }: { campaign: LoyaltyCampaign | null; products: Product[]; categories: ProductCategory[]; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const [draft, setDraft] = useState<CampaignDraft>(() => campaign ? {
+    name: campaign.name, description: campaign.description, startsOn: campaign.startsOn, endsOn: campaign.endsOn ?? "", earnMode: campaign.earnMode,
+    starsPerUnit: String(campaign.starsPerUnit), amountStep: campaign.amountStep === null ? "" : String(campaign.amountStep), categories: campaign.categories,
+    maxPerOrder: campaign.maxPerOrder === null ? "" : String(campaign.maxPerOrder), maxPerDay: campaign.maxPerDay === null ? "" : String(campaign.maxPerDay), carryOver: campaign.carryOver,
+    rewards: campaign.rewards.map((reward) => ({ key: nextRewardKey(), id: reward.id, name: reward.name, starsCost: String(reward.starsCost), productId: reward.productId === null ? "" : String(reward.productId), category: reward.category ?? "", maxPrice: reward.maxPrice === null ? "" : String(reward.maxPrice) })),
+  } : {
+    name: "", description: "", startsOn: getFinanceDateStamp(), endsOn: "", earnMode: "per_item", starsPerUnit: "1", amountStep: "100", categories: [], maxPerOrder: "", maxPerDay: "", carryOver: false,
+    rewards: [{ key: nextRewardKey(), id: null, name: "Free drink", starsCost: "10", productId: "", category: "", maxPrice: "" }],
+  });
+  const [saving, setSaving] = useState<"draft" | "start" | "save" | null>(null);
+  const [error, setError] = useState("");
+  const categoryNames = Array.from(new Set([...categories.map((category) => category.name), ...products.map((product) => product.category).filter(Boolean)])).sort((a, b) => a.localeCompare(b));
+  const set = <K extends keyof CampaignDraft>(key: K, value: CampaignDraft[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const setReward = (key: number, patch: Partial<RewardDraft>) => setDraft((current) => ({ ...current, rewards: current.rewards.map((reward) => reward.key === key ? { ...reward, ...patch } : reward) }));
+  const starsPerUnit = Number(draft.starsPerUnit);
+  const amountStep = Number(draft.amountStep);
+  const problem = !draft.name.trim() ? "Give the campaign a name."
+    : !draft.startsOn ? "Choose the start date."
+      : draft.endsOn && draft.endsOn < draft.startsOn ? "The end date must be on or after the start date."
+        : !Number.isInteger(starsPerUnit) || starsPerUnit < 1 || starsPerUnit > 100 ? "Stars earned must be a whole number from 1 to 100."
+          : draft.earnMode === "per_amount" && !(amountStep > 0) ? "Enter how many pesos earn the stars."
+            : draft.rewards.some((reward) => !reward.name.trim() || !(Number.isInteger(Number(reward.starsCost)) && Number(reward.starsCost) >= 1)) ? "Every reward needs a name and a star cost."
+              : "";
+  const previewRules: CampaignRules = { earnMode: draft.earnMode, starsPerUnit: Number.isFinite(starsPerUnit) && starsPerUnit > 0 ? starsPerUnit : 1, amountStep: amountStep > 0 ? amountStep : 0, categories: draft.categories, maxPerOrder: Number(draft.maxPerOrder) > 0 ? Number(draft.maxPerOrder) : null, maxPerDay: Number(draft.maxPerDay) > 0 ? Number(draft.maxPerDay) : null };
+
+  async function save(mode: "draft" | "start" | "save") {
+    if (problem || saving) { setError(problem); return; }
+    setSaving(mode);
+    setError("");
+    const payload = {
+      name: draft.name, description: draft.description, startsOn: draft.startsOn, endsOn: draft.endsOn || null, earnMode: draft.earnMode,
+      starsPerUnit: starsPerUnit, amountStep: draft.earnMode === "per_amount" ? amountStep : null, categories: draft.categories,
+      maxPerOrder: draft.maxPerOrder || null, maxPerDay: draft.maxPerDay || null, carryOver: draft.carryOver,
+      rewards: draft.rewards.map((reward) => ({ id: reward.id, name: reward.name, starsCost: Number(reward.starsCost), productId: reward.productId || null, category: reward.category || null, maxPrice: reward.maxPrice || null })),
+    };
+    try {
+      const response = await fetch("/api/loyalty", {
+        method: campaign ? "PATCH" : "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(campaign ? { id: campaign.id, action: "update", ...payload } : { ...payload, activate: mode === "start" }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error || "Could not save the campaign.");
+      await onSaved(campaign ? "Campaign saved." : mode === "start" ? `Campaign started.${result.data?.carried ? ` Stars of ${result.data.carried} customer${result.data.carried === 1 ? "" : "s"} were carried over.` : ""}` : "Draft saved. Start it when you are ready.");
+      onClose();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the campaign.");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const choice = (active: boolean) => ({ flex: 1, padding: "10px 12px", borderRadius: 11, border: active ? "1.5px solid #D97706" : "1.5px solid #E8DDD5", background: active ? "#FFF7ED" : "#FFFFFF", textAlign: "left" as const, cursor: "pointer" });
+  return <Modal onClose={onClose} closeDisabled={saving !== null} label={campaign ? "Edit campaign" : "New campaign"}>
+    <form onSubmit={(event) => { event.preventDefault(); void save(campaign ? "save" : "draft"); }} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 680, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={campaign ? `Edit ${campaign.name}` : "New loyalty campaign"} sub={campaign?.status === "running" ? "Changes apply to orders from now on. Stars already earned stay." : "A season of the loyalty program: how stars are earned and what they buy."} onClose={onClose} disabled={saving !== null} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <section className="acc-block">
+          <header className="acc-block-head"><div><h3>Basics</h3></div></header>
+          <div className="flex flex-col gap-3">
+            <WizardField label="Name"><input data-autofocus value={draft.name} onChange={(event) => set("name", event.target.value)} placeholder="e.g. Holiday Stars 2026" style={packagingInput} maxLength={80} /></WizardField>
+            <WizardField label="Description (optional)" hint="Shown to customers on the mobile menu."><input value={draft.description} onChange={(event) => set("description", event.target.value)} placeholder="Collect stars on every drink and get a free one!" style={packagingInput} maxLength={400} /></WizardField>
+            <div className="inv-step-grid">
+              <WizardField label="Starts"><input type="date" value={draft.startsOn} onChange={(event) => set("startsOn", event.target.value)} style={packagingInput} /></WizardField>
+              <WizardField label="Ends (optional)" hint="Empty: runs until you end it."><input type="date" value={draft.endsOn} min={draft.startsOn} onChange={(event) => set("endsOn", event.target.value)} style={packagingInput} /></WizardField>
+            </div>
+          </div>
+        </section>
+
+        <section className="acc-block">
+          <header className="acc-block-head"><div><h3>How customers earn stars</h3><p>Only orders linked to a customer earn stars: mobile orders while signed in, and counter orders the cashier attaches them to.</p></div></header>
+          <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Earning">
+            <button type="button" role="radio" aria-checked={draft.earnMode === "per_item"} style={choice(draft.earnMode === "per_item")} onClick={() => set("earnMode", "per_item")}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Per item</strong><span style={{ color: "#9C8278", fontSize: 12 }}>Like a stamp card: each drink or item counts.</span></button>
+            <button type="button" role="radio" aria-checked={draft.earnMode === "per_amount"} style={choice(draft.earnMode === "per_amount")} onClick={() => set("earnMode", "per_amount")}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Per amount spent</strong><span style={{ color: "#9C8278", fontSize: 12 }}>Stars for every set amount, like ₱100.</span></button>
+          </div>
+          <div className="inv-step-grid" style={{ marginTop: 12 }}>
+            <WizardField label="Stars earned"><input type="number" min={1} max={100} step={1} value={draft.starsPerUnit} onChange={(event) => set("starsPerUnit", event.target.value)} style={packagingInput} /></WizardField>
+            {draft.earnMode === "per_amount"
+              ? <WizardField label="For every (₱)"><input type="number" min={1} step={1} value={draft.amountStep} onChange={(event) => set("amountStep", event.target.value)} style={packagingInput} /></WizardField>
+              : <WizardField label="For every"><input value="1 item" disabled style={{ ...packagingInput, color: "#9C8278" }} /></WizardField>}
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <WizardField label="Which items count" hint="None ticked: every item counts.">
+              <div className="loy-cats">
+                {categoryNames.map((name) => { const on = draft.categories.includes(name); return <button key={name} type="button" aria-pressed={on} onClick={() => set("categories", on ? draft.categories.filter((item) => item !== name) : [...draft.categories, name])}>{on ? "✓ " : ""}{name}</button>; })}
+                {categoryNames.length === 0 && <span className="inv-hint">No categories yet.</span>}
+              </div>
+            </WizardField>
+          </div>
+          <div className="inv-step-grid" style={{ marginTop: 12 }}>
+            <WizardField label="Most stars per order" hint="Empty: no limit."><input type="number" min={1} step={1} value={draft.maxPerOrder} onChange={(event) => set("maxPerOrder", event.target.value)} style={packagingInput} /></WizardField>
+            <WizardField label="Most stars per day" hint="Per customer. Empty: no limit."><input type="number" min={1} step={1} value={draft.maxPerDay} onChange={(event) => set("maxPerDay", event.target.value)} style={packagingInput} /></WizardField>
+          </div>
+          <p className="loy-preview"><IconStar size={14} /> Customers earn {campaignRuleText(previewRules)}</p>
+        </section>
+
+        <section className="acc-block">
+          <header className="acc-block-head"><div><h3>When the campaign ends</h3></div></header>
+          <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="When the campaign ends">
+            <button type="button" role="radio" aria-checked={!draft.carryOver} style={choice(!draft.carryOver)} onClick={() => set("carryOver", false)}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Stars expire</strong><span style={{ color: "#9C8278", fontSize: 12 }}>The next campaign starts everyone at 0.</span></button>
+            <button type="button" role="radio" aria-checked={draft.carryOver} style={choice(draft.carryOver)} onClick={() => set("carryOver", true)}><strong style={{ display: "block", color: "#3D2B1F", fontSize: 13.5 }}>Stars carry over</strong><span style={{ color: "#9C8278", fontSize: 12 }}>Unspent stars move into the next campaign you start.</span></button>
+          </div>
+        </section>
+
+        <section className="acc-block">
+          <header className="acc-block-head"><div><h3>Rewards</h3><p>What stars can buy. Claiming rewards at the counter and on the mobile menu comes in the next update.</p></div>
+            <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: [...current.rewards, { key: nextRewardKey(), id: null, name: "", starsCost: "", productId: "", category: "", maxPrice: "" }] }))}><IconPlus size={13} />Add reward</button></header>
+          {draft.rewards.length === 0 ? <p className="inv-hint">No rewards yet. Customers can still collect stars.</p> : <div className="flex flex-col gap-3">
+            {draft.rewards.map((reward) => <div key={reward.key} className="loy-reward-row">
+              <div className="loy-reward-top">
+                <input value={reward.name} onChange={(event) => setReward(reward.key, { name: event.target.value })} placeholder="Reward name, e.g. Free 12oz drink" style={packagingInput} maxLength={80} aria-label="Reward name" />
+                <label className="loy-stars-input"><IconStar size={13} /><input type="number" min={1} max={1000} step={1} value={reward.starsCost} onChange={(event) => setReward(reward.key, { starsCost: event.target.value })} placeholder="10" aria-label="Stars needed" /></label>
+                <button type="button" className="inv-mini" onClick={() => setDraft((current) => ({ ...current, rewards: current.rewards.filter((item) => item.key !== reward.key) }))} aria-label={`Remove ${reward.name || "reward"}`} style={{ width: 34, padding: 0, justifyContent: "center" }}><IconX size={13} /></button>
+              </div>
+              <div className="loy-reward-covers">
+                <select value={reward.productId} onChange={(event) => setReward(reward.key, { productId: event.target.value })} className="inv-select" aria-label="Product">
+                  <option value="">Any product</option>
+                  {[...products].sort((a, b) => a.name.localeCompare(b.name)).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+                </select>
+                <select value={reward.category} onChange={(event) => setReward(reward.key, { category: event.target.value })} className="inv-select" aria-label="Category" disabled={Boolean(reward.productId)}>
+                  <option value="">Any category</option>
+                  {categoryNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                </select>
+                <label className="loy-price-input"><span>Up to ₱</span><input type="number" min={0} step="0.01" value={reward.maxPrice} onChange={(event) => setReward(reward.key, { maxPrice: event.target.value })} placeholder="any price" aria-label="Price limit" /></label>
+              </div>
+            </div>)}
+          </div>}
+        </section>
+        {error && <p role="alert" className="acc-error">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-wrap" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving !== null} className="ui-button ui-button-secondary">Cancel</button>
+        {campaign
+          ? <button type="submit" disabled={saving !== null || Boolean(problem)} className="ui-button ui-button-primary">{saving ? "Saving…" : "Save changes"}</button>
+          : <>
+            <button type="submit" disabled={saving !== null || Boolean(problem)} className="ui-button ui-button-secondary">{saving === "draft" ? "Saving…" : "Save as draft"}</button>
+            <button type="button" disabled={saving !== null || Boolean(problem)} onClick={() => void save("start")} className="ui-button ui-button-primary">{saving === "start" ? "Starting…" : "Save and start"}</button>
+          </>}
+      </div>
+    </form>
+  </Modal>;
+}
+
+function CampaignDialog({ campaign, onClose, onEdit, onChanged }: { campaign: LoyaltyCampaign; onClose: () => void; onEdit: () => void; onChanged: (message: string) => Promise<void> }) {
+  const confirmAction = useConfirm();
+  const [tab, setTab] = useState<"overview" | "members" | "history">("overview");
+  const [detail, setDetail] = useState<CampaignDetail | null>(null);
+  const [error, setError] = useState("");
+  const [working, setWorking] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void fetch(`/api/loyalty/${campaign.id}`, { cache: "no-store" })
+      .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload?.error || "Could not load the campaign."); if (active) setDetail(payload.data); })
+      .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the campaign."); });
+    return () => { active = false; };
+  }, [campaign.id]);
+
+  async function act(action: "activate" | "end") {
+    if (action === "end" && !(await confirmAction({ title: `End ${campaign.name}?`, message: `Customers stop earning stars right away. ${campaign.carryOver ? "Their unspent stars carry over into the next campaign you start." : "Their unspent stars expire (they stay in the history)."} An ended campaign cannot be restarted.`, confirmLabel: "End campaign" }))) return;
+    setWorking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/loyalty", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: campaign.id, action }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not update the campaign.");
+      await onChanged(action === "end" ? `${campaign.name} ended.` : `${campaign.name} started.${payload.data?.carried ? ` Stars of ${payload.data.carried} customer${payload.data.carried === 1 ? "" : "s"} were carried over.` : ""}`);
+      onClose();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Could not update the campaign.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
+  const stats = campaign.stats;
+  return <Modal onClose={onClose} closeDisabled={working} labelledBy="campaign-dialog-title">
+    <section className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 720, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <header className="acc-dialog-head">
+        <span className="loy-badge"><IconStar size={24} /></span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <h2 id="campaign-dialog-title">{campaign.name}</h2>
+          <p>{campaignDateText(campaign)}</p>
+          <LoyaltyStatusChip status={campaign.status} />
+        </div>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button type="button" className="inv-mini" onClick={() => detail && exportCampaignReport(campaign, detail)} disabled={!detail}><IconDownload size={13} />Export</button>
+          <button type="button" onClick={onClose} disabled={working} title="Close" className="inv-mini" style={{ width: 34, padding: 0, justifyContent: "center" }}><IconX size={14} /></button>
+        </div>
+      </header>
+      <div className="acc-tabs" role="tablist" aria-label="Campaign sections">
+        {([["overview", "Overview"], ["members", `Members${detail ? ` (${detail.members.length})` : ""}`], ["history", "Star history"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+      </div>
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        {error && <p role="alert" className="acc-error">{error}</p>}
+        {tab === "overview" && <>
+          <div className="acc-stats">
+            <div><span>Members</span><strong>{stats.members}</strong></div>
+            <div><span>Stars earned</span><strong>{stats.earned.toLocaleString("en-PH")}</strong></div>
+            <div><span>Taken back</span><strong className={stats.reversed ? "dash-down" : ""}>{stats.reversed.toLocaleString("en-PH")}</strong></div>
+            <div><span>Unspent now</span><strong>{stats.outstanding.toLocaleString("en-PH")}</strong></div>
+          </div>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Rules</h3></div></header>
+            <ul className="loy-facts">
+              <li><strong>Earning</strong><span>{campaignRuleText(campaign)}</span></li>
+              <li><strong>When it ends</strong><span>{campaign.carryOver ? "Unspent stars carry over to the next campaign." : "Unspent stars expire."}</span></li>
+              {campaign.description && <li><strong>Shown to customers</strong><span>{campaign.description}</span></li>}
+              {(stats.adjusted !== 0 || stats.carriedIn > 0) && <li><strong>Other stars</strong><span>{stats.carriedIn ? `${starsText(stats.carriedIn)} carried over. ` : ""}{stats.adjusted ? `${stats.adjusted > 0 ? "+" : ""}${starsText(stats.adjusted)} adjusted by the admin.` : ""}</span></li>}
+            </ul>
+          </section>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Rewards</h3></div></header>
+            {campaign.rewards.length === 0 ? <p className="inv-hint">No rewards set.</p> : <ul className="acc-list">
+              {campaign.rewards.map((reward) => <li key={reward.id}><span><strong>{reward.name}</strong><em>{rewardCoverage(reward)}</em></span><span className="acc-list-end"><strong className="loy-cost">★ {reward.starsCost}</strong></span></li>)}
+            </ul>}
+          </section>
+          <div className="flex gap-2 flex-wrap justify-end">
+            {campaign.status !== "ended" && <button type="button" className="ui-button ui-button-secondary" disabled={working} onClick={onEdit}>Edit</button>}
+            {campaign.status === "draft" && <button type="button" className="ui-button ui-button-primary" disabled={working} onClick={() => void act("activate")}>{working ? "Starting…" : "Start campaign"}</button>}
+            {(campaign.status === "running" || campaign.status === "scheduled" || (campaign.status === "ended" && campaign.isActive)) && <button type="button" className="ui-button ui-button-primary" style={{ background: "#B91C1C" }} disabled={working} onClick={() => void act("end")}>{working ? "Ending…" : "End campaign"}</button>}
+          </div>
+        </>}
+        {tab === "members" && (!detail ? <p className="inv-hint">Loading…</p> : detail.members.length === 0 ? <p className="inv-hint">No one has stars in this campaign yet.</p> : <ul className="acc-list">
+          {detail.members.map((member) => <li key={member.customerId}>
+            <span><strong>{member.erased ? "Erased customer" : member.fullName}</strong><em>{member.username ? `@${member.username} · ` : ""}{member.orders} order{member.orders === 1 ? "" : "s"} · last {shiftTime(member.lastActivity)}</em></span>
+            <span className="acc-list-end"><strong className="loy-cost">★ {member.balance}</strong></span>
+          </li>)}
+        </ul>)}
+        {tab === "history" && (!detail ? <p className="inv-hint">Loading…</p> : detail.entries.length === 0 ? <p className="inv-hint">No stars given yet.</p> : <ul className="acc-list">
+          {detail.entries.map((entry) => <li key={entry.id}>
+            <span><strong>{entry.customerName} · {starEntryLabels[entry.kind] ?? entry.kind}</strong><em>{shiftTime(entry.createdAt)}{entry.orderId ? ` · Order ${entry.orderId}${entry.queueNumber ? ` (#${entry.queueNumber})` : ""}` : ""}{entry.reason ? ` · ${entry.reason}` : ""}{entry.adminName ? ` · by ${entry.adminName}` : ""}</em></span>
+            <span className="acc-list-end"><strong className={entry.stars < 0 ? "dash-down" : "loy-plus"}>{entry.stars > 0 ? "+" : ""}{entry.stars}</strong></span>
+          </li>)}
+        </ul>)}
+      </div>
+    </section>
+  </Modal>;
+}
+
+function Loyalty({ products, categories }: { products: Product[]; categories: ProductCategory[] }) {
+  const confirmAction = useConfirm();
+  const [campaigns, setCampaigns] = useState<LoyaltyCampaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [openId, setOpenId] = useState<number | null>(null);
+  const [editing, setEditing] = useState<LoyaltyCampaign | "new" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/loyalty", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the loyalty campaigns.");
+      setCampaigns(payload.data ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the loyalty campaigns.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  async function changed(message: string) {
+    setNotice(message);
+    await load();
+  }
+
+  async function deleteDraft(campaign: LoyaltyCampaign) {
+    if (!(await confirmAction({ title: `Delete the draft ${campaign.name}?`, message: "It was never started, so nothing else is affected.", confirmLabel: "Delete draft" }))) return;
+    try {
+      const response = await fetch(`/api/loyalty?id=${campaign.id}`, { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not delete the draft.");
+      await changed("Draft deleted.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete the draft.");
+    }
+  }
+
+  const live = campaigns.find((campaign) => campaign.status === "running") ?? campaigns.find((campaign) => campaign.status === "scheduled") ?? null;
+  const others = campaigns.filter((campaign) => campaign !== live);
+  const open = campaigns.find((campaign) => campaign.id === openId) ?? null;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <p className="inv-hint" style={{ margin: 0 }}>Run the loyalty program in seasons. Customers earn stars on orders linked to them (signed in on the mobile menu, or attached by the cashier) while a campaign is running. Only one campaign runs at a time.</p>
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="acc-notice" role="status">{notice}</div>}
+
+      {loading ? <div className="inv-empty">Loading campaigns…</div> : <>
+        {live ? <section className="loy-hero">
+          <div className="loy-hero-top">
+            <span className="loy-badge is-large"><IconStar size={28} /></span>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <LoyaltyStatusChip status={live.status} />
+              <h2>{live.name}</h2>
+              <p>{campaignDateText(live)} · {live.carryOver ? "stars carry over" : "stars expire at the end"}</p>
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <button type="button" className="inv-secondary" onClick={() => setEditing(live)}>Edit</button>
+              <button type="button" className="inv-primary" onClick={() => setOpenId(live.id)}>Open</button>
+            </div>
+          </div>
+          <p className="loy-hero-rule"><IconStar size={14} /> Customers earn {campaignRuleText(live)}</p>
+          <div className="loy-hero-stats">
+            <div><span>Members</span><strong>{live.stats.members}</strong></div>
+            <div><span>Orders with stars</span><strong>{live.stats.orders}</strong></div>
+            <div><span>Stars earned</span><strong>{live.stats.earned.toLocaleString("en-PH")}</strong></div>
+            <div><span>Unspent now</span><strong>{live.stats.outstanding.toLocaleString("en-PH")}</strong></div>
+          </div>
+          {live.rewards.length > 0 && <div className="loy-hero-rewards">{live.rewards.map((reward) => <span key={reward.id}><strong>★ {reward.starsCost}</strong>{reward.name}</span>)}</div>}
+        </section> : <div className="inv-onboard">
+          <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconStar size={24} /></span>
+          <h2>No campaign is running</h2>
+          <p>Start a campaign when the café runs its loyalty cards: choose how stars are earned, the limits, and the free rewards.</p>
+          <button type="button" className="inv-primary" onClick={() => setEditing("new")}><IconPlus size={15} />New campaign</button>
+        </div>}
+
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="loy-section-title">All campaigns</h3>
+          {live && <button type="button" className="inv-secondary" onClick={() => setEditing("new")}><IconPlus size={14} />New campaign</button>}
+        </div>
+        {others.length === 0 ? <p className="inv-hint">{live ? "Drafts and past campaigns appear here." : "No campaigns yet."}</p> : <div className="acc-grid">
+          {others.map((campaign) => <div key={campaign.id} className={`acc-card loy-card${campaign.status === "ended" ? " is-inactive" : ""}`} role="button" tabIndex={0} onClick={() => setOpenId(campaign.id)} onKeyDown={(event) => { if (event.key === "Enter") setOpenId(campaign.id); }}>
+            <span className="acc-card-top">
+              <span className="loy-badge"><IconStar size={20} /></span>
+              <span className="acc-card-name"><strong>{campaign.name}</strong><em>{campaignDateText(campaign)}</em></span>
+              <LoyaltyStatusChip status={campaign.status} />
+            </span>
+            <span className="loy-card-rule">{campaignRuleText(campaign)}</span>
+            <span className="acc-card-stats">
+              <span><em>Members</em><strong>{campaign.stats.members}</strong></span>
+              <span><em>Stars earned</em><strong>{campaign.stats.earned.toLocaleString("en-PH")}</strong></span>
+              <span><em>Rewards</em><strong>{campaign.rewards.length}</strong></span>
+            </span>
+            {campaign.status === "draft" && <span className="flex gap-2" onClick={(event) => event.stopPropagation()}>
+              <button type="button" className="inv-mini" onClick={() => setEditing(campaign)}>Edit</button>
+              <button type="button" className="inv-mini" onClick={() => void deleteDraft(campaign)}>Delete draft</button>
+            </span>}
+          </div>)}
+        </div>}
+      </>}
+    </div>
+    {open && <CampaignDialog key={open.id} campaign={open} onClose={() => setOpenId(null)} onEdit={() => { setOpenId(null); setEditing(open); }} onChanged={changed} />}
+    {editing && <CampaignFormDialog campaign={editing === "new" ? null : editing} products={products} categories={categories} onClose={() => setEditing(null)} onSaved={changed} />}
   </div>;
 }
 
@@ -7551,7 +8046,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", loyalty: "Loyalty Campaigns", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -7573,6 +8068,7 @@ export default function App() {
         {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
         {page === "finance" && <Finance />}
         {page === "customers" && <Customers />}
+        {page === "loyalty" && <Loyalty products={products} categories={categories} />}
         {page === "accounts" && <Accounts />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}

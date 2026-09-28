@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
+import { runningCampaign } from "@/lib/loyalty";
 import { getSession } from "@/lib/sessions";
 
 // The customer directory (see customer-accounts-migration.sql): customers who made an account on
@@ -87,8 +88,17 @@ export async function GET() {
       WHERE c.deleted_at IS NULL
       ORDER BY LOWER(c.full_name), c.customer_id
     `);
+    // Stars in the running loyalty campaign (null when none is running or loyalty is not set up).
+    const campaign = await runningCampaign().catch(() => null);
+    const balances = new Map<number, number>();
+    if (campaign) {
+      const stars = await pool.query("SELECT customer_id, SUM(stars)::int AS balance FROM loyalty_star_entries WHERE campaign_id = $1 GROUP BY customer_id", [campaign.id]);
+      stars.rows.forEach((row) => balances.set(Number(row.customer_id), Number(row.balance)));
+    }
     return NextResponse.json({
+      campaign,
       data: result.rows.map((row) => ({
+        stars: campaign ? balances.get(Number(row.customer_id)) ?? 0 : null,
         id: Number(row.customer_id),
         username: (row.username as string | null) ?? null,
         fullName: String(row.full_name),
@@ -153,7 +163,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
-  let body: { id?: unknown; action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; isActive?: unknown };
+  let body: { id?: unknown; action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; isActive?: unknown; stars?: unknown; reason?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -203,6 +213,20 @@ export async function PATCH(request: Request) {
       } finally {
         client.release();
       }
+    }
+
+    // Stars added or removed by the admin in the running campaign, always with a reason (for
+    // example stars from the old paper cards). Only the admin can do this.
+    if (body.action === "adjust_stars") {
+      const stars = Number(body.stars);
+      const reason = String(body.reason ?? "").trim().replace(/\s+/g, " ").slice(0, 200);
+      if (!Number.isInteger(stars) || stars === 0 || Math.abs(stars) > 1000) return NextResponse.json({ error: "Enter a whole number of stars to add or remove (up to 1000)." }, { status: 400 });
+      if (!reason) return NextResponse.json({ error: "Write the reason, for example: stars from the paper card." }, { status: 400 });
+      const campaign = await runningCampaign();
+      if (!campaign) return NextResponse.json({ error: "No loyalty campaign is running. Start one in Loyalty first." }, { status: 409 });
+      await pool.query("INSERT INTO loyalty_star_entries (customer_id, campaign_id, kind, stars, reason, admin_id) VALUES ($1, $2, 'adjusted', $3, $4, $5)", [id, campaign.id, stars, reason, auth.session.adminId]);
+      const balance = await pool.query("SELECT COALESCE(SUM(stars), 0)::int AS balance FROM loyalty_star_entries WHERE customer_id = $1 AND campaign_id = $2", [id, campaign.id]);
+      return NextResponse.json({ data: { stars: Number(balance.rows[0].balance) } });
     }
 
     if (body.action === "sign_out_everywhere") {

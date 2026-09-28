@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
+import { reverseOrderStarsSafely } from "@/lib/loyalty";
 import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
 
 // Same redirection checkout uses: a bound item's quantity is moved onto its source item,
@@ -194,6 +195,8 @@ export async function POST(request: Request) {
       WHERE order_id = $1
       RETURNING order_id, status, total_amount, return_method, return_gcash_name, return_gcash_number, return_reference
     `, [orderId, action, session.adminId, shiftId, returnMethod, returnMethod === "cash" ? null : gcashName, returnMethod === "cash" ? null : gcashNumber, reference || null]);
+    // Stars the order earned are taken back.
+    await reverseOrderStarsSafely(client, orderId, session.adminId);
 
     for (const [inventoryId, detail] of restorationDetails) {
       await client.query(`

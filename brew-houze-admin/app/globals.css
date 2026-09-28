@@ -1280,3 +1280,54 @@ strong.is-low { color: #B45309 !important; }
 .acc-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
 .acc-filters .inv-range { flex-wrap: wrap; }
 .acc-block-head .inv-link { flex-shrink: 0; }
+
+/* Loyalty campaigns */
+.loy-status { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px; border-radius: 999px; background: #F3EDE5; color: #6B4C3B; font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+.loy-status i { width: 7px; height: 7px; border-radius: 999px; background: #B9A398; }
+.loy-status.is-running { background: #DCFCE7; color: #15803D; }
+.loy-status.is-running i { background: #22C55E; }
+.loy-status.is-scheduled { background: #E0F2FE; color: #0369A1; }
+.loy-status.is-scheduled i { background: #0EA5E9; }
+.loy-status.is-draft { background: #FEF3C7; color: #92400E; }
+.loy-status.is-draft i { background: #F59E0B; }
+.loy-badge { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 14px; background: #FEF3C7; color: #B45309; }
+.loy-badge.is-large { width: 56px; height: 56px; border-radius: 16px; background: #FBBF24; color: #3D2B1F; }
+.loy-hero { display: flex; flex-direction: column; gap: 14px; padding: 20px; border-radius: 20px; background: linear-gradient(145deg, #3D2B1F, #5B3A24); color: #FDF9F5; box-shadow: 0 10px 30px rgba(61,43,31,0.18); }
+.loy-hero-top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.loy-hero-top h2 { margin: 6px 0 2px; font-family: 'Hanken Grotesk', sans-serif; font-size: 24px; font-weight: 800; }
+.loy-hero-top p { margin: 0; color: #E8D6C6; font-size: 13px; }
+.loy-hero-top .inv-secondary { background: rgba(253,249,245,0.1); color: #FDF9F5; border-color: rgba(253,249,245,0.25); }
+.loy-hero-rule { display: flex; align-items: center; gap: 7px; margin: 0; padding: 10px 12px; border-radius: 12px; background: rgba(251,191,36,0.14); color: #FDE68A; font-size: 13.5px; font-weight: 700; }
+.loy-hero-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.loy-hero-stats > div { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 12px; background: rgba(253,249,245,0.08); }
+.loy-hero-stats span { color: #CDB6A4; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+.loy-hero-stats strong { font-family: 'Hanken Grotesk', sans-serif; font-size: 20px; font-weight: 800; }
+.loy-hero-rewards { display: flex; flex-wrap: wrap; gap: 6px; }
+.loy-hero-rewards span { display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px; border-radius: 999px; background: rgba(253,249,245,0.1); border: 1px solid rgba(253,249,245,0.18); font-size: 12.5px; }
+.loy-hero-rewards strong { color: #FBBF24; }
+.loy-section-title { margin: 6px 0 0; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; font-weight: 800; }
+.loy-card { cursor: pointer; }
+.loy-card-rule { color: #6B4C3B; font-size: 12.5px; line-height: 1.45; text-align: left; }
+.loy-cost { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; background: #FEF3C7; color: #92400E; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.loy-plus { color: #15803D; }
+.loy-facts { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.loy-facts li { display: grid; grid-template-columns: 150px 1fr; gap: 10px; font-size: 13px; }
+.loy-facts strong { color: #6B4C3B; }
+.loy-facts span { color: #3D2B1F; line-height: 1.45; }
+.loy-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.loy-cats button { padding: 7px 12px; border-radius: 999px; border: 1px solid #E8DDD5; background: #FFFFFF; color: #6B4C3B; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.loy-cats button[aria-pressed="true"] { border-color: #D97706; background: #FFF7ED; color: #B45309; }
+.loy-preview { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; padding: 10px 12px; border-radius: 11px; background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; font-size: 13px; font-weight: 700; }
+.loy-reward-row { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 12px; border: 1px solid #F0E8E1; background: #FFFFFF; }
+.loy-reward-top { display: flex; gap: 8px; align-items: center; }
+.loy-reward-covers { display: grid; grid-template-columns: 1fr 1fr 150px; gap: 8px; }
+.loy-stars-input { display: flex; align-items: center; gap: 6px; flex-shrink: 0; height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #FDE68A; background: #FFFBEB; color: #B45309; }
+.loy-stars-input input { width: 72px; border: 0; outline: none; background: transparent; color: #3D2B1F; font-size: 14px; font-weight: 700; }
+.loy-price-input { display: flex; align-items: center; gap: 6px; height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #E8DDD5; background: #FDF9F5; color: #9C8278; font-size: 12px; }
+.loy-price-input input { width: 100%; min-width: 0; border: 0; outline: none; background: transparent; color: #3D2B1F; font-size: 13.5px; }
+.loy-adjust { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .loy-hero-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .loy-reward-covers { grid-template-columns: 1fr; }
+  .loy-facts li { grid-template-columns: 1fr; gap: 2px; }
+}

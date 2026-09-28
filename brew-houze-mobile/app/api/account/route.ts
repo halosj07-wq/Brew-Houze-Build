@@ -5,6 +5,7 @@ import {
   getCustomerSession, isUniqueViolation, passwordProblem,
 } from "@/lib/customers";
 import { cookies } from "next/headers";
+import { customerLoyalty } from "@/lib/loyalty";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -28,6 +29,22 @@ export async function GET() {
       LIMIT 20
     `, [session.customerId]);
     const totals = await pool.query("SELECT COUNT(*)::int AS orders, TO_CHAR(MIN(created_at), 'YYYY-MM-DD') AS first_order FROM sales_orders WHERE customer_id = $1 AND status = 'completed'", [session.customerId]);
+    // The running loyalty campaign, their stars and the rewards (null when none is running).
+    let loyalty: (Awaited<ReturnType<typeof customerLoyalty>> & { history: { kind: string; stars: number; createdAt: string; orderQueue: number | null }[] }) | null = null;
+    try {
+      const summary = await customerLoyalty(session.customerId);
+      if (summary) {
+        const history = await pool.query(`
+          SELECT e.kind, e.stars, so.queue_number, TO_CHAR(e.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
+          FROM loyalty_star_entries e LEFT JOIN sales_orders so ON so.order_id = e.order_id
+          WHERE e.customer_id = $1 AND e.campaign_id = $2
+          ORDER BY e.created_at DESC, e.entry_id DESC LIMIT 10
+        `, [session.customerId, summary.campaign.id]);
+        loyalty = { ...summary, history: history.rows.map((row) => ({ kind: String(row.kind), stars: Number(row.stars), createdAt: String(row.created_at), orderQueue: row.queue_number === null ? null : Number(row.queue_number) })) };
+      }
+    } catch (loyaltyError) {
+      console.error("GET /api/account: could not read loyalty stars:", loyaltyError);
+    }
     return NextResponse.json({
       data: {
         username: session.username,
@@ -35,6 +52,7 @@ export async function GET() {
         email: session.email,
         birthday: session.birthday,
         orderCount: Number(totals.rows[0]?.orders ?? 0),
+        loyalty,
         orders: orders.rows.map((row) => ({
           id: Number(row.order_id),
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),
