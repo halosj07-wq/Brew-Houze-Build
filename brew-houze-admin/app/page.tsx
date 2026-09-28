@@ -4974,12 +4974,20 @@ type FinanceOverviewData = {
   addons: { name: string; quantity: number; revenue: number }[];
   hours: { hour: number; orders: number; revenue: number }[];
   staff: { name: string; role: string; orders: number; revenue: number; reversedOrders: number; reversedAmount: number }[];
+  // Loyalty in the range (null when it could not be read).
+  loyalty?: FinanceLoyalty | null;
 };
-type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] };
+type FinanceLoyalty = {
+  memberOrders: number; memberSales: number; members: number; starsEarned: number; starsSpent: number; starsAdjusted: number;
+  rewardsClaimed: number; rewardValue: number; rewardCost: number | null; rewards: { name: string; claimed: number; value: number; cost: number | null }[];
+};
+// rewardName: a loyalty reward line (sold at ₱0); rewardValue: its normal price.
+type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; rewardValue?: number | null; additions: { name: string; quantity: number; unitPrice: number }[] };
 type FinanceOrder = {
   orderId: number; queueNumber: number | null; status: string; reversed: boolean; total: number; paymentMethod: string; orderSource: string;
   received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
   businessDate: string; createdAt: string; reversedAt: string | null; punchedBy: string; reversedBy: string | null; cost: number | null; items: FinanceOrderItem[];
+  customerName?: string | null;
   paymentProvider?: string | null;
   // Split ticket: the part paid in cash (the rest was GCash).
   cashPortion?: number | null;
@@ -5204,6 +5212,18 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       </DashCard>
     </div>
 
+    {data.loyalty && (data.loyalty.memberOrders > 0 || data.loyalty.rewardsClaimed > 0 || data.loyalty.starsEarned !== 0) && <DashCard title="Loyalty" sub="Orders linked to customers, stars, and the rewards given away. Reward items are sold at ₱0, and their cost is already in the cost of goods above.">
+      <div className="acc-stats">
+        <div><span>Member sales</span><strong>{peso(data.loyalty.memberSales)}</strong><em className="fin-loy-sub">{data.loyalty.memberOrders} order{data.loyalty.memberOrders === 1 ? "" : "s"} · {data.current.netSales > 0 ? `${Math.round((data.loyalty.memberSales / data.current.netSales) * 100)}% of net sales` : "—"}</em></div>
+        <div><span>Members who ordered</span><strong>{data.loyalty.members}</strong></div>
+        <div><span>Stars earned / spent</span><strong>★ {data.loyalty.starsEarned} / {data.loyalty.starsSpent}</strong></div>
+        <div><span>Rewards given</span><strong>{data.loyalty.rewardsClaimed}</strong><em className="fin-loy-sub">worth {peso(data.loyalty.rewardValue)} · cost {data.loyalty.rewardCost === null ? "not recorded" : peso(data.loyalty.rewardCost)}</em></div>
+      </div>
+      {data.loyalty.rewards.length > 0 && <ul className="fin-simple-list" style={{ marginTop: 12 }}>
+        {data.loyalty.rewards.map((reward) => <li key={reward.name}><span><strong>{reward.name}</strong><em>{reward.claimed} given · cost {reward.cost === null ? "not recorded" : peso(reward.cost)}</em></span><strong>{peso(reward.value)}</strong></li>)}
+      </ul>}
+    </DashCard>}
+
     <DashCard title="Sales by staff" sub="Orders each person punched in, and voids or refunds on those orders. Tap a row to see the orders.">
       {data.staff.length === 0 ? <p className="dash-empty">No orders in this period.</p> : <div className="fin-table-wrap">
         <table className="fin-table is-clickable">
@@ -5246,6 +5266,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {fact("Business date", formatRange(order.businessDate, order.businessDate))}
           {fact("Shift", order.shiftId ? `#${order.shiftId}` : "—")}
           {fact("Punched by", order.punchedBy)}
+          {order.customerName && fact("Customer", order.customerName)}
           {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.received !== null && fact("Cash received", peso(order.received))}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.change !== null && fact("Change", peso(order.change))}
@@ -5256,7 +5277,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
             return <li key={index}>
               <div>
                 <strong>{item.productName}{item.size && item.size !== "Regular" ? ` · ${item.size}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong>
-                <span>{item.quantity} × {peso(item.unitPrice)} · {item.category}</span>
+                <span>{item.rewardName ? `🎁 Reward: ${item.rewardName} · normally ${peso(item.rewardValue ?? 0)}` : `${item.quantity} × ${peso(item.unitPrice)}`} · {item.category}</span>
                 {item.additions.map((addition) => <span key={addition.name} className="fin-item-addon">+ {addition.name}{addition.quantity !== 1 ? ` ×${formatAmount(addition.quantity)}` : ""} · {peso(addition.quantity * addition.unitPrice)}</span>)}
               </div>
               <strong>{peso(item.quantity * item.unitPrice + addonTotal)}</strong>
@@ -5285,6 +5306,7 @@ function financeOrderColumns(): ExcelColumn<FinanceOrder>[] {
     { header: "Time", value: (order) => excelDateTime(order.createdAt) },
     { header: "Shift", value: (order) => order.shiftId ? `#${order.shiftId}` : "" },
     { header: "Punched by", value: (order) => order.punchedBy },
+    { header: "Customer", value: (order) => order.customerName ?? "" },
     { header: "Payment", value: (order) => excelPayment(order) },
     { header: "Status", value: (order) => excelStatus(orderStatusOf(order)) },
     { header: "Items", value: (order) => describeItems(order.items) },
@@ -5316,6 +5338,8 @@ function financeItemColumns(): ExcelColumn<FinanceOrderLine>[] {
     { header: "Temperature", value: (line) => line.item.temperature === "hot" ? "Hot" : line.item.temperature === "cold" ? "Cold" : "" },
     { header: "Quantity", value: (line) => line.item.quantity, kind: "count" },
     { header: "Unit price", value: (line) => line.item.unitPrice, kind: "money" },
+    { header: "Reward", value: (line) => line.item.rewardName ?? "" },
+    { header: "Normal price (rewards)", value: (line) => line.item.rewardName ? line.item.rewardValue ?? null : null, kind: "money" },
     { header: "Add-ons", value: (line) => line.item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", ") },
     { header: "Add-ons total", value: addonsTotal, kind: "money" },
     { header: "Line total", value: (line) => line.item.quantity * line.item.unitPrice + addonsTotal(line), kind: "money" },
@@ -5510,10 +5534,10 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
 }
 
 // ─── Export: one workbook for the chosen range ────────────────────────────────
-type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; shifts: boolean; orders: boolean };
+type FinanceExportSections = { summary: boolean; daily: boolean; products: boolean; categories: boolean; addons: boolean; staff: boolean; loyalty: boolean; shifts: boolean; orders: boolean };
 
 function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onClose: () => void }) {
-  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, shifts: true, orders: true });
+  const [sections, setSections] = useState<FinanceExportSections>({ summary: true, daily: true, products: true, categories: true, addons: true, staff: true, loyalty: true, shifts: true, orders: true });
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const { start, end } = data.range;
@@ -5524,6 +5548,7 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
     categories: ["Categories", "Sales per category"],
     addons: ["Add-ons", "Quantity and sales per add-on"],
     staff: ["Staff", "Orders and sales per person"],
+    loyalty: ["Loyalty", "Member sales, stars and rewards given"],
     shifts: ["Shifts", "Each shift with its cash drawer count"],
     orders: ["Orders and items", "Every order in the range, with its items"],
   };
@@ -5595,6 +5620,25 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
         { header: "Voided or refunded orders", value: (person) => person.reversedOrders, kind: "count" },
         { header: "Voided or refunded amount", value: (person) => person.reversedAmount, kind: "money" },
       ]) : null]);
+      if (sections.loyalty && data.loyalty) {
+        const loyalty = data.loyalty;
+        sheets.push(["Loyalty", excelInfo([
+          ["Brew Houze loyalty", formatRange(start, end)],
+          ["Member orders", loyalty.memberOrders],
+          ["Member sales", loyalty.memberSales],
+          ["Share of net sales (%)", data.current.netSales > 0 ? Math.round((loyalty.memberSales / data.current.netSales) * 1000) / 10 : 0],
+          ["Members who ordered", loyalty.members],
+          ["Stars earned (after voids and refunds)", loyalty.starsEarned],
+          ["Stars spent on rewards", loyalty.starsSpent],
+          ["Stars adjusted by admin (net)", loyalty.starsAdjusted],
+          ["Rewards given", loyalty.rewardsClaimed],
+          ["Normal price of rewards given", loyalty.rewardValue],
+          ["Cost of rewards given", loyalty.rewardCost],
+          [],
+          ["Reward", "Given", "Normal price", "Cost"],
+          ...loyalty.rewards.map((reward): ExcelInfoRow => [reward.name, reward.claimed, reward.value, reward.cost]),
+        ], ["Member orders", "Members who ordered", "Stars earned (after voids and refunds)", "Stars spent on rewards", "Stars adjusted by admin (net)", "Rewards given", "Share of net sales (%)"])]);
+      }
       if (sections.shifts) {
         const response = await fetch(`/api/shifts?start=${start}&end=${end}`, { cache: "no-store" });
         const payload = await response.json();
@@ -6621,7 +6665,8 @@ type LoyaltyCampaign = {
 };
 type CampaignMember = { customerId: number; fullName: string; username: string | null; erased: boolean; balance: number; earned: number; orders: number; rewards: number; lastActivity: string };
 type StarEntry = { id: number; kind: string; stars: number; orderId: number | null; queueNumber: number | null; reason: string | null; customerName?: string; adminName: string | null; rewardName: string | null; createdAt: string; campaignId?: number; campaignName?: string };
-type CampaignDetail = { members: CampaignMember[]; entries: StarEntry[] };
+type CampaignResults = { memberOrders: number; memberSales: number; buyers: number; rewards: { rewardId: number; name: string; claimed: number; value: number; cost: number | null }[]; rewardValue: number; rewardCost: number | null };
+type CampaignDetail = { members: CampaignMember[]; entries: StarEntry[]; results?: CampaignResults };
 type CampaignRules = Pick<LoyaltyCampaign, "earnMode" | "starsPerUnit" | "amountStep" | "categories" | "maxPerOrder" | "maxPerDay">;
 
 const loyaltyStatusLabels: Record<LoyaltyStatus, string> = { draft: "Draft", scheduled: "Scheduled", running: "Running", ended: "Ended" };
@@ -6680,6 +6725,19 @@ function exportCampaignReport(campaign: LoyaltyCampaign, detail: CampaignDetail)
       ["Rewards claimed", campaign.stats.rewardsClaimed],
       ["Stars not yet spent", campaign.stats.outstanding],
     ], ["Members", "Orders that earned stars", "Stars earned", "Stars taken back (voids and refunds)", "Stars adjusted by admin (net)", "Stars carried in", "Stars spent on rewards", "Rewards claimed", "Stars not yet spent"])],
+    ["Results", detail.results ? excelInfo([
+      [`Results of ${campaign.name}`, campaignDateText(campaign)],
+      ["Orders by members", detail.results.memberOrders],
+      ["Sales from members", detail.results.memberSales],
+      ["Members who ordered", detail.results.buyers],
+      ["Rewards given", detail.results.rewards.reduce((sum, reward) => sum + reward.claimed, 0)],
+      ["Normal price of rewards given", detail.results.rewardValue],
+      ["Cost of rewards given", detail.results.rewardCost],
+      ["Cost of rewards, % of member sales", detail.results.memberSales > 0 && detail.results.rewardCost !== null ? Math.round((detail.results.rewardCost / detail.results.memberSales) * 1000) / 10 : null],
+      [],
+      ["Reward", "Given", "Normal price", "Cost"],
+      ...detail.results.rewards.map((reward): ExcelInfoRow => [reward.name, reward.claimed, reward.value, reward.cost]),
+    ], ["Orders by members", "Members who ordered", "Rewards given", "Cost of rewards, % of member sales"]) : null],
     ["Rewards", campaign.rewards.length ? excelTable(campaign.rewards, [
       { header: "Reward", value: (reward) => reward.name },
       { header: "Stars", value: (reward) => reward.starsCost, kind: "count" },
@@ -6920,6 +6978,19 @@ function CampaignDialog({ campaign, onClose, onEdit, onChanged }: { campaign: Lo
             <div><span>Taken back</span><strong className={stats.reversed ? "dash-down" : ""}>{stats.reversed.toLocaleString("en-PH")}</strong></div>
             <div><span>Unspent now</span><strong>{stats.outstanding.toLocaleString("en-PH")}</strong></div>
           </div>
+          {detail?.results && <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Results</h3><p>What members bought while the campaign ran, and what the free rewards cost the café.</p></div></header>
+            <div className="acc-stats">
+              <div><span>Sales from members</span><strong>{peso(detail.results.memberSales)}</strong></div>
+              <div><span>Member orders</span><strong>{detail.results.memberOrders}</strong></div>
+              <div><span>Rewards given</span><strong>{detail.results.rewards.reduce((sum, reward) => sum + reward.claimed, 0)}</strong></div>
+              <div><span>Cost of rewards</span><strong>{detail.results.rewardCost === null ? "—" : peso(detail.results.rewardCost)}</strong></div>
+            </div>
+            {detail.results.rewards.length > 0 && <ul className="acc-list" style={{ marginTop: 10 }}>
+              {detail.results.rewards.map((reward) => <li key={reward.rewardId}><span><strong>{reward.name}</strong><em>{reward.claimed} given · normally {peso(reward.value)}</em></span><span className="acc-list-end"><strong>{reward.cost === null ? "cost not recorded" : `cost ${peso(reward.cost)}`}</strong></span></li>)}
+            </ul>}
+            {detail.results.memberSales > 0 && detail.results.rewardCost !== null && <p className="loy-preview" style={{ marginTop: 10 }}><IconStar size={14} /> Rewards cost {Math.round((detail.results.rewardCost / detail.results.memberSales) * 1000) / 10}% of what members spent.</p>}
+          </section>}
           <section className="acc-block">
             <header className="acc-block-head"><div><h3>Rules</h3></div></header>
             <ul className="loy-facts">
@@ -7003,6 +7074,38 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
     }
   }
 
+  function exportAllCampaigns() {
+    try {
+      saveWorkbook([
+        ["Summary", excelInfo([
+          ["Brew Houze loyalty campaigns"],
+          ["Generated", excelNow()],
+          ["Campaigns", campaigns.length],
+          ["Stars earned, all campaigns", campaigns.reduce((sum, campaign) => sum + campaign.stats.earned, 0)],
+          ["Rewards claimed, all campaigns", campaigns.reduce((sum, campaign) => sum + campaign.stats.rewardsClaimed, 0)],
+        ], ["Campaigns", "Stars earned, all campaigns", "Rewards claimed, all campaigns"])],
+        ["Campaigns", excelTable(campaigns, [
+          { header: "Campaign", value: (campaign) => campaign.name },
+          { header: "Status", value: (campaign) => loyaltyStatusLabels[campaign.status] },
+          { header: "Dates", value: (campaign) => campaignDateText(campaign) },
+          { header: "How stars are earned", value: (campaign) => campaignRuleText(campaign) },
+          { header: "When it ends", value: (campaign) => campaign.carryOver ? "Carry over" : "Expire" },
+          { header: "Members", value: (campaign) => campaign.stats.members, kind: "count" },
+          { header: "Orders with stars", value: (campaign) => campaign.stats.orders, kind: "count" },
+          { header: "Stars earned", value: (campaign) => campaign.stats.earned, kind: "count" },
+          { header: "Stars taken back", value: (campaign) => campaign.stats.reversed, kind: "count" },
+          { header: "Stars adjusted (net)", value: (campaign) => campaign.stats.adjusted, kind: "count" },
+          { header: "Stars spent", value: (campaign) => campaign.stats.redeemed, kind: "count" },
+          { header: "Rewards claimed", value: (campaign) => campaign.stats.rewardsClaimed, kind: "count" },
+          { header: "Stars unspent", value: (campaign) => campaign.stats.outstanding, kind: "count" },
+          { header: "Rewards", value: (campaign) => campaign.rewards.map((reward) => `${reward.name} (${reward.starsCost})`).join(", ") },
+        ])],
+      ], `brew-houze-loyalty-campaigns-${getFinanceDateStamp()}.xlsx`);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Could not export the campaigns.");
+    }
+  }
+
   const live = campaigns.find((campaign) => campaign.status === "running") ?? campaigns.find((campaign) => campaign.status === "scheduled") ?? null;
   const others = campaigns.filter((campaign) => campaign !== live);
   const open = campaigns.find((campaign) => campaign.id === openId) ?? null;
@@ -7044,7 +7147,10 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
 
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <h3 className="loy-section-title">All campaigns</h3>
-          {live && <button type="button" className="inv-secondary" onClick={() => setEditing("new")}><IconPlus size={14} />New campaign</button>}
+          <div className="flex gap-2 flex-wrap">
+            {campaigns.length > 0 && <button type="button" className="inv-secondary" onClick={exportAllCampaigns}><IconDownload size={14} />Export all</button>}
+            {live && <button type="button" className="inv-secondary" onClick={() => setEditing("new")}><IconPlus size={14} />New campaign</button>}
+          </div>
         </div>
         {others.length === 0 ? <p className="inv-hint">{live ? "Drafts and past campaigns appear here." : "No campaigns yet."}</p> : <div className="acc-grid">
           {others.map((campaign) => <div key={campaign.id} className={`acc-card loy-card${campaign.status === "ended" ? " is-inactive" : ""}`} role="button" tabIndex={0} onClick={() => setOpenId(campaign.id)} onKeyDown={(event) => { if (event.key === "Enter") setOpenId(campaign.id); }}>

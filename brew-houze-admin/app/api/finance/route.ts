@@ -101,6 +101,53 @@ async function totals(start: string, end: string) {
   };
 }
 
+// Loyalty in the range: sales from customers linked to their orders ("members"), stars given and
+// spent, and the rewards given away. A reward is a line sold at ₱0: its normal price
+// (reward_value) is what the customer got, and its cost is already in the cost of goods, so
+// gross profit shows the true effect of the program.
+async function loyaltyFigures(start: string, end: string) {
+  const [orders, rewards, stars] = await Promise.all([
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT COUNT(*) FILTER (WHERE customer_id IS NOT NULL)::int AS member_orders,
+        COALESCE(SUM(total_amount) FILTER (WHERE customer_id IS NOT NULL), 0) AS member_sales,
+        COUNT(DISTINCT customer_id)::int AS members
+      FROM o WHERE NOT o.reversed AND o.bd BETWEEN $1::date AND $2::date
+    `, [start, end]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT COALESCE(lr.name, 'Removed reward') AS name, SUM(soi.quantity)::int AS claimed,
+        COALESCE(SUM(soi.reward_value * soi.quantity), 0) AS value,
+        SUM(soi.unit_cost * soi.quantity) AS cost, bool_and(soi.unit_cost IS NOT NULL) AS costed
+      FROM o
+      JOIN sales_order_items soi ON soi.order_id = o.order_id AND soi.reward_id IS NOT NULL
+      LEFT JOIN loyalty_rewards lr ON lr.reward_id = soi.reward_id
+      WHERE NOT o.reversed AND o.bd BETWEEN $1::date AND $2::date
+      GROUP BY 1 ORDER BY claimed DESC, name
+    `, [start, end]),
+    pool.query(`
+      SELECT COALESCE(SUM(stars) FILTER (WHERE kind IN ('earned', 'reversed')), 0)::int AS earned,
+        COALESCE(-SUM(stars) FILTER (WHERE kind IN ('redeemed', 'restored')), 0)::int AS spent,
+        COALESCE(SUM(stars) FILTER (WHERE kind = 'adjusted'), 0)::int AS adjusted
+      FROM loyalty_star_entries
+      WHERE (created_at AT TIME ZONE '${TZ}')::date BETWEEN $1::date AND $2::date
+    `, [start, end]),
+  ]);
+  const rewardRows = rewards.rows.map((row) => ({ name: String(row.name), claimed: n(row.claimed), value: n(row.value), cost: row.costed ? n(row.cost) : null }));
+  return {
+    memberOrders: n(orders.rows[0].member_orders),
+    memberSales: n(orders.rows[0].member_sales),
+    members: n(orders.rows[0].members),
+    starsEarned: n(stars.rows[0].earned),
+    starsSpent: n(stars.rows[0].spent),
+    starsAdjusted: n(stars.rows[0].adjusted),
+    rewardsClaimed: rewardRows.reduce((sum, row) => sum + row.claimed, 0),
+    rewardValue: rewardRows.reduce((sum, row) => sum + row.value, 0),
+    rewardCost: rewardRows.every((row) => row.cost !== null) ? rewardRows.reduce((sum, row) => sum + (row.cost ?? 0), 0) : null,
+    rewards: rewardRows,
+  };
+}
+
 export async function GET(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
@@ -123,11 +170,13 @@ export async function GET(request: Request) {
           TO_CHAR(o.reversed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
           COALESCE(cashier.full_name, CASE WHEN o.order_source = 'online' THEN 'Mobile order' ELSE 'Unknown' END) AS punched_by,
           reverser.full_name AS reversed_by,
+          cu.full_name AS customer_name,
           COALESCE(lines.items, '[]'::json) AS items,
           lines.cost AS cost
         FROM o
         LEFT JOIN admin_users cashier ON cashier.admin_id = o.cashier_admin_id
         LEFT JOIN admin_users reverser ON reverser.admin_id = o.reversed_by_admin_id
+        LEFT JOIN customers cu ON cu.customer_id = o.customer_id AND cu.deleted_at IS NULL
         LEFT JOIN LATERAL (
           SELECT
             json_agg(json_build_object(
@@ -137,6 +186,8 @@ export async function GET(request: Request) {
               'temperature', pv.temperature,
               'quantity', soi.quantity,
               'unitPrice', soi.unit_price,
+              'rewardName', lr.name,
+              'rewardValue', soi.reward_value,
               'additions', COALESCE((
                 SELECT json_agg(json_build_object('name', a.addition_name, 'quantity', soia.quantity, 'unitPrice', soia.unit_price) ORDER BY a.addition_name)
                 FROM sales_order_item_additions soia JOIN additions a ON a.addition_id = soia.addition_id
@@ -151,6 +202,7 @@ export async function GET(request: Request) {
           FROM sales_order_items soi
           JOIN products p ON p.product_id = soi.product_id
           LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
+          LEFT JOIN loyalty_rewards lr ON lr.reward_id = soi.reward_id
           WHERE soi.order_id = o.order_id
         ) lines ON TRUE
         WHERE o.bd BETWEEN $1::date AND $2::date
@@ -177,6 +229,7 @@ export async function GET(request: Request) {
           reversedAt: row.reversed_at,
           punchedBy: row.punched_by,
           reversedBy: row.reversed_by ?? null,
+          customerName: row.customer_name ?? null,
           paymentProvider: row.payment_provider ?? null,
           cashPortion: row.cash_portion === null || row.cash_portion === undefined ? null : n(row.cash_portion),
           returnMethod: row.return_method ?? null,
@@ -184,10 +237,11 @@ export async function GET(request: Request) {
           returnGcashNumber: row.return_gcash_number ?? null,
           returnReference: row.return_reference ?? null,
           cost: row.cost === null ? null : n(row.cost),
-          items: (row.items as { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; additions: { name: string; quantity: number; unitPrice: number }[] }[]).map((item) => ({
+          items: (row.items as { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName: string | null; rewardValue: number | null; additions: { name: string; quantity: number; unitPrice: number }[] }[]).map((item) => ({
             ...item,
             quantity: n(item.quantity),
             unitPrice: n(item.unitPrice),
+            rewardValue: item.rewardValue === null || item.rewardValue === undefined ? null : n(item.rewardValue),
             additions: item.additions.map((addition) => ({ ...addition, quantity: n(addition.quantity), unitPrice: n(addition.unitPrice) })),
           })),
         })),
@@ -252,8 +306,14 @@ export async function GET(request: Request) {
       `, [start, end]),
     ]);
 
+    const loyalty = await loyaltyFigures(start, end).catch((loyaltyError) => {
+      console.error("GET /api/finance: loyalty figures failed:", loyaltyError);
+      return null;
+    });
+
     return NextResponse.json({
       data: {
+        loyalty,
         range: { start, end, days },
         previousRange: { start: previousStart, end: previousEnd },
         current,

@@ -13,7 +13,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   const id = Number(rawId);
   if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid campaign is required." }, { status: 400 });
   try {
-    const [members, entries] = await Promise.all([
+    const [members, entries, memberSales, rewardResults] = await Promise.all([
       pool.query(`
         SELECT c.customer_id, c.full_name, c.username, c.deleted_at IS NOT NULL AS erased,
           SUM(e.stars)::int AS balance,
@@ -38,9 +38,39 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
         ORDER BY e.created_at DESC, e.entry_id DESC
         LIMIT 2000
       `, [id]),
+      // Results: completed orders of this campaign's members while it ran (start date to the
+      // end date, the day it was ended, or today).
+      pool.query(`
+        WITH c AS (
+          SELECT starts_on, LEAST(COALESCE(ends_on, 'infinity'::date), COALESCE((ended_at AT TIME ZONE '${TZ}')::date, 'infinity'::date), (CURRENT_TIMESTAMP AT TIME ZONE '${TZ}')::date) AS until
+          FROM loyalty_campaigns WHERE campaign_id = $1
+        )
+        SELECT COUNT(*)::int AS orders, COALESCE(SUM(so.total_amount), 0) AS sales, COUNT(DISTINCT so.customer_id)::int AS buyers
+        FROM sales_orders so CROSS JOIN c
+        WHERE so.status = 'completed' AND so.customer_id IN (SELECT DISTINCT customer_id FROM loyalty_star_entries WHERE campaign_id = $1)
+          AND (so.created_at AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}')::date BETWEEN c.starts_on AND c.until
+      `, [id]),
+      pool.query(`
+        SELECT lr.reward_id, lr.name, SUM(soi.quantity)::int AS claimed, COALESCE(SUM(soi.reward_value * soi.quantity), 0) AS value,
+          SUM(soi.unit_cost * soi.quantity) AS cost, bool_and(soi.unit_cost IS NOT NULL) AS costed
+        FROM sales_order_items soi
+        JOIN loyalty_rewards lr ON lr.reward_id = soi.reward_id AND lr.campaign_id = $1
+        JOIN sales_orders so ON so.order_id = soi.order_id AND so.status = 'completed'
+        GROUP BY lr.reward_id, lr.name
+        ORDER BY claimed DESC, lr.name
+      `, [id]),
     ]);
+    const rewards = rewardResults.rows.map((row) => ({ rewardId: Number(row.reward_id), name: String(row.name), claimed: Number(row.claimed), value: Number(row.value), cost: row.costed ? Number(row.cost) : null }));
     return NextResponse.json({
       data: {
+        results: {
+          memberOrders: Number(memberSales.rows[0]?.orders ?? 0),
+          memberSales: Number(memberSales.rows[0]?.sales ?? 0),
+          buyers: Number(memberSales.rows[0]?.buyers ?? 0),
+          rewards,
+          rewardValue: rewards.reduce((sum, reward) => sum + reward.value, 0),
+          rewardCost: rewards.every((reward) => reward.cost !== null) ? rewards.reduce((sum, reward) => sum + (reward.cost ?? 0), 0) : null,
+        },
         members: members.rows.map((row) => ({
           customerId: Number(row.customer_id), fullName: String(row.full_name), username: (row.username as string | null) ?? null, erased: Boolean(row.erased),
           balance: Number(row.balance), earned: Number(row.earned), orders: Number(row.orders), rewards: Number(row.rewards), lastActivity: String(row.last_activity),

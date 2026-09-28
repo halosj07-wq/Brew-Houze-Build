@@ -1331,3 +1331,5 @@ strong.is-low { color: #B45309 !important; }
   .loy-reward-covers { grid-template-columns: 1fr; }
   .loy-facts li { grid-template-columns: 1fr; gap: 2px; }
 }
+
+.fin-loy-sub { display: block; margin-top: 3px; color: #9C8278; font-size: 11px; font-style: normal; font-weight: 500; }
