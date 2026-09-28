@@ -212,7 +212,7 @@
     html[data-theme="aespa"] .btn.is-gcash { background: linear-gradient(100deg, #3B6FE0, var(--ae-glint)); color: #030406; }
     html[data-theme="aespa"] .guide-item svg { color: var(--ae-ice); }
     html[data-theme="aespa"] .tips b { color: #FFFFFF; }
-    html[data-theme="aespa"] footer { border-top-color: var(--line); }
+    html[data-theme="aespa"] footer { border-top-color: var(--line); padding-bottom: 76px; }
     html[data-theme="aespa"] #footer-year { background: var(--ae-chrome); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 800; }
     html[data-theme="aespa"] .modal { background: rgba(0, 0, 0, 0.75); }
     html[data-theme="aespa"] .sheet { border-radius: 8px; background: #0D0E11; border: 1px solid var(--line); box-shadow: 0 0 60px rgba(220, 230, 242, 0.12); }
@@ -300,6 +300,22 @@
     .ae-pc-nav button:hover { background: rgba(255, 255, 255, 0.14); }
     .ae-pc-nav span { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.2em; color: var(--ae-steel); }
     @media (prefers-reduced-motion: reduce) { .ae-pc, .ae-pc-modal { animation: none; } .ae-pc { transition: none; } }
+    /* The music: Whiplash on a loop while the theme is on. Browsers only allow sound after a tap,
+       so after a reload this button starts it; it also mutes (remembered on this device). */
+    .ae-sound { display: none; }
+    html[data-theme="aespa"] .ae-sound { position: fixed; right: 16px; bottom: 16px; z-index: 140; display: inline-flex; align-items: center; gap: 9px; height: 40px; padding: 0 14px 0 12px; border: 1px solid rgba(255, 255, 255, 0.28); border-radius: 999px; background: rgba(8, 8, 10, 0.72); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); color: #E5E9EF; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; cursor: pointer; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+    html[data-theme="aespa"] .ae-sound:hover { border-color: rgba(255, 255, 255, 0.7); }
+    .ae-sound-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+    .ae-sound-bars i { width: 3px; height: 4px; border-radius: 1px; background: var(--ae-chrome, #E5E9EF); background-size: 400% 100%; }
+    .ae-sound.is-on .ae-sound-bars i { animation: ae-eq 900ms ease-in-out infinite; }
+    .ae-sound.is-on .ae-sound-bars i:nth-child(2) { animation-delay: -300ms; animation-duration: 700ms; }
+    .ae-sound.is-on .ae-sound-bars i:nth-child(3) { animation-delay: -600ms; animation-duration: 1100ms; }
+    .ae-sound.is-on .ae-sound-bars i:nth-child(4) { animation-delay: -150ms; animation-duration: 800ms; }
+    .ae-sound.is-waiting { border-color: rgba(255, 255, 255, 0.6); animation: ae-sound-pulse 1.6s ease-in-out infinite; }
+    @keyframes ae-eq { 0%, 100% { height: 4px; } 50% { height: 14px; } }
+    @keyframes ae-sound-pulse { 50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.08), 0 8px 24px rgba(0, 0, 0, 0.45); } }
+    @media (prefers-reduced-motion: reduce) { .ae-sound.is-on .ae-sound-bars i, .ae-sound.is-waiting { animation: none; } .ae-sound.is-on .ae-sound-bars i { height: 10px; } }
+    @media print { .ae-sound { display: none !important; } }
     /* Entering the theme: "one look give em' whiplash", one word per screen, red and light grey,
        then the silver whip-crack. */
     .ae-intro { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #FD3939; color: #0A0A0A; font-family: 'Poppins', 'Hanken Grotesk', sans-serif; font-weight: 700; font-size: clamp(46px, 9vw, 140px); line-height: 1; letter-spacing: -0.01em; }
@@ -460,6 +476,7 @@
       <div class="ae-pc-nav"><button type="button" id="ae-pc-prev" aria-label="Previous member">‹</button><span id="ae-pc-count"></span><button type="button" id="ae-pc-next" aria-label="Next member">›</button></div>
     </div>
   </div>
+  <button type="button" class="ae-sound" id="ae-sound" aria-pressed="false"><span class="ae-sound-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="ae-sound-label">Sound off</span></button>
   <div class="toast" id="toast" role="status"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
@@ -684,9 +701,90 @@
       footerYear.setAttribute("aria-pressed", String(aespa));
       document.querySelector('meta[name="color-scheme"]').setAttribute("content", aespa ? "dark" : "light");
     }
-    // One word per screen, timed like the Whiplash sample. Resolves when the last word is done.
-    const INTRO = [["one", "red", 360], ["look", "light", 280], ["give em’", "red", 240], ["whiplash", "light", 340]];
-    function playIntro() {
+    // ── Sound ──
+    // whiplash-intro.mp3 plays with the lyric flashes; whiplash-loop.mp3 (the instrumental without
+    // its intro) loops while the theme is on. Sound can be switched off; that choice is remembered.
+    const SOUND_KEY = "brew-houze-aespa-sound";
+    const introAudio = new Audio("aespa/whiplash-intro.mp3");
+    introAudio.preload = "auto";
+    let loopAudio = null;
+    let fadeTimer = null;
+    let resumeOnReturn = false;
+    const soundButton = document.getElementById("ae-sound");
+    const soundWanted = () => { try { return localStorage.getItem(SOUND_KEY) !== "off"; } catch { return true; } };
+    const setSoundWanted = (on) => { try { localStorage.setItem(SOUND_KEY, on ? "on" : "off"); } catch { /* storage blocked */ } };
+    function showSoundState(state) {
+      // state: "on" playing, "off" muted, "waiting" wanted but the browser needs a tap first.
+      soundButton.classList.toggle("is-on", state === "on");
+      soundButton.classList.toggle("is-waiting", state === "waiting");
+      soundButton.setAttribute("aria-pressed", String(state === "on"));
+      soundButton.setAttribute("aria-label", state === "on" ? "Turn the music off" : "Play the music");
+      document.getElementById("ae-sound-label").textContent = state === "on" ? "Sound on" : state === "waiting" ? "Tap for sound" : "Sound off";
+    }
+    function fadeLoop(target, ms, then) {
+      clearInterval(fadeTimer);
+      const from = loopAudio.volume;
+      const start = performance.now();
+      fadeTimer = setInterval(() => {
+        const k = Math.min(1, (performance.now() - start) / ms);
+        loopAudio.volume = from + (target - from) * k;
+        if (k === 1) { clearInterval(fadeTimer); if (then) then(); }
+      }, 40);
+    }
+    function loop() {
+      if (!loopAudio) {
+        loopAudio = new Audio("aespa/whiplash-loop.mp3");
+        loopAudio.loop = true;
+        loopAudio.preload = "auto";
+      }
+      return loopAudio;
+    }
+    // Phones (iPhone especially) only start audio inside a tap, so the loop starts muted on the
+    // tap that opens the theme, and is unmuted from the top once the lyrics are done.
+    function primeLoop() {
+      const audio = loop();
+      audio.muted = true;
+      void audio.play().catch(() => undefined);
+    }
+    async function startLoop() {
+      const audio = loop();
+      clearInterval(fadeTimer);
+      audio.volume = 0;
+      try {
+        if (!audio.paused) audio.currentTime = 0;
+        audio.muted = false;
+        await audio.play();
+        fadeLoop(0.6, 1400);
+        showSoundState("on");
+        return true;
+      } catch {
+        showSoundState("waiting");
+        return false;
+      }
+    }
+    function stopLoop(state = "off") {
+      introAudio.pause();
+      showSoundState(state);
+      if (!loopAudio || loopAudio.paused) return;
+      fadeLoop(0, 450, () => loopAudio.pause());
+    }
+    soundButton.addEventListener("click", () => {
+      if (soundButton.classList.contains("is-on")) { setSoundWanted(false); stopLoop(); }
+      else { setSoundWanted(true); void startLoop(); }
+    });
+    // Quiet while the tab is hidden, back on when it returns.
+    document.addEventListener("visibilitychange", () => {
+      if (!loopAudio) return;
+      if (document.visibilityState === "hidden" && !loopAudio.paused) { resumeOnReturn = true; clearInterval(fadeTimer); loopAudio.pause(); }
+      else if (document.visibilityState === "visible" && resumeOnReturn) { resumeOnReturn = false; if (document.documentElement.dataset.theme === "aespa") void loopAudio.play().catch(() => showSoundState("waiting")); }
+    });
+
+    // "one look give em' whiplash": each word on its beat of whiplash-intro.mp3 (in ms from its
+    // start). The words follow the audio's own clock, so they stay in time even if it starts late;
+    // without sound they follow the page clock instead.
+    const INTRO = [[0, "one", "red"], [420, "look", "light"], [630, "give em’", "red"], [1100, "whiplash", "light"]];
+    const INTRO_END = 1780;
+    function playIntro(withSound) {
       return new Promise((done) => {
         const box = document.createElement("div");
         box.className = "ae-intro";
@@ -694,21 +792,43 @@
         const word = document.createElement("span");
         box.appendChild(word);
         document.body.appendChild(box);
-        let step = 0;
-        const next = () => {
-          if (step === INTRO.length) {
+        // "one" shows at once; the rest follow the sound as it plays.
+        word.textContent = INTRO[0][1];
+        let shown = 0;
+        let clock = null;
+        const frame = () => {
+          const t = clock();
+          let step = -1;
+          INTRO.forEach(([at], index) => { if (t >= at) step = index; });
+          if (step !== shown && step >= 0) {
+            shown = step;
+            const [, text, tone] = INTRO[step];
+            word.textContent = text;
+            box.classList.toggle("is-light", tone === "light");
+            box.classList.toggle("is-jolt", step === INTRO.length - 1);
+          }
+          if (t >= INTRO_END) {
             box.classList.add("is-out");
             setTimeout(() => box.remove(), 220);
             done();
             return;
           }
-          const [text, tone, ms] = INTRO[step++];
-          word.textContent = text;
-          box.classList.toggle("is-light", tone === "light");
-          box.classList.toggle("is-jolt", step === INTRO.length);
-          setTimeout(next, ms);
+          requestAnimationFrame(frame);
         };
-        next();
+        const silent = () => { const start = performance.now(); clock = () => performance.now() - start; requestAnimationFrame(frame); };
+        if (!withSound) { silent(); return; }
+        // Wait (briefly) for the sound to actually start, then follow it.
+        introAudio.currentTime = 0;
+        let settled = false;
+        const give = setTimeout(() => { if (settled) return; settled = true; introAudio.pause(); silent(); }, 700);
+        introAudio.play().then(() => {
+          if (settled) { introAudio.pause(); return; }
+          settled = true; clearTimeout(give);
+          const start = performance.now();
+          // The audio clock, or the page clock once the file has ended.
+          clock = () => (introAudio.ended ? performance.now() - start : introAudio.currentTime * 1000);
+          requestAnimationFrame(frame);
+        }, () => { if (settled) return; settled = true; clearTimeout(give); silent(); });
       });
     }
     let switching = false;
@@ -717,12 +837,18 @@
       switching = true;
       const aespa = document.documentElement.dataset.theme !== "aespa";
       const motion = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      // Entering plays the lyrics; the page switches and goes back to the top behind them.
-      const intro = aespa && motion ? playIntro() : null;
+      // Entering plays the lyrics (with their sound); the page switches and goes back to the top
+      // behind them. Leaving fades the music out.
+      const sound = aespa && soundWanted();
+      if (sound) primeLoop();
+      const intro = aespa && motion ? playIntro(sound) : null;
+      if (!aespa) stopLoop();
       applyTheme(aespa);
       window.scrollTo({ top: 0, behavior: "instant" });
       try { localStorage.setItem("brew-houze-theme", aespa ? "aespa" : "cafe"); } catch { /* storage blocked: lasts until reload */ }
       if (intro) await intro;
+      if (sound) void startLoop();
+      else if (aespa) showSoundState("off");
       switching = false;
       if (motion) {
         const flash = document.createElement("div");
@@ -818,6 +944,7 @@
       });
     }
     applyTheme(document.documentElement.dataset.theme === "aespa");
+    if (document.documentElement.dataset.theme === "aespa") { if (soundWanted()) void startLoop(); else showSoundState("off"); }
     footerYear.addEventListener("click", toggleTheme);
     footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleTheme(); } });
   </script>
