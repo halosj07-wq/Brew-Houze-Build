@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { awardOrderStarsSafely, computeDiscount, discountText, planRewards, recordRewardUse, type RewardLine, type RewardPlan } from "@/lib/loyalty";
 import { idDiscountSummary, planIdDiscounts, type IdDiscountInput, type PlannedIdDiscount } from "@/lib/discounts";
+import { deliveryFeeFor, type DeliveryPlan } from "@/lib/delivery";
 
 // Creating a sales order, shared by the cashier checkout, the mobile menu and GCash payments
 // (brew-houze-cashier and brew-houze-mobile keep identical copies of this file). Everything runs
@@ -10,17 +11,19 @@ import { idDiscountSummary, planIdDiscounts, type IdDiscountInput, type PlannedI
 // birthday treat).
 export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null };
 export type OrderSource = "cashier" | "mobile";
-// Eaten at the café or taken away (null: not recorded, for callers that do not ask).
-export type ServiceType = "dine_in" | "take_out";
+// Eaten at the café, taken away, or delivered (null: not recorded, for callers that do not ask).
+// Delivery orders come only from the mobile menu, with a delivery plan (see lib/delivery.ts).
+export type ServiceType = "dine_in" | "take_out" | "delivery";
 export function parseServiceType(value: unknown): ServiceType | null {
-  return value === "dine_in" || value === "take_out" ? value : null;
+  return value === "dine_in" || value === "take_out" || value === "delivery" ? value : null;
 }
 export type PlaceOrderInput = {
   items: OrderItemInput[];
   source: OrderSource;
   cashierAdminId: number | null;
   // split: part cash (cashAmount, paid with receivedAmount) and the rest through GCash.
-  paymentMethod: "cash" | "online" | "split";
+  // cod: cash on delivery, collected by the rider (see deliveries).
+  paymentMethod: "cash" | "online" | "split" | "cod";
   receivedAmount?: number;
   cashAmount?: number;
   customerToken?: string | null;
@@ -36,13 +39,16 @@ export type PlaceOrderInput = {
   // lines point into items. Not together with a discount reward.
   idDiscounts?: IdDiscountInput[];
   serviceType?: ServiceType | null;
+  // A delivery order: where it goes and its fee rules (required when serviceType is delivery).
+  delivery?: DeliveryPlan | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
 // starsEarned: loyalty stars the linked customer got for this order (0 without a customer or campaign).
 // starsRedeemed: stars spent on rewards in this order. total is what the customer pays, after
-// discountAmount and vatExemptAmount (VAT removed for senior and PWD items) are taken off subtotal.
-export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; subtotal: number; discountAmount: number; vatExemptAmount: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
+// discountAmount and vatExemptAmount (VAT removed for senior and PWD items) are taken off subtotal,
+// and deliveryFee added (delivery orders).
+export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; subtotal: number; discountAmount: number; vatExemptAmount: number; deliveryFee: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
 
 // Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
 // what it draws from its source, which is the stock actually deducted at checkout.
@@ -228,9 +234,19 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   const vatExemptAmount = Math.round(plannedIdDiscounts.reduce((sum, entry) => sum + entry.vatExempt, 0) * 100) / 100;
   const idSummary = plannedIdDiscounts.length > 0 ? idDiscountSummary(plannedIdDiscounts) : null;
   const orderDiscount = Math.round((discountAmount + idDiscountTotal) * 100) / 100;
-  const total = Math.max(0, Math.round((subtotal - orderDiscount - vatExemptAmount) * 100) / 100);
+  // Delivery: the zone's minimum order (on the items) and fee (free at or above the free delivery
+  // amount). Discounts never apply to the fee.
+  const delivery = input.delivery ?? null;
+  if ((input.serviceType === "delivery") !== (delivery !== null)) throw new Error("Delivery orders are placed from the mobile menu with a delivery address.");
+  const itemsAfterDiscounts = Math.max(0, Math.round((subtotal - orderDiscount - vatExemptAmount) * 100) / 100);
+  if (delivery?.zoneMinOrder && subtotal + 0.005 < delivery.zoneMinOrder) throw new Error(`Delivery to ${delivery.zoneName} starts at ₱${delivery.zoneMinOrder.toFixed(2)} of items. Add a little more to your order.`);
+  const deliveryFee = delivery ? deliveryFeeFor(delivery, itemsAfterDiscounts) : 0;
+  const total = Math.round((itemsAfterDiscounts + deliveryFee) * 100) / 100;
+  if (input.paymentMethod === "cod" && (!delivery || delivery.payment !== "cod")) throw new Error("Cash on delivery is only for delivery orders.");
+  if (delivery?.payment === "cod" && delivery.codMaxAmount !== null && total > delivery.codMaxAmount + 0.005) throw new Error(`Cash on delivery is for orders up to ₱${delivery.codMaxAmount.toFixed(2)}. Pay with GCash instead.`);
 
-  let receivedAmount = total;
+  // Cash on delivery: nothing received yet (the rider records what was collected).
+  let receivedAmount = input.paymentMethod === "cod" ? 0 : total;
   let changeAmount = 0;
   let cashPortion: number | null = null;
   if (input.paymentMethod === "cash") {
@@ -248,13 +264,22 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const order = await client.query(`
     INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id,
-      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id, service_type, vat_exempt_amount)
-    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id, service_type, vat_exempt_amount, delivery_fee)
+    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
   `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null,
-    subtotal, orderDiscount, idSummary ? idSummary.label : discount ? `${discount.name} (${discountText(discount)})` : null, idSummary ? idSummary.source : discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null, input.serviceType ?? null, vatExemptAmount]);
+    subtotal, orderDiscount, idSummary ? idSummary.label : discount ? `${discount.name} (${discountText(discount)})` : null, idSummary ? idSummary.source : discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null, input.serviceType ?? null, vatExemptAmount, deliveryFee]);
   const orderId = Number(order.rows[0].order_id);
+
+  // The delivery: the address as it is now, the fee, and (cash on delivery) what to collect. An ID
+  // discount on a delivery is checked at the door.
+  if (delivery) {
+    await client.query(`
+      INSERT INTO deliveries (order_id, customer_id, address_id, recipient_name, phone, street, landmark, rider_notes, zone_id, zone_name, fee, payment, check_id, cod_amount)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+    `, [orderId, delivery.customerId, delivery.addressId, delivery.recipientName, delivery.phone, delivery.street, delivery.landmark, delivery.riderNotes, delivery.zoneId, delivery.zoneName, deliveryFee, delivery.payment, plannedIdDiscounts.length > 0, delivery.payment === "cod" ? total : null]);
+  }
 
   for (const [inventoryId, detail] of deductionDetails) {
     await client.query(`
@@ -299,7 +324,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const starsRedeemed = rewardPlan && input.customerId ? await recordRewardUse(client, orderId, input.customerId, rewardPlan) : 0;
   const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
-  return { orderId, queueNumber, shiftId, subtotal, discountAmount: orderDiscount, vatExemptAmount, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
+  return { orderId, queueNumber, shiftId, subtotal, discountAmount: orderDiscount, vatExemptAmount, deliveryFee, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
 }
 
 // The exact total the order would have right now (prices, stock and the open shift all
@@ -310,11 +335,11 @@ export async function quoteOrder(client: PoolClient, input: Omit<PlaceOrderInput
 
 // The same, with the parts of the total: items, discount and VAT exempted (shown to a customer
 // before they pay an ID discount).
-export async function quoteOrderBreakdown(client: PoolClient, input: Omit<PlaceOrderInput, "paymentMethod" | "receivedAmount">): Promise<{ subtotal: number; discountAmount: number; vatExemptAmount: number; total: number }> {
+export async function quoteOrderBreakdown(client: PoolClient, input: Omit<PlaceOrderInput, "paymentMethod" | "receivedAmount">): Promise<{ subtotal: number; discountAmount: number; vatExemptAmount: number; deliveryFee: number; total: number }> {
   await client.query("BEGIN");
   try {
     const placed = await placeOrder(client, { ...input, paymentMethod: "online" });
-    return { subtotal: placed.subtotal, discountAmount: placed.discountAmount, vatExemptAmount: placed.vatExemptAmount, total: placed.total };
+    return { subtotal: placed.subtotal, discountAmount: placed.discountAmount, vatExemptAmount: placed.vatExemptAmount, deliveryFee: placed.deliveryFee, total: placed.total };
   } finally {
     await client.query("ROLLBACK");
   }

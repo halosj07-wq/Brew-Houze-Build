@@ -5126,7 +5126,7 @@ type FinanceOrder = {
   customerName?: string | null;
   // A discount taken off the order (a loyalty reward, or ID discounts such as senior and PWD, whose
   // VAT is also removed: vatExemptAmount).
-  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; vatExemptAmount?: number;
+  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; vatExemptAmount?: number; deliveryFee?: number;
   // Dine in or take out (null: before it was recorded).
   serviceType?: "dine_in" | "take_out" | null;
   paymentProvider?: string | null;
@@ -5165,7 +5165,7 @@ function orderChannel(order: Pick<FinanceOrder, "orderSource" | "paymentMethod">
 }
 const channelLabels = { cash: "Cash", online: "Online at counter", split: "Split (cash + GCash)", mobile: "Mobile menu" } as const;
 
-const serviceTypeLabels: Record<string, string> = { dine_in: "Dine in", take_out: "Take out", unknown: "Not recorded" };
+const serviceTypeLabels: Record<string, string> = { dine_in: "Dine in", take_out: "Take out", delivery: "Delivery", unknown: "Not recorded" };
 
 function orderStatusOf(order: Pick<FinanceOrder, "status">): "completed" | "voided" | "refunded" {
   const status = order.status.toLowerCase();
@@ -5423,6 +5423,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {order.customerName && fact("Customer", order.customerName)}
           {Boolean(order.discountAmount) && fact("Discount", `−${peso(order.discountAmount ?? 0)}${order.discountLabel ? ` · ${order.discountLabel}` : ""}`)}
           {Boolean(order.vatExemptAmount) && fact("VAT exempted", `−${peso(order.vatExemptAmount ?? 0)} (senior/PWD)`)}
+          {Boolean(order.deliveryFee) && fact("Delivery fee", peso(order.deliveryFee ?? 0))}
           {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.received !== null && fact("Cash received", peso(order.received))}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.change !== null && fact("Change", peso(order.change))}
@@ -6000,15 +6001,19 @@ function PermissionSwitch({ checked, title, description, onChange, disabled = fa
   </label>;
 }
 
-// Cashiers run the register; baristas only see and manage the queue in the staff app.
-type StaffRole = "cashier" | "barista";
+// Cashiers run the register; baristas only see and manage the queue in the staff app, and
+// riders only the deliveries.
+type StaffRole = "cashier" | "barista" | "rider";
 const STAFF_ROLE_OPTIONS: { id: StaffRole; title: string; description: string }[] = [
   { id: "cashier", title: "Cashier", description: "Takes orders and payments, and manages the queue." },
   { id: "barista", title: "Barista", description: "Only sees and manages the queue. No register, cash or refunds." },
+  { id: "rider", title: "Rider", description: "Only sees the deliveries: picks up, delivers, collects cash on delivery." },
 ];
 function staffRoleOf(role: string): StaffRole {
-  return role.toLowerCase() === "barista" ? "barista" : "cashier";
+  const value = role.toLowerCase();
+  return value === "barista" ? "barista" : value === "rider" ? "rider" : "cashier";
 }
+const staffRoleLabel = (role: string) => ({ cashier: "Cashier", barista: "Barista", rider: "Rider" })[staffRoleOf(role)];
 function RolePicker({ value, disabled = false, onChange }: { value: StaffRole; disabled?: boolean; onChange: (role: StaffRole) => void }) {
   return <div className="acc-role-picker" role="radiogroup" aria-label="Role">
     {STAFF_ROLE_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={value === option.id} disabled={disabled} onClick={() => onChange(option.id)}>
@@ -6072,7 +6077,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim(), ...(draft.role === "barista" ? { canOpenShift: false, canCloseShift: false, canVoidOrders: false, canRefundOrders: false } : {}) }) });
+      const response = await fetch("/api/cashier-accounts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...draft, fullName: draft.fullName.trim(), email: draft.email.trim(), ...(draft.role !== "cashier" ? { canOpenShift: false, canCloseShift: false, canVoidOrders: false, canRefundOrders: false } : {}) }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not add the employee.");
       setCreated({ name: draft.fullName.trim(), email: draft.email.trim().toLowerCase(), password: draft.password });
@@ -6195,9 +6200,9 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
 
   async function setRole(role: StaffRole) {
     if (role === staffRoleOf(account.role)) return;
-    if (role === "barista" && !(await confirmAction({ title: `Make ${account.fullName} a barista?`, message: "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: "Make barista", tone: "default" }))) return;
+    if (role !== "cashier" && !(await confirmAction({ title: `Make ${account.fullName} a ${role}?`, message: role === "rider" ? "They will only see the deliveries. Their cashier permissions are turned off, and the register closes for them on their next tap." : "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: `Make ${role}`, tone: "default" }))) return;
     const saved = await patch({ action: "set_role", role }, "role", "Could not change the role.");
-    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : "Now a cashier. Turn on any permissions they need."); }
+    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : role === "rider" ? "Now a rider. They only see the deliveries." : "Now a cashier. Turn on any permissions they need."); }
   }
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
@@ -6228,7 +6233,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 id="employee-dialog-title">{account.fullName}</h2>
           <p>{account.email}</p>
-          <span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier"}</span>{" "}
+          <span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleLabel(account.role)}</span>{" "}
           <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{statusText}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -8092,7 +8097,7 @@ function Accounts() {
         ["Summary", excelInfo([
           [`Brew Houze employee report: ${account.fullName}`],
           ["Email", account.email],
-          ["Role", staffRoleOf(account.role) === "barista" ? "Barista (queue only)" : "Cashier"],
+          ["Role", staffRoleOf(account.role) === "barista" ? "Barista (queue only)" : staffRoleOf(account.role) === "rider" ? "Rider (deliveries only)" : "Cashier"],
           ["Status", account.isActive ? "Active" : "Deactivated"],
           ["Generated", excelNow()],
           [],
@@ -8152,7 +8157,7 @@ function Accounts() {
         ["Employees", excelTable(people, [
           { header: "Employee", value: (account) => account.fullName },
           { header: "Email", value: (account) => account.email },
-          { header: "Role", value: (account) => staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier" },
+          { header: "Role", value: (account) => staffRoleLabel(account.role) },
           { header: "Status", value: (account) => account.isActive ? "Active" : "Deactivated" },
           { header: "Can open the store", value: (account) => account.canOpenShift ? "Yes" : "No" },
           { header: "Can close the shift", value: (account) => account.canCloseShift ? "Yes" : "No" },
@@ -8223,11 +8228,11 @@ function Accounts() {
               {shown.map((account) => <button key={account.id} type="button" className={`acc-card${account.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(account.id)}>
                 <span className="acc-card-top">
                   <UserAvatar name={account.fullName} size={44} />
-                  <span className="acc-card-name"><strong>{account.fullName}</strong><em>{account.email}</em><span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleOf(account.role) === "barista" ? "Barista" : "Cashier"}</span></span>
+                  <span className="acc-card-name"><strong>{account.fullName}</strong><em>{account.email}</em><span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleLabel(account.role)}</span></span>
                   <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{!account.isActive ? "Deactivated" : account.onDutySince ? `On duty · ${clockTime(account.onDutySince)}` : "Off duty"}</span>
                 </span>
                 <span className="acc-perms">
-                  {staffRoleOf(account.role) === "barista" ? <span className="acc-perm is-on">✓ Queue only</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
+                  {staffRoleOf(account.role) !== "cashier" ? <span className="acc-perm is-on">✓ {staffRoleOf(account.role) === "rider" ? "Deliveries only" : "Queue only"}</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
                 </span>
                 <span className="acc-card-stats">
                   <span><em>This week</em><strong>{formatHours(account.stats.hoursThisWeek)}</strong></span>

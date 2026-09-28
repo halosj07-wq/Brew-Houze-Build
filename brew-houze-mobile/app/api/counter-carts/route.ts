@@ -25,6 +25,7 @@ export async function POST(request: Request) {
       ? (await client.query("SELECT discount_type_id, name FROM discount_types WHERE discount_type_id = $1 AND is_active = TRUE", [discountTypeId])).rows[0]
       : null;
     if (!type) return NextResponse.json({ error: "Choose the discount you'll claim." }, { status: 400 });
+    if (parseServiceType(body.service_type) === "delivery") return NextResponse.json({ error: "Sending to the counter is for dine in and take out. For delivery, send a photo of your ID." }, { status: 400 });
 
     await expireCounterCarts(client);
     const waiting = await client.query("SELECT COUNT(*)::int AS count FROM counter_carts WHERE status = 'waiting'");

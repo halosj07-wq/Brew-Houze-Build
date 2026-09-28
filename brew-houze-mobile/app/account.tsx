@@ -60,7 +60,7 @@ export type CustomerAccount = { username: string; fullName: string; email: strin
   // The products this customer orders most, most first (the Favorites chip).
   favorites?: number[];
   // Mobile number and delivery addresses; codBlocked: cash on delivery switched off for this account.
-  phone?: string | null; codBlocked?: boolean; addresses?: CustomerAddress[];
+  phone?: string | null; codBlocked?: boolean; completedOrders?: number; addresses?: CustomerAddress[];
   // A senior, PWD or other ID the café checked and the customer asked to remember (see ./id-discount.tsx).
   savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null } | null };
 
@@ -360,6 +360,16 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
   const [resetInfo, setResetInfo] = useState<{ checked: boolean; valid: boolean; username?: string }>({ checked: false, valid: false });
 
   const { checkResetLink } = state;
+  // The café's delivery zones, loaded when the addresses are shown.
+  useEffect(() => {
+    if (view !== "addresses" || zones !== null) return;
+    let active = true;
+    fetch("/api/delivery", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload: { data?: { zones: DeliveryZoneOption[] } } | null) => { if (active) setZones(payload?.data?.zones ?? []); })
+      .catch(() => { if (active) setZones([]); });
+    return () => { active = false; };
+  }, [view, zones]);
   useEffect(() => {
     if (!resetToken) return;
     let active = true;
@@ -374,9 +384,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
     setPassword("");
     setPassword2("");
     if (next === "edit" && state.account) setProfile({ fullName: state.account.fullName, email: state.account.email ?? "", birthday: state.account.birthday ?? "", phone: state.account.phone ?? "" });
-    if (next === "addresses" && zones === null) {
-      void fetch("/api/delivery", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload: { data?: { zones: DeliveryZoneOption[] } } | null) => setZones(payload?.data?.zones ?? [])).catch(() => setZones([]));
-    }
+
   }
 
   async function run(action: () => Promise<Result>, onSuccess: () => void) {

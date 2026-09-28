@@ -3,21 +3,25 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 
-type Page = "pos" | "queue" | "reversals" | "accounts";
+type Page = "pos" | "queue" | "reversals" | "deliveries" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean };
 
-// Baristas only see and manage the queue (the server refuses them everything else too).
-const QUEUE_ONLY_PAGES: Page[] = ["queue", "accounts"];
+// Baristas only see and manage the queue, riders only the deliveries (the server refuses them
+// everything else too). Cashiers and admins see every page.
+function limitedPages(role: string): Page[] | null {
+  const value = role.toLowerCase();
+  return value === "barista" ? ["queue", "accounts"] : value === "rider" ? ["deliveries", "accounts"] : null;
+}
 function isQueueOnlyRole(role: string): boolean {
-  return role.toLowerCase() === "barista";
+  return limitedPages(role) !== null;
 }
 function roleLabel(role: string): string {
   const value = role.toLowerCase();
-  return value === "admin" ? "Admin" : value === "barista" ? "Barista" : "Cashier";
+  return value === "admin" ? "Admin" : value === "barista" ? "Barista" : value === "rider" ? "Rider" : "Cashier";
 }
 type IconProps = { size?: number };
 type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null; discount_label?: string | null; discount_total?: string | number | null };
+type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | "delivery" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null; discount_label?: string | null; discount_total?: string | number | null; cod_unpaid?: boolean };
 
 
 function IconGrid({ size = 20 }: IconProps) {
@@ -47,6 +51,7 @@ const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
   { id: "pos", label: "Point of Sale", Icon: IconGrid },
   { id: "queue", label: "Queue", Icon: IconList },
   { id: "reversals", label: "Void & Refund", Icon: IconUndo },
+  { id: "deliveries", label: "Deliveries", Icon: IconTruck },
   { id: "accounts", label: "My Account", Icon: IconUsers },
 ];
 
@@ -73,8 +78,8 @@ function formatTimeAgo(timestamp: number, now: number): string {
   return `${Math.floor(minutes / 60)} h ago`;
 }
 
-function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, canManageReversals, queueOnly, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; now: number; shiftOpen: boolean; canManageReversals: boolean; queueOnly: boolean; onChange: (page: Page) => void; onToggle: () => void }) {
-  const visibleNavItems = navItems.filter((item) => queueOnly ? QUEUE_ONLY_PAGES.includes(item.id) : item.id !== "reversals" || canManageReversals);
+function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, canManageReversals, allowedPages, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; now: number; shiftOpen: boolean; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void; onToggle: () => void }) {
+  const visibleNavItems = navItems.filter((item) => allowedPages ? allowedPages.includes(item.id) : item.id !== "reversals" || canManageReversals);
   const waiting = queueCounts?.waiting ?? 0;
   return <aside className={`app-sidebar ${collapsed ? "is-collapsed" : "is-expanded"} flex flex-col`} style={{ background: "#3D2B1F", minHeight: "100vh", width: collapsed ? 52 : 240, flexShrink: 0 }}>
     <div className="flex items-center gap-3 px-6 py-7 border-b" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
@@ -92,7 +97,7 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
         </button>;
       })}
     </nav>
-    {!queueOnly && <button type="button" onClick={() => onChange("queue")} title="Open the queue" className="mx-3 mb-5 rounded-xl" style={{ background: "rgba(217,119,6,0.14)", border: "1px solid rgba(217,119,6,0.35)", padding: collapsed ? "10px 2px" : "13px 14px", textAlign: collapsed ? "center" : "left", cursor: "pointer", color: "#FDF9F5" }}>
+    {!allowedPages && <button type="button" onClick={() => onChange("queue")} title="Open the queue" className="mx-3 mb-5 rounded-xl" style={{ background: "rgba(217,119,6,0.14)", border: "1px solid rgba(217,119,6,0.35)", padding: collapsed ? "10px 2px" : "13px 14px", textAlign: collapsed ? "center" : "left", cursor: "pointer", color: "#FDF9F5" }}>
       {collapsed ? (
         <span style={{ display: "block", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, lineHeight: 1 }}>{lastOrder ? `#${lastOrder.queueNumber}` : "—"}</span>
       ) : <>
@@ -114,11 +119,11 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, now, shiftOpen, c
 }
 
 // Phones (portrait): the sidebar is hidden and these tabs sit at the bottom of the screen.
-const mobileTabLabels: Record<Page, string> = { pos: "POS", queue: "Queue", reversals: "Void & Refund", accounts: "Account" };
+const mobileTabLabels: Record<Page, string> = { pos: "POS", queue: "Queue", reversals: "Void & Refund", deliveries: "Deliveries", accounts: "Account" };
 
-function MobileTabBar({ current, queueWaiting, canManageReversals, queueOnly, onChange }: { current: Page; queueWaiting: number; canManageReversals: boolean; queueOnly: boolean; onChange: (page: Page) => void }) {
+function MobileTabBar({ current, queueWaiting, canManageReversals, allowedPages, onChange }: { current: Page; queueWaiting: number; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void }) {
   return <nav className="mobile-tabbar" aria-label="Cashier sections">
-    {navItems.filter((item) => queueOnly ? QUEUE_ONLY_PAGES.includes(item.id) : item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
+    {navItems.filter((item) => allowedPages ? allowedPages.includes(item.id) : item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
       const active = current === id;
       return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className={`mobile-tab${active ? " is-active" : ""}`}>
         <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}</span>
@@ -331,7 +336,7 @@ function CampaignPreview() {
 }
 
 function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onAccount: () => void; onRequestLogout: () => void }) {
-  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : "My Account";
+  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : page === "deliveries" ? "Deliveries" : "My Account";
   const isAdmin = user.role.toLowerCase() === "admin";
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
@@ -618,6 +623,8 @@ type ReceiptData = {
   subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; serviceType?: string | null;
   // Senior, PWD and other ID discounts: one per person, with the VAT removed (senior and PWD) and the discount.
   vatExemptAmount?: number; idDiscounts?: ReceiptIdDiscount[];
+  // Delivery orders: the fee, and where it went.
+  deliveryFee?: number; delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null } | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
@@ -698,7 +705,12 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   row("Order", `#${receipt.orderId}${receipt.shiftId ? ` - shift ${receipt.shiftId}` : ""}`);
   row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "-");
   if (receipt.customerName) row("Customer", receipt.customerName);
-  if (receipt.serviceType) row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : "DINE IN", { bold: true });
+  if (receipt.serviceType) row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : receipt.serviceType === "delivery" ? "DELIVERY" : "DINE IN", { bold: true });
+  if (receipt.delivery) {
+    row("Deliver to", receipt.delivery.recipient);
+    row(`${receipt.delivery.street}${receipt.delivery.landmark ? `, near ${receipt.delivery.landmark}` : ""} (${receipt.delivery.zone})`, "", { size: base * 0.9, indent: 3 });
+    row(receipt.delivery.phone, receipt.delivery.rider ? `Rider: ${receipt.delivery.rider}` : "", { size: base * 0.9, indent: 3 });
+  }
   rule();
   for (const item of receipt.items) {
     row(`${item.quantity} x ${item.name}`, money(item.quantity * item.unitPrice));
@@ -709,7 +721,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   }
   rule();
   const idDiscounts = receipt.idDiscounts ?? [];
-  if (receipt.discountAmount || receipt.vatExemptAmount) {
+  if (receipt.discountAmount || receipt.vatExemptAmount || receipt.deliveryFee) {
     row("Subtotal", money(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0)));
     if (idDiscounts.length > 0) {
       for (const entry of idDiscounts) {
@@ -723,6 +735,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
       row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel.replace(/₱/g, "PHP ")}` : ""}`, `-${money(receipt.discountAmount)}`);
     }
   }
+  if (receipt.deliveryFee) row("Delivery fee", money(receipt.deliveryFee));
   row("TOTAL", `PHP ${money(receipt.total)}`, { size: base * 1.25, bold: true });
   const isGcash = receipt.paymentProvider === "paymongo_gcash" || receipt.paymentMethod === "online";
   if (receipt.paymentMethod === "split" && receipt.cashPortion !== null) {
@@ -730,6 +743,9 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     if (receipt.received !== null) row("Cash received", money(receipt.received), { indent: 3 });
     if (receipt.change !== null) row("Change", money(receipt.change), { indent: 3 });
     row("GCash", money(receipt.total - receipt.cashPortion));
+  } else if (receipt.paymentMethod === "cod") {
+    row("Cash on delivery", money(receipt.total));
+    if (receipt.received) row("Collected by the rider", money(receipt.received), { indent: 3 });
   } else if (isGcash) {
     row("Paid with GCash", money(receipt.total));
   } else {
@@ -797,7 +813,12 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     {row("Order", `#${receipt.orderId}${receipt.shiftId ? ` · shift ${receipt.shiftId}` : ""}`)}
     {row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "—")}
     {receipt.customerName && row("Customer", receipt.customerName)}
-    {receipt.serviceType && row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : "DINE IN", true)}
+    {receipt.serviceType && row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : receipt.serviceType === "delivery" ? "DELIVERY" : "DINE IN", true)}
+    {receipt.delivery && <div className="receipt-item">
+      {row("Deliver to", receipt.delivery.recipient)}
+      <div className="receipt-detail">{receipt.delivery.street}{receipt.delivery.landmark ? `, near ${receipt.delivery.landmark}` : ""} ({receipt.delivery.zone})</div>
+      <div className="receipt-detail">{receipt.delivery.phone}{receipt.delivery.rider ? ` · Rider: ${receipt.delivery.rider}` : ""}</div>
+    </div>}
     <div className="receipt-rule" />
     {receipt.items.map((item, index) => {
       const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" · ");
@@ -808,7 +829,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       </div>;
     })}
     <div className="receipt-rule" />
-    {Boolean(receipt.discountAmount || receipt.vatExemptAmount) && <>
+    {Boolean(receipt.discountAmount || receipt.vatExemptAmount || receipt.deliveryFee) && <>
       {row("Subtotal", receiptMoney(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0)))}
       {(receipt.idDiscounts ?? []).length > 0 ? (receipt.idDiscounts ?? []).map((entry, index) => <div key={index} className="receipt-item">
         {row(<strong>{entry.name}: {entry.holderName}</strong>, "")}
@@ -819,12 +840,16 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       </div>)
         : row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel}` : ""}`, `-${receiptMoney(receipt.discountAmount ?? 0)}`)}
     </>}
+    {Boolean(receipt.deliveryFee) && row("Delivery fee", receiptMoney(receipt.deliveryFee ?? 0))}
     {row("TOTAL", `₱${receiptMoney(receipt.total)}`, true)}
     {receipt.paymentMethod === "split" && receipt.cashPortion !== null ? <>
       {row("Cash", receiptMoney(receipt.cashPortion))}
       {receipt.received !== null && row("  Cash received", receiptMoney(receipt.received))}
       {receipt.change !== null && row("  Change", receiptMoney(receipt.change))}
       {row("GCash", receiptMoney(receipt.total - receipt.cashPortion))}
+    </> : receipt.paymentMethod === "cod" ? <>
+      {row("Cash on delivery", receiptMoney(receipt.total))}
+      {Boolean(receipt.received) && row("  Collected by the rider", receiptMoney(receipt.received ?? 0))}
     </> : isGcash ? row("Paid with GCash", receiptMoney(receipt.total))
       : <>
         {receipt.received !== null && row("Cash received", receiptMoney(receipt.received))}
@@ -2598,6 +2623,147 @@ function formatQueueAddition(addition: { name: string; quantity: number }, lineQ
 
 // onCounts: tells the sidebar the waiting/ready counts whenever this page's lists change, so the
 // badge updates the moment an order is marked ready instead of on its own slower refresh.
+// ─── Deliveries ───────────────────────────────────────────────────────────────
+// The delivery queue: orders the barista is making, packed orders waiting for a rider, orders on
+// their way, and cash on delivery the cashier still has to receive. Riders see what is theirs
+// (and every packed order they can take); cashiers and admins see everything.
+type DeliveryCard = {
+  id: number; orderId: number; queueNumber: number | null; total: number; fee: number; orderStatus: string; discountLabel: string | null;
+  status: string; payment: string; recipientName: string; phone: string; street: string; landmark: string | null; riderNotes: string | null; zoneName: string; checkId: boolean;
+  codAmount: number | null; codCollected: number | null; failureReason: string | null; riderId: number | null; riderName: string | null; remittedTo: string | null; items: string;
+  createdAt: string; readyAt: string | null; pickedUpAt: string | null; deliveredAt: string | null; failedAt: string | null; remittedAt: string | null;
+};
+
+function IconTruck({ size = 20 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
+}
+
+function DeliveriesPage({ user, onOpenReversals }: { user: Session; onOpenReversals: () => void }) {
+  const [list, setList] = useState<DeliveryCard[] | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [failing, setFailing] = useState<{ id: number; reason: string } | null>(null);
+  const [collecting, setCollecting] = useState<number | null>(null);
+  const isRider = user.role.toLowerCase() === "rider";
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/deliveries", { cache: "no-store" });
+      const payload = await response.json() as { data?: DeliveryCard[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Could not load the deliveries.");
+      setList(payload.data ?? []);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the deliveries.");
+      setList((current) => current ?? []);
+    }
+  }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void load(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 8000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [load]);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 6000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  async function act(card: DeliveryCard, action: "pickup" | "delivered" | "failed" | "remit", extra: Record<string, unknown> = {}) {
+    setBusyId(card.id);
+    setError("");
+    try {
+      const response = await fetch("/api/deliveries", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: card.id, action, ...extra }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not update the delivery.");
+      setNotice(action === "pickup" ? `Order #${card.queueNumber} is on its way.` : action === "delivered" ? `Order #${card.queueNumber} delivered.${card.payment === "cod" ? ` Hand the ₱${(card.codAmount ?? 0).toFixed(2)} to the cashier.` : ""}` : action === "failed" ? `Order #${card.queueNumber} marked not delivered. A cashier voids it in Void & Refund.` : `Received ₱${(card.codCollected ?? 0).toFixed(2)} for order #${card.queueNumber}.`);
+      setFailing(null);
+      setCollecting(null);
+      await load();
+    } catch (actError) {
+      setError(actError instanceof Error ? actError.message : "Could not update the delivery.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const mine = (card: DeliveryCard) => !isRider || card.riderId === user.adminId;
+  const all = list ?? [];
+  const preparing = all.filter((card) => card.status === "preparing" && card.orderStatus === "completed");
+  const ready = all.filter((card) => card.status === "ready" && card.orderStatus === "completed");
+  const out = all.filter((card) => card.status === "out" && card.orderStatus === "completed" && mine(card));
+  const cash = all.filter((card) => card.payment === "cod" && card.codCollected !== null && card.remittedAt === null && mine(card));
+  const failed = all.filter((card) => card.status === "failed" && card.orderStatus === "completed" && mine(card));
+  const done = all.filter((card) => (card.status === "delivered" || card.status === "cancelled" || (card.status === "failed" && card.orderStatus !== "completed")) && mine(card) && !cash.includes(card));
+  const clock = (value: string | null) => value ? new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" }) : "";
+  const mapsLink = (card: DeliveryCard) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${card.street}, ${card.zoneName}`)}`;
+
+  const cardView = (card: DeliveryCard) => <article key={card.id} className={`dlv-card is-${card.status}`}>
+    <header>
+      <strong>#{card.queueNumber ?? "—"}</strong>
+      <span className="dlv-zone">{card.zoneName}</span>
+      <span className={`dlv-pay is-${card.payment}`}>{card.payment === "cod" ? `Collect ₱${(card.codAmount ?? card.total).toFixed(2)}` : "Paid · GCash"}</span>
+    </header>
+    <div className="dlv-to">
+      <strong>{card.recipientName}</strong>
+      <a href={`tel:${card.phone}`}>📞 {card.phone}</a>
+    </div>
+    <p className="dlv-address">{card.street}{card.landmark ? <em> · near {card.landmark}</em> : null}</p>
+    {card.riderNotes && <p className="dlv-notes">“{card.riderNotes}”</p>}
+    {card.checkId && <p className="dlv-id">🪪 {card.discountLabel ? card.discountLabel.replace(/\s*\(.*\)\s*$/, "") : "ID"} discount · check the ID at the door</p>}
+    <p className="dlv-items">{card.items}</p>
+    <footer>
+      <span className="dlv-meta">₱{card.total.toFixed(2)}{card.fee > 0 ? ` incl. ₱${card.fee.toFixed(2)} fee` : ""} · {card.status === "out" ? `out since ${clock(card.pickedUpAt)}${card.riderName ? ` · ${card.riderName}` : ""}` : card.status === "ready" ? `packed ${clock(card.readyAt)}` : card.status === "preparing" ? `ordered ${clock(card.createdAt)}` : card.status === "delivered" ? `delivered ${clock(card.deliveredAt)}${card.riderName ? ` by ${card.riderName}` : ""}` : card.status === "failed" ? `not delivered: ${card.failureReason ?? ""}` : "cancelled"}</span>
+      <span className="dlv-actions">
+        <a className="dlv-button is-light" href={mapsLink(card)} target="_blank" rel="noopener">Open in Maps</a>
+        {card.status === "ready" && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "pickup")}>{busyId === card.id ? "…" : isRider ? "Pick up" : "Picked up"}</button>}
+        {card.status === "out" && (card.payment === "cod" && collecting !== card.id
+          ? <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => setCollecting(card.id)}>Delivered</button>
+          : card.status === "out" && card.payment !== "cod" && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered")}>{busyId === card.id ? "…" : "Delivered"}</button>)}
+        {(card.status === "out" || card.status === "ready") && <button type="button" className="dlv-button is-danger" disabled={busyId !== null} onClick={() => setFailing({ id: card.id, reason: "" })}>Not delivered…</button>}
+        {cash.includes(card) && !isRider && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "remit")}>{busyId === card.id ? "…" : `Received ₱${(card.codCollected ?? 0).toFixed(2)}`}</button>}
+        {failed.includes(card) && !isRider && <button type="button" className="dlv-button is-danger" onClick={onOpenReversals}>Void in Void & Refund</button>}
+      </span>
+    </footer>
+    {collecting === card.id && <div className="dlv-confirm">
+      <span>Did you collect <strong>₱{(card.codAmount ?? 0).toFixed(2)}</strong> in cash?</span>
+      <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered", { collected: card.codAmount })}>{busyId === card.id ? "…" : "Yes, collected"}</button>
+      <button type="button" className="dlv-button is-light" onClick={() => setCollecting(null)}>Back</button>
+    </div>}
+    {failing?.id === card.id && <div className="dlv-confirm">
+      <input value={failing.reason} onChange={(event) => setFailing({ id: card.id, reason: event.target.value })} placeholder="Why? e.g. no one home, wrong address" maxLength={200} autoFocus />
+      <button type="button" className="dlv-button is-danger" disabled={busyId !== null || !failing.reason.trim()} onClick={() => void act(card, "failed", { reason: failing.reason })}>{busyId === card.id ? "…" : "Mark not delivered"}</button>
+      <button type="button" className="dlv-button is-light" onClick={() => setFailing(null)}>Back</button>
+    </div>}
+  </article>;
+
+  const section = (title: string, cards: DeliveryCard[], hint: string) => cards.length > 0 && <section className="dlv-section">
+    <h3>{title} <span>{cards.length}</span></h3>
+    <p className="dlv-hint">{hint}</p>
+    <div className="dlv-grid">{cards.map(cardView)}</div>
+  </section>;
+
+  return <main className="dlv-page">
+    <div className="dlv-head">
+      <div><h2>Deliveries</h2><p>{isRider ? "Pick up packed orders, deliver them, and hand cash on delivery to the cashier." : "Orders to deliver, riders on the way, and cash on delivery to receive."}</p></div>
+      <button type="button" className="dlv-button is-light" onClick={() => void load()}>Refresh</button>
+    </div>
+    {error && <p className="dlv-error" role="alert">{error}</p>}
+    {notice && <p className="dlv-notice" role="status">{notice}</p>}
+    {list === null ? <p className="dlv-hint">Loading deliveries…</p> : <>
+      {section(isRider ? "Your cash to hand in" : "Cash on delivery to receive", cash, isRider ? "Give this cash to the cashier. They record it." : "Riders hand this in. Tap Received when you have counted it: it goes into this shift's drawer.")}
+      {section("Ready for pickup", ready, "Packed by the barista.")}
+      {section(isRider ? "Your deliveries on the way" : "On the way", out, "Tap Delivered at the door.")}
+      {!isRider && section("Not delivered: void these", failed, "Void the order in Void & Refund. It puts the stock back.")}
+      {isRider && section("Your deliveries that failed", failed, "A cashier voids these.")}
+      {section("Being prepared", preparing, "The barista is making these. They show up as ready once packed.")}
+      {section(isRider ? "Your deliveries this shift" : "Done this shift", done.slice(0, 30), "")}
+      {cash.length + ready.length + out.length + failed.length + preparing.length + done.length === 0 && <p className="dlv-empty">No deliveries yet this shift.</p>}
+    </>}
+  </main>;
+}
+
 function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [readyQueue, setReadyQueue] = useState<QueueOrder[]>([]);
@@ -2630,7 +2796,8 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
     if (!response.ok) throw new Error(payload?.error || "Unable to serve order.");
     setQueue((current) => current.filter((order) => order.order_id !== orderId));
     const servedOrder = queue.find((order) => order.order_id === orderId);
-    if (servedOrder) setReadyQueue((current) => [servedOrder, ...current.filter((order) => order.order_id !== orderId)]);
+    // A packed delivery order goes to the Deliveries page, not the pickup list.
+    if (servedOrder && servedOrder.service_type !== "delivery") setReadyQueue((current) => [servedOrder, ...current.filter((order) => order.order_id !== orderId)]);
     setDoneLines((current) => new Set(Array.from(current).filter((key) => !key.startsWith(`${orderId}:`))));
   }
 
@@ -2723,7 +2890,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
             return <article key={order.order_id} style={{ display: "flex", flexDirection: "column", background: "#FDF9F5", border: "1px solid #E8DDD5", borderTop: `6px solid ${wait.color}`, borderRadius: 16, boxShadow: "0 4px 16px rgba(61,43,31,0.08)", overflow: "hidden" }}>
               <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px 10px", borderBottom: "1px dashed #E8DDD5" }}>
                 <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 34, fontWeight: 800, lineHeight: 1, color: "#3D2B1F" }}>#{order.queue_number}</strong>
-                {order.service_type && <span className={`queue-service is-${order.service_type}`}>{order.service_type === "take_out" ? "Take out" : "Dine in"}</span>}
+                {order.service_type && <span className={`queue-service is-${order.service_type}`}>{order.service_type === "take_out" ? "Take out" : order.service_type === "delivery" ? "🛵 Delivery" : "Dine in"}</span>}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, marginLeft: "auto" }}>
                   <span style={{ padding: "3px 9px", borderRadius: 999, background: wait.background, color: wait.color, border: `1px solid ${wait.border}`, fontSize: 12, fontWeight: 800 }}>{wait.label}</span>
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
@@ -2759,7 +2926,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
               </ul>
               <footer style={{ marginTop: "auto", padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
                 {lineKeys.length > 1 && <span style={{ fontSize: 11, color: "#9C8278", fontFamily: "JetBrains Mono, monospace" }}>{doneCount}/{lineKeys.length} drinks done</span>}
-                <button type="button" disabled={busy} onClick={() => void runOrderAction(order.order_id, serveOrder, "Unable to serve order.")} style={{ width: "100%", height: 48, border: "none", borderRadius: 12, background: busy ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: busy ? "default" : "pointer", boxShadow: busy ? "none" : "0 6px 14px rgba(217,119,6,0.28)" }}>{busy ? "Updating…" : "Mark as ready"}</button>
+                <button type="button" disabled={busy} onClick={() => void runOrderAction(order.order_id, serveOrder, "Unable to serve order.")} style={{ width: "100%", height: 48, border: "none", borderRadius: 12, background: busy ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: busy ? "default" : "pointer", boxShadow: busy ? "none" : "0 6px 14px rgba(217,119,6,0.28)" }}>{busy ? "Updating…" : order.service_type === "delivery" ? "Packed for rider" : "Mark as ready"}</button>
               </footer>
             </article>;
           })}
@@ -2833,7 +3000,7 @@ function ReversalsPage({ user }: { user: Session }) {
   const [password, setPassword] = useState("");
   const [wrongPassword, setWrongPassword] = useState(false);
   // How the money goes back: handed back from the drawer, or sent by hand through GCash.
-  const [returnMethod, setReturnMethod] = useState<"cash" | "gcash" | "split">("cash");
+  const [returnMethod, setReturnMethod] = useState<"cash" | "gcash" | "split" | "none">("cash");
   const [gcashName, setGcashName] = useState("");
   const [gcashNumber, setGcashNumber] = useState("");
   const [gcashReference, setGcashReference] = useState("");
@@ -2911,7 +3078,7 @@ function ReversalsPage({ user }: { user: Session }) {
   const pendingGcashPart = Math.max(0, pendingTotal - pendingCashPart);
   const openAction = (order: QueueOrder, action: "void" | "refund") => {
     setError(""); setPassword(""); setWrongPassword(false);
-    setReturnMethod(order.payment_method === "split" ? "split" : order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
+    setReturnMethod(order.cod_unpaid ? "none" : order.payment_method === "split" ? "split" : order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
     setGcashName(""); setGcashNumber(""); setGcashReference("");
     setPendingAction({ order, action });
   };
@@ -3006,6 +3173,8 @@ function ReversalsPage({ user }: { user: Session }) {
               {detail.additions.length > 0 && <div style={{ marginTop: 3, color: "#7E22CE", fontSize: 12 }}>+ {detail.additions.map((addition) => formatQueueAddition(addition, Number(detail.quantity))).join(", ")}</div>}
             </div>)}
           </div>
+          {returnMethod === "none" && <p style={{ margin: "14px 0 0", padding: "10px 12px", borderRadius: 10, background: "#F3EDE5", color: "#3D2B1F", fontSize: 13, lineHeight: 1.5 }}><strong>Nothing to return.</strong> This cash on delivery order was never paid. Voiding it puts the stock back.</p>}
+          {returnMethod !== "none" && <>
           <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>How is the money returned? <span style={{ fontWeight: 400, color: "#9C8278" }}>Paid with {pendingIsSplit ? `₱${pendingCashPart.toFixed(2)} cash + ₱${pendingGcashPart.toFixed(2)} GCash` : pendingIsGcash ? "GCash" : pendingIsOnline ? "online payment" : "cash"}</span></p>
           <div role="group" aria-label="Return method" style={{ display: "grid", gridTemplateColumns: pendingIsSplit ? "1fr 1fr 1fr" : "1fr 1fr", gap: 6 }}>
             {([...(pendingIsSplit ? [["split", "As paid", "Cash + GCash"] as const] : []), ["cash", "Cash", "From the drawer"], ["gcash", "GCash", "Sent by the café"]] as const).map(([method, label, hint]) => {
@@ -3017,7 +3186,9 @@ function ReversalsPage({ user }: { user: Session }) {
               </button>;
             })}
           </div>
+          </>}
           <form onSubmit={(event) => { event.preventDefault(); void reverseOrder(pendingAction.order, pendingAction.action); }}>
+          {returnMethod !== "none" && <>
           {(returnMethod === "gcash" || returnMethod === "split") && <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
             <label style={{ display: "flex", flexDirection: "column", gap: 4, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Name on the customer’s GCash
               <input value={gcashName} onChange={(event) => { setGcashName(event.target.value); setError(""); }} maxLength={120} autoComplete="off" placeholder="e.g. Juan Dela Cruz" style={returnFieldStyle} />
@@ -3045,6 +3216,7 @@ function ReversalsPage({ user }: { user: Session }) {
             </div>}
           </div>
           <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>{returnMethod === "gcash" ? "Send it from the café’s GCash by hand. The cash drawer is not affected." : returnMethod === "split" ? "The cash part comes out of the drawer. Send the GCash part from the café’s GCash by hand." : "Taken out of the expected cash in the drawer."} Stock is returned to inventory, the order leaves the queue, and it no longer counts as a sale. This cannot be undone.</p>
+          </>}
           <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={user.fullName} invalid={wrongPassword} />
           {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
           <div className="flex justify-end gap-2" style={{ marginTop: 18 }}>
@@ -3994,10 +4166,11 @@ export default function App() {
   if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); setUser(session); }} notice={loginNotice} />;
   const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
   const queueOnly = isQueueOnlyRole(user.role);
-  const visiblePage: Page = queueOnly ? (QUEUE_ONLY_PAGES.includes(page) ? page : "queue") : page === "reversals" && !canManageReversals ? "pos" : page;
+  const allowedPages = limitedPages(user.role);
+  const visiblePage: Page = allowedPages ? (allowedPages.includes(page) ? page : allowedPages[0]) : page === "reversals" && !canManageReversals ? "pos" : page;
   async function confirmSignOut() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} queueOnly={queueOnly} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }

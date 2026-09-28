@@ -51,8 +51,9 @@ export async function POST(request: Request) {
   }
   // How the money goes back to the customer, all by hand: cash from the drawer, a GCash transfer
   // from the cafe to the number the customer gives, or (split orders) each part the way it was paid.
+  // none: a cash on delivery order the rider never collected (nothing was paid).
   const returnMethod = body.return_method;
-  if (returnMethod !== "cash" && returnMethod !== "gcash" && returnMethod !== "split") {
+  if (returnMethod !== "cash" && returnMethod !== "gcash" && returnMethod !== "split" && returnMethod !== "none") {
     return NextResponse.json({ error: "Choose how the money is returned: cash or GCash." }, { status: 400 });
   }
   const gcashName = String(body.gcash_name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
@@ -114,6 +115,22 @@ export async function POST(request: Request) {
     if (order.shift_id === null || Number(order.shift_id) !== shiftId) {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "This order is from an earlier shift. Only orders from the current shift can be voided or refunded." }, { status: 409 });
+    }
+    // Delivery: cash on delivery the rider still holds must be handed in first; an uncollected one
+    // has nothing to return. A delivery not yet delivered is cancelled with the order.
+    const delivery = (await client.query("SELECT payment, status, cod_collected, cod_remitted_at FROM deliveries WHERE order_id = $1 FOR UPDATE", [orderId])).rows[0];
+    const unpaidCod = order.payment_method === "cod" && (!delivery || delivery.cod_collected === null);
+    if (returnMethod === "none" && !unpaidCod) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Choose how the money is returned: cash or GCash." }, { status: 400 });
+    }
+    if (unpaidCod && returnMethod !== "none") {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "This cash on delivery order was never paid, so there is nothing to return." }, { status: 400 });
+    }
+    if (order.payment_method === "cod" && delivery && delivery.cod_collected !== null && delivery.cod_remitted_at === null) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "The rider still has this order's cash. Receive it on the Deliveries page first." }, { status: 409 });
     }
     if (returnMethod === "split" && order.payment_method !== "split") {
       await client.query("ROLLBACK");
@@ -194,7 +211,8 @@ export async function POST(request: Request) {
           return_reference = $8
       WHERE order_id = $1
       RETURNING order_id, status, total_amount, return_method, return_gcash_name, return_gcash_number, return_reference
-    `, [orderId, action, session.adminId, shiftId, returnMethod, returnMethod === "cash" ? null : gcashName, returnMethod === "cash" ? null : gcashNumber, reference || null]);
+    `, [orderId, action, session.adminId, shiftId, returnMethod === "none" ? null : returnMethod, returnMethod === "cash" || returnMethod === "none" ? null : gcashName, returnMethod === "cash" || returnMethod === "none" ? null : gcashNumber, reference || null]);
+    await client.query("UPDATE deliveries SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 AND status IN ('preparing', 'ready', 'out')", [orderId]);
     // Stars the order earned are taken back.
     await reverseOrderStarsSafely(client, orderId, session.adminId);
 

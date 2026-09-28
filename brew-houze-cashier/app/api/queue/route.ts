@@ -14,7 +14,7 @@ export async function GET(request: Request) {
         COUNT(*) FILTER (WHERE queue_status = 'waiting')::int AS waiting_count,
         COUNT(*) FILTER (WHERE queue_status = 'served')::int AS ready_count
       FROM sales_orders
-      WHERE queue_status IN ('waiting', 'served')
+      WHERE (queue_status = 'waiting' OR (queue_status = 'served' AND service_type IS DISTINCT FROM 'delivery'))
     `);
     if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
       return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
@@ -72,13 +72,15 @@ export async function GET(request: Request) {
       JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
       LEFT JOIN customers cu ON cu.customer_id = so.customer_id AND cu.deleted_at IS NULL
-      WHERE so.queue_status IN ('waiting', 'served')
+      WHERE (so.queue_status = 'waiting' OR (so.queue_status = 'served' AND so.service_type IS DISTINCT FROM 'delivery'))
       GROUP BY so.order_id, cu.customer_id
       ORDER BY so.queue_status DESC, so.queue_number ASC
     `);
     const recentResult = await pool.query(`
       SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.payment_method, so.payment_provider, so.cash_portion, so.reversal_type,
-        so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
+        so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total, so.service_type,
+        -- Cash on delivery the rider never collected: nothing to hand back on a void.
+        (so.payment_method = 'cod' AND NOT EXISTS (SELECT 1 FROM deliveries d WHERE d.order_id = so.order_id AND d.cod_collected IS NOT NULL)) AS cod_unpaid,
         so.return_method, so.return_gcash_name, so.return_gcash_number, so.return_reference, reverser.full_name AS reversed_by, cu.full_name AS customer_name,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
@@ -164,6 +166,8 @@ export async function PATCH(request: Request) {
         AND queue_status = ${action === "flush" ? "'served'" : "'waiting'"}
       RETURNING order_id, queue_number
     `, [orderId]);
+    // A delivery order the barista marked done is packed for the rider.
+    if (action === "serve" && result.rowCount) await pool.query("UPDATE deliveries SET status = 'ready', ready_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 AND status = 'preparing'", [orderId]);
     if (result.rowCount === 0) return NextResponse.json({ error: action === "flush" ? "Ready order was already flushed or not found." : "Queue order was already moved to ready or not found." }, { status: 404 });
     return NextResponse.json({ data: result.rows[0] });
   } catch (error) {

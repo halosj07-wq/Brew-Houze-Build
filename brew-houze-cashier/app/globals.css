@@ -513,3 +513,45 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .queue-service { padding: 4px 10px; border-radius: 8px; font-family: 'Hanken Grotesk', sans-serif; font-size: 13px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
 .queue-service.is-dine_in { background: #3D2B1F; color: #FDF9F5; }
 .queue-service.is-take_out { background: #EA580C; color: #FFFFFF; }
+
+/* Deliveries page and the delivery badge in the queue. */
+.queue-service.is-delivery { background: #DBEAFE; color: #1D4ED8; border-color: #93C5FD; }
+.dlv-page { padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.dlv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.dlv-head h2 { margin: 0; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 22px; }
+.dlv-head p { margin: 4px 0 0; color: #9C8278; font-size: 13px; }
+.dlv-error { margin: 0; padding: 9px 12px; border-radius: 10px; background: #FEE2E2; color: #B91C1C; font-size: 13px; }
+.dlv-notice { margin: 0; padding: 9px 12px; border-radius: 10px; background: #DCFCE7; color: #15803D; font-size: 13px; font-weight: 600; }
+.dlv-section h3 { display: flex; align-items: center; gap: 8px; margin: 0; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; }
+.dlv-section h3 span { padding: 1px 8px; border-radius: 999px; background: #3D2B1F; color: #FDF9F5; font-size: 12px; }
+.dlv-hint { margin: 2px 0 10px; color: #9C8278; font-size: 12.5px; }
+.dlv-empty { padding: 40px 0; color: #9C8278; text-align: center; }
+.dlv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 330px), 1fr)); gap: 12px; }
+.dlv-card { display: flex; flex-direction: column; gap: 7px; padding: 13px 14px; border: 1px solid #E8DDD5; border-left: 5px solid #B9A398; border-radius: 14px; background: #FDF9F5; }
+.dlv-card.is-ready { border-left-color: #D97706; }
+.dlv-card.is-out { border-left-color: #1D4ED8; }
+.dlv-card.is-delivered { border-left-color: #15803D; }
+.dlv-card.is-failed, .dlv-card.is-cancelled { border-left-color: #B91C1C; }
+.dlv-card header { display: flex; align-items: center; gap: 8px; }
+.dlv-card header strong { color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 22px; font-weight: 800; }
+.dlv-zone { padding: 2px 8px; border-radius: 999px; background: #F3EDE5; color: #6B4C3B; font-size: 12px; font-weight: 700; }
+.dlv-pay { margin-left: auto; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; }
+.dlv-pay.is-gcash { background: #DBEAFE; color: #1D4ED8; }
+.dlv-pay.is-cod { background: #FEF3C7; color: #92400E; }
+.dlv-to { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.dlv-to strong { color: #3D2B1F; font-size: 14.5px; }
+.dlv-to a { color: #1D4ED8; font-size: 13.5px; font-weight: 700; text-decoration: none; }
+.dlv-address { margin: 0; color: #3D2B1F; font-size: 13.5px; line-height: 1.4; }
+.dlv-address em { color: #6B4C3B; font-style: normal; }
+.dlv-notes { margin: 0; padding: 6px 9px; border-radius: 8px; background: #FFFBEB; color: #92400E; font-size: 12.5px; }
+.dlv-id { margin: 0; padding: 6px 9px; border-radius: 8px; border: 1.5px solid #1D4ED8; background: #EFF6FF; color: #1E3A8A; font-size: 12.5px; font-weight: 800; }
+.dlv-items { margin: 0; color: #6B4C3B; font-size: 12.5px; }
+.dlv-card footer { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; border-top: 1px dashed #E8DDD5; }
+.dlv-meta { color: #9C8278; font-size: 12px; }
+.dlv-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.dlv-button { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 12px; border: 0; border-radius: 9px; background: #3D2B1F; color: #FDF9F5; font-size: 13px; font-weight: 800; text-decoration: none; cursor: pointer; }
+.dlv-button.is-light { border: 1px solid #E8DDD5; background: #FFFFFF; color: #3D2B1F; }
+.dlv-button.is-danger { background: #B91C1C; }
+.dlv-button:disabled { opacity: 0.55; cursor: default; }
+.dlv-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 9px; border-radius: 10px; background: #F3EDE5; font-size: 13px; }
+.dlv-confirm input { flex: 1; min-width: 180px; height: 36px; padding: 0 10px; border: 1px solid #E8DDD5; border-radius: 8px; background: #FFFFFF; color: #3D2B1F; }

@@ -363,3 +363,27 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .mm-customize, .mm-add { white-space: nowrap; flex-shrink: 0; }
 .mm-feature .mm-foot { flex-wrap: wrap; }
 .mm-feature .mm-actions { margin-left: auto; }
+
+/* Delivery in the cart and the order status. */
+.service-choice.is-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.cart-delivery { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; padding: 12px; background: #fff8ee; border: 1px solid var(--line); border-radius: 12px; }
+.cart-delivery-address { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.cart-delivery-address select { width: 100%; padding: 10px 12px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14.5px; }
+.cart-delivery-detail { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.cart-delivery-detail button, .cart-delivery-note button { padding: 0; color: var(--brown); background: none; border: 0; font-weight: 700; text-decoration: underline; }
+.cart-delivery-note { margin: 0; color: var(--ink); font-size: 12.5px; line-height: 1.45; }
+.cart-delivery-note.is-warning { margin-top: 8px; color: #b45309; }
+.cart-delivery-pay { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.cart-delivery-pay button { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; color: var(--ink); background: #fff; border: 1.5px solid var(--line); border-radius: 11px; text-align: left; }
+.cart-delivery-pay button strong { font-size: 13.5px; }
+.cart-delivery-pay button span { color: var(--muted); font-size: 11px; }
+.cart-delivery-pay button[aria-checked="true"] { color: #fff; background: var(--brown); border-color: var(--brown); }
+.cart-delivery-pay button[aria-checked="true"] span { color: #f3d9c6; }
+.cart-delivery-pay button:disabled { opacity: 0.55; cursor: not-allowed; }
+.cart-subtotals { display: flex; flex-direction: column; gap: 4px; margin-top: 14px; color: var(--muted); font-size: 13.5px; }
+.cart-subtotals div { display: flex; justify-content: space-between; gap: 10px; }
+.cart-subtotals b { color: var(--ink); }
+.cart-subtotals small { color: var(--teal); font-size: 11.5px; }
+.delivery-steps { display: flex; gap: 4px; margin: 12px 0 0; padding: 0; list-style: none; }
+.delivery-steps li { flex: 1; padding: 6px 4px; color: var(--muted); background: #f3ebe1; border-radius: 8px; font-size: 10.5px; font-weight: 700; text-align: center; }
+.delivery-steps li.is-done { color: #fff; background: var(--teal); }

@@ -19,10 +19,13 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         so.payment_reference, so.cash_portion, so.received_amount, so.change_amount, so.order_source, so.return_method,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
-        cashier.full_name AS cashier_name, cu.full_name AS customer_name, so.customer_id, so.subtotal_amount, so.discount_amount, so.discount_label, so.service_type, so.vat_exempt_amount
+        cashier.full_name AS cashier_name, cu.full_name AS customer_name, so.customer_id, so.subtotal_amount, so.discount_amount, so.discount_label, so.service_type, so.vat_exempt_amount, so.delivery_fee,
+        d.recipient_name AS delivery_recipient, d.phone AS delivery_phone, d.street AS delivery_street, d.landmark AS delivery_landmark, d.zone_name AS delivery_zone, d.status AS delivery_status, rider.full_name AS rider_name
       FROM sales_orders so
       LEFT JOIN admin_users cashier ON cashier.admin_id = so.cashier_admin_id
       LEFT JOIN customers cu ON cu.customer_id = so.customer_id AND cu.deleted_at IS NULL
+      LEFT JOIN deliveries d ON d.order_id = so.order_id
+      LEFT JOIN admin_users rider ON rider.admin_id = d.rider_admin_id
       WHERE so.order_id = $1
     `, [orderId]);
     const order = orderResult.rows[0];
@@ -96,6 +99,8 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         discountAmount: Number(order.discount_amount ?? 0),
         discountLabel: (order.discount_label as string | null) ?? null,
         vatExemptAmount: Number(order.vat_exempt_amount ?? 0),
+        deliveryFee: Number(order.delivery_fee ?? 0),
+        delivery: order.delivery_street ? { recipient: String(order.delivery_recipient), phone: String(order.delivery_phone), street: String(order.delivery_street), landmark: (order.delivery_landmark as string | null) ?? null, zone: String(order.delivery_zone), status: String(order.delivery_status), rider: (order.rider_name as string | null) ?? null } : null,
         idDiscounts: idDiscounts.rows.map((row) => ({
           code: String(row.type_code),
           name: String(row.type_name),

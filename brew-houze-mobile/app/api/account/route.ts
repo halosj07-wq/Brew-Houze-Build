@@ -56,7 +56,7 @@ export async function GET() {
     `, [session.customerId]).catch(() => ({ rows: [] as { product_id: number }[] }));
     // Mobile number and delivery addresses (with their zone and its fee), and whether cash on
     // delivery is blocked for this account.
-    const contact = await pool.query("SELECT phone, cod_blocked FROM customers WHERE customer_id = $1", [session.customerId]).catch(() => ({ rows: [] as { phone: string | null; cod_blocked: boolean }[] }));
+    const contact = await pool.query("SELECT phone, cod_blocked, (SELECT COUNT(*)::int FROM sales_orders so WHERE so.customer_id = customers.customer_id AND so.status = 'completed') AS completed FROM customers WHERE customer_id = $1", [session.customerId]).catch(() => ({ rows: [] as { phone: string | null; cod_blocked: boolean; completed: number }[] }));
     const addresses = await pool.query(`
       SELECT a.address_id, a.label, a.recipient_name, a.phone, a.zone_id, z.name AS zone_name, z.fee AS zone_fee, z.is_active AS zone_active, a.street, a.landmark, a.rider_notes, a.is_default
       FROM customer_addresses a LEFT JOIN delivery_zones z ON z.zone_id = a.zone_id
@@ -75,6 +75,8 @@ export async function GET() {
         favorites: favorites.rows.map((row) => Number(row.product_id)),
         phone: (contact.rows[0]?.phone as string | null | undefined) ?? null,
         codBlocked: Boolean(contact.rows[0]?.cod_blocked),
+        // Completed orders, for the cash on delivery rule (completed orders first).
+        completedOrders: Number((contact.rows[0] as { completed?: number } | undefined)?.completed ?? 0),
         addresses: addresses.rows.map((row) => ({
           id: Number(row.address_id), label: String(row.label), recipientName: String(row.recipient_name), phone: String(row.phone),
           zoneId: row.zone_id === null ? null : Number(row.zone_id), zoneName: (row.zone_name as string | null) ?? null, zoneFee: row.zone_fee === null ? null : Number(row.zone_fee), zoneActive: Boolean(row.zone_active),

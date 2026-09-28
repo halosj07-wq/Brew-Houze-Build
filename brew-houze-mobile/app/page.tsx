@@ -26,7 +26,10 @@ type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" |
 // rewardId: a loyalty reward line (one item, free, paid with the customer's stars).
 type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
 type OrderStatus = "waiting" | "served" | "flushed";
-type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus };
+// delivery: a delivery order; deliveryStatus its progress (preparing, ready, out, delivered, failed, cancelled).
+type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus; delivery?: boolean; deliveryStatus?: string | null };
+// Delivery as the mobile menu sees it (see /api/delivery).
+type DeliveryInfo = { enabled: boolean; openNow: boolean; hours: { start: string; end: string } | null; freeAbove: number | null; cod: { enabled: boolean; maxAmount: number; minOrders: number }; zones: { id: number; name: string; description: string | null; fee: number; minOrder: number | null }[] };
 const trackedOrdersStorageKey = "brew-houze-tracked-orders";
 // A GCash payment in progress: its reference and the cart, so the cart comes back if it fails.
 const pendingPaymentStorageKey = "brew-houze-pending-payment";
@@ -139,7 +142,11 @@ export default function MenuPage() {
   // A discount reward on the order (at most one).
   const [discountReward, setDiscountReward] = useState<LoyaltyReward | null>(null);
   // Eaten at the café (usually, from the table QR) or taken away.
-  const [serviceType, setServiceType] = useState<"dine_in" | "take_out">("dine_in");
+  const [serviceType, setServiceType] = useState<"dine_in" | "take_out" | "delivery">("dine_in");
+  // Delivery: the café's rules and zones, the address chosen in the cart, and GCash or cash on delivery.
+  const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
+  const [deliveryAddressId, setDeliveryAddressId] = useState<number | null>(null);
+  const [deliveryPayment, setDeliveryPayment] = useState<"gcash" | "cod">("gcash");
   // ID discounts the café gives, the one the customer will claim (null: none), and a cart sent
   // to the counter that is waiting for them.
   const [idDiscountOptions, setIdDiscountOptions] = useState<IdDiscountOption[]>([]);
@@ -296,7 +303,7 @@ export default function MenuPage() {
           try { window.localStorage.removeItem(idCheckStorageKey); } catch { /* storage unavailable */ }
           setIdCheck(null); setClaimIdType(null);
           setCart([]); setDiscountReward(null); setServiceType("dine_in");
-          setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting" }]);
+          setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting", delivery: false, deliveryStatus: null }]);
           setPaymentCheck(null);
           setOrderPlaced(true);
           void refreshAccount();
@@ -328,6 +335,10 @@ export default function MenuPage() {
 
   useEffect(() => {
     let active = true;
+    fetch("/api/delivery", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((payload: { data?: DeliveryInfo } | null) => { if (active && payload?.data) setDeliveryInfo(payload.data); })
+      .catch(() => undefined);
     fetch("/api/discounts", { cache: "no-store" })
       .then((response) => response.ok ? response.json() : null)
       .then((payload: { data?: IdDiscountOption[]; vat?: VatSetting } | null) => { if (active && payload?.data) { setIdDiscountOptions(payload.data); if (payload.vat) setIdVat(payload.vat); } })
@@ -625,7 +636,7 @@ export default function MenuPage() {
 
   const savedId = customer.account?.savedId ?? null;
   const savedIdUsable = savedId !== null && idDiscountOptions.some((option) => option.id === savedId.typeId);
-  const idMode = claimMode === "saved" && !savedIdUsable ? "photo" : claimMode;
+  const idMode = (claimMode === "saved" && !savedIdUsable) || (claimMode === "counter" && serviceType === "delivery") ? "photo" : claimMode;
   const activeIdRule = idDiscountOptions.find((option) => option.id === (idMode === "saved" && savedId ? savedId.typeId : claimIdType)) ?? null;
   const idPayLabel = paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order";
   const idOrderItems = () => cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) }));
@@ -639,8 +650,8 @@ export default function MenuPage() {
   // Pays an order with an ID discount the café approved (verification_token) or the saved ID
   // (saved_id): GCash when it is set up, otherwise the order goes straight to the café.
   async function payWithIdDiscount(extra: { verification_token: string } | { saved_id: IdCoverage }) {
-    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, ...extra });
-    if (paymentConfig.method === "gcash") {
+    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, delivery: deliveryBody, ...extra });
+    if (paymentConfig.method === "gcash" && !payCod) {
       const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
       if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
@@ -654,7 +665,7 @@ export default function MenuPage() {
     const placed = payload.data;
     setCart([]); setClaimIdType(null); setServiceType("dine_in"); setCartOpen(false); setIdSheet(null);
     forgetIdCheck();
-    setTrackedOrders((current) => [...current, { trackingToken: placed.trackingToken, queueNumber: placed.queueNumber, status: "waiting" }]);
+    setTrackedOrders((current) => [...current, { trackingToken: placed.trackingToken, queueNumber: placed.queueNumber, status: "waiting", delivery: isDelivery, deliveryStatus: isDelivery ? "preparing" : null }]);
     setOrderPlaced(true);
     void refreshAccount();
   }
@@ -706,8 +717,34 @@ export default function MenuPage() {
     }
   }
 
+  // Delivery in the cart: the address (the default one unless another is picked), the fee (free at
+  // or above the free delivery amount), the zone's minimum, and whether cash on delivery is open to
+  // this customer. The server checks all of it again.
+  const isDelivery = serviceType === "delivery";
+  const deliveryAddresses = (customer.account?.addresses ?? []).filter((address) => address.zoneActive);
+  const chosenAddress = deliveryAddresses.find((address) => address.id === deliveryAddressId) ?? deliveryAddresses.find((address) => address.isDefault) ?? deliveryAddresses[0] ?? null;
+  const chosenZone = deliveryInfo?.zones.find((zone) => zone.id === chosenAddress?.zoneId) ?? null;
+  const deliveryFee = isDelivery && chosenZone ? (deliveryInfo?.freeAbove && cartTotal + 0.005 >= deliveryInfo.freeAbove ? 0 : chosenZone.fee) : 0;
+  const orderTotal = Math.round((cartTotal + deliveryFee) * 100) / 100;
+  const minimumShort = isDelivery && chosenZone?.minOrder ? Math.max(0, chosenZone.minOrder - cartItemsTotal) : 0;
+  const codProblem = !deliveryInfo?.cod.enabled ? "Not offered by the café"
+    : customer.account?.codBlocked ? "Not available for your account"
+      : (customer.account?.completedOrders ?? 0) < deliveryInfo.cod.minOrders ? `Opens after ${deliveryInfo.cod.minOrders} completed order${deliveryInfo.cod.minOrders === 1 ? "" : "s"}`
+        : orderTotal > deliveryInfo.cod.maxAmount + 0.005 ? `For orders up to ₱${deliveryInfo.cod.maxAmount.toFixed(2)}`
+          : null;
+  const payCod = isDelivery && deliveryPayment === "cod" && codProblem === null;
+  const deliveryProblem = !isDelivery ? ""
+    : !customer.account ? "Sign in to order delivery, so the café has your address and number."
+      : !deliveryInfo?.enabled ? "Delivery isn't available right now."
+        : !deliveryInfo.openNow ? `Delivery is available from ${deliveryInfo.hours?.start ?? ""} to ${deliveryInfo.hours?.end ?? ""}.`
+          : !chosenAddress ? "Add a delivery address in your account first."
+            : minimumShort > 0 ? `Delivery to ${chosenZone?.name ?? "this area"} starts at ₱${chosenZone?.minOrder?.toFixed(2)} of items. Add ₱${minimumShort.toFixed(2)} more.`
+              : "";
+  const deliveryBody = isDelivery && chosenAddress ? { address_id: chosenAddress.id, payment: payCod ? "cod" : "gcash" } : undefined;
+
   async function submitOrder() {
     if (cart.length === 0) return;
+    if (deliveryProblem) { setOrderError(deliveryProblem); return; }
     if (claiming) {
       if (idMode === "counter") await sendToCounter();
       else setIdSheet(idMode);
@@ -719,9 +756,9 @@ export default function MenuPage() {
     const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), reward_id: item.rewardId ?? null }));
     const discountRewardId = discountReward?.id ?? null;
     // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
-    if (paymentConfig.method === "gcash" && cartTotal > 0) {
+    if (paymentConfig.method === "gcash" && orderTotal > 0 && !payCod) {
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }) });
         const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
         try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
@@ -736,7 +773,7 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType }),
+        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
@@ -747,6 +784,8 @@ export default function MenuPage() {
           trackingToken: payload.data?.trackingToken ?? "",
           queueNumber: payload.data?.queueNumber ?? null,
           status: "waiting",
+          delivery: isDelivery,
+          deliveryStatus: isDelivery ? "preparing" : null,
         }]);
       }
       setOrderPlaced(true);
@@ -768,22 +807,22 @@ export default function MenuPage() {
       try {
         const results = await Promise.all(activeOrders.map(async (order) => {
           const response = await fetch(`/api/orders/${order.trackingToken}`, { cache: "no-store" });
-          const payload = await response.json() as { data?: { queue_status: OrderStatus }; error?: string };
+          const payload = await response.json() as { data?: { queue_status: OrderStatus; service_type?: string | null; delivery_status?: string | null }; error?: string };
           if (response.status === 404) {
             return { trackingToken: order.trackingToken, missing: true as const };
           }
           if (!response.ok) throw new Error(payload.error || "Unable to check order status.");
-          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status, missing: false as const };
+          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status, deliveryStatus: payload.data?.delivery_status ?? null, delivery: payload.data?.service_type === "delivery", missing: false as const };
         }));
         if (active) {
           setTrackedOrders((current) => {
             let newlyReady = false;
             const updatedOrders = current
-              .map((order) => {
+              .map((order): TrackedOrder | null => {
                 const update = results.find((result) => result.trackingToken === order.trackingToken);
                 if (!update || update.missing) return null;
-                if (update.status === "served" && order.status !== "served") newlyReady = true;
-                return { ...order, status: update.status };
+                if (update.delivery ? update.deliveryStatus === "out" && order.deliveryStatus !== "out" : update.status === "served" && order.status !== "served") newlyReady = true;
+                return { ...order, status: update.status, delivery: update.delivery, deliveryStatus: update.deliveryStatus };
               })
               .filter((order): order is TrackedOrder => order !== null && order.status !== "flushed");
             if (newlyReady) {
@@ -847,7 +886,7 @@ export default function MenuPage() {
         <h2 id="dining-title">Dining Experience</h2>
         <div className="mm-dining-options" role="radiogroup" aria-label="Dining experience">
           <button type="button" role="radio" aria-checked={serviceType === "dine_in"} onClick={() => setServiceType("dine_in")}><IconDineIn /><span>Dine in</span></button>
-          <button type="button" role="radio" aria-checked={false} aria-disabled="true" className="is-soon" title="Delivery is coming soon"><IconDelivery /><span>Delivery<small>Soon</small></span></button>
+          <button type="button" role="radio" aria-checked={serviceType === "delivery"} aria-disabled={!deliveryInfo?.enabled} className={deliveryInfo?.enabled ? "" : "is-soon"} title={deliveryInfo?.enabled ? (deliveryInfo.openNow ? "Delivered to your address" : "Delivery is closed right now") : "Delivery isn't available"} onClick={() => { if (deliveryInfo?.enabled) setServiceType("delivery"); }}><IconDelivery /><span>Delivery{!deliveryInfo?.enabled ? <small>Unavailable</small> : !deliveryInfo.openNow ? <small>Closed now</small> : null}</span></button>
           <button type="button" role="radio" aria-checked={serviceType === "take_out"} onClick={() => setServiceType("take_out")}><IconTakeOut /><span>Take Out</span></button>
         </div>
       </section>
@@ -907,13 +946,29 @@ export default function MenuPage() {
       </section>
     </div>}
     {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
-      <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">{serviceType === "take_out" ? "YOUR TAKE-OUT ORDER" : "YOUR TABLE ORDER"}</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
+      <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">{serviceType === "take_out" ? "YOUR TAKE-OUT ORDER" : serviceType === "delivery" ? "YOUR DELIVERY ORDER" : "YOUR TABLE ORDER"}</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
         {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <><div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div>{starsSection}</> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.rewardId ? `🎁 Free · ${item.rewardName} · ★ ${item.rewardCost}` : `${item.variantName} · ₱${item.price.toFixed(2)}`}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
         {starsSection}
         {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
-        <div className="service-choice" role="radiogroup" aria-label="Dine in or take out">
-          {([["dine_in", "Dine in", "Enjoy it here"], ["take_out", "Take Out", "To go"]] as const).map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} onClick={() => setServiceType(value)}><strong>{label}</strong><span>{hint}</span></button>)}
+        <div className={`service-choice${deliveryInfo?.enabled ? " is-three" : ""}`} role="radiogroup" aria-label="Dine in, take out or delivery">
+          {([["dine_in", "Dine in", "Enjoy it here"], ["take_out", "Take Out", "To go"], ...(deliveryInfo?.enabled ? [["delivery", "Delivery", "To your door"] as const] : [])] as const).map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} onClick={() => setServiceType(value)}><strong>{label}</strong><span>{hint}</span></button>)}
         </div>
+        {isDelivery && <div className="cart-delivery">
+          {!customer.account ? <p className="cart-delivery-note">Sign in to order delivery, so the café has your address and number. <button type="button" onClick={() => setAccountOpen(true)}>Sign in</button></p>
+            : deliveryAddresses.length === 0 ? <p className="cart-delivery-note">Add where the café should deliver. <button type="button" onClick={() => setAccountOpen(true)}>Add an address</button></p>
+              : chosenAddress && <>
+                <label className="cart-delivery-address"><span>Deliver to</span>
+                  <select value={chosenAddress.id} onChange={(event) => setDeliveryAddressId(Number(event.target.value))}>{deliveryAddresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.street}</option>)}</select>
+                </label>
+                <small className="cart-delivery-detail">{chosenAddress.recipientName} · {chosenAddress.phone} · {chosenZone?.name ?? chosenAddress.zoneName}{chosenAddress.landmark ? ` · near ${chosenAddress.landmark}` : ""} · <button type="button" onClick={() => setAccountOpen(true)}>Manage</button></small>
+                <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
+                  <button type="button" role="radio" aria-checked={!payCod} onClick={() => setDeliveryPayment("gcash")}><strong>GCash</strong><span>Pay now</span></button>
+                  <button type="button" role="radio" aria-checked={payCod} disabled={codProblem !== null} onClick={() => setDeliveryPayment("cod")}><strong>Cash on delivery</strong><span>{codProblem ?? "Pay the rider"}</span></button>
+                </div>
+              </>}
+          {deliveryInfo && !deliveryInfo.openNow && <p className="cart-delivery-note is-warning">Delivery is available from {deliveryInfo.hours?.start} to {deliveryInfo.hours?.end}.</p>}
+          {minimumShort > 0 && <p className="cart-delivery-note is-warning">Delivery to {chosenZone?.name} starts at ₱{chosenZone?.minOrder?.toFixed(2)} of items. Add ₱{minimumShort.toFixed(2)} more.</p>}
+        </div>}
         {idDiscountOptions.length > 0 && <div className={`cart-id-claim${claiming ? " is-on" : ""}`}>
           <label className="cart-id-toggle">
             <input type="checkbox" checked={claiming} disabled={rewardsInCart} onChange={(event) => {
@@ -928,7 +983,7 @@ export default function MenuPage() {
               <div className="cart-id-modes" role="radiogroup" aria-label="How to claim it">
                 {savedIdUsable && savedId && <button type="button" role="radio" aria-checked={idMode === "saved"} onClick={() => { setClaimMode("saved"); setClaimIdType(savedId.typeId); }}><strong>✓ My saved ID</strong><span>{savedId.holderName}{savedId.idEnding ? ` · ending ${savedId.idEnding}` : ""}</span></button>}
                 <button type="button" role="radio" aria-checked={idMode === "photo"} onClick={() => setClaimMode("photo")}><strong>📷 Photo of my ID</strong><span>The café checks it, you pay here</span></button>
-                <button type="button" role="radio" aria-checked={idMode === "counter"} onClick={() => setClaimMode("counter")}><strong>At the counter</strong><span>Show your ID, pay there</span></button>
+                {!isDelivery && <button type="button" role="radio" aria-checked={idMode === "counter"} onClick={() => setClaimMode("counter")}><strong>At the counter</strong><span>Show your ID, pay there</span></button>}
               </div>
               {idMode !== "saved" && <div className="cart-id-types" role="radiogroup" aria-label="Which discount">
                 {idDiscountOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={claimIdType === option.id} onClick={() => setClaimIdType(option.id)}>{option.name}</button>)}
@@ -936,10 +991,26 @@ export default function MenuPage() {
               <p className="cart-id-note">{idMode === "saved" ? "No photo needed. Show your ID when you pick up your order." : idMode === "photo" ? "Take a photo of your ID. The café checks it, usually within a minute, then you pay here. Show your ID when you pick up." : "Send your order to the counter, then show your code and your ID to the cashier and pay there."} The discount covers your own food and drinks.</p>
             </>}
         </div>}
-        <div className="cart-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{cartTotal.toFixed(2)}</strong></div><p className="no-payment-note">{claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || (!claiming && paymentConfig.method === "gcash" && cartTotal > 0 && cartTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter..." : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : cartTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{cartTotal.toFixed(2)} →</span></button></>}
+        {isDelivery && chosenZone && <div className="cart-subtotals"><div><span>Items</span><b>₱{cartTotal.toFixed(2)}</b></div><div><span>Delivery fee · {chosenZone.name}</span><b>{deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</b></div>{deliveryInfo?.freeAbove && deliveryFee > 0 ? <small>Free delivery from ₱{deliveryInfo.freeAbove.toFixed(2)} of items.</small> : null}</div>}
+        <div className="cart-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{orderTotal.toFixed(2)}</strong></div><p className="no-payment-note">{payCod && !claiming ? <>Pay <strong>₱{orderTotal.toFixed(2)} in cash</strong> when your order arrives. Exact change helps the rider.</> : claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || Boolean(deliveryProblem) || (!claiming && !payCod && paymentConfig.method === "gcash" && orderTotal > 0 && orderTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : payCod && !claiming ? (placingOrder ? "Placing your order..." : "Place order · cash on delivery") : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter..." : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : orderTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{orderTotal.toFixed(2)} →</span></button>{deliveryProblem && <p className="cart-delivery-note is-warning">{deliveryProblem}</p>}</>}
       </section>
     </div>}
-    {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => { const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
+    {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => {
+      if (order.delivery) {
+        const step = order.deliveryStatus ?? "preparing";
+        const info: Record<string, [string, string, string, boolean]> = {
+          preparing: ["PREPARING", "We're preparing your order.", "The café has your delivery order. We'll let you know when it's on the way.", false],
+          ready: ["READY FOR THE RIDER", "Your order is packed.", "It's waiting for the rider to pick it up.", false],
+          out: ["ON THE WAY", "Your order is on the way!", "The rider is heading to you. Keep your phone nearby.", true],
+          delivered: ["DELIVERED", "Delivered. Enjoy!", "Thank you for ordering from Brew Houze.", true],
+          failed: ["NOT DELIVERED", "We couldn't deliver this order.", "The café will contact you about it.", false],
+          cancelled: ["CANCELLED", "This order was cancelled.", "Contact the café if you have questions.", false],
+        };
+        const [badge, title, text, good] = info[step] ?? info.preparing;
+        const steps = ["preparing", "ready", "out", "delivered"];
+        return <article className={`tracked-order ${good ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${good ? "confirmation-ready" : "confirmation-waiting"}`}>{step === "delivered" ? "✓" : step === "out" ? "🛵" : "•••"}</div><div><p className="status-badge">{badge}</p><h3>{title}</h3></div></div><ol className="delivery-steps">{steps.map((name, index) => <li key={name} className={steps.indexOf(step) >= index ? "is-done" : ""}>{["Preparing", "Packed", "On the way", "Delivered"][index]}</li>)}</ol><div className="queue-ticket"><span>ORDER NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{text}</p></article>;
+      }
+      const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
     {rewardPick && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setRewardPick(null); }}>
       <section className="cart-modal" aria-label={`Choose the item for ${rewardPick.name}`}>
         <div className="cart-modal-heading"><div><p className="eyebrow">REWARD · ★ {rewardPick.starsCost}</p><h2>{rewardPick.name}</h2></div><button className="modal-close inline" onClick={() => setRewardPick(null)} aria-label="Close">×</button></div>

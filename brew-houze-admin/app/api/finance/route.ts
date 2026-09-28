@@ -182,7 +182,7 @@ export async function GET(request: Request) {
           TO_CHAR(o.reversed_at AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
           COALESCE(cashier.full_name, CASE WHEN o.order_source = 'online' THEN 'Mobile order' ELSE 'Unknown' END) AS punched_by,
           reverser.full_name AS reversed_by,
-          cu.full_name AS customer_name, o.subtotal_amount, o.discount_amount, o.discount_label, o.service_type, o.vat_exempt_amount,
+          cu.full_name AS customer_name, o.subtotal_amount, o.discount_amount, o.discount_label, o.service_type, o.vat_exempt_amount, o.delivery_fee,
           COALESCE(lines.items, '[]'::json) AS items,
           lines.cost AS cost
         FROM o
@@ -246,6 +246,7 @@ export async function GET(request: Request) {
           discountAmount: n(row.discount_amount),
           discountLabel: row.discount_label ?? null,
           vatExemptAmount: n(row.vat_exempt_amount ?? 0),
+          deliveryFee: n(row.delivery_fee ?? 0),
           serviceType: row.service_type ?? null,
           paymentProvider: row.payment_provider ?? null,
           cashPortion: row.cash_portion === null || row.cash_portion === undefined ? null : n(row.cash_portion),

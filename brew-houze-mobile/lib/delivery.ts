@@ -53,3 +53,59 @@ export function normalizePhone(value: unknown): string | null {
   const local = digits.startsWith("63") ? `0${digits.slice(2)}` : digits.startsWith("9") ? `0${digits}` : digits;
   return /^09\d{9}$/.test(local) ? local : null;
 }
+
+// A delivery order, checked before it is placed (the order itself adds the fee: see lib/orders.ts).
+// The address is copied, so later edits to the address book do not change past orders.
+export type DeliveryPayment = "gcash" | "cod";
+export type DeliveryPlan = {
+  customerId: number; addressId: number; recipientName: string; phone: string; street: string; landmark: string | null; riderNotes: string | null;
+  zoneId: number; zoneName: string; zoneFee: number; zoneMinOrder: number | null; freeAbove: number | null;
+  payment: DeliveryPayment; codMaxAmount: number | null;
+};
+export const ACTIVE_DELIVERY_STATUSES = ["preparing", "ready", "out"];
+
+// Checks that delivery is on and open, the address is the customer's and in an active zone, the
+// café is not at its delivery limit, and (for cash on delivery) that this customer may use it.
+// Throws with a message for the customer.
+export async function planDelivery(db: Db, customerId: number | null, input: unknown): Promise<DeliveryPlan> {
+  if (customerId === null) throw new Error("Sign in to order delivery, so the café has your address and number.");
+  const raw = (input ?? {}) as { address_id?: unknown; payment?: unknown };
+  const addressId = Number(raw.address_id);
+  const payment: DeliveryPayment = raw.payment === "cod" ? "cod" : "gcash";
+  const settings = await deliverySettings(db);
+  if (!settings.enabled) throw new Error("Delivery is not available right now. Choose Dine in or Take Out.");
+  if (!withinDeliveryHours(settings)) throw new Error(`Delivery is only available from ${settings.start} to ${settings.end}.`);
+  if (!Number.isInteger(addressId) || addressId <= 0) throw new Error("Choose the delivery address.");
+  const address = await db.query(`
+    SELECT a.address_id, a.recipient_name, a.phone, a.street, a.landmark, a.rider_notes, z.zone_id, z.name AS zone_name, z.fee, z.min_order, z.is_active
+    FROM customer_addresses a JOIN delivery_zones z ON z.zone_id = a.zone_id
+    WHERE a.address_id = $1 AND a.customer_id = $2
+  `, [addressId, customerId]);
+  const row = address.rows[0];
+  if (!row) throw new Error("That address is no longer in your account. Choose another one.");
+  if (!row.is_active) throw new Error(`The café no longer delivers to ${row.zone_name}. Choose another address.`);
+  if (settings.maxActive !== null) {
+    const active = await db.query("SELECT COUNT(*)::int AS n FROM deliveries WHERE status = ANY($1::text[])", [ACTIVE_DELIVERY_STATUSES]);
+    if (Number(active.rows[0].n) >= settings.maxActive) throw new Error("The café has as many deliveries as it can handle right now. Please try again in a few minutes, or choose Take Out.");
+  }
+  if (payment === "cod") {
+    if (!settings.cod.enabled) throw new Error("Cash on delivery is not available. Pay with GCash instead.");
+    const customer = await db.query(`
+      SELECT c.cod_blocked, (SELECT COUNT(*)::int FROM sales_orders so WHERE so.customer_id = c.customer_id AND so.status = 'completed') AS completed
+      FROM customers c WHERE c.customer_id = $1
+    `, [customerId]);
+    if (customer.rows[0]?.cod_blocked) throw new Error("Cash on delivery is not available for your account. Pay with GCash instead.");
+    if (Number(customer.rows[0]?.completed ?? 0) < settings.cod.minOrders) throw new Error(`Cash on delivery opens after ${settings.cod.minOrders} completed order${settings.cod.minOrders === 1 ? "" : "s"}. Pay with GCash this time.`);
+  }
+  return {
+    customerId, addressId, recipientName: String(row.recipient_name), phone: String(row.phone), street: String(row.street), landmark: (row.landmark as string | null) ?? null, riderNotes: (row.rider_notes as string | null) ?? null,
+    zoneId: Number(row.zone_id), zoneName: String(row.zone_name), zoneFee: Number(row.fee), zoneMinOrder: row.min_order === null ? null : Number(row.min_order), freeAbove: settings.freeAbove,
+    payment, codMaxAmount: payment === "cod" ? settings.cod.maxAmount : null,
+  };
+}
+
+// The fee on a delivery order: the zone's fee, or free at or above the free delivery amount
+// (compared with what the customer pays for the items, after discounts).
+export function deliveryFeeFor(plan: Pick<DeliveryPlan, "zoneFee" | "freeAbove">, itemsAfterDiscounts: number): number {
+  return plan.freeAbove !== null && itemsAfterDiscounts + 0.005 >= plan.freeAbove ? 0 : plan.zoneFee;
+}

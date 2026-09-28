@@ -4,6 +4,7 @@ import { placeOrder, quoteOrder, type OrderItemInput, type OrderSource } from "@
 import type { IdDiscountInput } from "@/lib/discounts";
 import { claimCounterCart, completeCounterCart } from "@/lib/counter-carts";
 import { markVerificationUsed } from "@/lib/id-verifications";
+import type { DeliveryPlan } from "@/lib/delivery";
 import { createGcashPayment, getIntentState, PAYMONGO_MIN_AMOUNT, refundPayment } from "@/lib/paymongo";
 
 // GCash checkouts: the order is only created once PayMongo reports the payment as paid, so an
@@ -35,7 +36,7 @@ export type CheckoutView = {
 type CheckoutRow = {
   checkout_id: number; source_app: OrderSource; status: CheckoutStatus; amount: string; items: OrderItemInput[];
   cashier_admin_id: number | null; public_token: string; intent_id: string | null; payment_id: string | null;
-  cash_amount?: string | null; received_amount?: string | null; customer_id?: number | null; discount_reward_id?: number | null; service_type?: string | null; id_discounts?: IdDiscountInput[] | null; counter_cart_id?: number | null; id_verification_id?: number | null;
+  cash_amount?: string | null; received_amount?: string | null; customer_id?: number | null; discount_reward_id?: number | null; service_type?: string | null; id_discounts?: IdDiscountInput[] | null; counter_cart_id?: number | null; id_verification_id?: number | null; delivery?: DeliveryPlan | null;
   order_id: number | null; error: string | null; queue_number?: number | null; shift_id?: number | null;
 };
 
@@ -76,11 +77,11 @@ async function loadByToken(token: string): Promise<CheckoutRow | null> {
 
 // Prices the cart (stock, prices and the open shift all checked), opens a PayMongo GCash
 // payment for exactly that amount, and returns where to send the customer.
-export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; rewardsAuthorized?: boolean; discountRewardId?: number | null; idDiscounts?: IdDiscountInput[]; counterCartId?: number | null; idVerificationId?: number | null; serviceType?: "dine_in" | "take_out" | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
+export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; rewardsAuthorized?: boolean; discountRewardId?: number | null; idDiscounts?: IdDiscountInput[]; counterCartId?: number | null; idVerificationId?: number | null; delivery?: DeliveryPlan | null; serviceType?: "dine_in" | "take_out" | "delivery" | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
   const client = await pool.connect();
   let total: number;
   try {
-    total = await quoteOrder(client, { items: input.items, source: input.source, cashierAdminId: input.cashierAdminId, customerId: input.customerId ?? null, rewardsAuthorized: input.rewardsAuthorized, discountRewardId: input.discountRewardId ?? null, idDiscounts: input.idDiscounts ?? [] });
+    total = await quoteOrder(client, { items: input.items, source: input.source, cashierAdminId: input.cashierAdminId, customerId: input.customerId ?? null, rewardsAuthorized: input.rewardsAuthorized, discountRewardId: input.discountRewardId ?? null, idDiscounts: input.idDiscounts ?? [], serviceType: input.serviceType ?? null, delivery: input.delivery ?? null });
   } finally {
     client.release();
   }
@@ -102,10 +103,10 @@ export async function startCheckout(input: { source: OrderSource; items: OrderIt
 
   const token = randomUUID();
   const inserted = await pool.query(`
-    INSERT INTO payment_checkouts (source_app, status, amount, items, cashier_admin_id, public_token, cash_amount, received_amount, customer_id, discount_reward_id, service_type, id_discounts, counter_cart_id, id_verification_id)
-    VALUES ($1, 'awaiting_payment', $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13)
+    INSERT INTO payment_checkouts (source_app, status, amount, items, cashier_admin_id, public_token, cash_amount, received_amount, customer_id, discount_reward_id, service_type, id_discounts, counter_cart_id, id_verification_id, delivery)
+    VALUES ($1, 'awaiting_payment', $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10, $11::jsonb, $12, $13, $14::jsonb)
     RETURNING checkout_id
-  `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token, cashAmount, receivedAmount, input.customerId ?? null, input.discountRewardId ?? null, input.serviceType ?? null, input.idDiscounts && input.idDiscounts.length > 0 ? JSON.stringify(input.idDiscounts) : null, input.counterCartId ?? null, input.idVerificationId ?? null]);
+  `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token, cashAmount, receivedAmount, input.customerId ?? null, input.discountRewardId ?? null, input.serviceType ?? null, input.idDiscounts && input.idDiscounts.length > 0 ? JSON.stringify(input.idDiscounts) : null, input.counterCartId ?? null, input.idVerificationId ?? null, input.delivery ? JSON.stringify(input.delivery) : null]);
   const checkoutId = Number(inserted.rows[0].checkout_id);
   try {
     const payment = await createGcashPayment({
@@ -175,7 +176,9 @@ async function finalizePaid(checkoutId: number, paymentId: string | null): Promi
         discountRewardId: row.discount_reward_id === null || row.discount_reward_id === undefined ? null : Number(row.discount_reward_id),
         // ID discounts the cashier checked when the payment started.
         idDiscounts: Array.isArray(row.id_discounts) ? row.id_discounts : [],
-        serviceType: row.service_type === "dine_in" || row.service_type === "take_out" ? row.service_type : null,
+        serviceType: row.service_type === "dine_in" || row.service_type === "take_out" || row.service_type === "delivery" ? row.service_type : null,
+        // A delivery order's address and fee rules, as checked when the payment started.
+        delivery: row.delivery ?? null,
         paymentReference: paymentId,
         paymentProvider: "paymongo_gcash",
       });

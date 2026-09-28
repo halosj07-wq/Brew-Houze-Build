@@ -245,6 +245,19 @@ export async function POST(request: Request) {
         await client.query("ROLLBACK");
         return NextResponse.json({ error: "This shift was already closed. Refresh to see the current state." }, { status: 409 });
       }
+      // Deliveries must be finished first: none in progress, every failed one voided, and every
+      // rider's cash on delivery received into this drawer.
+      const openDeliveries = (await client.query(`
+        SELECT COUNT(*) FILTER (WHERE d.status IN ('preparing', 'ready', 'out') AND so.status = 'completed')::int AS active,
+          COUNT(*) FILTER (WHERE d.status = 'failed' AND so.status = 'completed')::int AS failed,
+          COUNT(*) FILTER (WHERE d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL)::int AS cash
+        FROM deliveries d JOIN sales_orders so ON so.order_id = d.order_id
+      `)).rows[0];
+      if (Number(openDeliveries.active) + Number(openDeliveries.failed) + Number(openDeliveries.cash) > 0) {
+        await client.query("ROLLBACK");
+        const parts = [Number(openDeliveries.active) ? `${openDeliveries.active} delivery${Number(openDeliveries.active) === 1 ? " is" : " orders are"} still in progress` : "", Number(openDeliveries.failed) ? `${openDeliveries.failed} failed delivery order${Number(openDeliveries.failed) === 1 ? " needs" : "s need"} voiding` : "", Number(openDeliveries.cash) ? `${openDeliveries.cash} rider cash on delivery payment${Number(openDeliveries.cash) === 1 ? " is" : "s are"} not received yet` : ""].filter(Boolean);
+        return NextResponse.json({ error: `Finish the deliveries before closing: ${parts.join(", ")}. See the Deliveries page.` }, { status: 409 });
+      }
       const expected = await client.query("SELECT expected_cash FROM shift_summaries WHERE shift_id = $1", [shiftId]);
       await client.query(`
         UPDATE shifts

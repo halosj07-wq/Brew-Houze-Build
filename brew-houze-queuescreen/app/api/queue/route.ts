@@ -8,7 +8,7 @@ export async function GET(request: Request) {
         COALESCE(MAX(order_id), 0)::int AS latest_order_id,
         COALESCE(MAX(served_at), TIMESTAMP 'epoch') AS latest_served_at
       FROM sales_orders
-      WHERE queue_status IN ('waiting', 'served')
+      WHERE queue_status IN ('waiting', 'served') AND service_type IS DISTINCT FROM 'delivery'
     `);
     if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
       return NextResponse.json({ signature: signatureResult.rows[0] }, { headers: { "Cache-Control": "no-store" } });
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
       JOIN sales_order_items soi ON soi.order_id = so.order_id
       JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
-      WHERE so.queue_status IN ('waiting', 'served')
+      WHERE so.queue_status IN ('waiting', 'served') AND so.service_type IS DISTINCT FROM 'delivery'
       GROUP BY so.order_id
       ORDER BY so.queue_status DESC, so.queue_number ASC
     `);
