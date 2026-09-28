@@ -4,7 +4,7 @@ import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, u
 import Image from "next/image";
 import * as XLSX from "xlsx";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "loyalty" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "loyalty" | "discounts" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -303,6 +303,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
   { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
   { id: "loyalty", label: "Loyalty", short: "Loyalty", Icon: IconStar },
+  { id: "discounts", label: "Discounts", short: "Discounts", Icon: IconTag },
   { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
   { id: "archives", label: "Archives", short: "Archives", Icon: IconArchive },
 ];
@@ -310,7 +311,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "customers", "loyalty", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "customers", "loyalty", "discounts", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -4654,6 +4655,9 @@ type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: Shi
 
 const LONG_OPEN_SHIFT_HOURS = 16;
 
+// What each kind of order discount is called in Finance.
+const discountSourceLabels: Record<string, string> = { reward: "reward", birthday: "birthday", senior: "senior", pwd: "PWD", student: "student", employee: "employee meal", custom: "custom discount", mixed: "mixed ID discount", promo: "promo", other: "other" };
+
 function peso(value: number): string {
   return `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -4982,7 +4986,7 @@ type FinanceOverviewData = {
 type FinanceLoyalty = {
   memberOrders: number; memberSales: number; members: number; starsEarned: number; starsSpent: number; starsAdjusted: number;
   rewardsClaimed: number; rewardValue: number; rewardCost: number | null; rewards: { name: string; claimed: number; value: number; cost: number | null }[];
-  discounts?: { source: string; orders: number; amount: number }[]; discountTotal?: number;
+  discounts?: { source: string; orders: number; amount: number; vatExempt?: number }[]; discountTotal?: number; vatExemptTotal?: number;
 };
 // rewardName: a loyalty reward line (sold at ₱0); rewardValue: its normal price.
 type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; rewardValue?: number | null; additions: { name: string; quantity: number; unitPrice: number }[] };
@@ -4991,8 +4995,9 @@ type FinanceOrder = {
   received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
   businessDate: string; createdAt: string; reversedAt: string | null; punchedBy: string; reversedBy: string | null; cost: number | null; items: FinanceOrderItem[];
   customerName?: string | null;
-  // A discount taken off the order (a reward now; PWD or senior later).
-  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null;
+  // A discount taken off the order (a loyalty reward, or ID discounts such as senior and PWD, whose
+  // VAT is also removed: vatExemptAmount).
+  subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; vatExemptAmount?: number;
   // Dine in or take out (null: before it was recorded).
   serviceType?: "dine_in" | "take_out" | null;
   paymentProvider?: string | null;
@@ -5236,7 +5241,7 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
         <div><span>Members who ordered</span><strong>{data.loyalty.members}</strong></div>
         <div><span>Stars earned / spent</span><strong>★ {data.loyalty.starsEarned} / {data.loyalty.starsSpent}</strong></div>
         <div><span>Rewards given</span><strong>{data.loyalty.rewardsClaimed}</strong><em className="fin-loy-sub">worth {peso(data.loyalty.rewardValue)} · cost {data.loyalty.rewardCost === null ? "not recorded" : peso(data.loyalty.rewardCost)}</em></div>
-        {(data.loyalty.discountTotal ?? 0) > 0 && <div><span>Discounts given</span><strong>{peso(data.loyalty.discountTotal ?? 0)}</strong><em className="fin-loy-sub">{(data.loyalty.discounts ?? []).map((row) => `${row.orders} ${row.source === "birthday" ? "birthday" : row.source === "reward" ? "reward" : row.source} order${row.orders === 1 ? "" : "s"}`).join(" · ")}</em></div>}
+        {((data.loyalty.discountTotal ?? 0) > 0 || (data.loyalty.vatExemptTotal ?? 0) > 0) && <div><span>Discounts given</span><strong>{peso(data.loyalty.discountTotal ?? 0)}</strong><em className="fin-loy-sub">{[...(data.loyalty.discounts ?? []).map((row) => `${row.orders} ${discountSourceLabels[row.source] ?? row.source} order${row.orders === 1 ? "" : "s"}`), (data.loyalty.vatExemptTotal ?? 0) > 0 ? `${peso(data.loyalty.vatExemptTotal ?? 0)} VAT exempted (senior/PWD)` : ""].filter(Boolean).join(" · ")}</em></div>}
       </div>
       {data.loyalty.rewards.length > 0 && <ul className="fin-simple-list" style={{ marginTop: 12 }}>
         {data.loyalty.rewards.map((reward) => <li key={reward.name}><span><strong>{reward.name}</strong><em>{reward.claimed} given · cost {reward.cost === null ? "not recorded" : peso(reward.cost)}</em></span><strong>{peso(reward.value)}</strong></li>)}
@@ -5288,6 +5293,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {fact("Order type", serviceTypeLabels[order.serviceType ?? "unknown"])}
           {order.customerName && fact("Customer", order.customerName)}
           {Boolean(order.discountAmount) && fact("Discount", `−${peso(order.discountAmount ?? 0)}${order.discountLabel ? ` · ${order.discountLabel}` : ""}`)}
+          {Boolean(order.vatExemptAmount) && fact("VAT exempted", `−${peso(order.vatExemptAmount ?? 0)} (senior/PWD)`)}
           {fact("Payment", order.paymentMethod === "cash" ? "Cash" : order.paymentMethod === "split" ? `${peso(order.cashPortion ?? 0)} cash + ${peso(order.total - (order.cashPortion ?? 0))} GCash` : "Online")}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.received !== null && fact("Cash received", peso(order.received))}
           {(order.paymentMethod === "cash" || order.paymentMethod === "split") && order.change !== null && fact("Change", peso(order.change))}
@@ -5332,8 +5338,9 @@ function financeOrderColumns(): ExcelColumn<FinanceOrder>[] {
     { header: "Payment", value: (order) => excelPayment(order) },
     { header: "Status", value: (order) => excelStatus(orderStatusOf(order)) },
     { header: "Items", value: (order) => describeItems(order.items) },
-    { header: "Subtotal", value: (order) => order.subtotal ?? order.total + (order.discountAmount ?? 0), kind: "money" },
+    { header: "Subtotal", value: (order) => order.subtotal ?? order.total + (order.discountAmount ?? 0) + (order.vatExemptAmount ?? 0), kind: "money" },
     { header: "Discount", value: (order) => order.discountAmount || null, kind: "money" },
+    { header: "VAT exempted", value: (order) => order.vatExemptAmount || null, kind: "money" },
     { header: "Discount for", value: (order) => order.discountLabel ?? "" },
     { header: "Total", value: (order) => order.total, kind: "money" },
     { header: "Cash part", value: (order) => order.paymentMethod === "split" ? order.cashPortion ?? null : order.paymentMethod === "cash" ? order.total : null, kind: "money" },
@@ -7359,6 +7366,220 @@ function Loyalty({ products, categories }: { products: Product[]; categories: Pr
   </div>;
 }
 
+// ─── Discounts ────────────────────────────────────────────────────────────────
+// Discounts the counter gives with an ID: Senior Citizen and PWD (set by law), Student, Employee
+// meal and custom ones. The cashier enters the name and ID number, and ticks the items that are
+// the person's own (or splits a shared bill).
+type DiscountTypeAdmin = {
+  id: number; code: "senior" | "pwd" | "student" | "employee" | "custom"; name: string; discountKind: "percent" | "fixed"; discountValue: number; maxDiscount: number | null;
+  vatExempt: boolean; requiresId: boolean; idLabel: string | null; isActive: boolean; statutory: boolean;
+  stats: { uses: number; usesThisMonth: number; discount: number; vatExempt: number; everUsed: boolean };
+};
+type VatSetting = { registered: boolean; rate: number };
+const discountIcons: Record<DiscountTypeAdmin["code"], string> = { senior: "🧓", pwd: "♿", student: "🎓", employee: "☕", custom: "🏷️" };
+
+function discountRuleText(type: Pick<DiscountTypeAdmin, "discountKind" | "discountValue" | "maxDiscount" | "vatExempt">, vat: VatSetting): string {
+  const off = type.discountKind === "percent" ? `${type.discountValue}% off` : `${peso(type.discountValue)} off`;
+  return `${off}${type.vatExempt ? vat.registered ? `, VAT removed first (${vat.rate}%)` : ", no VAT to remove (not VAT-registered)" : ""}${type.maxDiscount !== null ? `, up to ${peso(type.maxDiscount)}` : ""}`;
+}
+
+function Discounts() {
+  const confirmAction = useConfirm();
+  const [types, setTypes] = useState<DiscountTypeAdmin[]>([]);
+  const [vat, setVat] = useState<VatSetting>({ registered: true, rate: 12 });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [working, setWorking] = useState<number | "vat" | null>(null);
+  const [editing, setEditing] = useState<DiscountTypeAdmin | "new" | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/discounts", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the discounts.");
+      setTypes(payload.data.types ?? []);
+      setVat(payload.data.vat ?? { registered: true, rate: 12 });
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the discounts.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  async function send(method: "PATCH" | "DELETE", body: Record<string, unknown> | null, url = "/api/discounts") {
+    const response = await fetch(url, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || "Could not save the change.");
+  }
+
+  async function toggle(type: DiscountTypeAdmin) {
+    if (type.isActive && type.statutory && !(await confirmAction({ title: `Switch off ${type.name}?`, message: `The law requires cafés to give the ${type.name} discount. Switch it off only if you handle it another way.`, confirmLabel: "Switch off", tone: "danger" }))) return;
+    setWorking(type.id);
+    setError("");
+    try {
+      await send("PATCH", { id: type.id, isActive: !type.isActive });
+      setNotice(`${type.name} switched ${type.isActive ? "off" : "on"}.`);
+      await load();
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Could not switch the discount.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function remove(type: DiscountTypeAdmin) {
+    if (!(await confirmAction({ title: `Delete ${type.name}?`, message: "It has never been used, so nothing else is affected.", confirmLabel: "Delete", tone: "danger" }))) return;
+    setWorking(type.id);
+    setError("");
+    try {
+      await send("DELETE", null, `/api/discounts?id=${type.id}`);
+      setNotice(`${type.name} deleted.`);
+      await load();
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete the discount.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function setVatRegistered(registered: boolean) {
+    if (!registered && !(await confirmAction({ title: "Turn off VAT registration?", message: "Senior and PWD discounts will then be 20% off the full price, with no VAT removed. Only do this if the café is not VAT-registered.", confirmLabel: "Turn off", tone: "danger" }))) return;
+    setWorking("vat");
+    setError("");
+    try {
+      await send("PATCH", { action: "vat", registered, rate: vat.rate });
+      setNotice(registered ? "VAT registration switched on." : "VAT registration switched off.");
+      await load();
+    } catch (vatError) {
+      setError(vatError instanceof Error ? vatError.message : "Could not save the VAT setting.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  // Example for the VAT card: a ₱150 drink for a senior.
+  const example = 150;
+  const exampleBase = vat.registered ? example / (1 + vat.rate / 100) : example;
+  const examplePays = exampleBase * 0.8;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <p className="inv-hint" style={{ margin: 0 }}>Discounts the counter gives when a customer shows an ID. The cashier types their name and ID number, checks the photo, and ticks the items that are theirs. On a shared bill they can split it by the number of people instead. An order has either ID discounts or a loyalty discount, never both.</p>
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="acc-notice" role="status">{notice}</div>}
+
+      {loading ? <div className="inv-empty">Loading discounts…</div> : <>
+        <section className={`dsc-vat${vat.registered ? " is-on" : ""}`}>
+          <span className="dsc-vat-icon" aria-hidden="true">🧾</span>
+          <div className="dsc-vat-text">
+            <PermissionSwitch checked={vat.registered} disabled={working === "vat"} title={`VAT-registered (${vat.rate}% VAT)`} description="Senior and PWD customers do not pay VAT on their own food and drinks. When the café is VAT-registered, the VAT comes off before their 20% discount." onChange={(checked) => void setVatRegistered(checked)} />
+            <p className="dsc-vat-example">Example, a {peso(example)} drink for a senior: {vat.registered ? <>without VAT {peso(exampleBase)}, then 20% off ({peso(exampleBase * 0.2)}), so they pay <strong>{peso(examplePays)}</strong>.</> : <>20% off ({peso(example * 0.2)}), so they pay <strong>{peso(examplePays)}</strong>.</>}</p>
+          </div>
+        </section>
+
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h3 className="loy-section-title">Discounts</h3>
+          <button type="button" className="inv-secondary" onClick={() => setEditing("new")}><IconPlus size={14} />New discount</button>
+        </div>
+        {types.length === 0 ? <p className="inv-hint">No discounts yet. Run the ID discounts migration first.</p> : <div className="acc-grid">
+          {types.map((type) => <div key={type.id} className={`acc-card dsc-card${type.isActive ? "" : " is-inactive"}`} style={{ cursor: "default" }}>
+            <span className="acc-card-top">
+              <span className="loy-badge dsc-badge" aria-hidden="true">{discountIcons[type.code] ?? "🏷️"}</span>
+              <span className="acc-card-name"><strong>{type.name}</strong><em>{discountRuleText(type, vat)}</em></span>
+              <span className={`acc-status ${type.isActive ? "is-on" : "is-off"}`}><i />{type.isActive ? "On" : "Off"}</span>
+            </span>
+            <span className="acc-perms">
+              {type.statutory && <span className="acc-perm is-on">Set by law</span>}
+              {type.vatExempt && <span className="acc-perm is-on">VAT-exempt</span>}
+              <span className={`acc-perm${type.requiresId ? " is-on" : ""}`}>{type.requiresId ? `Needs ${type.idLabel ?? "an ID number"}` : "No ID needed"}</span>
+              {type.statutory && <span className="acc-perm is-on">Customer signs</span>}
+            </span>
+            <span className="acc-card-stats">
+              <span><em>This month</em><strong>{type.stats.usesThisMonth}</strong></span>
+              <span><em>All time</em><strong>{type.stats.uses}</strong></span>
+              <span><em>Given</em><strong>{peso(type.stats.discount + type.stats.vatExempt)}</strong></span>
+            </span>
+            <span className="flex gap-2 flex-wrap">
+              <button type="button" className="inv-mini" disabled={working === type.id} onClick={() => void toggle(type)}>{type.isActive ? "Switch off" : "Switch on"}</button>
+              {!type.statutory && <button type="button" className="inv-mini" onClick={() => setEditing(type)}><IconPencil size={12} />Edit</button>}
+              {type.code === "custom" && !type.stats.everUsed && <button type="button" className="inv-mini" disabled={working === type.id} onClick={() => void remove(type)}><IconTrash size={12} />Delete</button>}
+            </span>
+          </div>)}
+        </div>}
+      </>}
+    </div>
+    {editing && <DiscountFormDialog discount={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async (message) => { setEditing(null); setNotice(message); await load(); }} />}
+  </div>;
+}
+
+function DiscountFormDialog({ discount, onClose, onSaved }: { discount: DiscountTypeAdmin | null; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const [draft, setDraft] = useState(() => ({
+    name: discount?.name ?? "",
+    discountKind: discount?.discountKind ?? "percent" as "percent" | "fixed",
+    discountValue: discount ? String(discount.discountValue) : "10",
+    maxDiscount: discount?.maxDiscount === null || discount?.maxDiscount === undefined ? "" : String(discount.maxDiscount),
+    requiresId: discount?.requiresId ?? true,
+    idLabel: discount?.idLabel ?? "",
+  }));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const set = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const value = Number(draft.discountValue);
+  const problem = !draft.name.trim() ? "Enter a name."
+    : !Number.isFinite(value) || value <= 0 ? "Enter how much it takes off."
+      : draft.discountKind === "percent" && value > 100 ? "A percentage can be at most 100."
+        : draft.maxDiscount.trim() !== "" && !(Number(draft.maxDiscount) > 0) ? "The most it takes off must be more than ₱0, or left empty."
+          : "";
+  const choice = (active: boolean) => ({ flex: 1, padding: "10px 12px", borderRadius: 11, border: active ? "1.5px solid #D97706" : "1.5px solid #E8DDD5", background: active ? "#FFF7ED" : "#FFFFFF", textAlign: "left" as const, cursor: "pointer" });
+
+  async function save() {
+    if (problem) return;
+    setSaving(true);
+    setError("");
+    try {
+      const body = { ...(discount ? { id: discount.id } : {}), name: draft.name, discountKind: draft.discountKind, discountValue: value, maxDiscount: draft.discountKind === "percent" && draft.maxDiscount.trim() ? Number(draft.maxDiscount) : null, requiresId: draft.requiresId, idLabel: draft.idLabel };
+      const response = await fetch("/api/discounts", { method: discount ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the discount.");
+      await onSaved(discount ? `${draft.name.trim()} saved.` : `${draft.name.trim()} added and switched on.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the discount.");
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label={discount ? "Edit discount" : "New discount"}>
+    <form onSubmit={(event) => { event.preventDefault(); void save(); }} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={discount ? `Edit ${discount.name}` : "New discount"} sub="Given at the counter to a customer who shows an ID. The discount comes off the price as it is (VAT included)." onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <WizardField label="Name" hint="Shown to the cashier and on the receipt."><input data-autofocus value={draft.name} onChange={(event) => set("name", event.target.value)} placeholder="e.g. National athlete" style={packagingInput} maxLength={60} /></WizardField>
+        <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Kind of discount">
+          <button type="button" role="radio" aria-checked={draft.discountKind === "percent"} style={choice(draft.discountKind === "percent")} onClick={() => set("discountKind", "percent")}><strong style={{ display: "block", color: "#3D2B1F" }}>Percentage</strong><span style={{ fontSize: 12, color: "#9C8278" }}>e.g. 10% off their items</span></button>
+          <button type="button" role="radio" aria-checked={draft.discountKind === "fixed"} style={choice(draft.discountKind === "fixed")} onClick={() => set("discountKind", "fixed")}><strong style={{ display: "block", color: "#3D2B1F" }}>Fixed amount</strong><span style={{ fontSize: 12, color: "#9C8278" }}>e.g. ₱20 off per person</span></button>
+        </div>
+        <div className="inv-step-grid">
+          <WizardField label={draft.discountKind === "percent" ? "Percent off" : "Amount off (₱)"}><input type="number" min={0} max={draft.discountKind === "percent" ? 100 : undefined} step="0.01" value={draft.discountValue} onChange={(event) => set("discountValue", event.target.value)} style={packagingInput} /></WizardField>
+          {draft.discountKind === "percent" && <WizardField label="Most it takes off (₱, optional)" hint="Empty: no limit."><input type="number" min={0} step="0.01" value={draft.maxDiscount} onChange={(event) => set("maxDiscount", event.target.value)} style={packagingInput} /></WizardField>}
+        </div>
+        <PermissionSwitch checked={draft.requiresId} title="Needs an ID number" description="The cashier must type the ID number and confirm they checked the ID." onChange={(checked) => set("requiresId", checked)} />
+        <WizardField label={draft.requiresId ? "What the ID is called" : "ID field (optional)"} hint="The label the cashier sees, e.g. School ID no."><input value={draft.idLabel} onChange={(event) => set("idLabel", event.target.value)} placeholder="ID no." style={packagingInput} maxLength={60} /></WizardField>
+        {error && <p role="alert" className="acc-error">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-wrap" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary">{saving ? "Saving…" : discount ? "Save changes" : "Add discount"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
 function Accounts() {
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -8335,7 +8556,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", loyalty: "Loyalty Campaigns", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -8358,6 +8579,7 @@ export default function App() {
         {page === "finance" && <Finance />}
         {page === "customers" && <Customers />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
+        {page === "discounts" && <Discounts />}
         {page === "accounts" && <Accounts />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}

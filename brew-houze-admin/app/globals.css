@@ -1343,3 +1343,14 @@ strong.is-low { color: #B45309 !important; }
 .loy-birthday-text span { color: #6B4C3B; font-size: 12.5px; line-height: 1.45; }
 .loy-birthday-text em { color: #9C8278; font-size: 12px; font-style: normal; }
 .loy-status.is-paused { background: #F3EDE5; color: #6B4C3B; }
+
+/* Discounts page: the VAT card and the discount cards. */
+.dsc-vat { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; padding: 14px 16px; border-radius: 16px; border: 1px dashed #D6C3B5; background: #FDF9F5; }
+.dsc-vat.is-on { border-style: solid; border-color: #BFDBFE; background: linear-gradient(145deg, #EFF6FF, #FDF9F5); }
+.dsc-vat-icon { display: grid; place-items: center; width: 46px; height: 46px; flex-shrink: 0; border-radius: 14px; background: #FFFFFF; font-size: 24px; }
+.dsc-vat-text { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 8px; }
+.dsc-vat-example { margin: 0; color: #6B4C3B; font-size: 12.5px; line-height: 1.5; }
+.dsc-vat-example strong { color: #1D4ED8; }
+.dsc-badge { font-size: 22px; background: #EFF6FF; }
+.dsc-card .acc-perms { margin-top: -2px; }
+.dsc-card .acc-card-name em { white-space: normal; line-height: 1.4; }

@@ -616,9 +616,17 @@ type ReceiptData = {
   createdAt: string; reversedAt: string | null; cashierName: string | null; customerName?: string | null;
   loyalty?: { starsEarned: number; starsUsed?: number; balance: number; campaignName: string } | null;
   subtotal?: number | null; discountAmount?: number; discountLabel?: string | null; serviceType?: string | null;
+  // Senior, PWD and other ID discounts: one per person, with the VAT removed (senior and PWD) and the discount.
+  vatExemptAmount?: number; idDiscounts?: ReceiptIdDiscount[];
   // rewardName: the line was a loyalty reward (free, paid with stars).
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
+
+type ReceiptIdDiscount = { code: string; name: string; holderName: string; idNumber: string | null; groupSize: number | null; coveredAmount: number; vatExempt: number; discount: number };
+// Senior and PWD sales are signed by the customer (the shop keeps the record).
+function needsSignature(entry: ReceiptIdDiscount): boolean {
+  return entry.code === "senior" || entry.code === "pwd";
+}
 
 const ReceiptContext = createContext<{ settings: ReceiptSettings; setSettings: (settings: ReceiptSettings) => void; printReceipt: (orderId: number, options?: { reprint?: boolean }) => Promise<string | null> }>({
   settings: defaultReceiptSettings, setSettings: () => undefined, printReceipt: async () => "Printing is not available here.",
@@ -700,9 +708,20 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     y += 0.8;
   }
   rule();
-  if (receipt.discountAmount) {
-    row("Subtotal", money(receipt.subtotal ?? receipt.total + receipt.discountAmount));
-    row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel.replace(/₱/g, "PHP ")}` : ""}`, `-${money(receipt.discountAmount)}`);
+  const idDiscounts = receipt.idDiscounts ?? [];
+  if (receipt.discountAmount || receipt.vatExemptAmount) {
+    row("Subtotal", money(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0)));
+    if (idDiscounts.length > 0) {
+      for (const entry of idDiscounts) {
+        row(`${entry.name}: ${entry.holderName}`, "", { bold: true });
+        if (entry.idNumber) row(`ID ${entry.idNumber}`, "", { size: base * 0.9, indent: 3 });
+        row(entry.groupSize ? `Share of bill (1 of ${entry.groupSize})` : "Items covered", money(entry.coveredAmount), { size: base * 0.9, indent: 3 });
+        if (entry.vatExempt) row("Less VAT (VAT-exempt)", `-${money(entry.vatExempt)}`, { size: base * 0.9, indent: 3 });
+        row("Less discount", `-${money(entry.discount)}`, { size: base * 0.9, indent: 3 });
+      }
+    } else if (receipt.discountAmount) {
+      row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel.replace(/₱/g, "PHP ")}` : ""}`, `-${money(receipt.discountAmount)}`);
+    }
   }
   row("TOTAL", `PHP ${money(receipt.total)}`, { size: base * 1.25, bold: true });
   const isGcash = receipt.paymentProvider === "paymongo_gcash" || receipt.paymentMethod === "online";
@@ -724,6 +743,12 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     if (receipt.loyalty.starsEarned) row("Stars earned", `+${receipt.loyalty.starsEarned}`);
     row("Your stars", String(receipt.loyalty.balance));
     text(receipt.loyalty.campaignName, base * 0.85);
+  }
+  for (const entry of idDiscounts.filter(needsSignature)) {
+    rule();
+    row(`${entry.name}: ${entry.holderName}${entry.idNumber ? ` - ID ${entry.idNumber}` : ""}`, "", { size: base * 0.9 });
+    y += 4;
+    row("Signature", "______________________", { size: base * 0.9 });
   }
   rule();
   text(`Thank you!${receipt.queueNumber !== null ? " Please wait for your number." : ""}`);
@@ -783,9 +808,16 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       </div>;
     })}
     <div className="receipt-rule" />
-    {Boolean(receipt.discountAmount) && <>
-      {row("Subtotal", receiptMoney(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0)))}
-      {row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel}` : ""}`, `-${receiptMoney(receipt.discountAmount ?? 0)}`)}
+    {Boolean(receipt.discountAmount || receipt.vatExemptAmount) && <>
+      {row("Subtotal", receiptMoney(receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0)))}
+      {(receipt.idDiscounts ?? []).length > 0 ? (receipt.idDiscounts ?? []).map((entry, index) => <div key={index} className="receipt-item">
+        {row(<strong>{entry.name}: {entry.holderName}</strong>, "")}
+        {entry.idNumber && <div className="receipt-detail">ID {entry.idNumber}</div>}
+        {row(<span className="receipt-detail">{entry.groupSize ? `Share of bill (1 of ${entry.groupSize})` : "Items covered"}</span>, receiptMoney(entry.coveredAmount))}
+        {Boolean(entry.vatExempt) && row(<span className="receipt-detail">Less VAT (VAT-exempt)</span>, `-${receiptMoney(entry.vatExempt)}`)}
+        {row(<span className="receipt-detail">Less discount</span>, `-${receiptMoney(entry.discount)}`)}
+      </div>)
+        : row(`Discount${receipt.discountLabel ? `: ${receipt.discountLabel}` : ""}`, `-${receiptMoney(receipt.discountAmount ?? 0)}`)}
     </>}
     {row("TOTAL", `₱${receiptMoney(receipt.total)}`, true)}
     {receipt.paymentMethod === "split" && receipt.cashPortion !== null ? <>
@@ -806,6 +838,11 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       {row("Your stars", String(receipt.loyalty.balance))}
       <div className="receipt-center receipt-small">{receipt.loyalty.campaignName}</div>
     </>}
+    {(receipt.idDiscounts ?? []).filter(needsSignature).map((entry, index) => <div key={index}>
+      <div className="receipt-rule" />
+      <div className="receipt-small">{entry.name}: {entry.holderName}{entry.idNumber ? ` · ID ${entry.idNumber}` : ""}</div>
+      <div className="receipt-signature"><span>Signature</span></div>
+    </div>)}
     <div className="receipt-rule" />
     <div className="receipt-center">
       <div>Thank you!{receipt.queueNumber !== null ? " Please wait for your number." : ""}</div>
@@ -1315,6 +1352,132 @@ function WaitingClaims({ claims, rewards, busyId, onAccept, onDecline }: { claim
 }
 
 // The customer line in the cart: a button to attach one, or who it is with the café's notes.
+// ID discounts switched on in Admin → Discounts (senior, PWD and others) and the shop's VAT
+// setting. Senior and PWD items lose their VAT first (price / 1.12), then the discount.
+type CounterDiscountType = { id: number; code: string; name: string; discountKind: "percent" | "fixed"; discountValue: number; maxDiscount: number | null; vatExempt: boolean; requiresId: boolean; idLabel: string | null };
+type CounterVat = { registered: boolean; rate: number };
+// One person's ID discount in the cart: units of their own cart lines (cart line key → units),
+// or a share of the whole bill (lines null, split by groupSize).
+type CartIdDiscount = { key: string; type: CounterDiscountType; holderName: string; idNumber: string; lines: Record<string, number> | null; groupSize: number | null };
+let nextIdDiscountKey = 0;
+
+// The same calculation as lib/discounts.ts on the server (which has the final say).
+function idDiscountAmounts(type: CounterDiscountType, coveredAmount: number, vat: CounterVat): { vatExempt: number; discount: number } {
+  const round2 = (value: number) => Math.round(value * 100) / 100;
+  const covered = Math.max(0, round2(coveredAmount));
+  const vatExempt = type.vatExempt && vat.registered && vat.rate > 0 ? round2(covered - covered / (1 + vat.rate / 100)) : 0;
+  const base = round2(covered - vatExempt);
+  let discount = type.discountKind === "percent" ? base * type.discountValue / 100 : type.discountValue;
+  if (type.maxDiscount !== null) discount = Math.min(discount, type.maxDiscount);
+  return { vatExempt, discount: round2(Math.min(Math.max(0, discount), base)) };
+}
+
+function idDiscountRuleText(type: CounterDiscountType, vat: CounterVat): string {
+  const off = type.discountKind === "percent" ? `${type.discountValue}% off` : `₱${type.discountValue.toFixed(2)} off`;
+  return `${off}${type.vatExempt && vat.registered ? " + no VAT" : ""}${type.maxDiscount !== null ? ` (up to ₱${type.maxDiscount.toFixed(2)})` : ""}`;
+}
+
+type IdDiscountLine = { key: string; label: string; qty: number; unit: number };
+
+// Adds one person's ID discount: the discount, their name and ID number, and what it covers
+// (their own items, or their share of a shared bill).
+function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSize, existing, onAdd, onClose }: {
+  types: CounterDiscountType[]; vat: CounterVat; lines: IdDiscountLine[];
+  // Units of each line already covered by other people's discounts.
+  taken: Record<string, number>;
+  // Every ID discount on an order uses the same way of covering (and the same group size).
+  lockedMode: "items" | "shared" | null; lockedGroupSize: number | null; existing: number;
+  onAdd: (entry: CartIdDiscount) => void; onClose: () => void;
+}) {
+  const [typeId, setTypeId] = useState(types[0]?.id ?? 0);
+  const [holderName, setHolderName] = useState("");
+  const [idNumber, setIdNumber] = useState("");
+  const [mode, setMode] = useState<"items" | "shared">(lockedMode ?? "items");
+  // The first person gets every item by default (the usual case: one customer, one order).
+  const [picks, setPicks] = useState<Record<string, number>>(() => existing === 0 ? Object.fromEntries(lines.map((line) => [line.key, Math.max(0, line.qty - (taken[line.key] ?? 0))])) : {});
+  const [groupSize, setGroupSize] = useState(String(lockedGroupSize ?? Math.max(2, existing + 1)));
+  const [checked, setChecked] = useState(false);
+  const type = types.find((entry) => entry.id === typeId) ?? types[0];
+  const orderAmount = lines.reduce((sum, line) => sum + line.unit * line.qty, 0);
+  const people = Number.parseInt(groupSize, 10);
+  const covered = mode === "shared"
+    ? (Number.isInteger(people) && people > 0 ? orderAmount / people : 0)
+    : lines.reduce((sum, line) => sum + line.unit * Math.min(picks[line.key] ?? 0, Math.max(0, line.qty - (taken[line.key] ?? 0))), 0);
+  const amounts = type ? idDiscountAmounts(type, covered, vat) : { vatExempt: 0, discount: 0 };
+  const problem = !type ? "No discount is switched on."
+    : holderName.trim().length < 2 ? "Enter their full name."
+      : type.requiresId && idNumber.trim().length < 3 ? `Enter the ${type.idLabel ?? "ID number"}.`
+        : mode === "shared" && (!Number.isInteger(people) || people < existing + 1 || people > 50) ? `Enter how many people share the bill (at least ${existing + 1}).`
+          : covered <= 0 ? "Tick the items that are theirs."
+            : type.requiresId && !checked ? "Check the ID, then tick the box above."
+              : "";
+  function stepGroup(delta: number) {
+    setGroupSize(String(Math.min(50, Math.max(existing + 1, (Number.isInteger(people) ? people : 2) + delta))));
+  }
+  return <Modal onClose={onClose} label="Add an ID discount">
+    <form className="pos-customer-dialog pos-idd" onSubmit={(event) => {
+      event.preventDefault();
+      if (problem || !type) return;
+      nextIdDiscountKey += 1;
+      onAdd({ key: `idd-${nextIdDiscountKey}`, type, holderName: holderName.trim().replace(/\s+/g, " "), idNumber: idNumber.trim(), lines: mode === "shared" ? null : Object.fromEntries(Object.entries(picks).filter(([, units]) => units > 0)), groupSize: mode === "shared" ? people : null });
+    }}>
+      <div className="pos-customer-dialog-head"><div><p>ID discount</p><h3>Who gets the discount?</h3></div><button type="button" onClick={onClose} aria-label="Close">×</button></div>
+      <div className="pos-idd-scroll">
+        <div className="pos-idd-types" role="radiogroup" aria-label="Discount">
+          {types.map((entry) => <button key={entry.id} type="button" role="radio" aria-checked={entry.id === type?.id} className={entry.id === type?.id ? "is-on" : ""} onClick={() => { setTypeId(entry.id); setChecked(false); }}>
+            <strong>{entry.name}</strong><em>{idDiscountRuleText(entry, vat)}</em>
+          </button>)}
+        </div>
+        <div className="pos-idd-fields">
+          <label><span>Full name</span><input autoFocus value={holderName} onChange={(event) => setHolderName(event.target.value)} maxLength={80} placeholder="As on the ID" autoComplete="off" /></label>
+          {type && (type.requiresId || type.idLabel) && <label><span>{type.idLabel ?? "ID no."}{type.requiresId ? "" : " (optional)"}</span><input value={idNumber} onChange={(event) => setIdNumber(event.target.value)} maxLength={40} autoComplete="off" /></label>}
+        </div>
+        <div className="pos-idd-mode" role="radiogroup" aria-label="What the discount covers">
+          <button type="button" role="radio" aria-checked={mode === "items"} className={mode === "items" ? "is-on" : ""} disabled={lockedMode === "shared"} onClick={() => setMode("items")}><strong>Their own items</strong><em>Tick what they will eat or drink</em></button>
+          <button type="button" role="radio" aria-checked={mode === "shared"} className={mode === "shared" ? "is-on" : ""} disabled={lockedMode === "items"} onClick={() => setMode("shared")}><strong>Shared bill</strong><em>Split evenly by the number of people</em></button>
+        </div>
+        {mode === "items" ? <div className="pos-idd-lines">
+          {lines.map((line) => {
+            const max = Math.max(0, line.qty - (taken[line.key] ?? 0));
+            const units = Math.min(picks[line.key] ?? 0, max);
+            return <div key={line.key} className={`pos-idd-line${units > 0 ? " is-on" : ""}${max === 0 ? " is-taken" : ""}`}>
+              <label>
+                <input type="checkbox" checked={units > 0} disabled={max === 0} onChange={(event) => setPicks((current) => ({ ...current, [line.key]: event.target.checked ? max : 0 }))} />
+                <span><strong>{line.label}</strong><em>{max === 0 ? "Covered by another discount" : `₱${line.unit.toFixed(2)} each${line.qty > 1 ? ` · ${max} of ${line.qty} free to cover` : ""}`}</em></span>
+              </label>
+              {max > 1 && units > 0 && <span className="pos-idd-step">
+                <button type="button" onClick={() => setPicks((current) => ({ ...current, [line.key]: Math.max(1, units - 1) }))} aria-label={`One fewer ${line.label}`}>−</button>
+                <b>{units}</b>
+                <button type="button" onClick={() => setPicks((current) => ({ ...current, [line.key]: Math.min(max, units + 1) }))} aria-label={`One more ${line.label}`}>+</button>
+              </span>}
+            </div>;
+          })}
+        </div> : <div className="pos-idd-shared">
+          <span>People sharing the bill</span>
+          <span className="pos-idd-step">
+            <button type="button" onClick={() => stepGroup(-1)} disabled={lockedGroupSize !== null} aria-label="One person fewer">−</button>
+            <input value={groupSize} onChange={(event) => setGroupSize(event.target.value.replace(/\D/g, "").slice(0, 2))} disabled={lockedGroupSize !== null} inputMode="numeric" aria-label="People sharing the bill" />
+            <button type="button" onClick={() => stepGroup(1)} disabled={lockedGroupSize !== null} aria-label="One person more">+</button>
+          </span>
+          <em>{Number.isInteger(people) && people > 0 ? `Their share: ₱${orderAmount.toFixed(2)} ÷ ${people} = ₱${(orderAmount / people).toFixed(2)}` : ""}{lockedGroupSize !== null ? " · same group as the other discounts" : ""}</em>
+        </div>}
+        {type?.requiresId && <label className="pos-idd-check">
+          <input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} />
+          <span>I checked the {type.name} ID: the photo and the name match the customer.</span>
+        </label>}
+        {covered > 0 && type && <div className="pos-idd-summary">
+          <div><span>Covers</span><b>₱{covered.toFixed(2)}</b></div>
+          {amounts.vatExempt > 0 && <div><span>Less VAT ({vat.rate}%)</span><b>−₱{amounts.vatExempt.toFixed(2)}</b></div>}
+          <div><span>Less {type.discountKind === "percent" ? `${type.discountValue}%` : "discount"}</span><b>−₱{amounts.discount.toFixed(2)}</b></div>
+          <div className="is-total"><span>They pay for these</span><b>₱{Math.max(0, covered - amounts.vatExempt - amounts.discount).toFixed(2)}</b></div>
+        </div>}
+      </div>
+      {problem && <p className="pos-idd-problem">{problem}</p>}
+      <button type="submit" className="pos-reward-button" disabled={Boolean(problem)}>Add discount</button>
+    </form>
+  </Modal>;
+}
+
 function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }: { customer: AttachedCustomer | null; onAdd: () => void; onRemove: () => void; onUseReward?: () => void; rewardNote?: string }) {
   if (!customer) return <button type="button" className="pos-customer-add" onClick={onAdd}>+ Add customer <span>for their purchases and notes</span></button>;
   return <div className="pos-customer-slot">
@@ -1393,6 +1556,24 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [rewardPasswordOpen, setRewardPasswordOpen] = useState(false);
   const [rewardPassword, setRewardPassword] = useState("");
   const [rewardPasswordInvalid, setRewardPasswordInvalid] = useState(false);
+  // ID discounts (senior, PWD and others): what the admin switched on, and the people on this order.
+  const [idDiscountSetup, setIdDiscountSetup] = useState<{ types: CounterDiscountType[]; vat: CounterVat }>({ types: [], vat: { registered: true, rate: 12 } });
+  const [idDiscounts, setIdDiscounts] = useState<CartIdDiscount[]>([]);
+  const [idDiscountDialogOpen, setIdDiscountDialogOpen] = useState(false);
+  const loadIdDiscountSetup = useCallback(async () => {
+    try {
+      const response = await fetch("/api/discounts", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json() as { data?: { types: CounterDiscountType[]; vat: CounterVat } };
+      if (payload.data) setIdDiscountSetup(payload.data);
+    } catch {
+      // Offline for a moment: keeps the last list.
+    }
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadIdDiscountSetup(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadIdDiscountSetup]);
 
   const refreshLoyalty = useCallback(async () => {
     try {
@@ -1605,6 +1786,32 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     return { amount: Math.round(Math.min(amount, eligible) * 100) / 100, problem: null };
   }
 
+  // ID discounts on these cart lines. Units are handed out in the order the people were added, so
+  // a line made smaller (or removed) never counts twice; the server checks the same.
+  function resolveIdDiscounts(items: CartItem[]) {
+    const byKey = new Map(items.map((item) => [item.key, item]));
+    const orderAmount = items.reduce((sum, item) => sum + getLineTotal(item), 0);
+    const used = new Map<string, number>();
+    const entries = idDiscounts.map((entry) => {
+      const lines: Record<string, number> = {};
+      let covered = 0;
+      if (entry.lines === null) covered = orderAmount / Math.max(1, entry.groupSize ?? 1);
+      else for (const [key, wanted] of Object.entries(entry.lines)) {
+        const item = byKey.get(key);
+        if (!item || item.qty <= 0) continue;
+        const units = Math.min(wanted, item.qty - (used.get(key) ?? 0));
+        if (units <= 0) continue;
+        used.set(key, (used.get(key) ?? 0) + units);
+        lines[key] = units;
+        covered += getLineTotal(item) / item.qty * units;
+      }
+      covered = Math.round(covered * 100) / 100;
+      return { entry, lines, covered, ...idDiscountAmounts(entry.type, covered, idDiscountSetup.vat) };
+    });
+    const round2 = (value: number) => Math.round(value * 100) / 100;
+    return { entries, used, discount: round2(entries.reduce((sum, item) => sum + item.discount, 0)), vatExempt: round2(entries.reduce((sum, item) => sum + item.vatExempt, 0)) };
+  }
+
   // Stars left for more rewards in this order (the customer's balance minus rewards in the cart).
   const starsInCart = cart.reduce((sum, item) => sum + (item.rewardCost ?? 0), 0) + (discountReward && discountReward.kind !== "birthday" ? discountReward.starsCost : 0);
   // One birthday treat per order.
@@ -1676,6 +1883,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setLastPlaced({ orderId, queueNumber, note: "", stars: starNotes && customer ? `${starNotes} for ${customer.fullName.split(" ")[0]}` : undefined });
     setClaimId(null);
     setDiscountReward(null);
+    setIdDiscounts([]);
     setServiceType("dine_in");
     setRewardPassword("");
     void refreshLoyalty();
@@ -1699,6 +1907,16 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     const hasRewards = cart.some((item) => item.rewardId) || discountReward !== null;
     const discountCheck = previewDiscount(cart);
     if (discountCheck.problem) { setCheckoutError(discountCheck.problem); return; }
+    const idCheck = resolveIdDiscounts(cart);
+    if (idCheck.entries.length > 0 && discountReward) { setCheckoutError("An order can have the loyalty discount or ID discounts, not both. Remove one of them."); return; }
+    const emptyId = idCheck.entries.find((resolved) => resolved.covered <= 0);
+    if (emptyId) { setCheckoutError(`${emptyId.entry.holderName}'s ${emptyId.entry.type.name} discount no longer covers anything. Remove it, or add it again.`); return; }
+    // Line numbers point into the items sent with the order.
+    const sentLineIndex = new Map(cart.filter((item) => item.variantId !== null).map((item, index) => [item.key, index]));
+    const idPayload = idCheck.entries.map(({ entry, lines }) => ({
+      type_id: entry.type.id, holder_name: entry.holderName, id_number: entry.idNumber || null, group_size: entry.groupSize,
+      lines: entry.lines === null ? null : Object.entries(lines).filter(([key]) => sentLineIndex.has(key)).map(([key, quantity]) => ({ line: sentLineIndex.get(key), quantity })),
+    }));
     // Regulars without the app: the cashier confirms the reward with their own password.
     if (hasRewards && claimId === null && password === undefined) {
       setRewardPasswordInvalid(false);
@@ -1706,9 +1924,9 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       return;
     }
     // Sent with the order: dine in or take out, and how its rewards were confirmed.
-    const rewardAuth = { service_type: serviceType, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, ...(password !== undefined ? { reward_password: password } : {}) };
-    // What the customer pays: the cart minus a reward discount.
-    const subtotalValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount) * 100) / 100);
+    const rewardAuth = { service_type: serviceType, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, ...(password !== undefined ? { reward_password: password } : {}) };
+    // What the customer pays: the cart minus a reward discount or the ID discounts (and their VAT).
+    const subtotalValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount - idCheck.discount - idCheck.vatExempt) * 100) / 100);
     const parsedReceivedAmount = Number.parseFloat(receivedAmount);
     if (paymentMethod === "cash" && subtotalValue > 0) {
       if (!Number.isFinite(parsedReceivedAmount) || parsedReceivedAmount < subtotalValue) {
@@ -1783,8 +2001,10 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const visibleAdditions = searching ? filteredAdditions : currentCategory === ADDONS_TAB ? additions : [];
   const itemsSubtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
   const discountPreview = previewDiscount(cart);
-  // What the customer pays (after a reward discount). Every payment figure below uses it.
-  const subtotal = Math.max(0, Math.round((itemsSubtotal - discountPreview.amount) * 100) / 100);
+  const idPreview = resolveIdDiscounts(cart);
+  const hasOrderDiscount = discountReward !== null || idPreview.entries.length > 0;
+  // What the customer pays (after a reward discount or ID discounts). Every payment figure below uses it.
+  const subtotal = Math.max(0, Math.round((itemsSubtotal - discountPreview.amount - idPreview.discount - idPreview.vatExempt) * 100) / 100);
   const parsedReceivedAmount = Number.parseFloat(receivedAmount);
   const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
   // Split ticket figures: the cash part, what GCash charges, and change on the cash part.
@@ -1961,6 +2181,11 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
         <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={removeCustomer}
           onUseReward={customer && availableRewards.length > 0 && ((customer.stars !== null && customer.stars !== undefined) || customer.birthdayTreat) && (claimId !== null || !customer.username) ? () => setRewardChoiceOpen(true) : undefined}
           rewardNote={customer && availableRewards.length > 0 && customer.username && claimId === null ? `To use ${customer.birthdayTreat ? "their birthday treat or stars" : "their stars"}, ask them to scan the Stars sign and pick it on their phone.` : customer?.birthdayTreat ? "🎂 Birthday treat available today." : undefined} />
+        {idDiscountSetup.types.length > 0 && cart.length > 0 && <button type="button" className="pos-idd-open" disabled={discountReward !== null} title={discountReward ? "This order has a loyalty discount. Remove it to use an ID discount." : undefined} onClick={() => { void loadIdDiscountSetup(); setIdDiscountDialogOpen(true); }}>
+          <span className="pos-idd-open-icon" aria-hidden="true">🪪</span>
+          <span className="pos-idd-open-text"><strong>{idDiscounts.length ? "Add another ID discount" : "ID discount"}</strong><em>{discountReward ? "Not with the loyalty discount" : idDiscountSetup.types.map((type) => type.name).join(" · ")}</em></span>
+          <span aria-hidden="true">›</span>
+        </button>}
         <div style={{ borderTop: "1px solid #E8DDD5", paddingTop: 8, flexShrink: 0 }}>
         {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: "0 0 8px" }}>{checkoutError}</p>}
           {discountReward && <div className="pos-discount-row">
@@ -1968,8 +2193,13 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
             <strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong>
             <button type="button" onClick={() => setDiscountReward(null)} aria-label={`Remove ${discountReward.name}`} title="Remove discount">×</button>
           </div>}
-          {discountReward && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Items</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
-          <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>{discountReward ? "Total after discount" : "Subtotal"}</div><div>₱{subtotal.toFixed(2)}</div></div>
+          {idPreview.entries.map(({ entry, covered, vatExempt, discount }) => <div key={entry.key} className="pos-discount-row is-id">
+            <span>🪪 {entry.type.name} · {entry.holderName}<em>{covered <= 0 ? "Covers nothing now. Remove it, or add it again." : [entry.idNumber ? `ID ${entry.idNumber}` : "", entry.lines === null ? `1 of ${entry.groupSize} sharing the bill` : `covers ₱${covered.toFixed(2)}`, vatExempt ? `VAT −₱${vatExempt.toFixed(2)}` : ""].filter(Boolean).join(" · ")}</em></span>
+            <strong>{covered > 0 ? `−₱${(discount + vatExempt).toFixed(2)}` : "—"}</strong>
+            <button type="button" onClick={() => setIdDiscounts((current) => current.filter((item) => item.key !== entry.key))} aria-label={`Remove ${entry.holderName}'s discount`} title="Remove discount">×</button>
+          </div>)}
+          {hasOrderDiscount && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Items</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
+          <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>{hasOrderDiscount ? "Total after discount" : "Subtotal"}</div><div>₱{subtotal.toFixed(2)}</div></div>
           <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
             <div className="pos-service" role="radiogroup" aria-label="Dine in or take out">
               {([["dine_in", "Dine in"], ["take_out", "Take out"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
@@ -2027,7 +2257,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           </div>
           <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { removeCustomer(); setDiscountReward(null); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button onClick={() => { removeCustomer(); setDiscountReward(null); setIdDiscounts([]); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
@@ -2047,7 +2277,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           {availableRewards.map((reward) => {
             const birthdayTreat = reward.kind === "birthday";
             const affordable = birthdayTreat || reward.starsCost <= starsLeft;
-            const blocked = reward.rewardType === "discount" && discountReward !== null && discountReward.id !== reward.id;
+            const blocked = reward.rewardType === "discount" && ((discountReward !== null && discountReward.id !== reward.id) || idDiscounts.length > 0);
             return <button key={reward.id} type="button" className="pos-customer-result" disabled={!affordable || blocked} style={{ opacity: affordable && !blocked ? 1 : 0.5 }} onClick={() => chooseReward(reward)}>
               <span className="pos-customer-avatar" style={{ background: birthdayTreat ? "#DB2777" : "#F59E0B" }}>{birthdayTreat ? "🎂" : "★"}</span>
               <span className="pos-customer-result-text"><strong>{reward.name}</strong><em>{reward.rewardType === "discount" ? `${discountText(reward)} · ` : ""}{birthdayTreat ? "Birthday treat, no stars" : `★ ${reward.starsCost}`}{affordable ? "" : ` · needs ${reward.starsCost - starsLeft} more`}{blocked ? " · one discount per order" : ""}</em></span>
@@ -2083,6 +2313,11 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
         <button type="submit" className="pos-reward-button" disabled={!rewardPassword || checkingOut}>{checkingOut ? "Placing the order…" : "Confirm and check out"}</button>
       </form>
     </Modal>}
+    {idDiscountDialogOpen && <IdDiscountDialog types={idDiscountSetup.types} vat={idDiscountSetup.vat}
+      lines={cart.filter((item) => item.variantId !== null && getLineTotal(item) > 0).map((item) => ({ key: item.key, label: getLineLabel(item), qty: item.qty, unit: getLineTotal(item) / item.qty }))}
+      taken={Object.fromEntries(idPreview.used)} existing={idDiscounts.length}
+      lockedMode={idDiscounts.length === 0 ? null : idDiscounts[0].lines === null ? "shared" : "items"} lockedGroupSize={idDiscounts.length > 0 && idDiscounts[0].lines === null ? idDiscounts[0].groupSize : null}
+      onAdd={(entry) => { setIdDiscounts((current) => [...current, entry]); setIdDiscountDialogOpen(false); if (checkoutError) setCheckoutError(""); }} onClose={() => setIdDiscountDialogOpen(false)} />}
     {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { if (customer && customer.id !== picked.id) removeCustomer(); setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>

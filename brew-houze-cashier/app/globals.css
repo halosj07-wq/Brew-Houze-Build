@@ -295,6 +295,8 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .receipt-row.is-strong { margin: 2px 0; font-size: 1.25em; font-weight: 800; }
 .receipt-item { margin: 2px 0 4px; }
 .receipt-detail { padding-left: 1.2em; font-size: 0.9em; }
+/* Senior and PWD sales: the customer signs on the line. */
+.receipt-signature { margin-top: 22px; border-top: 1px solid #000000; padding-top: 2px; font-size: 0.85em; }
 @media print {
   body.is-printing-receipt { background: #FFFFFF !important; }
   body.is-printing-receipt .app-shell, body.is-printing-receipt .login-shell, body.is-printing-receipt nextjs-portal { display: none !important; }
@@ -400,6 +402,54 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-discount-row em { color: #B45309; font-size: 11px; font-style: normal; font-weight: 500; }
 .pos-discount-row strong { color: #B45309; white-space: nowrap; }
 .pos-discount-row button { flex-shrink: 0; width: 24px; height: 24px; border: 1px solid #FDE68A; border-radius: 6px; background: #FFFFFF; color: #B45309; cursor: pointer; }
+/* ID discounts (senior, PWD and others): the cart button, the rows and the dialog. */
+.pos-discount-row.is-id { background: #EFF6FF; border-color: #BFDBFE; }
+.pos-discount-row.is-id span { color: #1E3A8A; }
+.pos-discount-row.is-id em, .pos-discount-row.is-id strong { color: #1D4ED8; }
+.pos-discount-row.is-id button { border-color: #BFDBFE; color: #1D4ED8; }
+.pos-idd-open { display: flex; align-items: center; gap: 10px; width: 100%; flex-shrink: 0; padding: 8px 11px; border: 1px dashed #93C5FD; border-radius: 10px; background: #F8FBFF; color: #1E3A8A; text-align: left; cursor: pointer; }
+.pos-idd-open:disabled { opacity: 0.55; cursor: not-allowed; }
+.pos-idd-open-icon { font-size: 18px; }
+.pos-idd-open-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pos-idd-open-text strong { font-size: 13px; font-weight: 800; }
+.pos-idd-open-text em { overflow: hidden; color: #3B82F6; font-size: 11px; font-style: normal; white-space: nowrap; text-overflow: ellipsis; }
+.pos-idd { width: min(100%, 500px); }
+.pos-idd-scroll { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; margin: 0 -4px; padding: 0 4px; }
+.pos-idd-types, .pos-idd-mode { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 6px; }
+.pos-idd-types button, .pos-idd-mode button { display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; border: 1.5px solid #E8DDD5; border-radius: 10px; background: #FFFFFF; color: #3D2B1F; text-align: left; cursor: pointer; }
+.pos-idd-types button strong, .pos-idd-mode button strong { font-size: 13px; font-weight: 800; }
+.pos-idd-types button em, .pos-idd-mode button em { color: #9C8278; font-size: 11px; font-style: normal; }
+.pos-idd-types button.is-on, .pos-idd-mode button.is-on { border-color: #1D4ED8; background: #EFF6FF; }
+.pos-idd-types button.is-on em, .pos-idd-mode button.is-on em { color: #1D4ED8; }
+.pos-idd-mode button:disabled { opacity: 0.45; cursor: not-allowed; }
+.pos-idd-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pos-idd-fields label { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: #6B4C3B; font-size: 12px; font-weight: 700; }
+.pos-idd-fields input { min-width: 0; padding: 9px 11px; border: 1px solid #E8DDD5; border-radius: 9px; background: #FFFDF9; color: #3D2B1F; font-size: 14px; outline: none; }
+.pos-idd-fields input:focus { border-color: #1D4ED8; }
+.pos-idd-lines { display: flex; flex-direction: column; gap: 5px; }
+.pos-idd-line { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border: 1px solid #F0E8E2; border-radius: 9px; background: #FFFFFF; }
+.pos-idd-line.is-on { border-color: #BFDBFE; background: #F8FBFF; }
+.pos-idd-line.is-taken { opacity: 0.55; }
+.pos-idd-line label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 9px; cursor: pointer; }
+.pos-idd-line input { width: 17px; height: 17px; accent-color: #1D4ED8; }
+.pos-idd-line label span { min-width: 0; display: flex; flex-direction: column; }
+.pos-idd-line label strong { color: #3D2B1F; font-size: 12.5px; }
+.pos-idd-line label em { color: #9C8278; font-size: 11px; font-style: normal; }
+.pos-idd-step { display: inline-flex; align-items: center; gap: 6px; }
+.pos-idd-step button { width: 28px; height: 28px; border: 1px solid #E8DDD5; border-radius: 7px; background: #FFFFFF; color: #3D2B1F; font-weight: 800; cursor: pointer; }
+.pos-idd-step button:disabled { opacity: 0.4; cursor: not-allowed; }
+.pos-idd-step b { min-width: 18px; text-align: center; color: #1D4ED8; }
+.pos-idd-step input { width: 44px; height: 30px; border: 1px solid #E8DDD5; border-radius: 7px; background: #FFFDF9; color: #3D2B1F; font-weight: 800; text-align: center; }
+.pos-idd-shared { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid #BFDBFE; border-radius: 10px; background: #F8FBFF; color: #1E3A8A; font-size: 13px; font-weight: 700; }
+.pos-idd-shared em { flex-basis: 100%; color: #3B82F6; font-size: 11.5px; font-style: normal; font-weight: 500; }
+.pos-idd-summary { display: flex; flex-direction: column; gap: 3px; padding: 9px 12px; border-radius: 10px; background: #F3EDE5; color: #6B4C3B; font-size: 12.5px; }
+.pos-idd-summary div { display: flex; justify-content: space-between; gap: 8px; }
+.pos-idd-summary b { color: #3D2B1F; }
+.pos-idd-summary .is-total { margin-top: 2px; padding-top: 4px; border-top: 1px dashed #D6C7BC; font-weight: 800; }
+.pos-idd-check { display: flex; align-items: flex-start; gap: 9px; padding: 9px 11px; border: 1px solid #FDE68A; border-radius: 10px; background: #FFFBEB; color: #92400E; font-size: 12.5px; font-weight: 600; line-height: 1.4; cursor: pointer; }
+.pos-idd-check input { flex-shrink: 0; width: 17px; height: 17px; margin-top: 1px; accent-color: #B45309; }
+.pos-idd-problem { margin: 0; color: #B91C1C; font-size: 12px; }
+@media (max-width: 520px) { .pos-idd-fields { grid-template-columns: 1fr; } }
 
 /* Campaign preview in the top bar */
 .campaign-preview { position: relative; }

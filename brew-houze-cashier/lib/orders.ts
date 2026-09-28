@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import { awardOrderStarsSafely, computeDiscount, discountText, planRewards, recordRewardUse, type RewardLine, type RewardPlan } from "@/lib/loyalty";
+import { idDiscountSummary, planIdDiscounts, type IdDiscountInput, type PlannedIdDiscount } from "@/lib/discounts";
 
 // Creating a sales order, shared by the cashier checkout, the mobile menu and GCash payments
 // (brew-houze-cashier and brew-houze-mobile keep identical copies of this file). Everything runs
@@ -31,14 +32,17 @@ export type PlaceOrderInput = {
   rewardsAuthorized?: boolean;
   // A discount reward on the whole order (at most one).
   discountRewardId?: number | null;
+  // Senior, PWD and other ID discounts, checked at the counter (see lib/discounts.ts). Their
+  // lines point into items. Not together with a discount reward.
+  idDiscounts?: IdDiscountInput[];
   serviceType?: ServiceType | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
 };
 // starsEarned: loyalty stars the linked customer got for this order (0 without a customer or campaign).
 // starsRedeemed: stars spent on rewards in this order. total is what the customer pays, after
-// discountAmount is taken off subtotal.
-export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; subtotal: number; discountAmount: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
+// discountAmount and vatExemptAmount (VAT removed for senior and PWD items) are taken off subtotal.
+export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; subtotal: number; discountAmount: number; vatExemptAmount: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
 
 // Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
 // what it draws from its source, which is the stock actually deducted at checkout.
@@ -88,6 +92,8 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   const quantities = new Map<number, number>();
   // Lines with the same variant and the same add-on counts are merged into one sales line.
   const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number>; rewardId: number | null; additionAmount: number }>();
+  // The sales line each input item went into (ID discounts point at input items).
+  const itemGroupKeys: string[] = [];
   for (const item of input.items) {
     quantities.set(item.productVariantId, (quantities.get(item.productVariantId) ?? 0) + item.quantity);
     const additionCounts = new Map<number, number>();
@@ -96,6 +102,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     // A reward is always its own line (one item each), never merged with paid items.
     const groupKey = item.rewardId ? `reward:${groupedItems.size}` : `${item.productVariantId}:${additionIds.map((id) => `${id}x${additionCounts.get(id)}`).join(",")}`;
     const current = groupedItems.get(groupKey);
+    itemGroupKeys.push(groupKey);
     groupedItems.set(groupKey, current
       ? { ...current, quantity: current.quantity + item.quantity }
       : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts, rewardId: item.rewardId ?? null, additionAmount: 0 });
@@ -128,6 +135,9 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     return { rewardId: Number(group.rewardId), productId: Number(variant?.product_id), category: (variant?.product_category as string | null) ?? null, price: Number(variant?.price ?? 0), name: String(variant?.product_name ?? "item") };
   });
   const discountRewardId = input.discountRewardId ?? null;
+  const idDiscountInputs = input.idDiscounts ?? [];
+  // Senior and PWD discounts cannot be combined with another discount (the customer gets the better one).
+  if (idDiscountInputs.length > 0 && discountRewardId !== null) throw new Error("An order can have a loyalty discount or ID discounts (senior, PWD and others), not both. Remove one of them.");
   let rewardPlan: RewardPlan | null = null;
   if (rewardLines.length > 0 || discountRewardId !== null) {
     if (!input.customerId) throw new Error("Attach the customer before using a reward.");
@@ -208,7 +218,17 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     const variant = variantById.get(group.productVariantId);
     return { productId: Number(variant?.product_id), category: (variant?.product_category as string | null) ?? null, amount: Number(variant?.price ?? 0) * group.quantity + group.additionAmount };
   }), subtotal) : 0;
-  const total = Math.round((subtotal - discountAmount) * 100) / 100;
+  // ID discounts: what one unit of each input item is charged (a reward line only its add-ons).
+  const plannedIdDiscounts: PlannedIdDiscount[] = await planIdDiscounts(client, idDiscountInputs, input.items.map((item, index) => {
+    const group = groupedItems.get(itemGroupKeys[index])!;
+    const price = group.rewardId ? 0 : Number(variantById.get(group.productVariantId)?.price ?? 0);
+    return { unitAmount: price + group.additionAmount / group.quantity, quantity: item.quantity };
+  }));
+  const idDiscountTotal = Math.round(plannedIdDiscounts.reduce((sum, entry) => sum + entry.discount, 0) * 100) / 100;
+  const vatExemptAmount = Math.round(plannedIdDiscounts.reduce((sum, entry) => sum + entry.vatExempt, 0) * 100) / 100;
+  const idSummary = plannedIdDiscounts.length > 0 ? idDiscountSummary(plannedIdDiscounts) : null;
+  const orderDiscount = Math.round((discountAmount + idDiscountTotal) * 100) / 100;
+  const total = Math.max(0, Math.round((subtotal - orderDiscount - vatExemptAmount) * 100) / 100);
 
   let receivedAmount = total;
   let changeAmount = 0;
@@ -228,12 +248,12 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const order = await client.query(`
     INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id,
-      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id, service_type)
-    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+      subtotal_amount, discount_amount, discount_label, discount_source, discount_reward_id, service_type, vat_exempt_amount)
+    VALUES ($1, $2, 'completed', $3, 'waiting', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
   `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null,
-    subtotal, discountAmount, discount ? `${discount.name} (${discountText(discount)})` : null, discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null, input.serviceType ?? null]);
+    subtotal, orderDiscount, idSummary ? idSummary.label : discount ? `${discount.name} (${discountText(discount)})` : null, idSummary ? idSummary.source : discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null, input.serviceType ?? null, vatExemptAmount]);
   const orderId = Number(order.rows[0].order_id);
 
   for (const [inventoryId, detail] of deductionDetails) {
@@ -243,13 +263,15 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     `, [inventoryId, detail.itemName, detail.category, detail.unit, detail.quantityBefore, detail.quantityAfter, detail.quantityAfter - detail.quantityBefore, orderId, input.cashierAdminId, input.source]);
   }
 
+  const orderItemIds = new Map<string, number>();
   for (const variant of variants.rows) {
-    for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
+    for (const [groupKey, group] of Array.from(groupedItems.entries()).filter(([, item]) => item.productVariantId === Number(variant.product_variant_id))) {
       const itemResult = await client.query(`
         INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost, reward_id, reward_value)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING order_item_id
       `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, group.rewardId ? 0 : variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null, group.rewardId, group.rewardId ? variant.price : null]);
+      orderItemIds.set(groupKey, Number(itemResult.rows[0].order_item_id));
       for (const additionId of group.additionIds) {
         await client.query(`
           INSERT INTO sales_order_item_additions (order_item_id, addition_id, quantity, unit_price, unit_cost)
@@ -263,9 +285,21 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     }
   }
 
+  // The ID discount register: who, which ID, which sales lines, and the amounts.
+  for (const entry of plannedIdDiscounts) {
+    const coveredItems = entry.lines === null ? null : Array.from(entry.lines.reduce((items, { line, quantity }) => {
+      const orderItemId = orderItemIds.get(itemGroupKeys[line])!;
+      return items.set(orderItemId, (items.get(orderItemId) ?? 0) + quantity);
+    }, new Map<number, number>()), ([orderItemId, quantity]) => ({ order_item_id: orderItemId, quantity }));
+    await client.query(`
+      INSERT INTO order_discounts (order_id, discount_type_id, type_code, type_name, holder_name, id_number, coverage, group_size, covered_items, covered_amount, vat_exempt_amount, discount_amount, recorded_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13)
+    `, [orderId, entry.rule.id, entry.rule.code, entry.rule.name, entry.holderName, entry.idNumber, entry.lines === null ? "shared" : "items", entry.groupSize, coveredItems === null ? null : JSON.stringify(coveredItems), entry.coveredAmount, entry.vatExempt, entry.discount, input.cashierAdminId]);
+  }
+
   const starsRedeemed = rewardPlan && input.customerId ? await recordRewardUse(client, orderId, input.customerId, rewardPlan) : 0;
   const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
-  return { orderId, queueNumber, shiftId, subtotal, discountAmount, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
+  return { orderId, queueNumber, shiftId, subtotal, discountAmount: orderDiscount, vatExemptAmount, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
 }
 
 // The exact total the order would have right now (prices, stock and the open shift all

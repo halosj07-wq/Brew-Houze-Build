@@ -19,7 +19,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         so.payment_reference, so.cash_portion, so.received_amount, so.change_amount, so.order_source, so.return_method,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(so.reversed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS reversed_at,
-        cashier.full_name AS cashier_name, cu.full_name AS customer_name, so.customer_id, so.subtotal_amount, so.discount_amount, so.discount_label, so.service_type
+        cashier.full_name AS cashier_name, cu.full_name AS customer_name, so.customer_id, so.subtotal_amount, so.discount_amount, so.discount_label, so.service_type, so.vat_exempt_amount
       FROM sales_orders so
       LEFT JOIN admin_users cashier ON cashier.admin_id = so.cashier_admin_id
       LEFT JOIN customers cu ON cu.customer_id = so.customer_id AND cu.deleted_at IS NULL
@@ -41,6 +41,12 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
       WHERE soi.order_id = $1
       GROUP BY soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name
       ORDER BY soi.order_item_id
+    `, [orderId]);
+
+    // ID discounts (senior, PWD and others): who, which ID, and the amounts, for the signature lines.
+    const idDiscounts = await pool.query(`
+      SELECT type_code, type_name, holder_name, id_number, coverage, group_size, covered_amount, vat_exempt_amount, discount_amount
+      FROM order_discounts WHERE order_id = $1 ORDER BY order_discount_id
     `, [orderId]);
 
     // Loyalty stars this order earned, and the customer's balance in that campaign now.
@@ -84,10 +90,22 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
         reversedAt: (order.reversed_at as string | null) ?? null,
         cashierName: (order.cashier_name as string | null) ?? null,
         customerName: (order.customer_name as string | null) ?? null,
-        // A discount (a reward now, PWD or senior later): subtotal, then the discount, then total.
+        // A discount (a loyalty reward, or ID discounts such as senior and PWD): subtotal, then the
+        // discount and any VAT exempted, then total.
         subtotal: optional(order.subtotal_amount),
         discountAmount: Number(order.discount_amount ?? 0),
         discountLabel: (order.discount_label as string | null) ?? null,
+        vatExemptAmount: Number(order.vat_exempt_amount ?? 0),
+        idDiscounts: idDiscounts.rows.map((row) => ({
+          code: String(row.type_code),
+          name: String(row.type_name),
+          holderName: String(row.holder_name),
+          idNumber: (row.id_number as string | null) ?? null,
+          groupSize: optional(row.group_size),
+          coveredAmount: Number(row.covered_amount),
+          vatExempt: Number(row.vat_exempt_amount),
+          discount: Number(row.discount_amount),
+        })),
         serviceType: (order.service_type as string | null) ?? null,
         loyalty,
         items: itemsResult.rows.map((row) => ({
