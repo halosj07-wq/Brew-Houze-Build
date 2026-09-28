@@ -104,7 +104,7 @@
       era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work",
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
-      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop-1.mp3", "dirty-work/loop-2.mp3"], intro: dirtyWorkIntro, introClass: "dw-intro",
+      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], seamless: true, intro: dirtyWorkIntro, introClass: "dw-intro",
     },
   };
   const photoOf = (theme, key) => `${THEMES[theme].folder}${key}.webp`;
@@ -171,10 +171,11 @@
 
   // ── Sound ──
   // Two kinds of music player, with the same controls:
-  //   mediaLoop     one file on a looping <audio> (Whiplash)
-  //   stitchedLoop  several files played back to back with Web Audio, sample-exact, then from the
-  //                 top again (Dirty Work: loop 1 → loop 2 → loop 1 …). The silence the MP3
-  //                 encoder adds at both ends of each file is trimmed, so the joins are seamless.
+  //   mediaLoop     one file on a looping <audio> (Whiplash: a 2:53 track, too long to decode into
+  //                 memory; the tiny gap at its repeat is where the song starts over anyway)
+  //   stitchedLoop  one or more files played back to back with Web Audio, sample-exact, then from
+  //                 the top again (Dirty Work: its 78 s loop). The silence the MP3 encoder adds at
+  //                 both ends of each file is trimmed, so the repeat is seamless.
   // prime() runs inside the click (phones only start audio in a tap); start() plays from the top
   // and fades in, and resolves false if the browser still wants a tap. mute()/unmute() keep the
   // place; stop() ends it; hide()/show() pause it while the tab is hidden.
@@ -328,7 +329,7 @@
   }
 
   const players = {};
-  const playerFor = (theme) => (players[theme] ??= THEMES[theme].loops.length > 1 ? stitchedLoop(THEMES[theme].loops) : mediaLoop(THEMES[theme].loops[0]));
+  const playerFor = (theme) => (players[theme] ??= THEMES[theme].seamless ? stitchedLoop(THEMES[theme].loops) : mediaLoop(THEMES[theme].loops[0]));
   const clips = {};
   const clipFor = (theme) => { if (!clips[theme]) { clips[theme] = new Audio(THEMES[theme].introClip); clips[theme].preload = "auto"; } return clips[theme]; };
 
