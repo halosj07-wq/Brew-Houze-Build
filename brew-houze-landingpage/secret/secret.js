@@ -633,7 +633,61 @@
     back.insertAdjacentHTML("beforeend", '<i class="ae-pc-sheen" aria-hidden="true"></i>');
     pcCard.style.animation = "none"; void pcCard.offsetWidth; pcCard.style.animation = "";
   }
+  // ── The card leans with the phone ──
+  // On phones the open card follows the phone's tilt (the angle it is held at when the card opens
+  // counts as level), a few degrees at most, smoothed. The frame around the card leans; the card
+  // flips inside it. iPhones ask for permission first, from the tap that opens the card; refused,
+  // or without a motion sensor (computers), the card simply stays still.
+  const pcStage = pcCard.parentElement;
+  const TILT_MAX = 10;
+  let tiltAllowed = null; // null: not asked yet (iPhone), true, or false
+  let tiltBase = null;
+  let tiltTarget = { x: 0, y: 0 };
+  let tiltNow = { x: 0, y: 0 };
+  let tiltFrame = 0;
+  const screenAngle = () => (((screen.orientation?.angle ?? window.orientation ?? 0) % 360) + 360) % 360;
+  function onOrientation(event) {
+    if (event.beta === null || event.gamma === null) return;
+    // Left-right and forward-back tilt as the screen is turned (portrait or landscape).
+    const angle = screenAngle();
+    const [side, front] = angle === 90 ? [event.beta, -event.gamma] : angle === 270 ? [-event.beta, event.gamma] : angle === 180 ? [-event.gamma, -event.beta] : [event.gamma, event.beta];
+    if (!tiltBase) tiltBase = { side, front };
+    const clamp = (value) => Math.max(-TILT_MAX, Math.min(TILT_MAX, value));
+    tiltTarget = { x: clamp(-(front - tiltBase.front) * 0.5), y: clamp((side - tiltBase.side) * 0.6) };
+  }
+  function tiltStep() {
+    tiltNow = { x: tiltNow.x + (tiltTarget.x - tiltNow.x) * 0.14, y: tiltNow.y + (tiltTarget.y - tiltNow.y) * 0.14 };
+    pcStage.style.setProperty("--tilt-x", `${tiltNow.x.toFixed(2)}deg`);
+    pcStage.style.setProperty("--tilt-y", `${tiltNow.y.toFixed(2)}deg`);
+    tiltFrame = requestAnimationFrame(tiltStep);
+  }
+  function listenTilt() {
+    tiltBase = null;
+    tiltTarget = { x: 0, y: 0 };
+    window.addEventListener("deviceorientation", onOrientation);
+    cancelAnimationFrame(tiltFrame);
+    tiltFrame = requestAnimationFrame(tiltStep);
+  }
+  // Runs inside the tap that opens a card (iPhones only ask from a tap).
+  function startTilt() {
+    if (!motionOK() || typeof window.DeviceOrientationEvent === "undefined" || tiltAllowed === false) return;
+    const ask = window.DeviceOrientationEvent.requestPermission;
+    if (typeof ask !== "function" || tiltAllowed) { listenTilt(); return; }
+    ask.call(window.DeviceOrientationEvent).then((answer) => {
+      tiltAllowed = answer === "granted";
+      if (tiltAllowed && !pcModal.hidden) listenTilt();
+    }, () => { tiltAllowed = false; });
+  }
+  function stopTilt() {
+    window.removeEventListener("deviceorientation", onOrientation);
+    cancelAnimationFrame(tiltFrame);
+    tiltNow = { x: 0, y: 0 };
+    pcStage.style.setProperty("--tilt-x", "0deg");
+    pcStage.style.setProperty("--tilt-y", "0deg");
+  }
+
   function openMember(key, opener) {
+    startTilt();
     pcOpener = opener;
     showMember(memberOrder.indexOf(key));
     pcModal.hidden = false;
@@ -643,6 +697,7 @@
   function closeMember() {
     if (pcModal.hidden) return;
     pcModal.hidden = true;
+    stopTilt();
     document.body.style.overflow = "";
     pcCard.classList.remove("is-flipped");
     if (pcOpener && pcOpener.isConnected) pcOpener.focus();
