@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AccountPage, AccountSheet, CartAccountNote, discountText, OrderHistory, rewardMismatch, usableRewards, useCustomerAccount, type AccountForm, type LoyaltyReward } from "./account";
 import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, type IdDiscountRule, type VatSetting } from "./id-discount";
+import { PhoneField } from "@/lib/input-format";
 
 type Product = {
   id: number;
@@ -1035,6 +1036,8 @@ export default function MenuPage() {
     </article>;
   };
   const firstName = customer.account?.fullName.split(" ")[0] ?? "";
+  // Rewards she can use right now: enough stars, or the birthday treat when it is open.
+  const readyRewards = usableRewards(loyalty).filter((reward) => reward.kind === "birthday" || reward.starsCost <= (loyalty?.balance ?? 0));
   const nextReward = loyalty?.campaign ? loyalty.rewards.find((reward) => reward.starsCost > loyalty.balance) ?? null : null;
   const manilaHour = Number(new Date().toLocaleString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", hour12: false }));
   const greeting = manilaHour < 12 ? "Good morning" : manilaHour < 18 ? "Good afternoon" : "Good evening";
@@ -1060,7 +1063,7 @@ export default function MenuPage() {
         {customer.account && loyalty?.campaign
           ? <button type="button" className="bh-stars-strip" onClick={() => goTab("account")}>
             <span className="bh-stars-badge">★ {loyalty.balance}</span>
-            <span className="bh-stars-text">{pickableRewards.length > 0 ? <><strong>You have a reward ready</strong>Use it in your cart</> : nextReward ? <><strong>{nextReward.starsCost - loyalty.balance} more star{nextReward.starsCost - loyalty.balance === 1 ? "" : "s"}</strong>for {nextReward.name}</> : <><strong>{loyalty.campaign.name}</strong>See your rewards</>}</span>
+            <span className="bh-stars-text">{readyRewards.length > 0 ? <><strong>{readyRewards.length === 1 ? "You have a reward ready" : `${readyRewards.length} rewards ready`}</strong>{readyRewards.some((reward) => reward.kind === "birthday") ? "Your birthday treat is waiting in your cart" : "Use it in your cart"}</> : nextReward ? <><strong>{nextReward.starsCost - loyalty.balance} more star{nextReward.starsCost - loyalty.balance === 1 ? "" : "s"}</strong>for {nextReward.name}</> : <><strong>{loyalty.campaign.name}</strong>See your rewards</>}</span>
             <IconNext />
           </button>
           : !customer.loading && !customer.account ? <button type="button" className="bh-stars-strip is-join" onClick={() => goTab("account")}>
@@ -1242,7 +1245,7 @@ export default function MenuPage() {
                     <label className="is-wide"><span>House number and street</span><input value={guestAddress.street} onChange={(event) => editGuestAddress({ street: event.target.value })} autoComplete="street-address" maxLength={200} /></label>
                     <label className="is-wide"><span>Landmark (optional)</span><input value={guestAddress.landmark} onChange={(event) => editGuestAddress({ landmark: event.target.value })} placeholder="Something the rider can look for" maxLength={120} /></label>
                     <label><span>Who receives it</span><input value={guestAddress.recipientName} onChange={(event) => editGuestAddress({ recipientName: event.target.value })} autoComplete="name" maxLength={80} /></label>
-                    <label><span>Mobile number</span><input type="tel" inputMode="tel" value={guestAddress.phone} onChange={(event) => editGuestAddress({ phone: event.target.value })} autoComplete="tel" placeholder="0917 123 4567" maxLength={16} /></label>
+                    <label><span>Mobile number</span><PhoneField value={guestAddress.phone} onChange={(phone) => editGuestAddress({ phone })} autoComplete="tel" placeholder="0917 123 4567" /></label>
                     <label className="is-wide"><span>Notes for the rider (optional)</span><input value={guestAddress.riderNotes} onChange={(event) => editGuestAddress({ riderNotes: event.target.value })} placeholder="Gate code, floor, where to leave it" maxLength={200} /></label>
                   </div>
                   <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">

@@ -537,6 +537,20 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .campaign-popover ul { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; }
 .campaign-popover li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 8px; border-radius: 8px; background: #FFFFFF; border: 1px solid #F0E8E1; color: #3D2B1F; font-size: 12.5px; }
 .campaign-popover li b { color: #B45309; white-space: nowrap; }
+/* A reward: tap to see what it covers. */
+.campaign-popover li.campaign-reward { display: block; padding: 0; }
+.campaign-reward summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; list-style: none; cursor: pointer; }
+.campaign-reward summary::-webkit-details-marker { display: none; }
+.campaign-reward summary span::before { content: "▸"; display: inline-block; width: 12px; color: #B45309; transition: transform 120ms ease; }
+.campaign-reward details[open] summary span::before { transform: rotate(90deg); }
+.campaign-reward details[open] summary { border-bottom: 1px dashed #F0E8E1; }
+.campaign-reward-body { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px 10px; }
+.campaign-reward-body > p { margin: 0; color: #92400E; font-size: 12px; font-weight: 700; line-height: 1.4; }
+.campaign-reward-body > p.is-empty { color: #9C8278; font-weight: 500; }
+.campaign-popover .campaign-reward-body ul { gap: 5px; }
+.campaign-popover .campaign-reward-body li { flex-direction: column; gap: 1px; padding: 0; border: 0; background: none; font-size: 12px; }
+.campaign-reward-body li strong { color: #3D2B1F; }
+.campaign-reward-body li span { color: #9C8278; font-size: 11.5px; line-height: 1.35; }
 .campaign-popover-foot { margin: 0; color: #9C8278; font-size: 11.5px; line-height: 1.45; }
 @media (max-width: 1100px) { .campaign-chip-label { display: none; } .campaign-chip { padding: 0 10px; } }
 @media (max-width: 640px) { .campaign-popover { position: fixed; top: 64px; left: 10px; right: 10px; width: auto; } }

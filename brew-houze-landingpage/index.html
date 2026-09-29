@@ -16,17 +16,19 @@
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100,800;125,900&text=ONELKGIVWHPAS%E2%80%99%27-&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&text=%EC%B9%B4%EB%A6%AC%EB%82%98%EC%A7%80%EC%A0%A4%EC%9C%88%ED%84%B0%EB%8B%9D&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@700;800;900&family=UnifrakturMaguntia&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet" />
   <script>
     // A secret theme (see secret/secret.js) is set before the page paints, so a reload keeps it
     // without flashing the café colors. "aespa" is the old name of Whiplash.
     try {
-      const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork" }[localStorage.getItem("brew-houze-theme")];
+      const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon" }[localStorage.getItem("brew-houze-theme")];
       if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
     } catch { /* storage blocked: default theme */ }
   </script>
   <link rel="stylesheet" href="secret/secret.css" />
   <link rel="stylesheet" href="secret/whiplash.css" />
   <link rel="stylesheet" href="secret/dirtywork.css" />
+  <link rel="stylesheet" href="secret/armageddon.css" />
   <style>
     :root {
       --espresso: #3D2B1F; --espresso-deep: #2A1D14; --roast: #6B4C3B; --latte: #9C8278;
@@ -475,7 +477,7 @@
 
     footerYear.textContent = yearText;
   </script>
-  <!-- The secret themes: the "© Brew Houze" line cycles café → Whiplash → café → Dirty Work. -->
+  <!-- The secret themes: the "© Brew Houze" line cycles café → Whiplash → café → Dirty Work → café → Armageddon. -->
   <script src="secret/secret.js"></script>
 </body>
 </html>

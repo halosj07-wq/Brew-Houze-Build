@@ -1,7 +1,8 @@
-// Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css and
-// dirtywork.css; photos and sound in whiplash/ and dirty-work/).
+// Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
+// dirtywork.css and armageddon.css; photos and sound in whiplash/, dirty-work/ and armageddon/).
 //
-// The "© Brew Houze" line in the footer cycles café → Whiplash → café → Dirty Work → café. Each
+// The "© Brew Houze" line in the footer cycles café → Whiplash → café → Dirty Work → café →
+// Armageddon → café. Each
 // theme has the four members (plates that open photo cards), an intro that follows its own sound
 // clip, and music that loops while the theme is on. index.html sets the theme before the page
 // paints (so a reload keeps it without a flash) and provides showToast().
@@ -10,7 +11,7 @@
   const THEME_KEY = "brew-houze-theme"; // the theme that is on, or "cafe"
   const NEXT_KEY = "brew-houze-theme-next"; // the theme the next click from the café opens
   const SOUND_KEY = "brew-houze-aespa-sound"; // "off" when the visitor muted the music
-  const CYCLE = ["whiplash", "dirtywork"];
+  const CYCLE = ["whiplash", "dirtywork", "armageddon"];
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
@@ -18,6 +19,8 @@
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const toast = (message) => { if (typeof window.showToast === "function") window.showToast(message); };
+  // A file of the site as a full URL (for url() in inline custom properties, which resolve late).
+  const siteUrl = (file) => new URL(file, document.baseURI).href;
 
   // ── The members ──
   const MEMBERS = {
@@ -117,6 +120,53 @@
     },
   };
 
+  // Armageddon: "Incoming danger. Armageddon or manipulation?" (the album's photo book) typed in
+  // hard cuts on the opening hits; the logo slams in ice cyan with an RGB split on the big hit
+  // (0.51 s); the four evenly spaced hits (0.68 / 0.84 / 1.00 / 1.17 s) flash each member with
+  // her signature written across the photo; in the silence a scanner sweeps on the stab (1.52 s)
+  // and the blip (1.75 s) round the orbit emblem; the drop (2.03 s) floods the screen ice cyan
+  // with the black logo.
+  const armageddonIntro = {
+    end: 2640,
+    cues: [
+      [0, "boot"], [30, "type", "Incoming danger."], [350, "type", "Armageddon or manipulation?"], [510, "logo"],
+      [680, "photo", 0], [840, "photo", 1], [1000, "photo", 2], [1170, "photo", 3],
+      [1340, "void"], [1520, "scan"], [1750, "scan-up"], [2030, "final"],
+    ],
+    hits: new Set(["type", "logo", "photo", "scan", "scan-up", "final"]),
+    mount(box, photos) {
+      box.innerHTML = `
+        <div class="am-lines"></div>
+        <p class="am-type"><span></span></p>
+        <div class="am-logo"><i></i><i></i><i></i></div>
+        <div class="am-photos"></div>
+        <div class="am-sign"></div>
+        <span class="am-who"></span>
+        <div class="am-orbit"><i></i><i></i><i></i></div>
+        <i class="am-scan"></i>
+        <span class="am-tag is-left">aespa · The 1st Album</span><span class="am-tag is-right">Armageddon</span>
+        <div class="am-final"><img src="armageddon/logo-black.webp" alt="" draggable="false" /><small>Brew Houze × aespa</small></div>`;
+      box.querySelector(".am-photos").append(...photos);
+      const type = box.querySelector(".am-type span");
+      const sign = box.querySelector(".am-sign");
+      const who = box.querySelector(".am-who");
+      return (step) => {
+        const [, scene, value] = this.cues[step];
+        const photo = scene === "photo" ? photos[value] : null;
+        const ready = !photo || (photo.complete && photo.naturalWidth > 0);
+        photos.forEach((img) => img.classList.toggle("is-current", img === photo));
+        if (scene === "type") type.textContent = value;
+        if (photo) {
+          const key = memberOrder[value];
+          sign.style.setProperty("--sign", `url("${siteUrl(`armageddon/${key}-signature.webp`)}")`);
+          who.textContent = `0${value + 1} · ${MEMBERS[key].name}`;
+        }
+        box.className = `am-intro is-${ready ? scene : "void"}`;
+        if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+    },
+  };
+
   // ── The themes ──
   const THEMES = {
     whiplash: {
@@ -130,6 +180,15 @@
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
       introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], seamless: true, intro: dirtyWorkIntro, introClass: "dw-intro",
+    },
+    // The loop repeats as a true loop: played sample-exact with Web Audio (seamless), no gap, no fade.
+    armageddon: {
+      era: "Armageddon", folder: "armageddon/", tag: "ARMAGEDDON", back: "signature",
+      title: "Brew Houze × aespa · Armageddon", toast: "Brew Houze × aespa · ARMAGEDDON",
+      sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
+      introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], seamless: true, intro: armageddonIntro, introClass: "am-intro",
+      // Loaded ahead with the photos: the intro and the card backs use them.
+      extras: ["logo-black.webp", "logo-white.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.webp`)],
     },
   };
   const photoOf = (theme, key) => `${THEMES[theme].folder}${key}.webp`;
@@ -174,6 +233,7 @@
       const m = MEMBERS[key];
       return `<li class="ae-member" style="--delay: ${index * 0.35}s" data-member="${key}" role="button" tabindex="0" aria-label="Open ${escapeHtml(m.name)}’s photo card">`
         + `<img draggable="false" class="ae-photo" src="${photoOf(theme, key)}" alt="" loading="lazy" onerror="this.remove()" />`
+        + (t.back === "signature" ? `<span class="am-plate-sign" aria-hidden="true" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.webp`)}')"></span>` : "")
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
@@ -357,6 +417,15 @@
   const playerFor = (theme) => (players[theme] ??= THEMES[theme].seamless ? stitchedLoop(THEMES[theme].loops) : mediaLoop(THEMES[theme].loops[0]));
   const clips = {};
   const clipFor = (theme) => { if (!clips[theme]) { clips[theme] = new Audio(THEMES[theme].introClip); clips[theme].preload = "auto"; } return clips[theme]; };
+  // The next theme's intro sound, photos and extra images, loaded before the click so the intro
+  // never skips a member.
+  const warmed = {};
+  function warm(theme) {
+    clipFor(theme);
+    if (warmed[theme]) return;
+    const t = THEMES[theme];
+    warmed[theme] = [...memberOrder.map((key) => photoOf(theme, key)), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
+  }
 
   const soundButton = document.getElementById("ae-sound");
   const soundWanted = () => store.get(SOUND_KEY) !== "off";
@@ -451,7 +520,7 @@
     if (leaving) {
       const after = CYCLE[(CYCLE.indexOf(leaving) + 1) % CYCLE.length];
       store.set(NEXT_KEY, after);
-      clipFor(after); // ready for the next click
+      warm(after); // ready for the next click
     }
     if (intro) await intro;
     if (entering) showSoundState(sound ? ((await playerFor(entering).start()) ? "on" : "waiting") : "off");
@@ -483,7 +552,15 @@
     document.getElementById("ae-pc-hangul").textContent = member.hangul;
     document.getElementById("ae-pc-tag").textContent = t.tag;
     document.getElementById("ae-pc-count").textContent = `0${pcIndex + 1} / 04`;
-    document.getElementById("ae-pc-back").innerHTML = `
+    const back = document.getElementById("ae-pc-back");
+    back.classList.toggle("is-signature", t.back === "signature");
+    back.innerHTML = t.back === "signature" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
+      <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
+      <div class="am-back-photo" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
+      <div class="am-back-sign" role="img" aria-label="${escapeHtml(member.name)}’s signature" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.webp`)}')"></div>
+      <div class="am-back-name"><h3>${escapeHtml(member.name)}</h3><p class="ae-pc-kr">${escapeHtml(member.hangul)}</p></div>
+      <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>` : `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <h3>${escapeHtml(member.name)}</h3>
@@ -580,7 +657,7 @@
     if (soundWanted()) void playerFor(current).start().then((ok) => showSoundState(ok ? "on" : "waiting"));
     else showSoundState("off");
   } else {
-    clipFor(nextTheme()); // ready for the first click
+    warm(nextTheme()); // ready for the first click
   }
   footerYear.addEventListener("click", toggleTheme);
   footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleTheme(); } });

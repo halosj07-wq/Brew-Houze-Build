@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
 
 type Page = "pos" | "queue" | "reversals" | "deliveries" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean };
@@ -275,10 +276,39 @@ function ConnectionIndicator() {
 
 // The campaigns running now, for every staff member: a chip in the top bar that opens the rules
 // and rewards, so the counter can answer "how do I earn stars?" without asking the owner.
+// covers: the menu items (and sizes) a reward can be taken as, or that a discount applies to.
+type PreviewReward = LoyaltyRewardRule & { covers?: { name: string; options: string[] }[] };
 type CampaignPreviewData = {
-  campaign: { name: string; description: string | null; endsOn: string | null; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; minOrderAmount: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null; rewards: LoyaltyRewardRule[] } | null;
-  birthday: { name: string; description: string | null; window: string; rewards: LoyaltyRewardRule[] } | null;
+  campaign: { name: string; description: string | null; endsOn: string | null; earnMode: "per_item" | "per_amount" | "per_order"; starsPerUnit: number; amountStep: number | null; minOrderAmount: number | null; categories: string[] | null; maxPerOrder: number | null; maxPerDay: number | null; rewards: PreviewReward[] } | null;
+  birthday: { name: string; description: string | null; window: string; rewards: PreviewReward[] } | null;
 };
+
+// "Any Espresso Based drink up to ₱150.00" / "20% off (up to ₱50.00) · orders from ₱200.00".
+function rewardScopeText(reward: PreviewReward): string {
+  const only = reward.productId !== null ? reward.covers?.[0]?.name ?? "one menu item" : null;
+  if (reward.rewardType === "discount") {
+    const on = only ? ` on ${only}` : reward.category ? "" : " on the whole order";
+    return `${discountText(reward)}${on}${reward.minOrderAmount ? ` · orders from ₱${reward.minOrderAmount.toFixed(2)}` : ""}`;
+  }
+  const what = only ? `Only ${only}` : reward.category ? `Any ${reward.category} item` : "Any item on the menu";
+  return `${what}${reward.maxPrice !== null ? ` up to ₱${reward.maxPrice.toFixed(2)}` : ""}, free`;
+}
+
+// One reward in the preview: tap it to see exactly which items (and sizes) it covers.
+function PreviewRewardRow({ reward, cost }: { reward: PreviewReward; cost: string }) {
+  // A discount on the whole order needs no list of items.
+  const covered = reward.rewardType === "discount" && reward.productId === null && !reward.category ? null : reward.covers ?? [];
+  return <li className="campaign-reward">
+    <details>
+      <summary><span>{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><b>{cost}</b></summary>
+      <div className="campaign-reward-body">
+        <p>{rewardScopeText(reward)}.</p>
+        {covered === null ? null : covered.length === 0 ? <p className="is-empty">Nothing on the menu fits this reward right now.</p>
+          : <ul>{covered.map((item) => <li key={item.name}><strong>{item.name}</strong><span>{item.options.join(" · ")}</span></li>)}</ul>}
+      </div>
+    </details>
+  </li>;
+}
 
 function campaignRuleText(campaign: NonNullable<CampaignPreviewData["campaign"]>): string {
   const stars = `${campaign.starsPerUnit} star${campaign.starsPerUnit === 1 ? "" : "s"}`;
@@ -331,15 +361,15 @@ function CampaignPreview() {
         <h3>★ {data.campaign.name}</h3>
         {data.campaign.description && <p className="campaign-popover-copy">{data.campaign.description}</p>}
         <p className="campaign-popover-rule">Customers earn {campaignRuleText(data.campaign)}</p>
-        {data.campaign.rewards.length > 0 && <ul>{data.campaign.rewards.map((reward) => <li key={reward.id}><span>{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><b>★ {reward.starsCost}</b></li>)}</ul>}
+        {data.campaign.rewards.length > 0 && <ul>{data.campaign.rewards.map((reward) => <PreviewRewardRow key={reward.id} reward={reward} cost={`★ ${reward.starsCost}`} />)}</ul>}
       </section>}
       {data.birthday && <section>
         <p className="campaign-popover-eyebrow">Always on</p>
         <h3>🎂 {data.birthday.name}</h3>
         <p className="campaign-popover-rule">One free treat a year, {windowText}. No stars needed. The customer needs their birthday on their profile.</p>
-        {data.birthday.rewards.length > 0 && <ul>{data.birthday.rewards.map((reward) => <li key={reward.id}><span>{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><b>Free</b></li>)}</ul>}
+        {data.birthday.rewards.length > 0 && <ul>{data.birthday.rewards.map((reward) => <PreviewRewardRow key={reward.id} reward={reward} cost="Free" />)}</ul>}
       </section>}
-      <p className="campaign-popover-foot">Attach the customer to the order to give stars. Customers with the app scan the Stars sign to use rewards.</p>
+      <p className="campaign-popover-foot">Tap a reward to see which items it covers. Attach the customer to the order to give stars. Customers with the app scan the Stars sign to use rewards.</p>
     </div>}
   </div>;
 }
@@ -954,7 +984,7 @@ function AmountKeypad({ title, value, onChange, onClose, quickAmounts, summary }
         <span>{title}</span>
         <button type="button" onClick={onClose} aria-label="Close keypad">×</button>
       </header>
-      <div className={`keypad-display${value ? "" : " is-empty"}`} aria-live="polite">₱{value || "0.00"}</div>
+      <div className={`keypad-display${value ? "" : " is-empty"}`} aria-live="polite">₱{groupMoney(value) || "0.00"}</div>
       {summary && <div className="keypad-summary">{summary(value)}</div>}
       {quickAmounts && quickAmounts.length > 0 && <div className="keypad-quick">
         {quickAmounts.map((quick, index) => <button key={quick} type="button" aria-pressed={Number.isFinite(amount) && Math.abs(amount - quick) < 0.005} onClick={() => { valueRef.current = quick.toFixed(2); onChange(quick.toFixed(2)); }}>{index === 0 ? "Exact" : `₱${quick.toLocaleString("en-PH")}`}</button>)}
@@ -977,10 +1007,10 @@ function MoneyInput({ value, onChange, label, placeholder = "0.00", style, autoF
   const { enabled } = useContext(KeypadContext);
   const [open, setOpen] = useState(false);
   if (!enabled) {
-    return <input type="number" min={0} step="0.01" inputMode="decimal" autoFocus={autoFocus} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} aria-label={label} style={style} />;
+    return <MoneyField autoFocus={autoFocus} value={value} onChange={onChange} placeholder={placeholder} aria-label={label} style={style} />;
   }
   return <>
-    <input type="text" readOnly inputMode="none" value={value} placeholder={placeholder} aria-label={`${label}, opens the keypad`} aria-haspopup="dialog" className="money-input-keypad"
+    <input type="text" readOnly inputMode="none" value={groupMoney(value)} placeholder={placeholder} aria-label={`${label}, opens the keypad`} aria-haspopup="dialog" className="money-input-keypad"
       onClick={() => setOpen(true)}
       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpen(true); } }}
       style={{ ...style, cursor: "pointer", caretColor: "transparent" }} />
@@ -1269,7 +1299,7 @@ function DeliveryAddressDialog({ areas, initial, itemsSubtotal, onSave, onClose 
           <label className="is-wide"><span>House number and street</span><input autoFocus value={draft.street} onChange={(event) => edit({ street: event.target.value })} maxLength={200} autoComplete="off" /></label>
           <label className="is-wide"><span>Landmark (optional)</span><input value={draft.landmark} onChange={(event) => edit({ landmark: event.target.value })} maxLength={120} placeholder="Something the rider can look for" autoComplete="off" /></label>
           <label><span>Receiver</span><input value={draft.recipientName} onChange={(event) => edit({ recipientName: event.target.value })} maxLength={80} autoComplete="off" /></label>
-          <label><span>Mobile number</span><input type="tel" inputMode="tel" value={draft.phone} onChange={(event) => edit({ phone: event.target.value })} placeholder="09XX XXX XXXX" maxLength={16} autoComplete="off" /></label>
+          <label><span>Mobile number</span><PhoneField value={draft.phone} onChange={(phone) => edit({ phone })} placeholder="09XX XXX XXXX" autoComplete="off" /></label>
           <label className="is-wide"><span>Notes for the rider (optional)</span><input value={draft.riderNotes} onChange={(event) => edit({ riderNotes: event.target.value })} maxLength={200} placeholder="Gate, floor, their Messenger name" autoComplete="off" /></label>
         </div>
       </div>

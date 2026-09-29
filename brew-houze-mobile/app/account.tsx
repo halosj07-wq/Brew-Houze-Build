@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import "./account.css";
+import { PhoneField } from "@/lib/input-format";
 
 // Customer accounts on the mobile menu. Kept apart from the menu page on purpose:
 //   useCustomerAccount()  all the data and API calls (keep this when the layout is redesigned)
@@ -414,7 +415,8 @@ export function AccountPage({ state, onOpen }: { state: CustomerAccountState; on
       <IconChevron />
     </button>
 
-    {loyalty?.birthday && <BirthdayCard birthday={loyalty.birthday} onAddBirthday={() => onOpen("edit")} />}
+    {/* Only when the treat is theirs to take (the cashier can explain the promo the rest of the year). */}
+    {loyalty?.birthday && loyalty.birthday.eligible && !loyalty.birthday.claimed && <BirthdayCard birthday={loyalty.birthday} onAddBirthday={() => onOpen("edit")} />}
     {loyalty?.campaign
       ? <RewardsCard loyalty={{ ...loyalty, campaign: loyalty.campaign }} />
       : loyalty?.birthday ? null : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats show here.</span></div>}
@@ -576,7 +578,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
         <Field label="Password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
-        <Field label="Mobile number (optional)" hint="For delivery updates from the café, e.g. 0917 123 4567."><input type="tel" inputMode="tel" value={signup.phone} onChange={(event) => setSignup((current) => ({ ...current, phone: event.target.value }))} autoComplete="tel" maxLength={16} /></Field>
+        <Field label="Mobile number (optional)" hint="For delivery updates from the café, e.g. 0917 123 4567."><PhoneField value={signup.phone} onChange={(phone) => setSignup((current) => ({ ...current, phone }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Email (optional)" hint="Only used if you forget your password."><input type="email" value={signup.email} onChange={(event) => setSignup((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
         <Field label="Birthday (optional)" hint="For a birthday treat when the café has one."><input type="date" value={signup.birthday} max={today} onChange={(event) => setSignup((current) => ({ ...current, birthday: event.target.value }))} autoComplete="bday" /></Field>
         <div className="acct-consent">
@@ -623,7 +625,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
         <Field label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} /></Field>
         <Field label="Username" hint="Usernames cannot be changed."><input value={`@${state.account?.username ?? ""}`} disabled /></Field>
         <Field label="Email (optional)" hint="Only used if you forget your password."><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
-        <Field label="Mobile number (optional)" hint="Needed for delivery, e.g. 0917 123 4567."><input type="tel" inputMode="tel" value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} autoComplete="tel" maxLength={16} /></Field>
+        <Field label="Mobile number (optional)" hint="Needed for delivery, e.g. 0917 123 4567."><PhoneField value={profile.phone} onChange={(phone) => setProfile((current) => ({ ...current, phone }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Birthday (optional)"><input type="date" value={profile.birthday} max={today} onChange={(event) => setProfile((current) => ({ ...current, birthday: event.target.value }))} /></Field>
         <button type="submit" className="add-order-button" disabled={busy || !profile.fullName.trim()}>{busy ? "Saving..." : "Save"} <span>→</span></button>
         <p className="acct-switch"><button type="button" onClick={onClose}>Cancel</button></p>
@@ -673,7 +675,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
         <Field label="House number and street"><input value={addressDraft.street} onChange={(event) => setAddressDraft((current) => current && { ...current, street: event.target.value })} autoComplete="street-address" maxLength={200} /></Field>
         <Field label="Landmark (optional)" hint="Something the rider can look for."><input value={addressDraft.landmark} onChange={(event) => setAddressDraft((current) => current && { ...current, landmark: event.target.value })} maxLength={120} /></Field>
         <Field label="Who receives it"><input value={addressDraft.recipientName} onChange={(event) => setAddressDraft((current) => current && { ...current, recipientName: event.target.value })} autoComplete="name" maxLength={80} /></Field>
-        <Field label="Their mobile number" hint="The rider calls this number."><input type="tel" inputMode="tel" value={addressDraft.phone} onChange={(event) => setAddressDraft((current) => current && { ...current, phone: event.target.value })} autoComplete="tel" maxLength={16} /></Field>
+        <Field label="Their mobile number" hint="The rider calls this number."><PhoneField value={addressDraft.phone} onChange={(phone) => setAddressDraft((current) => current && { ...current, phone })} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Notes for the rider (optional)"><input value={addressDraft.riderNotes} onChange={(event) => setAddressDraft((current) => current && { ...current, riderNotes: event.target.value })} placeholder="Gate code, floor, where to leave it" maxLength={200} /></Field>
         <label className="acct-check"><input type="checkbox" checked={addressDraft.isDefault} onChange={(event) => setAddressDraft((current) => current && { ...current, isDefault: event.target.checked })} />Use this address by default</label>
         <button type="submit" className="add-order-button" disabled={busy || !addressDraft.zoneId || addressDraft.street.trim().length < 3 || addressDraft.recipientName.trim().length < 2 || !addressDraft.phone.trim()}>{busy ? "Saving..." : "Save address"} <span>→</span></button>
