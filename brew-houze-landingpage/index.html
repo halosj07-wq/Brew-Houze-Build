@@ -218,6 +218,14 @@
             <div><strong>Counter tablet</strong><span>Staff Portal, for cashiers and baristas. Keep it signed in during the shift and switch users from the top bar.</span></div>
           </div>
           <div class="guide-item">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 9.18 0A4 4 0 0 1 18 13.87V21H6z" /><line x1="6" y1="17" x2="18" y2="17" /></svg>
+            <div><strong>Kitchen tablet or phone</strong><span>Staff Portal, for kitchen staff. They sign in and see only the kitchen queue: the food to make, marked ready for the counter.</span></div>
+          </div>
+          <div class="guide-item">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>
+            <div><strong>Riders’ phones</strong><span>Staff Portal, for riders. They see the deliveries, pick up the packed ones, mark them delivered, and hand the cash on delivery to the cashier.</span></div>
+          </div>
+          <div class="guide-item">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="12" y1="18" x2="12.01" y2="18" /></svg>
             <div><strong>Owner’s tablet &amp; phone</strong><span>Admin Portal. Start or end the shift, check sales, stock and employees from anywhere.</span></div>
           </div>
@@ -236,7 +244,8 @@
         <div class="section-head"><div><p class="eyebrow">Good to know</p><h2 id="tips-title">Quick tips</h2></div></div>
         <ul class="tips">
           <li><b>The store opens when a shift starts.</b> Until then the staff portal waits and the mobile menu shows the café as closed.</li>
-          <li><b>Ending the shift</b> clocks everyone out, signs out the staff portal and clears the queue screen.</li>
+          <li><b>Ending the shift</b> clocks everyone out, signs out the staff portal and clears the queue screen. It waits until deliveries are finished: none still on the way, failed ones voided, and the riders’ cash handed in.</li>
+          <li><b>Bar and kitchen:</b> each menu item is made at the bar or in the kitchen (set in Admin → Menu). An order with both is ready once both parts are; the Pickup button in Admin → Menu sets whether customers pick up drinks and food together or separately.</li>
           <li><b>Voids and refunds</b> only work for orders in the current shift, and need the cashier’s password.</li>
           <li><b>Status dots</b> at the top check that each app is reachable from this device. Red means that app or this device’s internet is down.</li>
           <li><b>Add this page to the home screen</b> of each tablet and phone (Share → Add to Home Screen) so it opens like an app.</li>
@@ -298,19 +307,19 @@
     const cards = {
       "staff-grid": [
         { app: "admin", icon: "admin", tone: "is-amber", featured: true, title: "Admin Portal", who: "Owner & managers · tablet or phone",
-          desc: "Run the café: start and end the shift, watch sales live, and manage inventory, the menu, finance, customers, loyalty campaigns, employees and archives.",
-          uses: ["Dashboard", "Shift", "Inventory", "Menu", "Finance", "Customers", "Loyalty", "Employees"], url: APPS.admin, qr: true },
-        { app: "cashier", icon: "cashier", tone: "", featured: true, title: "Staff Portal", who: "Counter tablet · cashiers & baristas",
-          desc: "Cashiers take orders and payments (cash or GCash) and void or refund orders in the current shift. Baristas see and manage the queue.",
-          uses: ["Point of Sale", "Queue", "Void & Refund", "Cash drawer", "Attendance"], url: APPS.cashier, qr: true },
+          desc: "Run the café: start and end the shift, watch sales live, and manage inventory, the menu (and whether each item is made at the bar or in the kitchen), finance, customers, loyalty, discounts, delivery, employees and archives.",
+          uses: ["Dashboard", "Shift", "Inventory", "Menu", "Finance", "Customers", "Loyalty", "Discounts", "Delivery", "Employees"], url: APPS.admin, qr: true },
+        { app: "cashier", icon: "cashier", tone: "", featured: true, title: "Staff Portal", who: "Counter tablet · cashiers, baristas, kitchen staff & riders",
+          desc: "Cashiers take orders and payments (cash, GCash or cash on delivery), including deliveries for Messenger orders, and void or refund orders in the current shift. Baristas make the drinks from the bar queue and kitchen staff the food from the kitchen queue; the counter hands orders out. Riders pick up deliveries, mark them delivered and hand in the cash they collect.",
+          uses: ["Point of Sale", "Bar queue", "Kitchen queue", "Deliveries", "Void & Refund", "Cash drawer", "Attendance"], url: APPS.cashier, qr: true },
       ],
       "customer-grid": [
         { app: "mobile", icon: "mobile", tone: "is-teal", title: "Mobile Menu", who: "Customers’ phones",
-          desc: "Customers browse the menu, order and pay with GCash from their own phone, then wait for their queue number.",
-          uses: ["Browse menu", "Order ahead", "GCash", "Customer accounts"], url: APPS.mobile, qr: true, qrNote: "Print this for the tables so customers can order from their phones." },
+          desc: "Customers browse the menu, order for dine in, take out or delivery, pay with GCash from their own phone, and follow their order until it is ready or delivered. With an account they earn stars and save their addresses.",
+          uses: ["Browse menu", "Order ahead", "Delivery", "GCash", "Stars & rewards"], url: APPS.mobile, qr: true, qrNote: "Print this for the tables so customers can order from their phones." },
         { app: "queue", icon: "queue", tone: "is-purple", title: "Queue Screen", who: "TV or monitor facing customers",
-          desc: "Shows which orders are being prepared and which are ready for pickup. Open it in full screen and leave it running.",
-          uses: ["Preparing", "Ready for pickup"], url: APPS.queue },
+          desc: "Shows which orders are being prepared and which are ready for pickup, and calls out each new ready number (tap once to turn the sound on). When drinks and food are picked up separately, it shows each one. Open it in full screen and leave it running.",
+          uses: ["Preparing", "Ready for pickup", "Drinks & food"], url: APPS.queue },
       ],
       "print-grid": [
         { app: "cashier", icon: "gcash", tone: "is-gcash", title: "Counter GCash sign", who: "Print and place at the counter",

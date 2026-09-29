@@ -1,7 +1,7 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Brew Houze Online Menu",
+  title: "Brew Houze · Online Menu",
   description: "Browse the Brew Houze menu from your table.",
 };
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Brew Houze Queue",
+  title: "Brew Houze · Queue Screen",
   description: "Brew Houze customer queue display",
 };
 
