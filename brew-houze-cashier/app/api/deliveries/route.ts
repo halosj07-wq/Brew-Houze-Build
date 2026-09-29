@@ -31,7 +31,7 @@ export async function GET() {
   try {
     const result = await pool.query(`
       SELECT d.delivery_id, d.order_id, so.queue_number, so.total_amount, so.delivery_fee, so.status AS order_status, so.discount_label,
-        d.status, d.payment, d.recipient_name, d.phone, d.street, d.landmark, d.rider_notes, d.zone_name, d.check_id,
+        d.status, CASE WHEN d.payment = 'gcash' AND so.payment_method = 'cash' THEN 'cash' ELSE d.payment END AS payment, d.recipient_name, d.phone, d.street, d.landmark, d.rider_notes, d.zone_name, d.check_id,
         d.cod_amount, d.cod_collected, d.failure_reason, d.rider_admin_id, rider.full_name AS rider_name, receiver.full_name AS remitted_to,
         ${iso("d.created_at")} AS created_at, ${iso("d.ready_at")} AS ready_at, ${iso("d.picked_up_at")} AS picked_up_at,
         ${iso("d.delivered_at")} AS delivered_at, ${iso("d.failed_at")} AS failed_at, ${iso("d.cod_remitted_at")} AS remitted_at,

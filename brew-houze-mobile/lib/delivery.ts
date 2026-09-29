@@ -55,40 +55,77 @@ export function normalizePhone(value: unknown): string | null {
 }
 
 // A delivery order, checked before it is placed (the order itself adds the fee: see lib/orders.ts).
-// The address is copied, so later edits to the address book do not change past orders.
+// The address is copied, so later edits to the address book do not change past orders. customerId
+// and addressId are null for a guest (or a Messenger order at the counter) with the address typed in.
+// payment "gcash" means paid before it leaves (GCash, or cash at the counter); "cod": the rider collects.
 export type DeliveryPayment = "gcash" | "cod";
 export type DeliveryPlan = {
-  customerId: number; addressId: number; recipientName: string; phone: string; street: string; landmark: string | null; riderNotes: string | null;
+  customerId: number | null; addressId: number | null; recipientName: string; phone: string; street: string; landmark: string | null; riderNotes: string | null;
   zoneId: number; zoneName: string; zoneFee: number; zoneMinOrder: number | null; freeAbove: number | null;
   payment: DeliveryPayment; codMaxAmount: number | null;
 };
 export const ACTIVE_DELIVERY_STATUSES = ["preparing", "ready", "out"];
 
-// Checks that delivery is on and open, the address is the customer's and in an active zone, the
-// café is not at its delivery limit, and (for cash on delivery) that this customer may use it.
-// Throws with a message for the customer.
-export async function planDelivery(db: Db, customerId: number | null, input: unknown): Promise<DeliveryPlan> {
-  if (customerId === null) throw new Error("Sign in to order delivery, so the café has your address and number.");
-  const raw = (input ?? {}) as { address_id?: unknown; payment?: unknown };
-  const addressId = Number(raw.address_id);
+type TypedAddress = { recipient_name?: unknown; phone?: unknown; zone_id?: unknown; street?: unknown; landmark?: unknown; rider_notes?: unknown };
+const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+
+// A typed-in address: who receives it, a mobile number, the street, and an active zone.
+async function typedAddress(db: Db, raw: TypedAddress) {
+  const recipientName = text(raw.recipient_name);
+  const phone = normalizePhone(raw.phone);
+  const street = text(raw.street);
+  const landmark = text(raw.landmark);
+  const riderNotes = text(raw.rider_notes);
+  const zoneId = Number(raw.zone_id);
+  if (recipientName.length < 2 || recipientName.length > 80) throw new Error("Add the name of who receives the order.");
+  if (!phone) throw new Error("Add a mobile number the rider can call, like 0917 123 4567.");
+  if (street.length < 3 || street.length > 200) throw new Error("Add the house number and street for the rider.");
+  if (landmark.length > 120 || riderNotes.length > 200) throw new Error("The landmark or rider notes are too long.");
+  if (!Number.isInteger(zoneId) || zoneId <= 0) throw new Error("Choose the area for the delivery.");
+  const zone = await db.query("SELECT zone_id, name AS zone_name, fee, min_order, is_active FROM delivery_zones WHERE zone_id = $1", [zoneId]);
+  const row = zone.rows[0];
+  if (!row || !row.is_active) throw new Error("The café doesn't deliver to that area. Choose another one.");
+  return { ...row, address_id: null, recipient_name: recipientName, phone, street, landmark: landmark || null, rider_notes: riderNotes || null };
+}
+
+// Checks that delivery is on and open, the address is the customer's (or typed in) and in an
+// active zone, the café is not at its delivery limit, and (for cash on delivery) that this customer
+// may use it. Guests pay by GCash. Throws with a message for the customer.
+// staff: an order the counter takes (a Messenger order): the café decides, so only the address
+// and zone are checked, and cash on delivery is open to anyone.
+export async function planDelivery(db: Db, customerId: number | null, input: unknown, options: { staff?: boolean } = {}): Promise<DeliveryPlan> {
+  const staff = options.staff === true;
+  const raw = (input ?? {}) as { address_id?: unknown; address?: unknown; payment?: unknown };
   const payment: DeliveryPayment = raw.payment === "cod" ? "cod" : "gcash";
   const settings = await deliverySettings(db);
-  if (!settings.enabled) throw new Error("Delivery is not available right now. Choose Dine in or Take Out.");
-  if (!withinDeliveryHours(settings)) throw new Error(`Delivery is only available from ${settings.start} to ${settings.end}.`);
-  if (!Number.isInteger(addressId) || addressId <= 0) throw new Error("Choose the delivery address.");
-  const address = await db.query(`
-    SELECT a.address_id, a.recipient_name, a.phone, a.street, a.landmark, a.rider_notes, z.zone_id, z.name AS zone_name, z.fee, z.min_order, z.is_active
-    FROM customer_addresses a JOIN delivery_zones z ON z.zone_id = a.zone_id
-    WHERE a.address_id = $1 AND a.customer_id = $2
-  `, [addressId, customerId]);
-  const row = address.rows[0];
-  if (!row) throw new Error("That address is no longer in your account. Choose another one.");
-  if (!row.is_active) throw new Error(`The café no longer delivers to ${row.zone_name}. Choose another address.`);
-  if (settings.maxActive !== null) {
+  if (!staff) {
+    if (!settings.enabled) throw new Error("Delivery is not available right now. Choose Dine in or Take Out.");
+    if (!withinDeliveryHours(settings)) throw new Error(`Delivery is only available from ${settings.start} to ${settings.end}.`);
+    if (customerId === null && payment === "cod") throw new Error("Sign in to pay cash on delivery, or pay with GCash.");
+  }
+  let row;
+  if (raw.address_id !== undefined && raw.address_id !== null) {
+    const addressId = Number(raw.address_id);
+    if (customerId === null) throw new Error("Sign in to use your saved addresses.");
+    if (!Number.isInteger(addressId) || addressId <= 0) throw new Error("Choose the delivery address.");
+    const address = await db.query(`
+      SELECT a.address_id, a.recipient_name, a.phone, a.street, a.landmark, a.rider_notes, z.zone_id, z.name AS zone_name, z.fee, z.min_order, z.is_active
+      FROM customer_addresses a JOIN delivery_zones z ON z.zone_id = a.zone_id
+      WHERE a.address_id = $1 AND a.customer_id = $2
+    `, [addressId, customerId]);
+    row = address.rows[0];
+    if (!row) throw new Error("That address is no longer in your account. Choose another one.");
+    if (!row.is_active) throw new Error(`The café no longer delivers to ${row.zone_name}. Choose another address.`);
+  } else if (raw.address && typeof raw.address === "object") {
+    row = await typedAddress(db, raw.address as TypedAddress);
+  } else {
+    throw new Error("Choose the delivery address.");
+  }
+  if (!staff && settings.maxActive !== null) {
     const active = await db.query("SELECT COUNT(*)::int AS n FROM deliveries WHERE status = ANY($1::text[])", [ACTIVE_DELIVERY_STATUSES]);
     if (Number(active.rows[0].n) >= settings.maxActive) throw new Error("The café has as many deliveries as it can handle right now. Please try again in a few minutes, or choose Take Out.");
   }
-  if (payment === "cod") {
+  if (!staff && payment === "cod") {
     if (!settings.cod.enabled) throw new Error("Cash on delivery is not available. Pay with GCash instead.");
     const customer = await db.query(`
       SELECT c.cod_blocked, (SELECT COUNT(*)::int FROM sales_orders so WHERE so.customer_id = c.customer_id AND so.status = 'completed') AS completed
@@ -98,9 +135,9 @@ export async function planDelivery(db: Db, customerId: number | null, input: unk
     if (Number(customer.rows[0]?.completed ?? 0) < settings.cod.minOrders) throw new Error(`Cash on delivery opens after ${settings.cod.minOrders} completed order${settings.cod.minOrders === 1 ? "" : "s"}. Pay with GCash this time.`);
   }
   return {
-    customerId, addressId, recipientName: String(row.recipient_name), phone: String(row.phone), street: String(row.street), landmark: (row.landmark as string | null) ?? null, riderNotes: (row.rider_notes as string | null) ?? null,
+    customerId, addressId: row.address_id === null ? null : Number(row.address_id), recipientName: String(row.recipient_name), phone: String(row.phone), street: String(row.street), landmark: (row.landmark as string | null) ?? null, riderNotes: (row.rider_notes as string | null) ?? null,
     zoneId: Number(row.zone_id), zoneName: String(row.zone_name), zoneFee: Number(row.fee), zoneMinOrder: row.min_order === null ? null : Number(row.min_order), freeAbove: settings.freeAbove,
-    payment, codMaxAmount: payment === "cod" ? settings.cod.maxAmount : null,
+    payment, codMaxAmount: payment === "cod" && !staff ? settings.cod.maxAmount : null,
   };
 }
 

@@ -5,9 +5,11 @@ import { parseIdDiscounts } from "@/lib/discounts";
 import { claimCounterCart, completeCounterCart, parseCounterCartId } from "@/lib/counter-carts";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { authorizeCounterRewards, CUSTOMER_UNAVAILABLE, linkableCustomerId, markClaimUsed } from "@/lib/customers";
+import { planDelivery } from "@/lib/delivery";
 
 // Cash and manual "online" payments at the counter. GCash through PayMongo goes through
 // /api/payments instead, where the order is only created once the payment is confirmed.
+// A delivery the counter takes (a Messenger order) is paid in cash now, or cash on delivery.
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -15,10 +17,12 @@ export async function POST(request: Request) {
 
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; id_discounts?: unknown; counter_cart_id?: unknown };
+    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; id_discounts?: unknown; counter_cart_id?: unknown; delivery?: unknown };
     // Cash only: GCash, the only online payment, goes through /api/payments (paid before the order).
-    if (body.payment_method !== undefined && body.payment_method !== "cash") return NextResponse.json({ error: "Only cash orders are punched here. Use GCash for online payments." }, { status: 400 });
-    const paymentMethod = "cash";
+    if (body.payment_method !== undefined && body.payment_method !== "cash" && body.payment_method !== "cod") return NextResponse.json({ error: "Only cash orders are punched here. Use GCash for online payments." }, { status: 400 });
+    const paymentMethod = body.payment_method === "cod" ? "cod" : "cash";
+    const serviceType = parseServiceType(body.service_type);
+    if (paymentMethod === "cod" && serviceType !== "delivery") return NextResponse.json({ error: "Cash on delivery is only for delivery orders." }, { status: 400 });
     const items = parseOrderItems(body.items);
     if (items.length === 0) return NextResponse.json({ error: "At least one valid cart item is required." }, { status: 400 });
     // The customer the cashier attached, if any, so the order shows in their purchases.
@@ -33,6 +37,8 @@ export async function POST(request: Request) {
     const counterCartId = parseCounterCartId(body.counter_cart_id);
 
     await client.query("BEGIN");
+    // Paid in cash now: the delivery goes out already paid ("gcash" on the delivery means prepaid).
+    const delivery = serviceType === "delivery" ? await planDelivery(client, customerId ?? null, { ...(body.delivery as object ?? {}), payment: paymentMethod === "cod" ? "cod" : "gcash" }, { staff: true }) : null;
     // A cart sent from the mobile menu: the order takes its token so the customer's phone follows it.
     const counterCartToken = await claimCounterCart(client, counterCartId);
     const placed = await placeOrder(client, {
@@ -46,7 +52,8 @@ export async function POST(request: Request) {
       discountRewardId,
       // Senior, PWD and other ID discounts: the cashier checked the ID at the counter.
       idDiscounts: parseIdDiscounts(body.id_discounts),
-      serviceType: parseServiceType(body.service_type),
+      serviceType,
+      delivery,
       customerToken: counterCartToken,
     });
     await markClaimUsed(client, rewards.claimId, placed.orderId);

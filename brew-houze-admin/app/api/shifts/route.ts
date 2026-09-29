@@ -126,7 +126,7 @@ export async function GET(request: Request) {
 
       // Delivery orders sold in the shift, and cash on delivery handed in during it.
       const deliveriesResult = await pool.query(`
-        SELECT d.delivery_id, d.order_id, so.queue_number, d.status, d.payment, d.fee, d.zone_name, d.cod_amount, d.cod_collected, d.failure_reason,
+        SELECT d.delivery_id, d.order_id, so.queue_number, d.status, CASE WHEN d.payment = 'gcash' AND so.payment_method = 'cash' THEN 'cash' ELSE d.payment END AS payment, d.fee, d.zone_name, d.cod_amount, d.cod_collected, d.failure_reason,
           so.shift_id = $1 AS sold_in_shift, so.status AS order_status, COALESCE(d.cod_remitted_shift_id = $1, FALSE) AS remitted_in_shift,
           rider.full_name AS rider_name, receiver.full_name AS remitted_to,
           TO_CHAR(d.picked_up_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS picked_up_at, TO_CHAR(d.delivered_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS delivered_at,

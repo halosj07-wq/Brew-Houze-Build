@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { AccountButton, AccountSheet, CartAccountNote, discountText, rewardMismatch, usableRewards, useCustomerAccount, type LoyaltyReward } from "./account";
+import { AccountPage, AccountSheet, CartAccountNote, discountText, OrderHistory, rewardMismatch, usableRewards, useCustomerAccount, type AccountForm, type LoyaltyReward } from "./account";
 import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, type IdDiscountRule, type VatSetting } from "./id-discount";
 
 type Product = {
@@ -27,12 +27,20 @@ type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" |
 type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
 type OrderStatus = "waiting" | "served" | "flushed";
 // delivery: a delivery order; deliveryStatus its progress (preparing, ready, out, delivered, failed, cancelled).
-type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus; delivery?: boolean; deliveryStatus?: string | null };
+// doneAt: when a delivery was first seen delivered. The café never clears a delivery from the queue
+// (the customer follows it here), so the phone retires it itself: when the customer closes the
+// order status after seeing it delivered, or DELIVERED_KEEP_MS later.
+type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus; delivery?: boolean; deliveryStatus?: string | null; doneAt?: number };
+const DELIVERED_KEEP_MS = 10 * 60 * 1000;
 // Delivery as the mobile menu sees it (see /api/delivery).
 type DeliveryInfo = { enabled: boolean; openNow: boolean; hours: { start: string; end: string } | null; freeAbove: number | null; cod: { enabled: boolean; maxAmount: number; minOrders: number }; zones: { id: number; name: string; description: string | null; fee: number; minOrder: number | null }[] };
 const trackedOrdersStorageKey = "brew-houze-tracked-orders";
 // A GCash payment in progress: its reference and the cart, so the cart comes back if it fails.
 const pendingPaymentStorageKey = "brew-houze-pending-payment";
+// A guest's delivery address, kept on this phone for their next order.
+const guestAddressStorageKey = "brew-houze-guest-address";
+type GuestAddress = { recipientName: string; phone: string; zoneId: string; street: string; landmark: string; riderNotes: string };
+const emptyGuestAddress: GuestAddress = { recipientName: "", phone: "", zoneId: "", street: "", landmark: "", riderNotes: "" };
 type PaymentConfig = { method: "gcash" | "none"; testMode?: boolean; minimumAmount?: number };
 type PaymentCheck = { token: string; state: "checking" | "slow" | "failed"; message?: string; cart: CartItem[] };
 // ID discounts (senior, PWD and others) are checked at the counter: the customer sends their cart
@@ -93,6 +101,19 @@ function IconTrash() {
   return <svg width="15" height="15" viewBox="0 0 24 24" {...iconProps} aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>;
 }
 
+function IconReceipt() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" /><path d="M9 8h6M9 12h6M9 16h3" /></svg>;
+}
+function IconUser() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></svg>;
+}
+function IconMenu() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M5 9h12v5a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5V9Z" /><path d="M17 10h1.5a2.5 2.5 0 0 1 0 5H17" /><path d="M8 3c-.6.8-.6 1.7 0 2.5M12 3c-.6.8-.6 1.7 0 2.5" /></svg>;
+}
+function IconNext() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" {...iconProps} aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>;
+}
+
 function IconCart() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 1.9-1.4L21 8H6" /><circle cx="10" cy="20" r="1" /><circle cx="18" cy="20" r="1" /></svg>;
 }
@@ -120,7 +141,9 @@ export default function MenuPage() {
   // The cart line being changed in the item sheet (null: adding a new one).
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
-  const [orderPlaced, setOrderPlaced] = useState(false);
+  // The app's three tabs. Orders shows orders in progress (it opens by itself when an order is
+  // placed or becomes ready) and past orders; Account the profile, rewards and settings.
+  const [tab, setTab] = useState<"menu" | "orders" | "account">("menu");
   const [placingOrder, setPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState("");
   const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
@@ -130,6 +153,10 @@ export default function MenuPage() {
   const customer = useCustomerAccount();
   const { refresh: refreshAccount } = customer;
   const [accountOpen, setAccountOpen] = useState(false);
+  // The form the Account tab opened (sign in, details, addresses…).
+  const [accountForm, setAccountForm] = useState<AccountForm | undefined>(undefined);
+  // Opened from the cart's delivery section: straight to the addresses.
+  const [accountAddresses, setAccountAddresses] = useState(false);
   // A password reset link from email opens the account sheet on its reset screen.
   const [resetToken, setResetToken] = useState<string | null>(null);
   // Opened from the printed Stars sign at the counter (?claim=1).
@@ -144,6 +171,21 @@ export default function MenuPage() {
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
   const [deliveryAddressId, setDeliveryAddressId] = useState<number | null>(null);
   const [deliveryPayment, setDeliveryPayment] = useState<"gcash" | "cod">("gcash");
+  // Without an account, delivery takes the address in the cart and is paid by GCash.
+  const [guestAddress, setGuestAddress] = useState<GuestAddress>(emptyGuestAddress);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem(guestAddressStorageKey) ?? "null") as Partial<GuestAddress> | null;
+      if (saved && typeof saved === "object") setGuestAddress({ ...emptyGuestAddress, ...saved });
+    } catch { /* storage unavailable: start empty */ }
+  }, []);
+  function editGuestAddress(change: Partial<GuestAddress>) {
+    setGuestAddress((current) => {
+      const next = { ...current, ...change };
+      try { window.localStorage.setItem(guestAddressStorageKey, JSON.stringify(next)); } catch { /* storage unavailable */ }
+      return next;
+    });
+  }
   // ID discounts the café gives, the one the customer will claim (null: none), and a cart sent
   // to the counter that is waiting for them.
   const [idDiscountOptions, setIdDiscountOptions] = useState<IdDiscountOption[]>([]);
@@ -213,7 +255,7 @@ export default function MenuPage() {
     if (restoredOrders) {
       window.setTimeout(() => {
         setTrackedOrders(restoredOrders ?? []);
-        if (restoredOrders && restoredOrders.length > 0) setOrderPlaced(true);
+        if (restoredOrders && restoredOrders.length > 0) showOrders();
         trackedOrdersHydratedRef.current = true;
       }, 0);
     } else {
@@ -302,7 +344,7 @@ export default function MenuPage() {
           setCart([]); setDiscountReward(null); setServiceType("dine_in");
           setTrackedOrders((current) => current.some((order) => order.trackingToken === result.trackingToken) ? current : [...current, { trackingToken: result.trackingToken, queueNumber: result.queueNumber, status: "waiting", delivery: false, deliveryStatus: null }]);
           setPaymentCheck(null);
-          setOrderPlaced(true);
+          showOrders();
           void refreshAccount();
           return;
         }
@@ -322,6 +364,20 @@ export default function MenuPage() {
     const intervalId = window.setInterval(() => void check(), 2500);
     return () => { active = false; window.clearInterval(intervalId); };
   }, [checkingPayment, checkingToken, refreshAccount]);
+
+  function showOrders() {
+    setTab("orders");
+  }
+  // Leaving the Orders tab: deliveries the customer has now seen delivered are done.
+  function goTab(next: "menu" | "orders" | "account") {
+    if (tab === "orders" && next !== "orders") setTrackedOrders((current) => current.filter((order) => !order.doneAt));
+    setTab(next);
+  }
+  useEffect(() => { window.scrollTo(0, 0); }, [tab]);
+  function openAccount(form: AccountForm) {
+    setAccountForm(form);
+    setAccountOpen(true);
+  }
 
   function returnToOrder() {
     if (paymentCheck?.cart.length) setCart(paymentCheck.cart);
@@ -403,7 +459,7 @@ export default function MenuPage() {
           setCart([]); setClaimIdType(null); setServiceType("dine_in"); setSentCart(null); setCartOpen(false);
           const status: OrderStatus = result.queueStatus === "served" ? "served" : "waiting";
           setTrackedOrders((current) => current.some((order) => order.trackingToken === sentToken) ? current : [...current, { trackingToken: sentToken, queueNumber: result.queueNumber, status }]);
-          setOrderPlaced(true);
+          showOrders();
           void refreshAccount();
           return;
         }
@@ -682,7 +738,7 @@ export default function MenuPage() {
     setCart([]); setClaimIdType(null); setServiceType("dine_in"); setCartOpen(false); setIdSheet(null);
     forgetIdCheck();
     setTrackedOrders((current) => [...current, { trackingToken: placed.trackingToken, queueNumber: placed.queueNumber, status: "waiting", delivery: isDelivery, deliveryStatus: isDelivery ? "preparing" : null }]);
-    setOrderPlaced(true);
+    showOrders();
     void refreshAccount();
   }
 
@@ -739,24 +795,32 @@ export default function MenuPage() {
   const isDelivery = serviceType === "delivery";
   const deliveryAddresses = (customer.account?.addresses ?? []).filter((address) => address.zoneActive);
   const chosenAddress = deliveryAddresses.find((address) => address.id === deliveryAddressId) ?? deliveryAddresses.find((address) => address.isDefault) ?? deliveryAddresses[0] ?? null;
-  const chosenZone = deliveryInfo?.zones.find((zone) => zone.id === chosenAddress?.zoneId) ?? null;
+  const isGuest = !customer.account;
+  const chosenZone = deliveryInfo?.zones.find((zone) => isGuest ? String(zone.id) === guestAddress.zoneId : zone.id === chosenAddress?.zoneId) ?? null;
   const deliveryFee = isDelivery && chosenZone ? (deliveryInfo?.freeAbove && cartTotal + 0.005 >= deliveryInfo.freeAbove ? 0 : chosenZone.fee) : 0;
   const orderTotal = Math.round((cartTotal + deliveryFee) * 100) / 100;
   const minimumShort = isDelivery && chosenZone?.minOrder ? Math.max(0, chosenZone.minOrder - cartItemsTotal) : 0;
-  const codProblem = !deliveryInfo?.cod.enabled ? "Not offered by the café"
+  const codProblem = isGuest ? "Sign in to pay cash on delivery"
+    : !deliveryInfo?.cod.enabled ? "Not offered by the café"
     : customer.account?.codBlocked ? "Not available for your account"
       : (customer.account?.completedOrders ?? 0) < deliveryInfo.cod.minOrders ? `Opens after ${deliveryInfo.cod.minOrders} completed order${deliveryInfo.cod.minOrders === 1 ? "" : "s"}`
         : orderTotal > deliveryInfo.cod.maxAmount + 0.005 ? `For orders up to ₱${deliveryInfo.cod.maxAmount.toFixed(2)}`
           : null;
   const payCod = isDelivery && deliveryPayment === "cod" && codProblem === null;
   const deliveryProblem = !isDelivery ? ""
-    : !customer.account ? "Sign in to order delivery, so the café has your address and number."
+    : isGuest && paymentConfig.method !== "gcash" ? "Sign in to order delivery. Without an account it's paid by GCash, which isn't available right now."
       : !deliveryInfo?.enabled ? "Delivery isn't available right now."
         : !deliveryInfo.openNow ? `Delivery is available from ${deliveryInfo.hours?.start ?? ""} to ${deliveryInfo.hours?.end ?? ""}.`
-          : !chosenAddress ? "Add a delivery address in your account first."
+          : isGuest && !chosenZone ? "Choose your area for the delivery."
+          : isGuest && guestAddress.street.trim().length < 3 ? "Add the house number and street for the rider."
+          : isGuest && guestAddress.recipientName.trim().length < 2 ? "Add the name of who receives the order."
+          : isGuest && !/^(\+?63|0)?9\d{9}$/.test(guestAddress.phone.replace(/[\s-]/g, "")) ? "Add a mobile number the rider can call, like 0917 123 4567."
+          : !isGuest && !chosenAddress ? "Add a delivery address in your account first."
             : minimumShort > 0 ? `Delivery to ${chosenZone?.name ?? "this area"} starts at ₱${chosenZone?.minOrder?.toFixed(2)} of items. Add ₱${minimumShort.toFixed(2)} more.`
               : "";
-  const deliveryBody = isDelivery && chosenAddress ? { address_id: chosenAddress.id, payment: payCod ? "cod" : "gcash" } : undefined;
+  const deliveryBody = !isDelivery ? undefined
+    : isGuest ? { address: { recipient_name: guestAddress.recipientName, phone: guestAddress.phone, zone_id: Number(guestAddress.zoneId), street: guestAddress.street, landmark: guestAddress.landmark, rider_notes: guestAddress.riderNotes }, payment: "gcash" }
+      : chosenAddress ? { address_id: chosenAddress.id, payment: payCod ? "cod" : "gcash" } : undefined;
 
   async function submitOrder() {
     if (cart.length === 0) return;
@@ -804,7 +868,7 @@ export default function MenuPage() {
           deliveryStatus: isDelivery ? "preparing" : null,
         }]);
       }
-      setOrderPlaced(true);
+      showOrders();
       void refreshAccount();
     } catch (submitError) {
       setOrderError(submitError instanceof Error ? submitError.message : "Unable to place order.");
@@ -833,19 +897,21 @@ export default function MenuPage() {
         if (active) {
           setTrackedOrders((current) => {
             let newlyReady = false;
+            let newlyDelivered = false;
+            const now = Date.now();
             const updatedOrders = current
               .map((order): TrackedOrder | null => {
                 const update = results.find((result) => result.trackingToken === order.trackingToken);
                 if (!update || update.missing) return null;
                 if (update.delivery ? update.deliveryStatus === "out" && order.deliveryStatus !== "out" : update.status === "served" && order.status !== "served") newlyReady = true;
-                return { ...order, status: update.status, delivery: update.delivery, deliveryStatus: update.deliveryStatus };
+                const delivered = update.delivery && update.deliveryStatus === "delivered";
+                if (delivered && !order.doneAt) newlyDelivered = true;
+                return { ...order, status: update.status, delivery: update.delivery, deliveryStatus: update.deliveryStatus, doneAt: order.doneAt ?? (delivered ? now : undefined) };
               })
-              .filter((order): order is TrackedOrder => order !== null && order.status !== "flushed");
-            if (newlyReady) {
-              playReadyPing();
-              setOrderPlaced(true);
-            }
-            if (updatedOrders.length === 0) setOrderPlaced(false);
+              .filter((order): order is TrackedOrder => order !== null && order.status !== "flushed" && !(order.doneAt && now - order.doneAt > DELIVERED_KEEP_MS));
+            if (newlyReady) playReadyPing();
+            // Shows "Delivered. Enjoy!" once; closing the order status then clears it.
+            if (newlyReady || newlyDelivered) showOrders();
             return updatedOrders;
           });
         }
@@ -916,7 +982,6 @@ export default function MenuPage() {
     { value: "take_out" as const, label: "Take Out", Icon: IconTakeOut, note: "" },
     { value: "delivery" as const, label: "Delivery", Icon: IconDelivery, note: !deliveryInfo?.enabled ? "Unavailable" : !deliveryInfo.openNow ? "Closed now" : "" },
   ];
-  const serviceLabel = serviceOptions.find((option) => option.value === serviceType)?.label ?? "Dine in";
   const serviceSwitch = (where: "page" | "cart") => <div className={`bh-service${where === "cart" ? " is-cart" : ""}`} role="radiogroup" aria-label="How you're ordering">
     {serviceOptions.map(({ value, label, Icon, note }) => {
       const off = value === "delivery" && !deliveryInfo?.enabled;
@@ -932,81 +997,150 @@ export default function MenuPage() {
     ? ({ preparing: "Preparing", ready: "Packed", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" } as Record<string, string>)[latestOrder.deliveryStatus ?? "preparing"] ?? "Preparing"
     : latestOrder.status === "served" ? "Ready for pickup" : "Preparing";
   const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served") : false;
-  const sheetOpen = Boolean(selectedProduct || cartOpen || orderPlaced || rewardPick || accountOpen || idSheet || sentCart || paymentCheck);
+  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck);
   useEffect(() => {
     document.body.style.overflow = sheetOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [sheetOpen]);
 
+  // An order in progress, as a card on the Orders tab.
+  const trackCard = (order: TrackedOrder) => {
+    const queue = `#${order.queueNumber ?? "—"}`;
+    if (order.delivery) {
+      const step = order.deliveryStatus ?? "preparing";
+      const info: Record<string, [string, string, string]> = {
+        preparing: ["Preparing", "We're making your order", "The café has your delivery order. We'll let you know when it's on the way."],
+        ready: ["Packed", "Your order is packed", "It's waiting for the rider to pick it up."],
+        out: ["On the way", "Your order is on the way!", "The rider is heading to you. Keep your phone nearby."],
+        delivered: ["Delivered", "Delivered. Enjoy!", "Thank you for ordering from Brew Houze."],
+        failed: ["Not delivered", "We couldn't deliver this order", "The café will contact you about it."],
+        cancelled: ["Cancelled", "This order was cancelled", "Contact the café if you have questions."],
+      };
+      const [badge, title, text] = info[step] ?? info.preparing;
+      const steps = ["preparing", "ready", "out", "delivered"];
+      const at = steps.indexOf(step);
+      const tone = step === "out" || step === "delivered" ? " is-ready" : step === "failed" || step === "cancelled" ? " is-problem" : "";
+      return <article className={`bh-track${tone}`} key={order.trackingToken}>
+        <div className="bh-track-top"><div><p className="bh-track-badge"><i aria-hidden="true" />{badge} · Delivery</p><h3>{title}</h3></div><div className="bh-track-number"><span>Order</span><strong>{queue}</strong></div></div>
+        {at >= 0 && <ol className="bh-track-steps">{["Preparing", "Packed", "On the way", "Delivered"].map((label, index) => <li key={label} className={index <= at ? "is-done" : ""}>{label}</li>)}</ol>}
+        <p>{text}</p>
+        {order.doneAt && <button type="button" className="bh-link" onClick={() => setTrackedOrders((current) => current.filter((item) => item.trackingToken !== order.trackingToken))}>Got it, clear this</button>}
+      </article>;
+    }
+    const ready = order.status === "served";
+    return <article className={`bh-track${ready ? " is-ready" : ""}`} key={order.trackingToken}>
+      <div className="bh-track-top"><div><p className="bh-track-badge"><i aria-hidden="true" />{ready ? "Ready for pickup" : "Preparing"}</p><h3>{ready ? "Your order is ready!" : "We're making your order"}</h3></div><div className="bh-track-number"><span>Queue</span><strong>{queue}</strong></div></div>
+      <ol className="bh-track-steps">{["Received", "Preparing", "Ready"].map((label, index) => <li key={label} className={index <= (ready ? 2 : 1) ? "is-done" : ""}>{label}</li>)}</ol>
+      <p>{ready ? "Pick it up at the counter. Show this number if they ask." : "We'll ping you when it's ready. You can keep browsing."}</p>
+    </article>;
+  };
+  const firstName = customer.account?.fullName.split(" ")[0] ?? "";
+  const nextReward = loyalty?.campaign ? loyalty.rewards.find((reward) => reward.starsCost > loyalty.balance) ?? null : null;
+  const manilaHour = Number(new Date().toLocaleString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", hour12: false }));
+  const greeting = manilaHour < 12 ? "Good morning" : manilaHour < 18 ? "Good afternoon" : "Good evening";
+  const accountInitials = customer.account ? customer.account.fullName.trim().split(/\s+/).map((part, index, parts) => index === 0 || index === parts.length - 1 ? part[0] : "").join("").toUpperCase() : "";
+
   return <main className="bh-shell">
     <header className="bh-header">
-      <div className="bh-brand"><Image src="/brand/badge.png" alt="" width={40} height={40} unoptimized priority /><span>Brew Houze Cafe</span></div>
+      <button type="button" className="bh-brand" onClick={() => goTab("menu")} aria-label="Brew Houze Cafe, menu"><Image src="/brand/badge.png" alt="" width={40} height={40} unoptimized priority /><span>Brew Houze Cafe</span></button>
       <div className="bh-header-actions">
-        {activeOrder && <button type="button" className={`bh-orders-button${orderReady ? " is-ready" : ""}`} onClick={() => setOrderPlaced(true)} aria-label={`Your orders: ${activeOrders.length} in progress`}>
-          <i aria-hidden="true" />#{latestOrder?.queueNumber ?? "—"}
-        </button>}
-        {!customer.loading && <AccountButton state={customer} onOpen={() => setAccountOpen(true)} />}
+        {activeOrder
+          ? <button type="button" className={`bh-orders-button${orderReady ? " is-ready" : ""}`} onClick={() => goTab("orders")} aria-label={`Your order ${latestOrder?.queueNumber ?? ""}: ${orderPillText}`}><i aria-hidden="true" />#{latestOrder?.queueNumber ?? "—"} · {orderPillText}</button>
+          : <span className={`bh-open${storeOpen ? "" : " is-closed"}`}><i aria-hidden="true" />{storeOpen ? "Open now" : "Closed"}</span>}
       </div>
     </header>
 
-    <div className="bh-page">
-      {!storeOpen && <div role="status" className="bh-closed"><strong>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
-
-      <section className="bh-hello">
-        <h1>{customer.account ? `Hi, ${customer.account.fullName.split(" ")[0]}!` : "Welcome to Brew Houze Cafe"}</h1>
-        <p>Browse our menu and discover something made for your moment.</p>
-      </section>
-
-      {serviceSwitch("page")}
-
-      <div className="bh-search-row">
-        <label className="bh-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
-        <button type="button" className={`bh-filter${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} aria-label="Filter and sort" onClick={() => setFilterOpen((open) => !open)}><IconFilter />{filtersOn && <i aria-hidden="true" />}</button>
+    {tab === "menu" && <>
+      <div className="bh-page">
+        {!storeOpen && <div role="status" className="bh-closed"><strong>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
+        <section className="bh-hello">
+          <p className="bh-eyebrow">{greeting}{firstName ? `, ${firstName}` : ""}</p>
+          <h1>What are you having today?</h1>
+        </section>
+        {customer.account && loyalty?.campaign
+          ? <button type="button" className="bh-stars-strip" onClick={() => goTab("account")}>
+            <span className="bh-stars-badge">★ {loyalty.balance}</span>
+            <span className="bh-stars-text">{pickableRewards.length > 0 ? <><strong>You have a reward ready</strong>Use it in your cart</> : nextReward ? <><strong>{nextReward.starsCost - loyalty.balance} more star{nextReward.starsCost - loyalty.balance === 1 ? "" : "s"}</strong>for {nextReward.name}</> : <><strong>{loyalty.campaign.name}</strong>See your rewards</>}</span>
+            <IconNext />
+          </button>
+          : !customer.loading && !customer.account ? <button type="button" className="bh-stars-strip is-join" onClick={() => goTab("account")}>
+            <span className="bh-stars-badge">★</span>
+            <span className="bh-stars-text"><strong>Earn stars on every order</strong>Join Brew Houze Rewards, it&apos;s free</span>
+            <IconNext />
+          </button> : null}
+        <div className="bh-search-row">
+          <label className="bh-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
+          <button type="button" className={`bh-filter${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} aria-label="Filter and sort" onClick={() => setFilterOpen((open) => !open)}><IconFilter />{filtersOn && <i aria-hidden="true" />}</button>
+        </div>
+        {filterOpen && <div className="bh-filters">
+          <div><span>Temperature</span><div className="bh-segment">{([["any", "Any"], ["hot", "Hot"], ["cold", "Iced"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tempFilter === value} onClick={() => setTempFilter(value)}>{label}</button>)}</div></div>
+          <div><span>Sort</span><div className="bh-segment">{([["menu", "Menu"], ["low", "Price ↑"], ["high", "Price ↓"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={sortBy === value} onClick={() => setSortBy(value)}>{label}</button>)}</div></div>
+          <label className="bh-check"><input type="checkbox" checked={availableOnly} onChange={(event) => setAvailableOnly(event.target.checked)} />Available only</label>
+          {filtersOn && <button type="button" className="bh-reset" onClick={() => { setTempFilter("any"); setSortBy("menu"); setAvailableOnly(false); }}>Reset</button>}
+        </div>}
       </div>
-      {filterOpen && <div className="bh-filters">
-        <div><span>Temperature</span><div className="bh-segment">{([["any", "Any"], ["hot", "Hot"], ["cold", "Iced"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tempFilter === value} onClick={() => setTempFilter(value)}>{label}</button>)}</div></div>
-        <div><span>Sort</span><div className="bh-segment">{([["menu", "Menu"], ["low", "Price ↑"], ["high", "Price ↓"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={sortBy === value} onClick={() => setSortBy(value)}>{label}</button>)}</div></div>
-        <label className="bh-check"><input type="checkbox" checked={availableOnly} onChange={(event) => setAvailableOnly(event.target.checked)} />Available only</label>
-        {filtersOn && <button type="button" className="bh-reset" onClick={() => { setTempFilter("any"); setSortBy("menu"); setAvailableOnly(false); }}>Reset</button>}
-      </div>}
-    </div>
 
-    <nav className="bh-chips" aria-label="Menu categories">
-      <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}>All</button>
-      {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}>★ Favorites</button>}
-      {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}>{name}</button>)}
-    </nav>
+      <nav className="bh-chips" aria-label="Menu categories">
+        <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}>All</button>
+        {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}>★ Favorites</button>}
+        {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}>{name}</button>)}
+      </nav>
 
-    <div className="bh-page">
-      {loading && <div className="bh-empty">Loading the menu…</div>}
-      {error && <div className="bh-empty is-error">{error}</div>}
-      {!loading && !error && <>
-        {showFeatured && <section className="bh-featured" aria-labelledby="featured-title">
-          <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
-          <div className="bh-row">{featuredProducts.map((product) => productCard(product, "row"))}</div>
-        </section>}
-        {category === FAVORITES && <p className="bh-note">What you order most, most first.</p>}
-        {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="bh-group" key={group || "all"}>
-          {group && <h2 className="bh-group-title">{group}</h2>}
-          <div className="bh-grid">{groupProducts.map((product) => productCard(product, "grid"))}</div>
-        </section>)}
-        {visibleProducts.length === 0 && <div className="bh-empty">{category === FAVORITES ? "Your favorites appear here after you order." : "Nothing on the menu matches your search or filters."}</div>}
-      </>}
-      <footer className="bh-footer"><IconCoffee /><span>Made with care at Brew Houze</span></footer>
-    </div>
+      <div className="bh-page">
+        {loading && <div className="bh-empty">Loading the menu…</div>}
+        {error && <div className="bh-empty is-error">{error}</div>}
+        {!loading && !error && <>
+          {showFeatured && <section className="bh-featured" aria-labelledby="featured-title">
+            <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
+            <div className="bh-row">{featuredProducts.map((product) => productCard(product, "row"))}</div>
+          </section>}
+          {category === FAVORITES && <p className="bh-note">What you order most, most first.</p>}
+          {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="bh-group" key={group || "all"}>
+            {group && <h2 className="bh-group-title">{group}</h2>}
+            <div className="bh-grid">{groupProducts.map((product) => productCard(product, "grid"))}</div>
+          </section>)}
+          {visibleProducts.length === 0 && <div className="bh-empty">{category === FAVORITES ? "Your favorites appear here after you order." : "Nothing on the menu matches your search or filters."}</div>}
+        </>}
+        <footer className="bh-footer"><IconCoffee /><span>Made with care at Brew Houze</span></footer>
+      </div>
+    </>}
 
-    {/* The cart bar, and the order in progress above it. */}
+    {tab === "orders" && <div className="bh-page bh-tabpage">
+      <h1 className="bh-title">Orders</h1>
+      {trackedOrders.length > 0
+        ? <section className="bh-section"><h2>In progress</h2><div className="bh-tracks">{trackedOrders.slice().reverse().map(trackCard)}</div></section>
+        : <div className="bh-empty-card">
+          <IconReceipt />
+          <strong>No orders in progress</strong>
+          <span>When you order, follow it here. We&apos;ll ping you when it&apos;s ready.</span>
+          <button type="button" className="bh-primary is-center" onClick={() => goTab("menu")}>Browse the menu</button>
+        </div>}
+      <section className="bh-section"><h2>Past orders</h2><OrderHistory state={customer} onSignIn={() => openAccount("signin")} /></section>
+    </div>}
+
+    {tab === "account" && <div className="bh-page bh-tabpage"><AccountPage state={customer} onOpen={openAccount} /></div>}
+
+    {/* A short note ("Latte added", "Details saved.") and, on the menu, the cart bar. */}
     <div className="bh-dock">
       {addedNote && !sheetOpen && <div className="bh-added" role="status">✓ {addedNote}</div>}
-      {activeOrder && !sheetOpen && <button type="button" className={`bh-order-pill${orderReady ? " is-ready" : ""}`} onClick={() => setOrderPlaced(true)}>
-        <i aria-hidden="true" /><span>Order #{latestOrder?.queueNumber ?? "—"} · {orderPillText}</span>{activeOrders.length > 1 && <small>+{activeOrders.length - 1} more</small>}<b>View</b>
-      </button>}
-      {cartCount > 0 && !sheetOpen && <button type="button" className="bh-cartbar" onClick={() => setCartOpen(true)}>
+      {tab === "menu" && cartCount > 0 && !sheetOpen && <button type="button" className="bh-cartbar" onClick={() => setCartOpen(true)}>
         <span className="bh-cartbar-count">{cartCount}</span>
-        <span className="bh-cartbar-text"><strong>View cart</strong><small>{serviceLabel}</small></span>
+        <span className="bh-cartbar-text"><strong>View cart</strong><small>{cartCount === 1 ? "1 item" : `${cartCount} items`}</small></span>
         <strong className="bh-cartbar-total">₱{cartTotal.toFixed(2)}</strong>
       </button>}
     </div>
+
+    <nav className="bh-tabs" aria-label="Sections">
+      <button type="button" aria-current={tab === "menu" ? "page" : undefined} onClick={() => goTab("menu")}>
+        <span className="bh-tab-icon"><IconMenu />{tab !== "menu" && cartCount > 0 && <b className="bh-tab-badge">{cartCount}</b>}</span>Menu
+      </button>
+      <button type="button" aria-current={tab === "orders" ? "page" : undefined} onClick={() => goTab("orders")}>
+        <span className="bh-tab-icon"><IconReceipt />{activeOrder && <i className={`bh-tab-dot${orderReady ? " is-ready" : ""}`} aria-label={orderPillText} />}</span>Orders
+      </button>
+      <button type="button" aria-current={tab === "account" ? "page" : undefined} onClick={() => goTab("account")}>
+        <span className="bh-tab-icon">{customer.account ? <span className="bh-tab-avatar">{accountInitials}</span> : <IconUser />}</span>{customer.account ? "Account" : "Sign in"}
+      </button>
+    </nav>
 
     {selectedProduct && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) closeProduct(); }}>
       <section className="bh-sheet bh-item" role="dialog" aria-modal="true" aria-label={selectedProduct.name}>
@@ -1095,15 +1229,34 @@ export default function MenuPage() {
             })}</ul>
             <button type="button" className="bh-add-more" onClick={() => setCartOpen(false)}>+ Add more items</button>
 
-            <div className="bh-cart-section"><h3>How you&apos;re ordering</h3>{serviceSwitch("cart")}
+            <div className="bh-cart-section"><h3>How would you like it?</h3>{serviceSwitch("cart")}
               {isDelivery && <div className="cart-delivery">
-                {!customer.account ? <p className="cart-delivery-note">Sign in to order delivery, so the café has your address and number. <button type="button" onClick={() => setAccountOpen(true)}>Sign in</button></p>
-                  : deliveryAddresses.length === 0 ? <p className="cart-delivery-note">Add where the café should deliver. <button type="button" onClick={() => setAccountOpen(true)}>Add an address</button></p>
+                {isGuest ? <>
+                  <div className="cart-guest-form">
+                    <label className="is-wide"><span>Area</span>
+                      <select value={guestAddress.zoneId} onChange={(event) => editGuestAddress({ zoneId: event.target.value })}>
+                        <option value="">Choose your area</option>
+                        {(deliveryInfo?.zones ?? []).map((zone) => <option key={zone.id} value={zone.id}>{zone.name} · ₱{zone.fee.toFixed(2)}</option>)}
+                      </select>
+                    </label>
+                    <label className="is-wide"><span>House number and street</span><input value={guestAddress.street} onChange={(event) => editGuestAddress({ street: event.target.value })} autoComplete="street-address" maxLength={200} /></label>
+                    <label className="is-wide"><span>Landmark (optional)</span><input value={guestAddress.landmark} onChange={(event) => editGuestAddress({ landmark: event.target.value })} placeholder="Something the rider can look for" maxLength={120} /></label>
+                    <label><span>Who receives it</span><input value={guestAddress.recipientName} onChange={(event) => editGuestAddress({ recipientName: event.target.value })} autoComplete="name" maxLength={80} /></label>
+                    <label><span>Mobile number</span><input type="tel" inputMode="tel" value={guestAddress.phone} onChange={(event) => editGuestAddress({ phone: event.target.value })} autoComplete="tel" placeholder="0917 123 4567" maxLength={16} /></label>
+                    <label className="is-wide"><span>Notes for the rider (optional)</span><input value={guestAddress.riderNotes} onChange={(event) => editGuestAddress({ riderNotes: event.target.value })} placeholder="Gate code, floor, where to leave it" maxLength={200} /></label>
+                  </div>
+                  <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
+                    <button type="button" role="radio" aria-checked="true"><strong>GCash</strong><span>Pay now</span></button>
+                    <button type="button" role="radio" aria-checked="false" disabled><strong>Cash on delivery</strong><span>{codProblem}</span></button>
+                  </div>
+                  <p className="cart-delivery-note">Have an account? <button type="button" onClick={() => { setAccountAddresses(true); setAccountOpen(true); }}>Sign in</button> to use your saved addresses.</p>
+                </>
+                  : deliveryAddresses.length === 0 ? <p className="cart-delivery-note">Add where the café should deliver. <button type="button" onClick={() => { setAccountAddresses(true); setAccountOpen(true); }}>Add an address</button></p>
                     : chosenAddress && <>
                       <label className="cart-delivery-address"><span>Deliver to</span>
                         <select value={chosenAddress.id} onChange={(event) => setDeliveryAddressId(Number(event.target.value))}>{deliveryAddresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.street}</option>)}</select>
                       </label>
-                      <small className="cart-delivery-detail">{chosenAddress.recipientName} · {chosenAddress.phone} · {chosenZone?.name ?? chosenAddress.zoneName}{chosenAddress.landmark ? ` · near ${chosenAddress.landmark}` : ""} · <button type="button" onClick={() => setAccountOpen(true)}>Manage</button></small>
+                      <small className="cart-delivery-detail">{chosenAddress.recipientName} · {chosenAddress.phone} · {chosenZone?.name ?? chosenAddress.zoneName}{chosenAddress.landmark ? ` · near ${chosenAddress.landmark}` : ""} · <button type="button" onClick={() => { setAccountAddresses(true); setAccountOpen(true); }}>Manage</button></small>
                       <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
                         <button type="button" role="radio" aria-checked={!payCod} onClick={() => setDeliveryPayment("gcash")}><strong>GCash</strong><span>Pay now</span></button>
                         <button type="button" role="radio" aria-checked={payCod} disabled={codProblem !== null} onClick={() => setDeliveryPayment("cod")}><strong>Cash on delivery</strong><span>{codProblem ?? "Pay the rider"}</span></button>
@@ -1114,12 +1267,12 @@ export default function MenuPage() {
               </div>}
             </div>
 
-            {(starsSection || discountReward) && <div className="bh-cart-section"><h3>Rewards</h3>
+            {(starsSection || discountReward) && <div className="bh-cart-section"><h3>Your rewards</h3>
               {starsSection}
               {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
             </div>}
 
-            {idDiscountOptions.length > 0 && <div className="bh-cart-section"><h3>Discount ID</h3>
+            {idDiscountOptions.length > 0 && <div className="bh-cart-section"><h3>ID discount</h3>
               <div className={`cart-id-claim${claiming ? " is-on" : ""}`}>
                 <label className="cart-id-toggle">
                   <input type="checkbox" checked={claiming} disabled={rewardsInCart} onChange={(event) => {
@@ -1151,7 +1304,7 @@ export default function MenuPage() {
               {isDelivery && deliveryInfo?.freeAbove && deliveryFee > 0 ? <small>Free delivery from ₱{deliveryInfo.freeAbove.toFixed(2)} of items.</small> : null}
               <div className="is-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{orderTotal.toFixed(2)}</strong></div>
               <p className="bh-pay-note">{payCod && !claiming ? <>Pay <strong>₱{orderTotal.toFixed(2)} in cash</strong> when your order arrives. Exact change helps the rider.</> : claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p>
-              <CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} />
+              <CartAccountNote state={customer} onOpen={() => openAccount("signin")} />
             </div>
           </>}
         </div>
@@ -1161,33 +1314,6 @@ export default function MenuPage() {
             <span>{!storeOpen ? "Café is closed" : payCod && !claiming ? (placingOrder ? "Placing your order…" : "Place order · cash on delivery") : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter…" : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash…" : "Sending order…") : orderTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"}</span><b>₱{orderTotal.toFixed(2)}</b>
           </button>
         </div>}
-      </section>
-    </div>}
-
-    {orderPlaced && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setOrderPlaced(false); }}>
-      <section className="bh-sheet bh-orders" role="dialog" aria-modal="true" aria-label="Your orders">
-        <div className="bh-sheet-head"><div><p className="bh-eyebrow">Your orders</p><h2>Order status</h2></div><button type="button" className="bh-sheet-close" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>
-        <div className="bh-sheet-scroll">
-          {trackedOrders.length === 0 ? <p className="bh-empty">No orders in progress.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => {
-            if (order.delivery) {
-              const step = order.deliveryStatus ?? "preparing";
-              const info: Record<string, [string, string, string, boolean]> = {
-                preparing: ["PREPARING", "We're preparing your order.", "The café has your delivery order. We'll let you know when it's on the way.", false],
-                ready: ["READY FOR THE RIDER", "Your order is packed.", "It's waiting for the rider to pick it up.", false],
-                out: ["ON THE WAY", "Your order is on the way!", "The rider is heading to you. Keep your phone nearby.", true],
-                delivered: ["DELIVERED", "Delivered. Enjoy!", "Thank you for ordering from Brew Houze.", true],
-                failed: ["NOT DELIVERED", "We couldn't deliver this order.", "The café will contact you about it.", false],
-                cancelled: ["CANCELLED", "This order was cancelled.", "Contact the café if you have questions.", false],
-              };
-              const [badge, title, text, good] = info[step] ?? info.preparing;
-              const steps = ["preparing", "ready", "out", "delivered"];
-              return <article className={`tracked-order ${good ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${good ? "confirmation-ready" : "confirmation-waiting"}`}>{step === "delivered" ? "✓" : step === "out" ? "🛵" : "•••"}</div><div><p className="status-badge">{badge}</p><h3>{title}</h3></div></div><ol className="delivery-steps">{steps.map((name, index) => <li key={name} className={steps.indexOf(step) >= index ? "is-done" : ""}>{["Preparing", "Packed", "On the way", "Delivered"][index]}</li>)}</ol><div className="queue-ticket"><span>ORDER NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{text}</p></article>;
-            }
-            const ready = order.status === "served";
-            return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>;
-          })}</div>}
-        </div>
-        <div className="bh-sheet-foot"><button type="button" className="bh-primary" onClick={() => setOrderPlaced(false)}><span>Continue browsing</span></button></div>
       </section>
     </div>}
 
@@ -1213,7 +1339,7 @@ export default function MenuPage() {
       </section>
     </div>}
     {/* From the Stars sign, wait until the account has loaded so a signed-in customer goes straight to their stars. */}
-    {accountOpen && !(claimStart && customer.loading) && <AccountSheet state={customer} resetToken={resetToken} startClaim={claimStart} onClose={() => { setAccountOpen(false); setResetToken(null); setClaimStart(false); }} onResetDone={() => setResetToken(null)} />}
+    {accountOpen && !(claimStart && customer.loading) && <AccountSheet state={customer} resetToken={resetToken} startClaim={claimStart} startAddresses={accountAddresses} start={accountForm} onClose={() => { setAccountOpen(false); setAccountAddresses(false); setAccountForm(undefined); setResetToken(null); setClaimStart(false); }} onResetDone={() => setResetToken(null)} onNotice={setAddedNote} />}
     {idSheet && activeIdRule && <IdDiscountSheet mode={idSheet} rule={activeIdRule} vat={idVat} lines={idSheetLines} saved={savedId} signedIn={Boolean(customer.account)} payLabel={idPayLabel}
       onSendPhoto={sendIdPhoto} onPaySaved={(coverage) => payWithIdDiscount({ saved_id: coverage })} onClose={() => setIdSheet(null)} />}
     {idCheck && !paymentCheck && <IdCheckStatus check={idCheck} payLabel={idPayLabel} paying={idPaying} onPay={() => void payApproved()}

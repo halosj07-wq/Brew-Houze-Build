@@ -39,6 +39,12 @@ function IconList({ size = 20 }: IconProps) {
 function IconUndo({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>;
 }
+function IconUser({ size = 18 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" /></svg>;
+}
+function IconTag({ size = 18 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" /><line x1="7" y1="7" x2="7.01" y2="7" /></svg>;
+}
 function IconChevron({ size = 16 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>;
 }
@@ -1074,7 +1080,19 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
   const [notice, setNotice] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [copied, setCopied] = useState(false);
   const finished = view !== null && view.status !== "awaiting_payment";
+
+  // A customer ordering through Messenger pays from the link sent in the chat.
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(checkout.redirectUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setNotice(`Could not copy. The payment link is: ${checkout.redirectUrl}`);
+    }
+  }
 
   useEffect(() => {
     if (!showQr) return;
@@ -1153,6 +1171,7 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
         <p className="gcash-waiting"><span className="connection-pulse" />Waiting for the customer to pay…</p>
         <div className="gcash-links">
           <button type="button" className="gcash-link" onClick={() => setShowQr((shown) => !shown)}>{showQr ? "Hide the QR on this screen" : "Show a QR on this screen instead"}</button>
+          <button type="button" className="gcash-link" onClick={() => void copyLink()}>{copied ? "Payment link copied" : "Copy the payment link (for Messenger)"}</button>
           <a className="gcash-link" href="/pay/sign" target="_blank" rel="noreferrer">Print the counter sign</a>
         </div>
       </>}
@@ -1204,6 +1223,61 @@ function quickCashAmounts(total: number): number[] {
 // with a straw") reach the cashier and the barista's ticket.
 // stars: balance in the running loyalty campaign (null when none is running).
 // birthdayTreat: a birthday campaign is on and they can have their treat now.
+// A delivery the counter takes (a Messenger order): the address typed in at the register.
+type CounterDeliveryZone = { id: number; name: string; fee: number; minOrder: number | null };
+const emptyCounterDelivery = { zoneId: "", street: "", landmark: "", recipientName: "", phone: "", riderNotes: "" };
+type CounterDeliveryForm = typeof emptyCounterDelivery;
+type CounterDeliveryAreas = { freeAbove: number | null; zones: CounterDeliveryZone[] };
+// What is missing from a typed-in delivery address ("" when it is complete).
+function counterAddressProblem(form: CounterDeliveryForm, zones: CounterDeliveryZone[]) {
+  return !zones.some((zone) => String(zone.id) === form.zoneId) ? "Choose the area."
+    : form.street.trim().length < 3 ? "Type the house number and street."
+      : form.recipientName.trim().length < 2 ? "Type who receives the order."
+        : !/^(\+?63|0)?9\d{9}$/.test(form.phone.replace(/[\s()-]/g, "")) ? "Type a mobile number the rider can call (09XX XXX XXXX)."
+          : "";
+}
+
+// Where a delivery taken at the counter goes, copied from the Messenger chat: the area (its fee
+// and minimum), the street, who receives it and their number.
+function DeliveryAddressDialog({ areas, initial, itemsSubtotal, onSave, onClose }: { areas: CounterDeliveryAreas | null; initial: CounterDeliveryForm; itemsSubtotal: number; onSave: (form: CounterDeliveryForm) => void; onClose: () => void }) {
+  const [draft, setDraft] = useState(initial);
+  const [tried, setTried] = useState(false);
+  const zones = areas?.zones ?? [];
+  const problem = areas === null ? "Loading the delivery areas…" : zones.length === 0 ? "The café has no delivery areas yet. Add them in Admin, Delivery." : counterAddressProblem(draft, zones);
+  const edit = (change: Partial<CounterDeliveryForm>) => setDraft((current) => ({ ...current, ...change }));
+  return <Modal onClose={onClose} label="Delivery address">
+    <form className="pos-customer-dialog pos-dlv-dialog" onSubmit={(event) => {
+      event.preventDefault();
+      setTried(true);
+      if (!problem) onSave({ ...draft, street: draft.street.trim(), landmark: draft.landmark.trim(), recipientName: draft.recipientName.trim().replace(/\s+/g, " "), phone: draft.phone.trim(), riderNotes: draft.riderNotes.trim() });
+    }}>
+      <div className="pos-customer-dialog-head"><div><p>Delivery · Messenger order</p><h3>Where does it go?</h3></div><button type="button" onClick={onClose} aria-label="Close">×</button></div>
+      <div className="pos-idd-scroll">
+        <div className="pos-dlv-zones" role="radiogroup" aria-label="Area">
+          {areas === null ? <span className="pos-dlv-loading">Loading the areas…</span> : zones.map((zone) => {
+            const short = zone.minOrder && itemsSubtotal + 0.005 < zone.minOrder ? zone.minOrder - itemsSubtotal : 0;
+            const on = draft.zoneId === String(zone.id);
+            return <button key={zone.id} type="button" role="radio" aria-checked={on} className={on ? "is-on" : ""} onClick={() => edit({ zoneId: String(zone.id) })}>
+              <strong>{zone.name}</strong>
+              <em>{zone.fee === 0 ? "Free" : `₱${zone.fee.toFixed(2)}`}{zone.minOrder ? ` · min ₱${zone.minOrder.toFixed(0)}` : ""}</em>
+              {short > 0 && <em className="is-short">Add ₱{short.toFixed(2)} of items</em>}
+            </button>;
+          })}
+        </div>
+        {areas?.freeAbove ? <p className="pos-dlv-free">Free delivery from ₱{areas.freeAbove.toFixed(2)} of items.</p> : null}
+        <div className="pos-idd-fields">
+          <label className="is-wide"><span>House number and street</span><input autoFocus value={draft.street} onChange={(event) => edit({ street: event.target.value })} maxLength={200} autoComplete="off" /></label>
+          <label className="is-wide"><span>Landmark (optional)</span><input value={draft.landmark} onChange={(event) => edit({ landmark: event.target.value })} maxLength={120} placeholder="Something the rider can look for" autoComplete="off" /></label>
+          <label><span>Receiver</span><input value={draft.recipientName} onChange={(event) => edit({ recipientName: event.target.value })} maxLength={80} autoComplete="off" /></label>
+          <label><span>Mobile number</span><input type="tel" inputMode="tel" value={draft.phone} onChange={(event) => edit({ phone: event.target.value })} placeholder="09XX XXX XXXX" maxLength={16} autoComplete="off" /></label>
+          <label className="is-wide"><span>Notes for the rider (optional)</span><input value={draft.riderNotes} onChange={(event) => edit({ riderNotes: event.target.value })} maxLength={200} placeholder="Gate, floor, their Messenger name" autoComplete="off" /></label>
+        </div>
+      </div>
+      {tried && problem && <p className="pos-idd-problem">{problem}</p>}
+      <button type="submit" className="pos-reward-button" disabled={areas === null}>Use this address</button>
+    </form>
+  </Modal>;
+}
 type AttachedCustomer = { id: number; fullName: string; username: string | null; notes: string; visits: number; lastVisit: string | null; stars?: number | null; birthdayTreat?: boolean };
 
 function customerInitials(name: string): string {
@@ -1656,6 +1730,22 @@ function WaitingCounterCarts({ carts, loadedId, onLoad, onDismiss }: { carts: Co
 }
 
 // The customer line in the cart: a button to attach one, or who it is with the café's notes.
+// The customer, discounts or delivery address of the order, opened from the icons in the cart header.
+function CartPanel({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return <>
+    <div className="pos-cart-panel-scrim" onClick={onClose} />
+    <div className="pos-cart-panel" role="dialog" aria-label={title}>
+      <div className="pos-cart-panel-head"><strong>{title}</strong><button type="button" onClick={onClose} aria-label="Close">×</button></div>
+      {children}
+    </div>
+  </>;
+}
+
 function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }: { customer: AttachedCustomer | null; onAdd: () => void; onRemove: () => void; onUseReward?: () => void; rewardNote?: string }) {
   if (!customer) return <button type="button" className="pos-customer-add" onClick={onAdd}>+ Add customer <span>for their purchases and notes</span></button>;
   return <div className="pos-customer-slot">
@@ -1686,11 +1776,25 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [checkingOut, setCheckingOut] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
   const [receivedAmount, setReceivedAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash" | "split">("cash");
+  // cod: a delivery the rider collects for (deliveries only).
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "gcash" | "split" | "cod">("cash");
   // Split ticket: the part the customer pays in cash; GCash covers the rest.
   const [cashPart, setCashPart] = useState("");
   // Phones only: the cart opens as a full-height sheet over the products (see .pos-cart in CSS).
   const [cartOpen, setCartOpen] = useState(false);
+  // A long cart pushes the order details (service, payment, cash) below the items: the footer then
+  // offers a jump to them.
+  const cartDetailsRef = useRef<HTMLDivElement>(null);
+  const [cartDetailsHidden, setCartDetailsHidden] = useState(false);
+  const [cartPanel, setCartPanel] = useState<"customer" | "discounts" | "delivery" | null>(null);
+  const closeCartPanel = useCallback(() => setCartPanel(null), []);
+  useEffect(() => {
+    const details = cartDetailsRef.current;
+    if (!details || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setCartDetailsHidden(entry.intersectionRatio < 0.2), { threshold: [0, 0.2, 0.6] });
+    observer.observe(details);
+    return () => observer.disconnect();
+  }, []);
   // The order just placed, with a button to print its receipt (or printing it right away).
   const receipts = useContext(ReceiptContext);
   // stars: "+2 ★ for Maria" when the attached customer earned loyalty stars.
@@ -1729,8 +1833,30 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [rewardForItem, setRewardForItem] = useState<LoyaltyRewardRule | null>(null);
   // A discount reward on this order (at most one).
   const [discountReward, setDiscountReward] = useState<LoyaltyRewardRule | null>(null);
-  // Eaten at the café or taken away: the barista's mug or cup, and the receipt.
-  const [serviceType, setServiceType] = useState<"dine_in" | "take_out">("dine_in");
+  // Eaten at the café or taken away: the barista's mug or cup, and the receipt. Or delivered: an
+  // order that came through Messenger, with the address typed in here.
+  const [serviceType, setServiceTypeState] = useState<"dine_in" | "take_out" | "delivery">("dine_in");
+  const [deliveryForm, setDeliveryForm] = useState(emptyCounterDelivery);
+  const [deliveryAreas, setDeliveryAreas] = useState<CounterDeliveryAreas | null>(null);
+  const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
+  function setServiceType(next: "dine_in" | "take_out" | "delivery") {
+    setServiceTypeState(next);
+    // Split is not for deliveries, and cash on delivery is only for them.
+    setPaymentMethod((current) => next === "delivery" ? (current === "split" ? "cash" : current) : (current === "cod" ? "cash" : current));
+    if (next === "delivery") {
+      setDeliveryForm((current) => current.recipientName || !customer ? current : { ...current, recipientName: customer.fullName });
+      if (serviceType !== "delivery" && !deliveryForm.street) setDeliveryDialogOpen(true);
+      if (deliveryAreas === null) {
+        void fetch("/api/delivery-zones", { cache: "no-store" })
+          .then((response) => response.ok ? response.json() : null)
+          .then((payload: { data?: CounterDeliveryAreas } | null) => setDeliveryAreas(payload?.data ?? { freeAbove: null, zones: [] }))
+          .catch(() => setDeliveryAreas({ freeAbove: null, zones: [] }));
+      }
+    }
+  }
+  const deliveryZone = serviceType === "delivery" ? deliveryAreas?.zones.find((zone) => String(zone.id) === deliveryForm.zoneId) ?? null : null;
+  // The delivery fee: the zone's, or free at or above the free delivery amount (on the items after discounts).
+  const deliveryFeeOn = (itemsDue: number) => !deliveryZone ? 0 : deliveryAreas?.freeAbove && itemsDue + 0.005 >= deliveryAreas.freeAbove ? 0 : deliveryZone.fee;
   const [rewardPasswordOpen, setRewardPasswordOpen] = useState(false);
   const [rewardPassword, setRewardPassword] = useState("");
   const [rewardPasswordInvalid, setRewardPasswordInvalid] = useState(false);
@@ -2155,6 +2281,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setCounterCartId(null);
     void refreshCounterCarts();
     setServiceType("dine_in");
+    setDeliveryForm(emptyCounterDelivery);
     setRewardPassword("");
     void refreshLoyalty();
     if (receipts.settings.autoPrint) void printPlacedReceipt(orderId, queueNumber);
@@ -2194,9 +2321,12 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       return;
     }
     // Sent with the order: dine in or take out, and how its rewards were confirmed.
-    const rewardAuth = { service_type: serviceType, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, counter_cart_id: counterCartId, ...(password !== undefined ? { reward_password: password } : {}) };
+    if (serviceType === "delivery" && deliveryProblem) { setCheckoutError(deliveryProblem); return; }
+    const delivery = serviceType === "delivery" ? { address: { recipient_name: deliveryForm.recipientName, phone: deliveryForm.phone, zone_id: Number(deliveryForm.zoneId), street: deliveryForm.street, landmark: deliveryForm.landmark, rider_notes: deliveryForm.riderNotes } } : undefined;
+    const rewardAuth = { service_type: serviceType, delivery, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, counter_cart_id: counterCartId, ...(password !== undefined ? { reward_password: password } : {}) };
     // What the customer pays: the cart minus a reward discount or the ID discounts (and their VAT).
-    const subtotalValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount - idCheck.discount - idCheck.vatExempt) * 100) / 100);
+    const itemsDueValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount - idCheck.discount - idCheck.vatExempt) * 100) / 100);
+    const subtotalValue = Math.round((itemsDueValue + deliveryFeeOn(itemsDueValue)) * 100) / 100;
     const parsedReceivedAmount = Number.parseFloat(receivedAmount);
     if (paymentMethod === "cash" && subtotalValue > 0) {
       if (!Number.isFinite(parsedReceivedAmount) || parsedReceivedAmount < subtotalValue) {
@@ -2273,8 +2403,11 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const discountPreview = previewDiscount(cart);
   const idPreview = resolveIdDiscounts(cart);
   const hasOrderDiscount = discountReward !== null || idPreview.entries.length > 0;
-  // What the customer pays (after a reward discount or ID discounts). Every payment figure below uses it.
-  const subtotal = Math.max(0, Math.round((itemsSubtotal - discountPreview.amount - idPreview.discount - idPreview.vatExempt) * 100) / 100);
+  // What the customer pays (after a reward discount or ID discounts, plus a delivery's fee). Every
+  // payment figure below uses it.
+  const itemsDue = Math.max(0, Math.round((itemsSubtotal - discountPreview.amount - idPreview.discount - idPreview.vatExempt) * 100) / 100);
+  const deliveryFee = deliveryFeeOn(itemsDue);
+  const subtotal = Math.round((itemsDue + deliveryFee) * 100) / 100;
   const parsedReceivedAmount = Number.parseFloat(receivedAmount);
   const changeDue = Number.isFinite(parsedReceivedAmount) ? Math.max(0, parsedReceivedAmount - subtotal) : 0;
   // Split ticket figures: the cash part, what GCash charges, and change on the cash part.
@@ -2289,7 +2422,26 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
         : gcashConfig && splitGcash < gcashConfig.minimumAmount ? `The GCash part must be at least ₱${gcashConfig.minimumAmount.toFixed(2)}. Lower the cash part to ₱${Math.max(0, subtotal - gcashConfig.minimumAmount).toFixed(2)} or less.`
           : !Number.isFinite(splitReceived) || splitReceived < splitCash ? "The cash received must cover the cash part."
             : "";
-  const hasValidPayment = (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal) || (paymentMethod === "split" && cashPart.trim() !== "" && splitProblem === "");
+  // A customer with notes (allergies, preferences) opens their panel once when attached, so the
+  // notes are seen even though the customer sits behind an icon.
+  const [shownCustomerId, setShownCustomerId] = useState<number | null>(null);
+  if ((customer?.id ?? null) !== shownCustomerId) {
+    setShownCustomerId(customer?.id ?? null);
+    if (customer?.notes) setCartPanel("customer");
+  }
+  const openIdDiscount = () => { void loadIdDiscountSetup(); setIdDiscountDialogOpen(true); setCartPanel(null); };
+  const discountCount = (discountReward ? 1 : 0) + idDiscounts.length;
+  const discountTotal = Math.round((discountPreview.amount + idPreview.discount + idPreview.vatExempt) * 100) / 100;
+  const discountAttention = Boolean(discountPreview.problem) || idPreview.entries.some((entry) => entry.covered <= 0);
+  const canAddIdDiscount = idDiscountSetup.types.length > 0 && cart.length > 0;
+  const deliveryAddressReady = deliveryAreas !== null && counterAddressProblem(deliveryForm, deliveryAreas.zones) === "";
+  const deliveryProblem = serviceType !== "delivery" ? ""
+    : deliveryAreas === null ? "Loading the delivery areas…"
+      : deliveryAreas.zones.length === 0 ? "The café has no delivery areas. Add them in Admin, Delivery."
+        : !deliveryAddressReady ? "Add the delivery address."
+          : deliveryZone?.minOrder && itemsSubtotal + 0.005 < deliveryZone.minOrder ? `Delivery to ${deliveryZone.name} starts at ₱${deliveryZone.minOrder.toFixed(2)} of items. Add ₱${(deliveryZone.minOrder - itemsSubtotal).toFixed(2)} more.`
+            : "";
+  const hasValidPayment = deliveryProblem === "" && ((paymentMethod === "cod" && serviceType === "delivery") || (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal) || (paymentMethod === "split" && cashPart.trim() !== "" && splitProblem === ""));
 
   return <main className="pos-layout" style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
     <section className="pos-menu" style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2417,15 +2569,70 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     </button>}
     <aside className={`pos-cart${cartOpen ? " is-open" : ""}`} aria-label="Current order" style={{ width: 360, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 12 }}>
       <div className="rounded-2xl" style={{ flex: 1, minHeight: 0, background: "#FDF9F5", border: "1px solid #E8DDD5", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-        <div className="flex items-center justify-between gap-3">
+        <div className="pos-cart-head">
           <h3 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif" }}>Cart</h3>
-          <button type="button" className="pos-cart-close" onClick={() => setCartOpen(false)}>‹ Add more</button>
+          <div className="pos-cart-tools">
+            <button type="button" className={`pos-cart-tool${customer ? " is-set" : ""}${cartPanel === "customer" ? " is-open" : ""}`} onClick={() => customer ? setCartPanel(cartPanel === "customer" ? null : "customer") : setCustomerPickerOpen(true)}
+              title={customer ? `${customer.fullName}${customer.notes ? ` · Note: ${customer.notes}` : ""}` : "Add a customer"} aria-label={customer ? `Customer: ${customer.fullName}` : "Add a customer"}>
+              {customer ? <span className="pos-cart-tool-avatar">{customerInitials(customer.fullName)}</span> : <IconUser />}
+              {customer && customer.stars !== null && customer.stars !== undefined && <span className="pos-cart-tool-text">★ {customer.stars}</span>}
+              {!customer && <span className="pos-cart-tool-text">+</span>}
+              {customer?.notes && <span className="pos-cart-tool-dot is-note" aria-hidden="true" />}
+            </button>
+            {(canAddIdDiscount || discountCount > 0) && <button type="button" className={`pos-cart-tool${discountCount > 0 ? " is-set" : ""}${cartPanel === "discounts" ? " is-open" : ""}`} onClick={() => discountCount === 0 ? openIdDiscount() : setCartPanel(cartPanel === "discounts" ? null : "discounts")}
+              title={discountCount > 0 ? `Discounts: −₱${discountTotal.toFixed(2)}` : "Add an ID discount (Senior, PWD…)"} aria-label={discountCount > 0 ? `Discounts, ${discountCount}` : "Add an ID discount"}>
+              <IconTag />
+              {discountCount > 0 && <span className="pos-cart-tool-text">{discountCount}</span>}
+              {discountAttention && <span className="pos-cart-tool-dot" aria-hidden="true" />}
+            </button>}
+            {serviceType === "delivery" && <button type="button" className={`pos-cart-tool is-delivery${deliveryAddressReady ? " is-set" : ""}${cartPanel === "delivery" ? " is-open" : ""}`} onClick={() => deliveryAddressReady ? setCartPanel(cartPanel === "delivery" ? null : "delivery") : setDeliveryDialogOpen(true)}
+              title={deliveryAddressReady && deliveryZone ? `Deliver to ${deliveryZone.name} · ${deliveryForm.street}` : "Add the delivery address"} aria-label={deliveryAddressReady ? "Delivery address" : "Add the delivery address"}>
+              <IconTruck size={18} />
+              {!deliveryAddressReady && <span className="pos-cart-tool-dot" aria-hidden="true" />}
+            </button>}
+            <button type="button" className="pos-cart-close" onClick={() => setCartOpen(false)}>‹ Add more</button>
+          </div>
+          {cartPanel === "customer" && customer && <CartPanel title="Customer" onClose={closeCartPanel}>
+            <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={() => { removeCustomer(); setCartPanel(null); }}
+              onUseReward={customer && availableRewards.length > 0 && ((customer.stars !== null && customer.stars !== undefined) || customer.birthdayTreat) && (claimId !== null || !customer.username) ? () => { setCartPanel(null); setRewardChoiceOpen(true); } : undefined}
+              rewardNote={customer && availableRewards.length > 0 && customer.username && claimId === null ? `To use ${customer.birthdayTreat ? "their birthday treat or stars" : "their stars"}, ask them to scan the Stars sign and pick it on their phone.` : customer?.birthdayTreat ? "🎂 Birthday treat available today." : undefined} />
+            <button type="button" className="pos-cart-panel-link" onClick={() => { setCartPanel(null); setCustomerPickerOpen(true); }}>Change customer</button>
+          </CartPanel>}
+          {cartPanel === "discounts" && <CartPanel title={`Discounts · −₱${discountTotal.toFixed(2)}`} onClose={closeCartPanel}>
+            {discountReward && <div className="pos-discount-row">
+              <span>🎁 {discountReward.name}<em>{discountPreview.problem ?? discountText(discountReward)}</em></span>
+              <strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong>
+              <button type="button" onClick={() => setDiscountReward(null)} aria-label={`Remove ${discountReward.name}`} title="Remove discount">×</button>
+            </div>}
+            {idPreview.entries.map(({ entry, covered, vatExempt, discount }) => <div key={entry.key} className="pos-discount-row is-id">
+              <span>🪪 {entry.type.name} · {entry.holderName}<em>{covered <= 0 ? "Covers nothing now. Remove it, or add it again." : [entry.idNumber ? `ID ${entry.idNumber}` : "", entry.lines === null ? `1 of ${entry.groupSize} sharing the bill` : `covers ₱${covered.toFixed(2)}`, vatExempt ? `VAT −₱${vatExempt.toFixed(2)}` : ""].filter(Boolean).join(" · ")}</em></span>
+              <strong>{covered > 0 ? `−₱${(discount + vatExempt).toFixed(2)}` : "—"}</strong>
+              <button type="button" onClick={() => setIdDiscounts((current) => current.filter((item) => item.key !== entry.key))} aria-label={`Remove ${entry.holderName}'s discount`} title="Remove discount">×</button>
+            </div>)}
+            {discountCount === 0 && <p className="pos-cart-panel-empty">No discounts on this order.</p>}
+            {canAddIdDiscount && <button type="button" className="pos-idd-open" disabled={discountReward !== null} title={discountReward ? "This order has a loyalty discount. Remove it to use an ID discount." : undefined} onClick={openIdDiscount}>
+              <span className="pos-idd-open-icon" aria-hidden="true">🪪</span>
+              <span className="pos-idd-open-text"><strong>{idDiscounts.length ? "Add another ID discount" : "ID discount"}</strong><em>{discountReward ? "Not with the loyalty discount" : idDiscountSetup.types.map((type) => type.name).join(" · ")}</em></span>
+              <span aria-hidden="true">›</span>
+            </button>}
+          </CartPanel>}
+          {cartPanel === "delivery" && serviceType === "delivery" && deliveryZone && <CartPanel title="Delivery" onClose={closeCartPanel}>
+            <div className="pos-cart-panel-address">
+              <strong>{deliveryZone.name} · {deliveryForm.street}</strong>
+              {deliveryForm.landmark && <span>Near {deliveryForm.landmark}</span>}
+              <span>{deliveryForm.recipientName} · {deliveryForm.phone}</span>
+              {deliveryForm.riderNotes && <em>“{deliveryForm.riderNotes}”</em>}
+              <span>Fee: {deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</span>
+            </div>
+            <button type="button" className="pos-reward-button" onClick={() => { setCartPanel(null); setDeliveryDialogOpen(true); }}>Edit the address</button>
+          </CartPanel>}
         </div>
+        <div className="pos-cart-scroll">
         <WaitingClaims claims={loyalty.claims} rewards={loyalty.rewards} busyId={claimBusyId} onAccept={(claim) => void acceptClaim(claim)} onDecline={(claim) => void declineClaim(claim)} />
         <WaitingIdChecks checks={idChecks} notice={idCheckNotice} onOpen={(check) => { void loadIdDiscountSetup(); setIdCheckOpen(check); }} />
         <WaitingCounterCarts carts={counterCarts} loadedId={counterCartId} onLoad={loadCounterCart} onDismiss={(sent) => void dismissCounterCart(sent)} />
         {counterCartId !== null && <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu. The customer&apos;s phone follows this order once it is paid.</p>}
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 8, overflow: "auto" }}>
+        <div className="pos-cart-lines">
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {
             const isSelected = selectedLine?.key === item.key;
@@ -2451,38 +2658,28 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           })}
         </div>
 
-        <CartCustomerSlot customer={customer} onAdd={() => setCustomerPickerOpen(true)} onRemove={removeCustomer}
-          onUseReward={customer && availableRewards.length > 0 && ((customer.stars !== null && customer.stars !== undefined) || customer.birthdayTreat) && (claimId !== null || !customer.username) ? () => setRewardChoiceOpen(true) : undefined}
-          rewardNote={customer && availableRewards.length > 0 && customer.username && claimId === null ? `To use ${customer.birthdayTreat ? "their birthday treat or stars" : "their stars"}, ask them to scan the Stars sign and pick it on their phone.` : customer?.birthdayTreat ? "🎂 Birthday treat available today." : undefined} />
-        {idDiscountSetup.types.length > 0 && cart.length > 0 && <button type="button" className="pos-idd-open" disabled={discountReward !== null} title={discountReward ? "This order has a loyalty discount. Remove it to use an ID discount." : undefined} onClick={() => { void loadIdDiscountSetup(); setIdDiscountDialogOpen(true); }}>
-          <span className="pos-idd-open-icon" aria-hidden="true">🪪</span>
-          <span className="pos-idd-open-text"><strong>{idDiscounts.length ? "Add another ID discount" : "ID discount"}</strong><em>{discountReward ? "Not with the loyalty discount" : idDiscountSetup.types.map((type) => type.name).join(" · ")}</em></span>
-          <span aria-hidden="true">›</span>
-        </button>}
-        <div style={{ borderTop: "1px solid #E8DDD5", paddingTop: 8, flexShrink: 0 }}>
-        {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: "0 0 8px" }}>{checkoutError}</p>}
-          {discountReward && <div className="pos-discount-row">
-            <span>🎁 {discountReward.name}<em>{discountPreview.problem ?? discountText(discountReward)}</em></span>
-            <strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong>
-            <button type="button" onClick={() => setDiscountReward(null)} aria-label={`Remove ${discountReward.name}`} title="Remove discount">×</button>
-          </div>}
-          {idPreview.entries.map(({ entry, covered, vatExempt, discount }) => <div key={entry.key} className="pos-discount-row is-id">
-            <span>🪪 {entry.type.name} · {entry.holderName}<em>{covered <= 0 ? "Covers nothing now. Remove it, or add it again." : [entry.idNumber ? `ID ${entry.idNumber}` : "", entry.lines === null ? `1 of ${entry.groupSize} sharing the bill` : `covers ₱${covered.toFixed(2)}`, vatExempt ? `VAT −₱${vatExempt.toFixed(2)}` : ""].filter(Boolean).join(" · ")}</em></span>
-            <strong>{covered > 0 ? `−₱${(discount + vatExempt).toFixed(2)}` : "—"}</strong>
-            <button type="button" onClick={() => setIdDiscounts((current) => current.filter((item) => item.key !== entry.key))} aria-label={`Remove ${entry.holderName}'s discount`} title="Remove discount">×</button>
-          </div>)}
-          {hasOrderDiscount && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Items</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
-          <div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ color: "#9C8278" }}>{hasOrderDiscount ? "Total after discount" : "Subtotal"}</div><div>₱{subtotal.toFixed(2)}</div></div>
-          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div className="pos-service" role="radiogroup" aria-label="Dine in or take out">
-              {([["dine_in", "Dine in"], ["take_out", "Take out"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
+        <div className="pos-cart-spacer" />
+        <div className="pos-cart-details" ref={cartDetailsRef}>
+          {discountCount > 0 && <button type="button" className={`pos-cart-discount-line${discountAttention ? " is-warn" : ""}`} onClick={() => setCartPanel("discounts")}>
+            <span>{discountAttention ? "⚠ A discount needs a look" : discountCount === 1 ? (discountReward ? `🎁 ${discountReward.name}` : `🪪 ${idDiscounts[0].type.name} · ${idDiscounts[0].holderName}`) : `${discountCount} discounts`}</span>
+            <strong>−₱{discountTotal.toFixed(2)}</strong>
+          </button>}
+          {(hasOrderDiscount || deliveryZone) && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>{hasOrderDiscount && deliveryZone ? "Items (before discount)" : "Items"}</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
+          {deliveryZone && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Delivery fee · {deliveryZone.name}</div><div>{deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</div></div>}
+          <div style={{ marginTop: hasOrderDiscount || deliveryZone ? 10 : 0, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="pos-service" role="radiogroup" aria-label="Dine in, take out or delivery">
+              {([["dine_in", "Dine in"], ["take_out", "Take out"], ["delivery", "Delivery"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
             </div>
+            {serviceType === "delivery" && !deliveryAddressReady && deliveryAreas !== null && <button type="button" className="pos-dlv-missing" onClick={() => setDeliveryDialogOpen(true)}>Add the delivery address ›</button>}
+            {serviceType === "delivery" && deliveryAddressReady && deliveryProblem && <p className="pos-dlv-warn">{deliveryProblem}</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
               <span style={{ color: "#6B4C3B", fontSize: 12, fontWeight: 600 }}>Payment method</span>
               <div style={{ display: "flex", gap: 6 }}>
-                {([["cash", "Cash"], ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const, ["split", "Split"] as const] : [])] as const).map(([method, label]) => {
-                  const tone = method === "gcash" ? "#0057E4" : method === "split" ? "#7E22CE" : "#3D2B1F";
-                  return <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} title={method === "split" ? "Part cash, part GCash" : undefined} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${tone}` : "1px solid #E8DDD5", background: paymentMethod === method ? tone : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "cash" ? "#6B4C3B" : tone, padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>;
+                {(serviceType === "delivery"
+                  ? [["cod", "COD"] as const, ["cash", "Cash now"] as const, ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const] : [])]
+                  : [["cash", "Cash"] as const, ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const, ["split", "Split"] as const] : [])]).map(([method, label]) => {
+                  const tone = method === "gcash" ? "#0057E4" : method === "split" ? "#7E22CE" : method === "cod" ? "#B45309" : "#3D2B1F";
+                  return <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} title={method === "split" ? "Part cash, part GCash" : method === "cod" ? "Cash on delivery: the rider collects the total at the door" : method === "cash" && serviceType === "delivery" ? "Paid in cash here before it goes out" : undefined} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${tone}` : "1px solid #E8DDD5", background: paymentMethod === method ? tone : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "cash" ? "#6B4C3B" : tone, whiteSpace: "nowrap", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>;
                 })}
               </div>
             </div>
@@ -2525,17 +2722,29 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
               </div>
               {splitProblem && cashPart.trim() !== "" ? <p style={{ margin: 0, color: "#B91C1C", fontSize: 11.5, lineHeight: 1.4 }}>{splitProblem}</p>
                 : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.45 }}>Take the cash first. The customer pays the rest with GCash, and the order goes to the queue once GCash confirms.</p>}
-            </> : paymentMethod === "gcash" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>A QR code appears for the customer to scan and pay in GCash. The order goes to the queue once the payment is confirmed.{gcashConfig && subtotal > 0 && subtotal < gcashConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash needs at least ₱{gcashConfig.minimumAmount.toFixed(2)}.</strong> : null}</p>
+            </> : paymentMethod === "cod" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>Cash on delivery: the rider collects <strong>₱{subtotal.toFixed(2)}</strong> at the door and hands it in when they get back.</p>
+            : paymentMethod === "gcash" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>{serviceType === "delivery" ? "Copy the payment link from the next screen and send it in Messenger. The delivery goes to the queue once the payment is confirmed." : "A QR code appears for the customer to scan and pay in GCash."} {serviceType === "delivery" ? "" : " The order goes to the queue once the payment is confirmed."}{gcashConfig && subtotal > 0 && subtotal < gcashConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash needs at least ₱{gcashConfig.minimumAmount.toFixed(2)}.</strong> : null}</p>
             : null}
           </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { removeCustomer(); setDiscountReward(null); setIdDiscounts([]); setCounterCartId(null); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+        </div>
+        </div>
+        <div className="pos-cart-foot">
+          {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: 0 }}>{checkoutError}</p>}
+          <div className="pos-cart-total">
+            <span>Total{hasOrderDiscount ? " after discount" : ""}{deliveryZone ? " with delivery" : ""}{cartDetailsHidden && cart.length > 0 && <button type="button" className="pos-cart-jump" onClick={() => cartDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Order details ↓</button>}</span>
+            <strong>₱{subtotal.toFixed(2)}</strong>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "cod" ? "Send for delivery" : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
+            <button onClick={() => { removeCustomer(); setDiscountReward(null); setIdDiscounts([]); setCounterCartId(null); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); setDeliveryForm(emptyCounterDelivery); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
           </div>
         </div>
       </div>
     </aside>
 
+    {deliveryDialogOpen && <DeliveryAddressDialog areas={deliveryAreas} initial={deliveryForm} itemsSubtotal={itemsSubtotal}
+      onSave={(form) => { setDeliveryForm(form); setDeliveryDialogOpen(false); if (checkoutError) setCheckoutError(""); }}
+      onClose={() => setDeliveryDialogOpen(false)} />}
     {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => { if ((gcashCheckout.cashAmount ?? 0) > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${(gcashCheckout.cashAmount ?? 0).toFixed(2)} cash part.`); setGcashCheckout(null); }} onPaid={(view) => { setGcashCheckout(null); if (view.orderId !== null && view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.orderId, view.queueNumber, view.shiftId); }} />}
     {lastPlaced && <div className="pos-placed" role="status">
       <span className="pos-placed-number">#{lastPlaced.queueNumber}</span>
@@ -2726,7 +2935,7 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
     <header>
       <strong>#{card.queueNumber ?? "—"}</strong>
       <span className="dlv-zone">{card.zoneName}</span>
-      <span className={`dlv-pay is-${card.payment}`}>{card.payment === "cod" ? `Collect ₱${(card.codAmount ?? card.total).toFixed(2)}` : "Paid · GCash"}</span>
+      <span className={`dlv-pay is-${card.payment}`}>{card.payment === "cod" ? `Collect ₱${(card.codAmount ?? card.total).toFixed(2)}` : card.payment === "cash" ? "Paid · Cash" : "Paid · GCash"}</span>
     </header>
     <div className="dlv-to">
       <strong>{card.recipientName}</strong>

@@ -202,7 +202,7 @@
   //                 the top again (Dirty Work: its 78 s loop). The silence the MP3 encoder adds at
   //                 both ends of each file is trimmed, so the repeat is seamless.
   // prime() runs inside the click (phones only start audio in a tap); start() plays from the top
-  // and fades in, and resolves false if the browser still wants a tap. mute()/unmute() keep the
+  // at full volume, straight after the intro (no fade), and resolves false if the browser still wants a tap. mute()/unmute() keep the
   // place; stop() ends it; hide()/show() pause it while the tab is hidden.
   const VOLUME = 0.6;
   function mediaLoop(src) {
@@ -221,18 +221,19 @@
         if (k === 1) { clearInterval(fade); if (then) then(); }
       }, 40);
     };
+    // ms 0: straight in at full volume.
     const play = async (fromTop, ms) => {
       const a = el();
       clearInterval(fade);
-      a.volume = 0;
+      a.volume = ms ? 0 : VOLUME;
       a.muted = false;
       if (fromTop) a.currentTime = 0;
-      try { await a.play(); fadeTo(VOLUME, ms); return true; } catch { return false; }
+      try { await a.play(); if (ms) fadeTo(VOLUME, ms); return true; } catch { return false; }
     };
     const fadeOut = () => { if (audio && !audio.paused) fadeTo(0, 450, () => audio.pause()); };
     return {
       prime() { const a = el(); a.muted = true; a.play().catch(() => undefined); },
-      start: () => play(true, 1400),
+      start: () => play(true, 0),
       unmute: () => play(false, 900),
       mute: fadeOut,
       stop: fadeOut,
@@ -320,12 +321,11 @@
         if (!(await running()) || mine !== generation) return false;
         halt();
         gain.gain.cancelScheduledValues(ctx.currentTime);
-        gain.gain.setValueAtTime(0, ctx.currentTime);
+        gain.gain.setValueAtTime(VOLUME, ctx.currentTime);
         index = 0;
         nextAt = ctx.currentTime + 0.06;
         schedule();
         timer = setInterval(schedule, 1000);
-        ramp(VOLUME, 1400);
         return true;
       },
       async unmute() {

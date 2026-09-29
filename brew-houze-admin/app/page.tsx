@@ -4990,7 +4990,7 @@ function exportShiftReport(shift: ShiftDetail) {
       { header: "Zone", value: (delivery) => delivery.zone },
       { header: "Rider", value: (delivery) => delivery.rider ?? "" },
       { header: "Status", value: (delivery) => deliveryStatusLabels[delivery.status] ?? delivery.status },
-      { header: "Payment", value: (delivery) => delivery.payment === "cod" ? "Cash on delivery" : "GCash" },
+      { header: "Payment", value: (delivery) => delivery.payment === "cod" ? "Cash on delivery" : delivery.payment === "cash" ? "Cash (paid at the counter)" : "GCash" },
       { header: "Delivery fee", value: (delivery) => delivery.fee, kind: "money" },
       { header: "Picked up", value: (delivery) => excelDateTime(delivery.pickedUpAt) },
       { header: "Delivered", value: (delivery) => excelDateTime(delivery.deliveredAt) },
@@ -8151,7 +8151,7 @@ function Delivery() {
 
   return <div className="inv-wrap">
     <div className="inv">
-      <p className="inv-hint" style={{ margin: 0 }}>Delivery orders come from the mobile menu. Customers sign in, choose a saved address in one of your zones, and pay with GCash (or cash on delivery, if you allow it). The delivery fee is added to the order and is not discounted.</p>
+      <p className="inv-hint" style={{ margin: 0 }}>Delivery orders come from the mobile menu, or from the counter for Messenger orders. Signed-in customers choose a saved address in one of your zones and pay with GCash (or cash on delivery, if you allow it); guests type their address and pay with GCash. The delivery fee is added to the order and is not discounted.</p>
       {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
       {notice && <div className="acc-notice" role="status">{notice}</div>}
       {!rules ? <div className="inv-empty">Loading delivery settings…</div> : <>

@@ -12,7 +12,7 @@ import { deliveryFeeFor, type DeliveryPlan } from "@/lib/delivery";
 export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null };
 export type OrderSource = "cashier" | "mobile";
 // Eaten at the café, taken away, or delivered (null: not recorded, for callers that do not ask).
-// Delivery orders come only from the mobile menu, with a delivery plan (see lib/delivery.ts).
+// Delivery orders come from the mobile menu or the counter (Messenger orders), with a delivery plan (see lib/delivery.ts).
 export type ServiceType = "dine_in" | "take_out" | "delivery";
 export function parseServiceType(value: unknown): ServiceType | null {
   return value === "dine_in" || value === "take_out" || value === "delivery" ? value : null;
@@ -237,7 +237,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   // Delivery: the zone's minimum order (on the items) and fee (free at or above the free delivery
   // amount). Discounts never apply to the fee.
   const delivery = input.delivery ?? null;
-  if ((input.serviceType === "delivery") !== (delivery !== null)) throw new Error("Delivery orders are placed from the mobile menu with a delivery address.");
+  if ((input.serviceType === "delivery") !== (delivery !== null)) throw new Error("A delivery order needs its delivery address.");
   const itemsAfterDiscounts = Math.max(0, Math.round((subtotal - orderDiscount - vatExemptAmount) * 100) / 100);
   if (delivery?.zoneMinOrder && subtotal + 0.005 < delivery.zoneMinOrder) throw new Error(`Delivery to ${delivery.zoneName} starts at ₱${delivery.zoneMinOrder.toFixed(2)} of items. Add a little more to your order.`);
   const deliveryFee = delivery ? deliveryFeeFor(delivery, itemsAfterDiscounts) : 0;

@@ -6,8 +6,10 @@ import "./account.css";
 
 // Customer accounts on the mobile menu. Kept apart from the menu page on purpose:
 //   useCustomerAccount()  all the data and API calls (keep this when the layout is redesigned)
-//   AccountButton          the header button
-//   AccountSheet           sign in, sign up, forgot/reset password, the account page
+//   AccountPage            the Account tab: profile, rewards, QR code, settings (or Join for guests)
+//   OrderHistory           past orders, on the Orders tab
+//   AccountSheet           the forms: sign in, sign up, forgot/reset password, details, password,
+//                          addresses, delete, and the Stars sign at the counter
 // The screens use their own .acct-* classes (account.css) plus the menu's shared modal/button
 // classes, so a new layout can restyle or replace them without touching the logic.
 
@@ -164,7 +166,9 @@ export function CartAccountNote({ state, onOpen }: { state: CustomerAccountState
     : <p className="acct-cart-note">Have an account? <button type="button" onClick={onOpen}>Sign in</button> to save this order to it. You can also order as a guest.</p>;
 }
 
-type View = "signin" | "register" | "forgot" | "reset" | "home" | "edit" | "password" | "delete" | "claim" | "addresses";
+type View = "signin" | "register" | "forgot" | "reset" | "edit" | "password" | "delete" | "claim" | "addresses";
+// The forms the Account tab opens.
+export type AccountForm = "signin" | "register" | "edit" | "password" | "addresses" | "delete";
 
 function pluralStars(count: number): string {
   return `${count} star${Math.abs(count) === 1 ? "" : "s"}`;
@@ -341,9 +345,142 @@ function ClaimScreen({ state, fullName }: { state: CustomerAccountState; fullNam
   </div>;
 }
 
-export function AccountSheet({ state, resetToken, startClaim = false, onClose, onResetDone }: { state: CustomerAccountState; resetToken: string | null; startClaim?: boolean; onClose: () => void; onResetDone: () => void }) {
+function IconChevron() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>;
+}
+function IconQr() {
+  return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 14h3v3M21 14v.01M14 21h3M21 18v3M17.5 17.5h.01" /></svg>;
+}
+
+// One row of the settings list.
+function SettingsRow({ icon, title, detail, onClick, tone }: { icon: string; title: string; detail?: string; onClick: () => void; tone?: "danger" }) {
+  return <li><button type="button" className={`ac-row${tone ? ` is-${tone}` : ""}`} onClick={onClick}>
+    <span className="ac-row-icon" aria-hidden="true">{icon}</span>
+    <span className="ac-row-text"><strong>{title}</strong>{detail && <em>{detail}</em>}</span>
+    {!tone && <IconChevron />}
+  </button></li>;
+}
+
+// The Account tab. Signed in: who they are, their rewards, the QR code for the counter, and a
+// settings list (each opens its form in AccountSheet). Guests: why to join, and the way in.
+export function AccountPage({ state, onOpen }: { state: CustomerAccountState; onOpen: (form: AccountForm) => void }) {
+  const [qrOpen, setQrOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const account = state.account;
+  if (state.loading) return <div className="ac-page"><p className="ac-loading">Loading your account…</p></div>;
+  if (!account) return <div className="ac-page">
+    <section className="ac-join">
+      <Image src="/brand/badge.png" alt="" width={64} height={64} unoptimized />
+      <p className="bh-eyebrow">Brew Houze Rewards</p>
+      <h1>Every cup counts.</h1>
+      <p>Make a free account and your orders start adding up.</p>
+      <ul>
+        <li><span aria-hidden="true">★</span><div><strong>Earn stars</strong>On every order, here or at the counter.</div></li>
+        <li><span aria-hidden="true">🎁</span><div><strong>Free drinks and treats</strong>Trade stars for rewards, plus a birthday treat.</div></li>
+        <li><span aria-hidden="true">📍</span><div><strong>Faster delivery</strong>Saved addresses, and cash on delivery.</div></li>
+        <li><span aria-hidden="true">🧾</span><div><strong>Your order history</strong>Everything you ordered, and your favorites on the menu.</div></li>
+      </ul>
+      <button type="button" className="bh-primary is-center" onClick={() => onOpen("register")}>Make my free account</button>
+      <button type="button" className="ac-secondary" onClick={() => onOpen("signin")}>I already have an account</button>
+    </section>
+    <p className="ac-guest-note">No account? You can still order as a guest. Orders from this phone show under Orders.</p>
+  </div>;
+
+  const loyalty = account.loyalty ?? null;
+  const defaultAddress = account.addresses?.find((address) => address.isDefault) ?? null;
+  const addressCount = account.addresses?.length ?? 0;
+  const details = [account.email, account.phone, account.birthday ? `Birthday ${new Date(`${account.birthday}T00:00:00+08:00`).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" })}` : ""].filter(Boolean).join(" · ");
+  async function signOut() {
+    setBusy(true);
+    await state.signOut();
+    setBusy(false);
+  }
+  return <div className="ac-page">
+    <section className="ac-profile">
+      <span className="ac-avatar" aria-hidden="true">{initials(account.fullName)}</span>
+      <div className="ac-profile-text">
+        <h1>{account.fullName}</h1>
+        <span>@{account.username}</span>
+      </div>
+      <div className="ac-stats">
+        <div><strong>{account.orderCount}</strong><span>order{account.orderCount === 1 ? "" : "s"}</span></div>
+        {loyalty?.campaign && <div><strong>★ {loyalty.balance}</strong><span>stars</span></div>}
+      </div>
+    </section>
+
+    <button type="button" className="ac-qr-card" onClick={() => setQrOpen(true)}>
+      <span className="ac-qr-icon"><IconQr /></span>
+      <span><strong>My QR code</strong><em>Show it at the counter to earn stars on counter orders</em></span>
+      <IconChevron />
+    </button>
+
+    {loyalty?.birthday && <BirthdayCard birthday={loyalty.birthday} onAddBirthday={() => onOpen("edit")} />}
+    {loyalty?.campaign
+      ? <RewardsCard loyalty={{ ...loyalty, campaign: loyalty.campaign }} />
+      : loyalty?.birthday ? null : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats show here.</span></div>}
+    {account.savedId && <div className="acct-saved-id">
+      <div><strong>🪪 {account.savedId.typeName} discount saved</strong><span>{account.savedId.holderName}{account.savedId.idEnding ? ` · ID ending ${account.savedId.idEnding}` : ""}. Checked by the café, no photo kept. Show your ID at pickup.</span></div>
+      <button type="button" disabled={busy} onClick={() => { setBusy(true); void state.forgetSavedId().finally(() => setBusy(false)); }}>Forget</button>
+    </div>}
+
+    <section className="ac-group">
+      <h2>Account</h2>
+      <ul className="ac-list">
+        <SettingsRow icon="📍" title="Delivery addresses" detail={addressCount === 0 ? "Add where the café delivers" : `${addressCount} saved${defaultAddress ? ` · ${defaultAddress.label} is the default` : ""}`} onClick={() => onOpen("addresses")} />
+        <SettingsRow icon="👤" title="Personal details" detail={details || "Add your email, mobile number and birthday"} onClick={() => onOpen("edit")} />
+        <SettingsRow icon="🔒" title="Change password" onClick={() => onOpen("password")} />
+      </ul>
+    </section>
+    <section className="ac-group">
+      <ul className="ac-list">
+        <li><button type="button" className="ac-row is-plain" disabled={busy} onClick={() => void signOut()}><span className="ac-row-icon" aria-hidden="true">↩</span><span className="ac-row-text"><strong>{busy ? "Signing out…" : "Sign out"}</strong></span></button></li>
+        <SettingsRow icon="🗑" title="Delete my account" onClick={() => onOpen("delete")} tone="danger" />
+      </ul>
+    </section>
+    <p className="ac-foot">Brew Houze keeps your details only for your account, orders and rewards. We never sell or share them.</p>
+
+    {qrOpen && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setQrOpen(false); }}>
+      <section className="bh-sheet ac-qr-sheet" role="dialog" aria-modal="true" aria-label="My QR code">
+        <div className="bh-sheet-head"><div><p className="bh-eyebrow">At the counter</p><h2>My QR code</h2></div><button type="button" className="bh-sheet-close" onClick={() => setQrOpen(false)} aria-label="Close">×</button></div>
+        <div className="bh-sheet-scroll"><MyQrCode username={account.username} /><p className="ac-qr-name">{account.fullName} · @{account.username}</p></div>
+      </section>
+    </div>}
+  </div>;
+}
+
+// Past orders on the Orders tab (signed in), or why to sign in.
+export function OrderHistory({ state, onSignIn }: { state: CustomerAccountState; onSignIn: () => void }) {
+  if (state.loading) return null;
+  if (!state.account) return <div className="oh-guest">
+    <strong>Keep a history of your orders</strong>
+    <span>Sign in and every order you place is saved here, with the stars you earned.</span>
+    <button type="button" className="ac-secondary" onClick={onSignIn}>Sign in or make an account</button>
+  </div>;
+  if (state.account.orders.length === 0) return <p className="oh-empty">No past orders yet. Orders you place while signed in are saved here.</p>;
+  return <ul className="oh-list">{state.account.orders.map((order) => <li key={order.id}>
+    <div className="oh-top">
+      <strong>{order.queueNumber ? `#${order.queueNumber}` : `Order ${order.id}`}</strong>
+      <span>{formatDate(order.createdAt)}</span>
+      <b>₱{order.total.toFixed(2)}</b>
+    </div>
+    <p>{order.items}</p>
+    <div className="oh-tags">
+      <span>{order.source === "mobile" ? "Ordered here" : "At the counter"}</span>
+      {order.discountLabel && (order.discountTotal ?? 0) > 0 && <span className="is-discount">−₱{(order.discountTotal ?? 0).toFixed(2)} · {order.discountLabel.replace(/\s*\(.*\)\s*$/, "")}</span>}
+      {order.status !== "completed" && <span className="is-status">{order.status === "voided" ? "Cancelled" : order.status === "refunded" ? "Refunded" : order.status}</span>}
+    </div>
+  </li>)}</ul>;
+}
+
+// startAddresses: opened from the cart to add or pick a delivery address, so the sheet goes
+// straight to the addresses (straight to a new one when there are none) and returns to the cart.
+// start: the form to open (from the Account tab). onNotice: a short message for the page once a
+// form is done ("Details saved."), since the sheet closes.
+export function AccountSheet({ state, resetToken, startClaim = false, startAddresses = false, start, onClose, onResetDone, onNotice }: { state: CustomerAccountState; resetToken: string | null; startClaim?: boolean; startAddresses?: boolean; start?: AccountForm; onClose: () => void; onResetDone: () => void; onNotice?: (message: string) => void }) {
   const signedIn = Boolean(state.account);
-  const [view, setView] = useState<View>(resetToken ? "reset" : startClaim ? (signedIn ? "claim" : "signin") : signedIn ? "home" : "signin");
+  const [view, setView] = useState<View>(resetToken ? "reset" : startClaim ? (signedIn ? "claim" : "signin") : startAddresses && signedIn ? "addresses" : start && (signedIn || start === "signin" || start === "register") ? start : "signin");
+  // A form is done: back to the page, with what happened.
+  const finish = (message?: string) => { if (message) onNotice?.(message); onClose(); };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -352,10 +489,11 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
   const [password2, setPassword2] = useState("");
   const [signup, setSignup] = useState({ fullName: "", username: "", email: "", birthday: "", consent: false, phone: "" });
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [showQr, setShowQr] = useState(false);
   const [profile, setProfile] = useState({ fullName: state.account?.fullName ?? "", email: state.account?.email ?? "", birthday: state.account?.birthday ?? "", phone: state.account?.phone ?? "" });
   // Delivery addresses: the one being edited, and the café's delivery zones for the area list.
-  const [addressDraft, setAddressDraft] = useState<AddressDraft | null>(null);
+  const [addressDraft, setAddressDraft] = useState<AddressDraft | null>(() => (startAddresses || start === "addresses") && state.account && (state.account.addresses ?? []).length === 0
+    ? { label: "Home", recipientName: state.account.fullName, phone: state.account.phone ?? "", zoneId: "", street: "", landmark: "", riderNotes: "", isDefault: true }
+    : null);
   const [zones, setZones] = useState<DeliveryZoneOption[] | null>(null);
   const [resetInfo, setResetInfo] = useState<{ checked: boolean; valid: boolean; username?: string }>({ checked: false, valid: false });
 
@@ -403,7 +541,6 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
     register: ["JOIN BREW HOUZE", "Make an account"],
     forgot: ["YOUR ACCOUNT", "Forgot password"],
     reset: ["YOUR ACCOUNT", "Choose a new password"],
-    home: ["YOUR ACCOUNT", state.account?.fullName ?? ""],
     edit: ["YOUR ACCOUNT", "Edit details"],
     password: ["YOUR ACCOUNT", "Change password"],
     delete: ["YOUR ACCOUNT", "Delete account"],
@@ -411,16 +548,17 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
     claim: ["STARS AT THE COUNTER", "Use your stars"],
   };
 
-  return <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-    <section className="cart-modal acct-sheet" aria-label="Your account">
-      <div className="cart-modal-heading">
-        <div><p className="eyebrow">{title[view][0]}</p><h2>{title[view][1]}</h2></div>
-        <button type="button" className="modal-close inline" onClick={onClose} disabled={busy} aria-label="Close">×</button>
+  return <div className="bh-backdrop acct-backdrop" onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="bh-sheet acct-sheet" role="dialog" aria-modal="true" aria-label={title[view][1] || "Your account"}>
+      <div className="bh-sheet-head">
+        <div><p className="bh-eyebrow">{title[view][0]}</p><h2>{title[view][1]}</h2></div>
+        <button type="button" className="bh-sheet-close" onClick={onClose} disabled={busy} aria-label="Close">×</button>
       </div>
+      <div className="bh-sheet-scroll acct-sheet-body">
       {error && <p className="error-message" role="alert">{error}</p>}
       {notice && <p className="acct-notice" role="status">{notice}</p>}
 
-      {view === "signin" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.signIn(login, password), () => { setPassword(""); if (startClaim) setView("claim"); else onClose(); }); }}>
+      {view === "signin" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.signIn(login, password), () => { setPassword(""); if (startClaim) setView("claim"); else finish("You're signed in. Welcome back!"); }); }}>
         <p className="acct-intro">Sign in to keep your orders in one place. Café rewards will show up here too.</p>
         <Field label="Username or email"><input value={login} onChange={(event) => setLogin(event.target.value)} autoComplete="username" autoCapitalize="none" autoFocus /></Field>
         <Field label="Password"><PasswordInput value={password} onChange={setPassword} autoComplete="current-password" /></Field>
@@ -432,7 +570,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
       {view === "register" && <form className="acct-form" onSubmit={(event) => {
         event.preventDefault();
         if (password !== password2) { setError("The two passwords do not match."); return; }
-        void run(() => state.register({ ...signup, password }), () => { setPassword(""); setPassword2(""); setView(startClaim ? "claim" : "home"); setNotice("Welcome to Brew Houze! Your account is ready."); });
+        void run(() => state.register({ ...signup, password }), () => { setPassword(""); setPassword2(""); if (startClaim) { setView("claim"); setNotice("Welcome to Brew Houze! Your account is ready."); } else finish("Welcome to Brew Houze! Your account is ready."); });
       }}>
         <Field label="Full name"><input value={signup.fullName} onChange={(event) => setSignup((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} autoFocus /></Field>
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
@@ -478,64 +616,29 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
           </>}
       </form>}
 
-      {view === "home" && state.account && <div className="acct-home">
-        <div className="acct-card">
-          <span className="acct-avatar" aria-hidden="true">{initials(state.account.fullName)}</span>
-          <div><strong>{state.account.fullName}</strong><span>@{state.account.username}</span></div>
-          <em>{state.account.orderCount} order{state.account.orderCount === 1 ? "" : "s"}</em>
-        </div>
-        <button type="button" className="acct-qr-toggle" aria-expanded={showQr} onClick={() => setShowQr((current) => !current)}>{showQr ? "Hide my QR code" : "My QR code"} <span>for ordering at the counter</span></button>
-        {showQr && <MyQrCode username={state.account.username} />}
-        {state.account.loyalty?.birthday && <BirthdayCard birthday={state.account.loyalty.birthday} onAddBirthday={() => go("edit")} />}
-        {state.account.loyalty?.campaign
-          ? <RewardsCard loyalty={{ ...state.account.loyalty, campaign: state.account.loyalty.campaign }} />
-          : state.account.loyalty?.birthday ? null : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats will show here.</span></div>}
-        {state.account.savedId && <div className="acct-saved-id">
-          <div><strong>🪪 {state.account.savedId.typeName} discount saved</strong><span>{state.account.savedId.holderName}{state.account.savedId.idEnding ? ` · ID ending ${state.account.savedId.idEnding}` : ""}. Checked by the café, no photo kept. Show your ID at pickup.</span></div>
-          <button type="button" disabled={busy} onClick={() => void run(state.forgetSavedId, () => setNotice("Your saved ID was removed."))}>Forget</button>
-        </div>}
-        <button type="button" className="acct-delivery-row" onClick={() => go("addresses")}>
-          <span><strong>📍 Delivery addresses</strong><em>{(state.account.addresses?.length ?? 0) === 0 ? "Add where the café should deliver" : `${state.account.addresses?.length} saved${state.account.addresses?.find((address) => address.isDefault) ? ` · ${state.account.addresses?.find((address) => address.isDefault)?.label} is the default` : ""}`}{state.account.phone ? ` · ${state.account.phone}` : " · add your mobile number in Edit details"}</em></span>
-          <b aria-hidden="true">›</b>
-        </button>
-        <h3 className="acct-section-title">Your orders</h3>
-        {state.account.orders.length === 0
-          ? <p className="acct-intro">No orders yet. Orders you place while signed in are saved here.</p>
-          : <ul className="acct-orders">{state.account.orders.map((order) => <li key={order.id}>
-            <div><strong>{order.queueNumber ? `#${order.queueNumber}` : `Order ${order.id}`}</strong><span>{formatDate(order.createdAt)} · {order.source === "mobile" ? "Mobile" : "Counter"}</span><small>{order.items}</small>{order.discountLabel && (order.discountTotal ?? 0) > 0 && <small className="acct-order-discount">−₱{(order.discountTotal ?? 0).toFixed(2)} · {order.discountLabel.replace(/\s*\(.*\)\s*$/, "")} discount</small>}</div>
-            <div className="acct-order-right"><strong>₱{order.total.toFixed(2)}</strong>{order.status !== "completed" && <span className="acct-order-status">{order.status === "voided" ? "Cancelled" : order.status === "refunded" ? "Refunded" : order.status}</span>}</div>
-          </li>)}</ul>}
-        <div className="acct-actions">
-          <button type="button" onClick={() => go("edit")}>Edit details</button>
-          <button type="button" onClick={() => go("password")}>Change password</button>
-          <button type="button" disabled={busy} onClick={() => void run(state.signOut, onClose)}>Sign out</button>
-        </div>
-        <button type="button" className="acct-danger-link" onClick={() => go("delete")}>Delete my account</button>
-      </div>}
-
       {view === "claim" && state.account && <ClaimScreen state={state} fullName={state.account.fullName} />}
       {view === "signin" && startClaim && <p className="acct-intro" style={{ marginTop: 12 }}>Sign in (or make an account) to use your stars at the counter.</p>}
 
-      {view === "edit" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.updateProfile(profile), () => { go("home"); setNotice("Details saved."); }); }}>
+      {view === "edit" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.updateProfile(profile), () => finish("Details saved.")); }}>
         <Field label="Full name"><input value={profile.fullName} onChange={(event) => setProfile((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} /></Field>
         <Field label="Username" hint="Usernames cannot be changed."><input value={`@${state.account?.username ?? ""}`} disabled /></Field>
         <Field label="Email (optional)" hint="Only used if you forget your password."><input type="email" value={profile.email} onChange={(event) => setProfile((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
         <Field label="Mobile number (optional)" hint="Needed for delivery, e.g. 0917 123 4567."><input type="tel" inputMode="tel" value={profile.phone} onChange={(event) => setProfile((current) => ({ ...current, phone: event.target.value }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Birthday (optional)"><input type="date" value={profile.birthday} max={today} onChange={(event) => setProfile((current) => ({ ...current, birthday: event.target.value }))} /></Field>
         <button type="submit" className="add-order-button" disabled={busy || !profile.fullName.trim()}>{busy ? "Saving..." : "Save"} <span>→</span></button>
-        <p className="acct-switch"><button type="button" onClick={() => go("home")}>Cancel</button></p>
+        <p className="acct-switch"><button type="button" onClick={onClose}>Cancel</button></p>
       </form>}
 
       {view === "password" && <form className="acct-form" onSubmit={(event) => {
         event.preventDefault();
         if (password !== password2) { setError("The two new passwords do not match."); return; }
-        void run(() => state.changePassword(login, password), () => { setLogin(""); go("home"); setNotice("Password changed. Your other phones were signed out."); });
+        void run(() => state.changePassword(login, password), () => { setLogin(""); finish("Password changed. Your other phones were signed out."); });
       }}>
         <Field label="Current password"><PasswordInput value={login} onChange={setLogin} autoComplete="current-password" autoFocus /></Field>
         <Field label="New password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the new password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
         <button type="submit" className="add-order-button" disabled={busy || !login || !password || !password2}>{busy ? "Saving..." : "Change password"} <span>→</span></button>
-        <p className="acct-switch"><button type="button" onClick={() => { setLogin(""); go("home"); }}>Cancel</button></p>
+        <p className="acct-switch"><button type="button" onClick={onClose}>Cancel</button></p>
       </form>}
 
       {view === "addresses" && state.account && !addressDraft && <div className="acct-home">
@@ -554,10 +657,10 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
           </div>
         </li>)}</ul>
         {(state.account.addresses?.length ?? 0) < 10 && <button type="button" className="add-order-button" disabled={zones === null || zones.length === 0} onClick={() => setAddressDraft({ label: "Home", recipientName: state.account?.fullName ?? "", phone: state.account?.phone ?? "", zoneId: "", street: "", landmark: "", riderNotes: "", isDefault: (state.account?.addresses?.length ?? 0) === 0 })}>{zones !== null && zones.length === 0 ? "The café has no delivery areas yet" : "Add an address"} <span>+</span></button>}
-        <p className="acct-switch"><button type="button" onClick={() => go("home")}>Back to your account</button></p>
+        <p className="acct-switch"><button type="button" onClick={onClose}>{startAddresses ? "Back to your order" : "Done"}</button></p>
       </div>}
 
-      {view === "addresses" && addressDraft && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.saveAddress(addressDraft), () => { setAddressDraft(null); setNotice("Address saved."); }); }}>
+      {view === "addresses" && addressDraft && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.saveAddress(addressDraft), () => { setAddressDraft(null); if (startAddresses) onClose(); else setNotice("Address saved."); }); }}>
         <div className="acct-label-choice" role="radiogroup" aria-label="Label">
           {["Home", "Work", "Other"].map((label) => <button key={label} type="button" role="radio" aria-checked={addressDraft.label === label} onClick={() => setAddressDraft((current) => current && { ...current, label })}>{label}</button>)}
         </div>
@@ -574,15 +677,16 @@ export function AccountSheet({ state, resetToken, startClaim = false, onClose, o
         <Field label="Notes for the rider (optional)"><input value={addressDraft.riderNotes} onChange={(event) => setAddressDraft((current) => current && { ...current, riderNotes: event.target.value })} placeholder="Gate code, floor, where to leave it" maxLength={200} /></Field>
         <label className="acct-check"><input type="checkbox" checked={addressDraft.isDefault} onChange={(event) => setAddressDraft((current) => current && { ...current, isDefault: event.target.checked })} />Use this address by default</label>
         <button type="submit" className="add-order-button" disabled={busy || !addressDraft.zoneId || addressDraft.street.trim().length < 3 || addressDraft.recipientName.trim().length < 2 || !addressDraft.phone.trim()}>{busy ? "Saving..." : "Save address"} <span>→</span></button>
-        <p className="acct-switch"><button type="button" onClick={() => setAddressDraft(null)}>Cancel</button></p>
+        <p className="acct-switch"><button type="button" onClick={() => { if ((state.account?.addresses ?? []).length === 0) onClose(); else setAddressDraft(null); }}>Cancel</button></p>
       </form>}
 
       {view === "delete" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.deleteAccount(password), onClose); }}>
         <p className="acct-intro">Your name, username, email, birthday, mobile number, addresses and the café&apos;s notes about you are erased, and you are signed out everywhere. Your past orders stay in the café&apos;s sales records without your name. This cannot be undone.</p>
         <Field label="Enter your password to confirm"><PasswordInput value={password} onChange={setPassword} autoComplete="current-password" autoFocus /></Field>
         <button type="submit" className="add-order-button acct-danger" disabled={busy || !password}>{busy ? "Deleting..." : "Delete my account"} <span>→</span></button>
-        <p className="acct-switch"><button type="button" onClick={() => go("home")}>Keep my account</button></p>
+        <p className="acct-switch"><button type="button" onClick={onClose}>Keep my account</button></p>
       </form>}
+      </div>
     </section>
   </div>;
 }
