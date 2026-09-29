@@ -260,7 +260,7 @@
           <div class="ae-pc" id="ae-pc">
             <div class="ae-pc-face ae-pc-front">
               <img id="ae-pc-img" alt="" draggable="false" />
-              <div class="ae-pc-shine"></div>
+              <i class="ae-pc-sheen" aria-hidden="true"></i>
               <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip the card to read about her">æ</button>
               <span class="ae-pc-tag" id="ae-pc-tag"></span>
               <div class="ae-pc-caption"><strong id="ae-pc-title"></strong><span id="ae-pc-hangul"></span></div>
@@ -630,6 +630,7 @@
       <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>`;
     back.style.setProperty("--device", t.back === "spec" ? `url("${siteUrl(`${t.folder}device.webp`)}")` : "none");
     // Replaying the entrance each time a member is shown.
+    back.insertAdjacentHTML("beforeend", '<i class="ae-pc-sheen" aria-hidden="true"></i>');
     pcCard.style.animation = "none"; void pcCard.offsetWidth; pcCard.style.animation = "";
   }
   function openMember(key, opener) {
@@ -664,49 +665,12 @@
     else if (event.key === "ArrowLeft") showMember(pcIndex - 1);
     else if (event.key === "ArrowRight") showMember(pcIndex + 1);
   });
-  // Flipping: the tilt steps aside for the length of the flip, so the card turns smoothly.
-  let flipping = false;
-  let flipTimer = null;
+  // Flipping: the card turns over; the face turned away is hidden halfway through the turn (see
+  // secret.css), so it never shows through on phones.
   function flipCard() {
-    flipping = true;
-    clearTimeout(flipTimer);
-    pcCard.classList.remove("is-tilting");
-    pcCard.style.setProperty("--rx", "0deg");
-    pcCard.style.setProperty("--ry", "0deg");
     pcCard.classList.toggle("is-flipped");
-    flipTimer = setTimeout(() => { flipping = false; }, 720);
   }
   pcModal.addEventListener("dragstart", (event) => event.preventDefault());
-  // Tilt and gloss follow a mouse or pen (not touch, and not with reduced motion). The position is
-  // measured on the card's frame, which does not move, so the tilt does not feed back on itself;
-  // near the flip mark (top left corner of that frame) the card settles flat, so the mark stays
-  // exactly under the cursor and the click lands on it.
-  const pcStage = pcCard.parentElement;
-  if (motionOK()) {
-    pcStage.addEventListener("pointermove", (event) => {
-      if (event.pointerType === "touch" || flipping) return;
-      const box = pcStage.getBoundingClientRect();
-      if (event.clientX - box.left < 70 && event.clientY - box.top < 66) {
-        pcCard.classList.remove("is-tilting");
-        pcCard.style.setProperty("--rx", "0deg");
-        pcCard.style.setProperty("--ry", "0deg");
-        return;
-      }
-      const x = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-      const y = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
-      const flipped = pcCard.classList.contains("is-flipped");
-      pcCard.classList.add("is-tilting");
-      pcCard.style.setProperty("--rx", `${((flipped ? 0.5 - x : x - 0.5) * 16).toFixed(2)}deg`);
-      pcCard.style.setProperty("--ry", `${((0.5 - y) * 12).toFixed(2)}deg`);
-      pcCard.style.setProperty("--gx", `${Math.round(x * 100)}%`);
-      pcCard.style.setProperty("--gy", `${Math.round(y * 100)}%`);
-    });
-    pcStage.addEventListener("pointerleave", () => {
-      pcCard.classList.remove("is-tilting");
-      pcCard.style.setProperty("--rx", "0deg");
-      pcCard.style.setProperty("--ry", "0deg");
-    });
-  }
 
   // ── Start ──
   if (store.get(THEME_KEY) === "aespa") store.set(THEME_KEY, "whiplash"); // the old name of Whiplash
