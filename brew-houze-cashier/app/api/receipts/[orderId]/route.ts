@@ -34,7 +34,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
     if (!order) return NextResponse.json({ error: "Order not found." }, { status: 404 });
 
     const itemsResult = await pool.query(`
-      SELECT soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name AS reward_name,
+      SELECT soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name AS reward_name, COALESCE(soi.station, p.station, 'bar') AS station,
         COALESCE(json_agg(json_build_object('name', a.addition_name, 'quantity', soia.quantity, 'unitPrice', soia.unit_price) ORDER BY a.addition_name)
           FILTER (WHERE soia.order_item_id IS NOT NULL), '[]'::json) AS additions
       FROM sales_order_items soi
@@ -44,7 +44,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
       LEFT JOIN additions a ON a.addition_id = soia.addition_id
       LEFT JOIN loyalty_rewards lr ON lr.reward_id = soi.reward_id
       WHERE soi.order_id = $1
-      GROUP BY soi.order_item_id, p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name
+      GROUP BY soi.order_item_id, p.product_name, p.station, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name
       ORDER BY soi.order_item_id
     `, [orderId]);
 
@@ -122,6 +122,7 @@ export async function GET(_request: Request, context: { params: Promise<{ orderI
           temperature: (row.temperature as string | null) ?? null,
           quantity: Number(row.quantity),
           unitPrice: Number(row.unit_price),
+          station: row.station === "kitchen" ? "kitchen" : "bar",
           additions: (row.additions as { name: string; quantity: number; unitPrice: number }[]).map((addition) => ({ name: addition.name, quantity: Number(addition.quantity), unitPrice: Number(addition.unitPrice) })),
         })),
       },

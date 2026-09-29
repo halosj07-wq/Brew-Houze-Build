@@ -1,21 +1,39 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { canHandOff, handOver, markReady, parseStation, pickupMode, stationForRole, StationError } from "@/lib/stations";
+
+// An order's parts (bar, kitchen) and their progress; an order from before stations is one bar part.
+const PARTS_SQL = `COALESCE((SELECT json_agg(json_build_object('station', os.station, 'status', os.status) ORDER BY os.station) FROM order_stations os WHERE os.order_id = so.order_id),
+  json_build_array(json_build_object('station', 'bar', 'status', CASE WHEN so.queue_status = 'served' THEN 'ready' ELSE 'waiting' END)))`;
+type Part = { station: "bar" | "kitchen"; status: "waiting" | "ready" | "picked_up" };
 
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   try {
+    // Counts for this person: what their station has to make, and (at the counter) what is
+    // ready to hand over (whole orders, or parts when drinks and food are picked up separately).
+    const station = stationForRole(session.role);
+    const mode = await pickupMode();
+    const handsOff = canHandOff(session.role);
     const signatureResult = await pool.query(`
-      SELECT COUNT(*)::int AS total,
-        COALESCE(MAX(order_id), 0)::int AS latest_order_id,
-        COALESCE(MAX(served_at), TIMESTAMP 'epoch') AS latest_served_at,
-        COUNT(*) FILTER (WHERE queue_status = 'waiting')::int AS waiting_count,
-        COUNT(*) FILTER (WHERE queue_status = 'served')::int AS ready_count
-      FROM sales_orders
-      WHERE (queue_status = 'waiting' OR (queue_status = 'served' AND service_type IS DISTINCT FROM 'delivery'))
-    `);
+      WITH open_orders AS (
+        SELECT so.order_id, so.queue_status, so.served_at, so.service_type, ${PARTS_SQL} AS parts
+        FROM sales_orders so
+        WHERE (so.queue_status = 'waiting' OR (so.queue_status = 'served' AND so.service_type IS DISTINCT FROM 'delivery'))
+      ), parts AS (
+        SELECT o.order_id, o.queue_status, o.service_type, part->>'station' AS station, part->>'status' AS status FROM open_orders o, json_array_elements(o.parts) part
+      )
+      SELECT (SELECT COUNT(*) FROM open_orders)::int AS total,
+        (SELECT COALESCE(MAX(order_id), 0) FROM open_orders)::int AS latest_order_id,
+        (SELECT COALESCE(MAX(served_at), TIMESTAMP 'epoch') FROM open_orders) AS latest_served_at,
+        (SELECT COUNT(DISTINCT order_id) FROM parts WHERE queue_status = 'waiting' AND status = 'waiting' AND ($1::text IS NULL OR station = $1::text))::int AS waiting_count,
+        (CASE WHEN NOT $2::boolean THEN 0
+          WHEN $3::text = 'separate' THEN (SELECT COUNT(*) FROM parts WHERE status = 'ready' AND service_type IS DISTINCT FROM 'delivery')
+          ELSE (SELECT COUNT(*) FROM open_orders WHERE queue_status = 'served') END)::int AS ready_count
+    `, [station, handsOff, mode]);
     if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
       // For the Deliveries badge: packed orders waiting for a rider, failed deliveries to void, and
       // cash on delivery not handed in (mine_cash: what this rider still has to hand in).
@@ -37,6 +55,7 @@ export async function GET(request: Request) {
         so.order_source,
         -- Dine in (mug) or take out (cup), and the customer with the café's notes, for the barista.
         so.service_type,
+        ${PARTS_SQL} AS parts,
         cu.full_name AS customer_name,
         cu.notes AS customer_notes,
         -- A mobile order with an ID discount (senior, PWD...): the barista checks the real ID at pickup.
@@ -48,6 +67,7 @@ export async function GET(request: Request) {
             'size_label', detail_variant.size_label,
             'temperature', detail_variant.temperature,
             'quantity', detail_item.quantity,
+            'station', COALESCE(detail_item.station, 'bar'),
             'additions', COALESCE((
               SELECT json_agg(json_build_object(
                 'name', detail_addition.addition_name,
@@ -140,12 +160,19 @@ export async function GET(request: Request) {
       ORDER BY so.created_at DESC, so.order_id DESC
       LIMIT 500
     `);
+    // This person's view: what to make (their station's parts still being made; the counter sees
+    // every order with a part being made), and what to hand over (whole ready orders, or ready
+    // parts when picked up separately). The kitchen sees what it sent to the counter.
+    const open = result.rows as (Record<string, unknown> & { parts: Part[]; queue_status: string; service_type: string | null })[];
+    const waiting = open.filter((order) => order.queue_status === "waiting" && order.parts.some((part) => part.status === "waiting" && (!station || part.station === station)));
+    const ready = !handsOff
+      ? open.filter((order) => order.parts.some((part) => part.station === station && part.status === "ready")).map((order) => ({ ...order, handoff_station: station }))
+      : mode === "separate"
+        ? open.filter((order) => order.service_type !== "delivery").flatMap((order) => order.parts.filter((part) => part.status === "ready").map((part) => ({ ...order, handoff_station: order.parts.length > 1 ? part.station : null })))
+        : open.filter((order) => order.queue_status === "served").map((order) => ({ ...order, handoff_station: null }));
     return NextResponse.json({
-      data: {
-        waiting: result.rows.filter((order) => order.queue_status === "waiting"),
-        ready: result.rows.filter((order) => order.queue_status === "served"),
-        recent: recentResult.rows,
-      },
+      view: { station, canHandOff: handsOff, pickupMode: mode },
+      data: { waiting, ready, recent: recentResult.rows },
     });
   } catch (error) {
     console.error("GET /api/queue failed:", error);
@@ -157,35 +184,43 @@ export async function GET(request: Request) {
   }
 }
 
+// action "ready": a station finished its part (baristas the bar, kitchen staff the kitchen; the
+// counter can mark either, or every part with no station). action "pickup": the counter handed
+// the order over (or one part, when drinks and food are picked up separately). The old "serve"
+// and "flush" still work.
 export async function PATCH(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
+  const client = await pool.connect();
   try {
-    const body = await request.json() as { order_id?: unknown; action?: unknown };
+    const body = await request.json() as { order_id?: unknown; action?: unknown; station?: unknown };
     const orderId = Number(body.order_id);
     if (!Number.isInteger(orderId) || orderId <= 0) {
       return NextResponse.json({ error: "A valid order_id is required." }, { status: 400 });
     }
+    const action = body.action === "flush" || body.action === "pickup" ? "pickup" : "ready";
+    const own = stationForRole(session.role);
+    const asked = parseStation(body.station);
+    if (own && asked && asked !== own) return NextResponse.json({ error: `You work at the ${own}, so you can only update the ${own} part.` }, { status: 403 });
+    if (action === "pickup" && !canHandOff(session.role)) return NextResponse.json({ error: "The counter hands orders over. Mark your part ready instead." }, { status: 403 });
 
-    const action = body.action === "flush" ? "flush" : "serve";
-    const result = await pool.query(`
-      UPDATE sales_orders
-      SET queue_status = ${action === "flush" ? "'flushed'" : "'served'"}, served_at = ${action === "flush" ? "served_at" : "CURRENT_TIMESTAMP"}
-      WHERE order_id = $1
-        AND queue_status = ${action === "flush" ? "'served'" : "'waiting'"}
-      RETURNING order_id, queue_number
-    `, [orderId]);
-    // A delivery order the barista marked done is packed for the rider.
-    if (action === "serve" && result.rowCount) await pool.query("UPDATE deliveries SET status = 'ready', ready_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 AND status = 'preparing'", [orderId]);
-    if (result.rowCount === 0) return NextResponse.json({ error: action === "flush" ? "Ready order was already flushed or not found." : "Queue order was already moved to ready or not found." }, { status: 404 });
-    return NextResponse.json({ data: result.rows[0] });
+    await client.query("BEGIN");
+    if (action === "ready") await markReady(client, orderId, own ?? asked, session.adminId);
+    else await handOver(client, orderId, asked, await pickupMode(client));
+    const order = await client.query("SELECT order_id, queue_number, queue_status FROM sales_orders WHERE order_id = $1", [orderId]);
+    await client.query("COMMIT");
+    return NextResponse.json({ data: order.rows[0] });
   } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    if (error instanceof StationError) return NextResponse.json({ error: error.message }, { status: error.status });
     console.error("PATCH /api/queue failed:", error);
     const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    if (code === "42703") {
-      return NextResponse.json({ error: "The queue database fields are missing or do not match the current schema. Run queue-migration.sql, then reload the cashier." }, { status: 500 });
+    if (code === "42P01" || code === "42703") {
+      return NextResponse.json({ error: "The kitchen stations are not set up in the database yet. Run kitchen-stations-migration.sql, then reload." }, { status: 500 });
     }
-    return NextResponse.json({ error: "Could not move the queue order to ready status." }, { status: 500 });
+    return NextResponse.json({ error: "Could not update the order." }, { status: 500 });
+  } finally {
+    client.release();
   }
 }

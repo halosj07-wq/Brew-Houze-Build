@@ -628,3 +628,17 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 /* A smaller stamp line on receipts (the rider's ID check). */
 .receipt-stamp.is-small { margin: 3px 0; font-size: 0.85em; }
 .dlv-confirm select { min-width: 180px; height: 36px; padding: 0 8px; border: 1px solid #E8DDD5; border-radius: 8px; background: #FFFFFF; color: #3D2B1F; font-size: 13px; }
+
+/* Queue: the bar and kitchen parts of an order. */
+.queue-parts { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px 0; }
+.queue-part { padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 800; background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; }
+.queue-part.is-ready { background: #DCFCE7; color: #166534; border-color: #86EFAC; }
+.queue-part.is-picked_up { background: #F3EDE5; color: #9C8278; border-color: #E8DDD5; }
+.queue-station-group { margin: 6px 8px 0; border: 1px solid #F0E8E2; border-radius: 12px; background: #FFFFFF; }
+.queue-station-group.is-kitchen { border-color: #FDE3C3; background: #FFFBF5; }
+.queue-station-title { margin: 0; padding: 7px 10px 0; color: #9C8278; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.queue-others { margin: 4px 14px 0; padding: 7px 10px; border-radius: 9px; background: #F3EDE5; color: #6B4C3B; font-size: 12px; line-height: 1.4; }
+
+/* Receipt: BAR and KITCHEN headings when an order has both. */
+.receipt-station { margin: 6px 0 2px; font-weight: 800; letter-spacing: 0.12em; font-size: 0.85em; }
+.receipt-item:first-child .receipt-station { margin-top: 0; }

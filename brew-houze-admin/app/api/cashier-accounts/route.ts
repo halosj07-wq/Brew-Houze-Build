@@ -38,7 +38,7 @@ export async function GET() {
         COALESCE((SELECT SUM(so.total_amount) FROM sales_orders so WHERE so.cashier_admin_id = u.admin_id AND so.is_archived = FALSE AND so.status = 'completed' AND so.created_at >= (CURRENT_TIMESTAMP - INTERVAL '30 days') AT TIME ZONE 'UTC'), 0) AS sales_30d,
         (SELECT COUNT(*) FROM sales_orders so WHERE so.reversed_by_admin_id = u.admin_id AND so.is_archived = FALSE AND so.reversed_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::int AS reversals_30d
       FROM admin_users u
-      WHERE LOWER(u.role) IN ('cashier', 'barista', 'rider')
+      WHERE LOWER(u.role) IN ('cashier', 'barista', 'kitchen', 'rider')
       ORDER BY u.is_active DESC, u.full_name ASC
     `);
     const ids = result.rows.map((account) => Number(account.admin_id));
@@ -129,7 +129,7 @@ export async function GET() {
 // Staff roles an admin can give. A barista only sees and manages the queue in the staff app, and a
 // rider only the deliveries, so
 // the cashier permissions are always off for them.
-const STAFF_ROLES = ["cashier", "barista", "rider"] as const;
+const STAFF_ROLES = ["cashier", "barista", "kitchen", "rider"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
 function staffRole(value: unknown): StaffRole | null {
   const role = String(value ?? "cashier").toLowerCase();
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     const problem = passwordProblem(password);
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
     const role = staffRole(body.role);
-    if (!role) return NextResponse.json({ error: "Choose cashier, barista or rider." }, { status: 400 });
+    if (!role) return NextResponse.json({ error: "Choose cashier, barista, kitchen staff or rider." }, { status: 400 });
     const cashier = role === "cashier";
 
     const result = await pool.query(`
@@ -177,7 +177,7 @@ export async function PATCH(request: Request) {
     const body = await request.json() as { id?: unknown; action?: unknown; role?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; canCloseShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid employee account is required." }, { status: 400 });
-    const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista', 'rider')", [id]);
+    const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista', 'kitchen', 'rider')", [id]);
     if (exists.rowCount === 0) return NextResponse.json({ error: "Employee account not found." }, { status: 404 });
     const currentRole = String(exists.rows[0].role) as StaffRole;
 
@@ -185,14 +185,14 @@ export async function PATCH(request: Request) {
     // applies on their next request, since the staff app reads the role fresh each time.
     if (body.action === "set_role") {
       const role = staffRole(body.role);
-      if (!role) return NextResponse.json({ error: "Choose cashier, barista or rider." }, { status: 400 });
+      if (!role) return NextResponse.json({ error: "Choose cashier, barista, kitchen staff or rider." }, { status: 400 });
       const result = await pool.query(`
         UPDATE admin_users
         SET role = $2::text,
-          can_void_orders = CASE WHEN $2::text IN ('barista', 'rider') THEN FALSE ELSE can_void_orders END,
-          can_refund_orders = CASE WHEN $2::text IN ('barista', 'rider') THEN FALSE ELSE can_refund_orders END,
-          can_open_shift = CASE WHEN $2::text IN ('barista', 'rider') THEN FALSE ELSE can_open_shift END,
-          can_close_shift = CASE WHEN $2::text IN ('barista', 'rider') THEN FALSE ELSE can_close_shift END,
+          can_void_orders = CASE WHEN $2::text IN ('barista', 'kitchen', 'rider') THEN FALSE ELSE can_void_orders END,
+          can_refund_orders = CASE WHEN $2::text IN ('barista', 'kitchen', 'rider') THEN FALSE ELSE can_refund_orders END,
+          can_open_shift = CASE WHEN $2::text IN ('barista', 'kitchen', 'rider') THEN FALSE ELSE can_open_shift END,
+          can_close_shift = CASE WHEN $2::text IN ('barista', 'kitchen', 'rider') THEN FALSE ELSE can_close_shift END,
           updated_at = CURRENT_TIMESTAMP
         WHERE admin_id = $1
         RETURNING role, can_void_orders, can_refund_orders, can_open_shift, can_close_shift

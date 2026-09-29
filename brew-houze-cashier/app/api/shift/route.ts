@@ -176,6 +176,8 @@ export async function POST(request: Request) {
       await client.query("UPDATE employee_time_logs SET time_out = CURRENT_TIMESTAMP WHERE time_out IS NULL");
       await client.query("UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, end_reason = 'shift_closed' WHERE app = 'cashier' AND ended_at IS NULL");
       // Queue numbers restart with the next shift, so clear leftovers from the queue screens.
+      // Their bar and kitchen parts are closed too (see kitchen-stations-migration.sql).
+      await client.query("UPDATE order_stations os SET status = 'picked_up', picked_up_at = COALESCE(os.picked_up_at, CURRENT_TIMESTAMP) FROM sales_orders so WHERE so.order_id = os.order_id AND so.queue_status IN ('waiting', 'served') AND os.status <> 'picked_up'");
       await client.query("UPDATE sales_orders SET queue_status = 'flushed' WHERE queue_status IN ('waiting', 'served')");
       await client.query("COMMIT");
       return NextResponse.json({ data: await loadSummary(pool, "ss.shift_id = $1", [shiftId]) });

@@ -13,6 +13,9 @@ async function getAdminId(): Promise<number | null> {
 // (Coke Can x 1 piece). Both store their consumption in variant_ingredients, so checkout
 // deduction, availability, and void/refund restoration are shared by both types.
 type ProductType = "recipe" | "stock";
+// Where it is made: the bar (drinks) or the kitchen (food). Each has its own queue in the staff app.
+type Station = "bar" | "kitchen";
+const parseStation = (value: unknown): Station => (value === "kitchen" ? "kitchen" : "bar");
 
 type ProductRow = {
   product_id: number;
@@ -20,6 +23,7 @@ type ProductRow = {
   product_description: string | null;
   product_category: string | null;
   product_type: ProductType;
+  station: Station | null;
   image_url: string | null;
   has_image_data: boolean;
   image_version: string;
@@ -43,6 +47,7 @@ type Product = {
   description: string;
   category: string;
   productType: ProductType;
+  station: Station;
   imageUrl: string;
   imageData: string;
   price: number;
@@ -75,6 +80,7 @@ type RequestBody = {
   product_description?: unknown;
   product_category?: unknown;
   product_type?: unknown;
+  station?: unknown;
   image_url?: unknown;
   image_data?: unknown;
   image_mime_type?: unknown;
@@ -98,6 +104,7 @@ const productSelect = `
     p.product_description,
     p.product_category,
     p.product_type,
+    p.station,
     p.price,
     p.image_url,
     -- Uploaded photos are served by /api/products/[id]/image, not in this list: the list has a
@@ -151,6 +158,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
         description: row.product_description ?? "",
         category: row.product_category ?? "",
         productType: row.product_type === "stock" ? "stock" : "recipe",
+        station: parseStation(row.station),
         imageUrl: row.image_url ?? "",
         imageData: row.has_image_data ? imageLink(Number(row.product_id), row.image_version) : "",
         price: Number(row.price),
@@ -308,10 +316,10 @@ export async function POST(request: Request) {
     await client.query("BEGIN");
 
     const productResult = await client.query(`
-      INSERT INTO products (product_name, product_description, product_category, product_type, price, image_url, image_data, image_mime_type)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO products (product_name, product_description, product_category, product_type, price, image_url, image_data, image_mime_type, station)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING product_id
-    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null]);
+    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, parseStation(body?.station)]);
     if (importedImage.kind === "keep") {
       await client.query(`
         UPDATE products SET image_data = source.image_data, image_mime_type = source.image_mime_type
@@ -378,10 +386,11 @@ export async function PATCH(request: Request) {
       UPDATE products
       SET product_name = $1, product_description = $2, product_category = $3, product_type = $4, price = $5, image_url = $6,
         image_data = CASE WHEN $10 THEN image_data ELSE $7 END,
-        image_mime_type = CASE WHEN $10 THEN image_mime_type ELSE $8 END
+        image_mime_type = CASE WHEN $10 THEN image_mime_type ELSE $8 END,
+        station = $11
       WHERE product_id = $9
       RETURNING product_id
-    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, productId, keepImage]);
+    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, productId, keepImage, parseStation(body?.station)]);
 
     if (productResult.rowCount === 0) {
       await client.query("ROLLBACK");

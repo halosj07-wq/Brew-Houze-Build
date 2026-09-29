@@ -197,6 +197,8 @@ export async function POST(request: Request) {
       }
     }
 
+    // A reversed order leaves the queue: its bar and kitchen parts are closed with it.
+    await client.query("UPDATE order_stations SET status = 'picked_up', picked_up_at = COALESCE(picked_up_at, CURRENT_TIMESTAMP) WHERE order_id = $1 AND status <> 'picked_up'", [orderId]);
     const updated = await client.query(`
       UPDATE sales_orders
       SET status = CASE WHEN $2 = 'void' THEN 'voided' ELSE 'refunded' END,

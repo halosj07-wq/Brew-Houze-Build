@@ -537,7 +537,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
     else setError(result.error);
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
   const title: Record<View, [string, string]> = {
     signin: ["YOUR ACCOUNT", "Welcome back"],
     register: ["JOIN BREW HOUZE", "Make an account"],

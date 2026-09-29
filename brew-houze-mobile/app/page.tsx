@@ -31,7 +31,10 @@ type OrderStatus = "waiting" | "served" | "flushed";
 // doneAt: when a delivery was first seen delivered. The café never clears a delivery from the queue
 // (the customer follows it here), so the phone retires it itself: when the customer closes the
 // order status after seeing it delivered, or DELIVERED_KEEP_MS later.
-type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus; delivery?: boolean; deliveryStatus?: string | null; doneAt?: number };
+// parts: the drinks (bar) and food (kitchen) of the order; separate: each is called on its own.
+type OrderPart = { station: "bar" | "kitchen"; status: "waiting" | "ready" | "picked_up" };
+type TrackedOrder = { trackingToken: string; queueNumber: number | null; status: OrderStatus; delivery?: boolean; deliveryStatus?: string | null; doneAt?: number; parts?: OrderPart[] | null; separate?: boolean };
+const PART_NAME = { bar: { icon: "☕", name: "Drinks", lower: "drinks", verb: "are" }, kitchen: { icon: "🍳", name: "Food", lower: "food", verb: "is" } } as const;
 const DELIVERED_KEEP_MS = 10 * 60 * 1000;
 // Delivery as the mobile menu sees it (see /api/delivery).
 type DeliveryInfo = { enabled: boolean; openNow: boolean; hours: { start: string; end: string } | null; freeAbove: number | null; cod: { enabled: boolean; maxAmount: number; minOrders: number }; zones: { id: number; name: string; description: string | null; fee: number; minOrder: number | null }[] };
@@ -888,12 +891,12 @@ export default function MenuPage() {
       try {
         const results = await Promise.all(activeOrders.map(async (order) => {
           const response = await fetch(`/api/orders/${order.trackingToken}`, { cache: "no-store" });
-          const payload = await response.json() as { data?: { queue_status: OrderStatus; service_type?: string | null; delivery_status?: string | null }; error?: string };
+          const payload = await response.json() as { data?: { queue_status: OrderStatus; service_type?: string | null; delivery_status?: string | null; parts?: OrderPart[] | null; pickup_mode?: string | null }; error?: string };
           if (response.status === 404) {
             return { trackingToken: order.trackingToken, missing: true as const };
           }
           if (!response.ok) throw new Error(payload.error || "Unable to check order status.");
-          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status, deliveryStatus: payload.data?.delivery_status ?? null, delivery: payload.data?.service_type === "delivery", missing: false as const };
+          return { trackingToken: order.trackingToken, status: payload.data?.queue_status ?? order.status, deliveryStatus: payload.data?.delivery_status ?? null, delivery: payload.data?.service_type === "delivery", parts: payload.data?.parts ?? null, separate: payload.data?.pickup_mode === "separate", missing: false as const };
         }));
         if (active) {
           setTrackedOrders((current) => {
@@ -905,9 +908,11 @@ export default function MenuPage() {
                 const update = results.find((result) => result.trackingToken === order.trackingToken);
                 if (!update || update.missing) return null;
                 if (update.delivery ? update.deliveryStatus === "out" && order.deliveryStatus !== "out" : update.status === "served" && order.status !== "served") newlyReady = true;
+                // Called separately: a part (the drinks, say) ready before the rest.
+                if (!update.delivery && update.separate && (update.parts ?? []).some((part) => part.status === "ready" && !(order.parts ?? []).some((before) => before.station === part.station && before.status !== "waiting"))) newlyReady = true;
                 const delivered = update.delivery && update.deliveryStatus === "delivered";
                 if (delivered && !order.doneAt) newlyDelivered = true;
-                return { ...order, status: update.status, delivery: update.delivery, deliveryStatus: update.deliveryStatus, doneAt: order.doneAt ?? (delivered ? now : undefined) };
+                return { ...order, status: update.status, delivery: update.delivery, deliveryStatus: update.deliveryStatus, parts: update.parts, separate: update.separate, doneAt: order.doneAt ?? (delivered ? now : undefined) };
               })
               .filter((order): order is TrackedOrder => order !== null && order.status !== "flushed" && !(order.doneAt && now - order.doneAt > DELIVERED_KEEP_MS));
             if (newlyReady) playReadyPing();
@@ -992,12 +997,15 @@ export default function MenuPage() {
     })}
   </div>;
 
+  // Called separately: some parts ready (the drinks, say) while the rest is still being made.
+  const partlyReady = (order: TrackedOrder) => Boolean(order.separate && order.status !== "served" && order.parts && order.parts.length > 1 && order.parts.some((part) => part.status === "ready"));
+  const readyPartNames = (order: TrackedOrder) => (order.parts ?? []).filter((part) => part.status === "ready").map((part) => PART_NAME[part.station].name).join(" and ");
   // The order in progress, shown as a pill above the cart bar (and in the header).
   const latestOrder = activeOrders[activeOrders.length - 1] ?? null;
   const orderPillText = !latestOrder ? "" : latestOrder.delivery
     ? ({ preparing: "Preparing", ready: "Packed", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" } as Record<string, string>)[latestOrder.deliveryStatus ?? "preparing"] ?? "Preparing"
-    : latestOrder.status === "served" ? "Ready for pickup" : "Preparing";
-  const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served") : false;
+    : latestOrder.status === "served" ? "Ready for pickup" : partlyReady(latestOrder) ? `${readyPartNames(latestOrder)} ready` : "Preparing";
+  const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served" || partlyReady(latestOrder)) : false;
   const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck);
   useEffect(() => {
     document.body.style.overflow = sheetOpen ? "hidden" : "";
@@ -1029,10 +1037,15 @@ export default function MenuPage() {
       </article>;
     }
     const ready = order.status === "served";
-    return <article className={`bh-track${ready ? " is-ready" : ""}`} key={order.trackingToken}>
-      <div className="bh-track-top"><div><p className="bh-track-badge"><i aria-hidden="true" />{ready ? "Ready for pickup" : "Preparing"}</p><h3>{ready ? "Your order is ready!" : "We're making your order"}</h3></div><div className="bh-track-number"><span>Queue</span><strong>{queue}</strong></div></div>
+    const partly = partlyReady(order);
+    const parts = order.parts && order.parts.length > 1 ? order.parts : null;
+    const waitingFor = parts ? parts.filter((part) => part.status === "waiting").map((part) => PART_NAME[part.station].lower).join(" and ") : "";
+    const readyNames = readyPartNames(order);
+    return <article className={`bh-track${ready || partly ? " is-ready" : ""}`} key={order.trackingToken}>
+      <div className="bh-track-top"><div><p className="bh-track-badge"><i aria-hidden="true" />{ready ? "Ready for pickup" : partly ? "Partly ready" : "Preparing"}</p><h3>{ready ? "Your order is ready!" : partly ? `Your ${readyNames.toLowerCase()} ${readyNames === "Drinks" ? "are" : "is"} ready!` : "We're making your order"}</h3></div><div className="bh-track-number"><span>Queue</span><strong>{queue}</strong></div></div>
       <ol className="bh-track-steps">{["Received", "Preparing", "Ready"].map((label, index) => <li key={label} className={index <= (ready ? 2 : 1) ? "is-done" : ""}>{label}</li>)}</ol>
-      <p>{ready ? "Pick it up at the counter. Show this number if they ask." : "We'll ping you when it's ready. You can keep browsing."}</p>
+      {parts && <div className="bh-track-parts">{parts.map((part) => <span key={part.station} className={`is-${part.status}`}>{PART_NAME[part.station].icon} {PART_NAME[part.station].name} · {part.status === "waiting" ? "being made" : part.status === "ready" ? "ready" : "picked up"}</span>)}</div>}
+      <p>{ready ? "Pick it up at the counter. Show this number if they ask." : partly ? `Pick up your ${readyNames.toLowerCase()} at the counter. We'll ping you when the ${waitingFor} ${waitingFor === "drinks" ? "are" : "is"} ready.` : "We'll ping you when it's ready. You can keep browsing."}</p>
     </article>;
   };
   const firstName = customer.account?.fullName.split(" ")[0] ?? "";

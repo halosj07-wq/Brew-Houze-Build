@@ -61,27 +61,59 @@
   // clip's own clock, so the cues stay in time even if the sound starts late; without sound they
   // follow the page clock instead.
 
-  // Whiplash: "one look give em' whiplash" as hard-cut black and white cards (after the teaser).
-  //   build  the words so far, left-aligned on white      black  a strobe frame
-  //   wide   WHIPLASH on a spotlit black card             photo  each member in negative, in order
-  //   tiny   the small tracked WHIP-WHIPLASH on white
+  // Whiplash: the album's chrome camera. The clip's three opening stabs (0.03 / 0.27 / 0.50 s)
+  // snap it closer out of the dark (its green button glowing); in the pause it pushes in and dives
+  // through the lens into the viewfinder (REC, timecode, focus brackets). The groove's four hits
+  // (1.10 / 1.34 / 1.70 / 1.94 s) are camera flashes, each whip-panning in a group photo; the next
+  // two (2.18 / 2.41 s) drop the members in as four strips, two at a time, and they go grey in the
+  // lull. The logo whips in in chrome on 3.01 s, and the crash (3.24 s) flips to white with the
+  // black logo, strobing on the last two hits.
   const whiplashIntro = {
-    end: 1880,
+    end: 3720,
     cues: [
-      [0, "build", "ONE"], [360, "black"], [420, "build", "ONE LOOK"], [580, "black"], [630, "build", "ONE LOOK GIVE’EM"],
-      [1010, "black"], [1100, "spot wide", "WHIPLASH"],
-      [1340, "photo", 0], [1390, "photo", 1], [1440, "photo", 2], [1490, "photo", 3], [1540, "tiny", "WHIP-WHIPLASH"],
+      [0, "dark"], [30, "lens", 1], [270, "lens", 2], [500, "lens", 3], [880, "dive"],
+      [1100, "shot", 0], [1340, "shot", 1], [1700, "shot", 2], [1940, "shot", 3],
+      [2180, "strips", 2], [2410, "strips", 4], [2620, "fade", 4],
+      [3010, "logo"], [3240, "final"], [3480, "final-invert"], [3600, "final"],
     ],
-    mount(box, photos) {
-      const word = document.createElement("span");
-      box.append(...photos, word);
+    hits: new Set(["lens", "shot", "strips", "logo", "final", "final-invert"]),
+    mount(box, photos, flashes) {
+      box.innerHTML = `
+        <div class="wl-device"><img src="whiplash/device.webp" alt="" draggable="false" /><i class="wl-led"></i></div>
+        <div class="wl-shots"></div>
+        <div class="wl-strips">${memberOrder.map((key, index) => `<figure><figcaption><b>0${index + 1}</b>${escapeHtml(MEMBERS[key].name)}</figcaption></figure>`).join("")}</div>
+        <div class="wl-hud"><i class="wl-corner"></i><i class="wl-corner"></i><i class="wl-corner"></i><i class="wl-corner"></i><i class="wl-focus"></i>
+          <span class="wl-rec">REC</span><span class="wl-tc">00:00:00:00</span><span class="wl-meta">ISO 0320 · 1/8000 · ƒ1.4</span><span class="wl-count"></span></div>
+        <i class="wl-streaks"></i>
+        <div class="wl-logo"></div>
+        <div class="wl-final"><i></i><b></b><small>Brew Houze × aespa</small></div>
+        <i class="wl-pop"></i>`;
+      box.querySelector(".wl-shots").append(...flashes);
+      box.querySelectorAll(".wl-strips figure").forEach((figure, index) => figure.prepend(photos[index]));
+      const count = box.querySelector(".wl-count");
+      // The viewfinder's timecode runs at 24 frames a second while the intro is on.
+      const tc = box.querySelector(".wl-tc");
+      const began = performance.now();
+      const tick = () => {
+        const ms = performance.now() - began;
+        if (ms > 6000) return;
+        const frames = Math.floor(ms / 1000 * 24);
+        tc.textContent = `00:00:${String(Math.floor(frames / 24)).padStart(2, "0")}:${String(frames % 24).padStart(2, "0")}`;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
       return (step) => {
-        const [, scene, value = ""] = this.cues[step];
-        const photo = scene === "photo" ? photos[value] : null;
-        const ready = !photo || (photo.complete && photo.naturalWidth > 0);
-        photos.forEach((img) => img.classList.toggle("is-current", img === photo));
-        box.className = `ae-intro ${(ready ? scene : "black").split(" ").map((name) => `is-${name}`).join(" ")}`;
-        word.textContent = photo ? "" : value;
+        const [, scene, value] = this.cues[step];
+        const shot = scene === "shot" ? flashes[value] : null;
+        const ready = !shot || (shot.complete && shot.naturalWidth > 0);
+        flashes.forEach((img) => img.classList.toggle("is-current", img === shot));
+        const classes = ["wl-intro", `is-${ready ? scene : "dive"}`];
+        if (scene === "lens") classes.push(`is-lens-${value}`);
+        if (scene === "strips" || scene === "fade") classes.push(`is-strips-${value}`);
+        if (shot) { classes.push(value % 2 ? "is-from-left" : "is-from-right"); count.textContent = `SHOT 0${value + 1}/04`; }
+        if (scene === "strips") count.textContent = "æ · 04";
+        box.className = classes.join(" ");
+        if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
       };
     },
   };
@@ -90,29 +122,33 @@
   // 0.73 / 0.80 / 0.87 s, and again 1.64 / 1.72 / 1.80 s). Blackletter DIRTY slams in on the first
   // hit and WORK on the triple (the middle hit flashes the card orange); the second phrase opens
   // the "aespa ‘Dirty Work’" labels and flashes the four members, each with her gold initial, and
-  // it lands on DIRTY WORK in gold.
+  // it lands on the gold DIRTY WORK logo. Between the phrases, the hits at 1.11 / 1.27 / 1.41 /
+  // 1.49 s strobe the four group photos in orange and black.
   const dirtyWorkIntro = {
     end: 2350,
     cues: [
-      [0, "dirty"], [730, "work"], [800, "invert"], [870, "work"], [1180, "hold"], [1400, "labels"],
+      [0, "dirty"], [730, "work"], [800, "invert"], [870, "work"],
+      [1110, "flash", 0], [1270, "flash", 1], [1410, "flash", 2], [1490, "flash", 3],
       [1560, "photo", 0], [1640, "photo", 1], [1720, "photo", 2], [1800, "photo", 3], [1880, "final"],
     ],
-    hits: new Set(["dirty", "work", "invert", "photo", "final"]),
-    mount(box, photos) {
+    hits: new Set(["dirty", "work", "invert", "flash", "photo", "final"]),
+    mount(box, photos, flashes) {
       box.innerHTML = `
         <div class="dw-grain"></div>
         <span class="dw-label is-left">aespa ‘Dirty Work’</span><span class="dw-label is-right">Dirty Worker Ver.</span>
         <div class="dw-stack"><b class="dw-word is-dirty">Dirty</b><b class="dw-word is-work">Work</b></div>
-        <div class="dw-photos"></div><i class="dw-initial"></i>
-        <div class="dw-final"><b>Dirty Work</b><small>Brew Houze × aespa</small></div>`;
+        <div class="dw-flashes"></div><div class="dw-photos"></div><i class="dw-initial"></i>
+        <div class="dw-final"><img src="dirty-work/logo-gold.webp" alt="" draggable="false" /><small>Brew Houze × aespa</small></div>`;
+      box.querySelector(".dw-flashes").append(...flashes);
       box.querySelector(".dw-photos").append(...photos);
       const initial = box.querySelector(".dw-initial");
       return (step) => {
         const [, scene, value] = this.cues[step];
-        const photo = scene === "photo" ? photos[value] : null;
+        const photo = scene === "photo" ? photos[value] : scene === "flash" ? flashes[value] : null;
         const ready = !photo || (photo.complete && photo.naturalWidth > 0);
         photos.forEach((img) => img.classList.toggle("is-current", img === photo));
-        initial.textContent = photo ? MEMBERS[memberOrder[value]].name[0] : "";
+        flashes.forEach((img) => img.classList.toggle("is-current", img === photo));
+        initial.textContent = scene === "photo" ? MEMBERS[memberOrder[value]].name[0] : "";
         box.className = `dw-intro is-${ready ? scene : "labels"}`;
         // Every hit shakes the frame; restart the animation each time.
         if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
@@ -125,20 +161,23 @@
   // (0.51 s); the four evenly spaced hits (0.68 / 0.84 / 1.00 / 1.17 s) flash each member with
   // her signature written across the photo; in the silence a scanner sweeps on the stab (1.52 s)
   // and the blip (1.75 s) round the orbit emblem; the drop (2.03 s) floods the screen ice cyan
-  // with the black logo.
+  // with the black logo. The group photos show like surveillance footage: the fisheye one behind the
+  // second caption, the hooded one in the silence, and the other two uncovered by the scanner's sweeps.
   const armageddonIntro = {
     end: 2640,
     cues: [
-      [0, "boot"], [30, "type", "Incoming danger."], [350, "type", "Armageddon or manipulation?"], [510, "logo"],
+      [0, "boot"], [30, "type", "Incoming danger."], [350, "type", "Armageddon or manipulation?", 1], [510, "logo"],
       [680, "photo", 0], [840, "photo", 1], [1000, "photo", 2], [1170, "photo", 3],
-      [1340, "void"], [1520, "scan"], [1750, "scan-up"], [2030, "final"],
+      [1340, "void", null, 3], [1520, "scan", null, 0], [1750, "scan-up", null, 2], [2030, "final"],
     ],
     hits: new Set(["type", "logo", "photo", "scan", "scan-up", "final"]),
-    mount(box, photos) {
+    mount(box, photos, flashes) {
+      const chrome = `<img src="armageddon/logo-chrome.webp" alt="" draggable="false" />`;
       box.innerHTML = `
         <div class="am-lines"></div>
+        <div class="am-feed"></div>
         <p class="am-type"><span></span></p>
-        <div class="am-logo"><i></i><i></i><i></i></div>
+        <div class="am-logo"><i>${chrome}</i><i>${chrome}</i><i>${chrome}</i></div>
         <div class="am-photos"></div>
         <div class="am-sign"></div>
         <span class="am-who"></span>
@@ -147,14 +186,17 @@
         <span class="am-tag is-left">aespa · The 1st Album</span><span class="am-tag is-right">Armageddon</span>
         <div class="am-final"><img src="armageddon/logo-black.webp" alt="" draggable="false" /><small>Brew Houze × aespa</small></div>`;
       box.querySelector(".am-photos").append(...photos);
+      box.querySelector(".am-feed").append(...flashes);
       const type = box.querySelector(".am-type span");
       const sign = box.querySelector(".am-sign");
       const who = box.querySelector(".am-who");
       return (step) => {
-        const [, scene, value] = this.cues[step];
+        const [, scene, value, feed] = this.cues[step];
         const photo = scene === "photo" ? photos[value] : null;
         const ready = !photo || (photo.complete && photo.naturalWidth > 0);
         photos.forEach((img) => img.classList.toggle("is-current", img === photo));
+        const footage = feed === undefined ? null : flashes[feed];
+        flashes.forEach((img) => img.classList.toggle("is-current", img === footage && img.complete && img.naturalWidth > 0));
         if (scene === "type") type.textContent = value;
         if (photo) {
           const key = memberOrder[value];
@@ -173,25 +215,29 @@
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
       title: "Brew Houze × aespa · Whiplash", toast: "Brew Houze × aespa · WHIPLASH",
       sub: "Whiplash · System portal", h1: "Every Brew Houze app. Whiplash fast.", footer: "Brew Houze × aespa · Whiplash · café management system",
-      introClip: "whiplash/whiplash-intro.mp3", loops: ["whiplash/whiplash-loop.mp3"], intro: whiplashIntro, introClass: "ae-intro",
+      introClip: "whiplash/intro.mp3", loops: ["whiplash/loop.mp3"], intro: whiplashIntro, introClass: "wl-intro", back: "spec",
+      extras: ["device.webp", "logo-white.webp"],
     },
     dirtywork: {
       era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "facts",
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
-      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], seamless: true, intro: dirtyWorkIntro, introClass: "dw-intro",
+      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], intro: dirtyWorkIntro, introClass: "dw-intro",
+      extras: ["logo-gold.webp", "logo-white.webp"],
     },
-    // The loop repeats as a true loop: played sample-exact with Web Audio (seamless), no gap, no fade.
     armageddon: {
       era: "Armageddon", folder: "armageddon/", tag: "ARMAGEDDON", back: "signature",
       title: "Brew Houze × aespa · Armageddon", toast: "Brew Houze × aespa · ARMAGEDDON",
       sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
-      introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], seamless: true, intro: armageddonIntro, introClass: "am-intro",
-      // Loaded ahead with the photos: the intro and the card backs use them.
-      extras: ["logo-black.webp", "logo-white.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
+      introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], intro: armageddonIntro, introClass: "am-intro",
+      extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
     },
   };
+  // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
+  // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
+  // before the click. Each loop repeats as a true loop: sample-exact with Web Audio, no gap, no fade.
   const photoOf = (theme, key) => `${THEMES[theme].folder}${key}.webp`;
+  const flashesOf = (theme) => [1, 2, 3, 4].map((n) => `${THEMES[theme].folder}flash-${n}.webp`);
 
   // ── Page parts the themes change (the café versions are kept to switch back) ──
   const footerYear = document.getElementById("footer-year");
@@ -255,53 +301,13 @@
   }
 
   // ── Sound ──
-  // Two kinds of music player, with the same controls:
-  //   mediaLoop     one file on a looping <audio> (Whiplash: a 2:53 track, too long to decode into
-  //                 memory; the tiny gap at its repeat is where the song starts over anyway)
-  //   stitchedLoop  one or more files played back to back with Web Audio, sample-exact, then from
-  //                 the top again (Dirty Work: its 78 s loop). The silence the MP3 encoder adds at
-  //                 both ends of each file is trimmed, so the repeat is seamless.
+  // The music player (the same for every theme): its files played back to back with Web Audio,
+  // sample-exact, then from the top again. The silence the MP3 encoder adds at both ends of each file
+  // is trimmed, so the repeat is seamless.
   // prime() runs inside the click (phones only start audio in a tap); start() plays from the top
   // at full volume, straight after the intro (no fade), and resolves false if the browser still wants a tap. mute()/unmute() keep the
   // place; stop() ends it; hide()/show() pause it while the tab is hidden.
   const VOLUME = 0.6;
-  function mediaLoop(src) {
-    let audio = null;
-    let fade = null;
-    let hiddenPause = false;
-    const el = () => { if (!audio) { audio = new Audio(src); audio.loop = true; audio.preload = "auto"; } return audio; };
-    const fadeTo = (target, ms, then) => {
-      clearInterval(fade);
-      const a = el();
-      const from = a.volume;
-      const start = performance.now();
-      fade = setInterval(() => {
-        const k = Math.min(1, (performance.now() - start) / ms);
-        a.volume = from + (target - from) * k;
-        if (k === 1) { clearInterval(fade); if (then) then(); }
-      }, 40);
-    };
-    // ms 0: straight in at full volume.
-    const play = async (fromTop, ms) => {
-      const a = el();
-      clearInterval(fade);
-      a.volume = ms ? 0 : VOLUME;
-      a.muted = false;
-      if (fromTop) a.currentTime = 0;
-      try { await a.play(); if (ms) fadeTo(VOLUME, ms); return true; } catch { return false; }
-    };
-    const fadeOut = () => { if (audio && !audio.paused) fadeTo(0, 450, () => audio.pause()); };
-    return {
-      prime() { const a = el(); a.muted = true; a.play().catch(() => undefined); },
-      start: () => play(true, 0),
-      unmute: () => play(false, 900),
-      mute: fadeOut,
-      stop: fadeOut,
-      hide() { if (audio && !audio.paused) { hiddenPause = true; clearInterval(fade); audio.pause(); } },
-      show() { if (!hiddenPause) return Promise.resolve(true); hiddenPause = false; return audio.play().then(() => true, () => false); },
-    };
-  }
-
   function stitchedLoop(srcs) {
     let ctx = null;
     let gain = null;
@@ -414,7 +420,7 @@
   }
 
   const players = {};
-  const playerFor = (theme) => (players[theme] ??= THEMES[theme].seamless ? stitchedLoop(THEMES[theme].loops) : mediaLoop(THEMES[theme].loops[0]));
+  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops));
   const clips = {};
   const clipFor = (theme) => { if (!clips[theme]) { clips[theme] = new Audio(THEMES[theme].introClip); clips[theme].preload = "auto"; } return clips[theme]; };
   // The next theme's intro sound, photos and extra images, loaded before the click so the intro
@@ -424,7 +430,7 @@
     clipFor(theme);
     if (warmed[theme]) return;
     const t = THEMES[theme];
-    warmed[theme] = [...memberOrder.map((key) => photoOf(theme, key)), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
+    warmed[theme] = [...memberOrder.map((key) => photoOf(theme, key)), ...flashesOf(theme), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
   }
 
   const soundButton = document.getElementById("ae-sound");
@@ -461,9 +467,10 @@
       const box = document.createElement("div");
       box.className = t.introClass;
       box.setAttribute("aria-hidden", "true");
-      // The members' photos, loaded now (one not ready in time is skipped).
-      const photos = memberOrder.map((key) => { const img = new Image(); img.alt = ""; img.draggable = false; img.src = photoOf(theme, key); return img; });
-      const show = spec.mount(box, photos);
+      // The members' and the group photos, loaded now (one not ready in time is skipped).
+      const image = (src) => { const img = new Image(); img.alt = ""; img.draggable = false; img.src = src; return img; };
+      const photos = memberOrder.map((key) => image(photoOf(theme, key)));
+      const show = spec.mount(box, photos, flashesOf(theme).map(image));
       document.body.appendChild(box);
       show(0);
       let shown = 0;
@@ -554,7 +561,17 @@
     document.getElementById("ae-pc-count").textContent = `0${pcIndex + 1} / 04`;
     const back = document.getElementById("ae-pc-back");
     back.classList.toggle("is-signature", t.back === "signature");
-    back.innerHTML = t.back === "signature" ? `
+    back.classList.toggle("is-spec", t.back === "spec");
+    back.innerHTML = t.back === "spec" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
+      <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
+      <div class="wl-back-device" aria-hidden="true"></div>
+      <h3>${escapeHtml(member.name)}</h3>
+      <p class="ae-pc-kr">${escapeHtml(member.hangul)}</p>
+      <p class="wl-back-status"><i></i>æ-${escapeHtml(member.name)} · online</p>
+      <dl class="wl-spec"><dt>Name</dt><dd>${escapeHtml(member.real)}</dd><dt>Born</dt><dd>${escapeHtml(member.born)}</dd><dt>From</dt><dd>${escapeHtml(member.from)}</dd><dt>Position</dt><dd>${escapeHtml(member.role)}</dd></dl>
+      <p class="ae-pc-about">${escapeHtml(member.about)}</p>
+      <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>` : t.back === "signature" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <div class="am-back-photo" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
@@ -570,6 +587,7 @@
       <dl class="ae-pc-facts"><dt>Name</dt><dd>${escapeHtml(member.real)}</dd><dt>Born</dt><dd>${escapeHtml(member.born)}</dd><dt>From</dt><dd>${escapeHtml(member.from)}</dd><dt>Group</dt><dd>aespa · debuted Nov 17, 2020</dd></dl>
       <p class="ae-pc-about">${escapeHtml(member.about)}</p>`}
       <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>`;
+    back.style.setProperty("--device", t.back === "spec" ? `url("${siteUrl(`${t.folder}device.webp`)}")` : "none");
     // Replaying the entrance each time a member is shown.
     pcCard.style.animation = "none"; void pcCard.offsetWidth; pcCard.style.animation = "";
   }

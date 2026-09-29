@@ -7,22 +7,30 @@ import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
 type Page = "pos" | "queue" | "reversals" | "deliveries" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean };
 
-// Baristas only see and manage the queue, riders only the deliveries (the server refuses them
-// everything else too). Cashiers and admins see every page.
+// Baristas and kitchen staff only see and manage their queue, riders only the deliveries (the
+// server refuses them everything else too). Cashiers and admins see every page.
 function limitedPages(role: string): Page[] | null {
   const value = role.toLowerCase();
-  return value === "barista" ? ["queue", "accounts"] : value === "rider" ? ["deliveries", "accounts"] : null;
+  return value === "barista" || value === "kitchen" ? ["queue", "accounts"] : value === "rider" ? ["deliveries", "accounts"] : null;
 }
 function isQueueOnlyRole(role: string): boolean {
   return limitedPages(role) !== null;
 }
 function roleLabel(role: string): string {
   const value = role.toLowerCase();
-  return value === "admin" ? "Admin" : value === "barista" ? "Barista" : value === "rider" ? "Rider" : "Cashier";
+  return value === "admin" ? "Admin" : value === "barista" ? "Barista" : value === "kitchen" ? "Kitchen" : value === "rider" ? "Rider" : "Cashier";
 }
 type IconProps = { size?: number };
-type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; additions: { name: string; quantity: number }[] };
-type QueueOrder = { order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | "delivery" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null; discount_label?: string | null; discount_total?: string | number | null; cod_unpaid?: boolean };
+type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; station?: Station; additions: { name: string; quantity: number }[] };
+// Where things are made. An order has one part per station it needs (see lib/stations.ts).
+type Station = "bar" | "kitchen";
+type StationPart = { station: Station; status: "waiting" | "ready" | "picked_up" };
+type QueueView = { station: Station | null; canHandOff: boolean; pickupMode: "together" | "separate" };
+const STATION_LABEL: Record<Station, { name: string; icon: string; made: string; things: string }> = {
+  bar: { name: "Bar", icon: "☕", made: "Drinks", things: "drinks" },
+  kitchen: { name: "Kitchen", icon: "🍳", made: "Food", things: "food" },
+};
+type QueueOrder = { parts?: StationPart[]; handoff_station?: Station | null; order_id: number; queue_number: number; items: string; created_at: string; order_source: string; order_details: QueueOrderDetail[]; customer_name?: string | null; customer_notes?: string | null; id_check?: string | null; service_type?: "dine_in" | "take_out" | "delivery" | null; status?: string; queue_status?: string; total_amount?: number; payment_method?: string | null; payment_provider?: string | null; cash_portion?: string | number | null; return_method?: "cash" | "gcash" | "split" | null; return_gcash_name?: string | null; return_gcash_number?: string | null; return_reference?: string | null; reversed_by?: string | null; reversal_type?: string | null; reversed_at?: string | null; discount_label?: string | null; discount_total?: string | number | null; cod_unpaid?: boolean };
 
 
 function IconGrid({ size = 20 }: IconProps) {
@@ -653,6 +661,13 @@ function saveReceiptSettings(settings: ReceiptSettings) {
   try { window.localStorage.setItem(RECEIPT_STORAGE_KEY, JSON.stringify(settings)); } catch { /* storage unavailable: applies until the page reloads */ }
 }
 
+// A receipt with drinks and food lists them under BAR and KITCHEN (heading on the first item of each).
+function receiptItemsByStation(receipt: ReceiptData) {
+  const stations = new Set(receipt.items.map((item) => item.station ?? "bar"));
+  if (stations.size < 2) return receipt.items.map((item) => ({ ...item, heading: "" }));
+  return (["bar", "kitchen"] as Station[]).flatMap((station) => receipt.items.filter((item) => (item.station ?? "bar") === station).map((item, index) => ({ ...item, heading: index === 0 ? STATION_LABEL[station].name.toUpperCase() : "" })));
+}
+
 type ReceiptData = {
   orderId: number; queueNumber: number | null; shiftId: number | null; status: string; total: number;
   paymentMethod: string; paymentProvider: string | null; paymentReference: string | null; cashPortion: number | null;
@@ -665,7 +680,7 @@ type ReceiptData = {
   // Delivery orders: the fee, and where it went.
   deliveryFee?: number; delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null; checkId?: boolean; notes?: string | null; codCollected?: number | null; deliveredAt?: string | null } | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
-  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
+  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; station?: Station; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
 
 type ReceiptIdDiscount = { code: string; name: string; holderName: string; idNumber: string | null; groupSize: number | null; coveredAmount: number; vatExempt: number; discount: number };
@@ -761,7 +776,8 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
     if (receipt.delivery.checkId) text("RIDER: CHECK THE DISCOUNT ID AT THE DOOR", base * 0.9, true);
   }
   rule();
-  for (const item of receipt.items) {
+  for (const [index, item] of receiptItemsByStation(receipt).entries()) {
+    if (item.heading) { if (index > 0) y += 0.8; text(item.heading, base * 0.9, true); }
     row(`${item.quantity} x ${item.name}`, money(item.quantity * item.unitPrice));
     const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${money(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" - ");
     if (details) row(details, "", { size: base * 0.9, indent: 3 });
@@ -872,9 +888,10 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       {receipt.delivery.checkId && <div className="receipt-stamp is-small">Rider: check the discount ID at the door</div>}
     </div>}
     <div className="receipt-rule" />
-    {receipt.items.map((item, index) => {
+    {receiptItemsByStation(receipt).map((item, index) => {
       const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${receiptMoney(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" · ");
       return <div key={index} className="receipt-item">
+        {item.heading && <div className="receipt-station">{item.heading}</div>}
         {row(`${item.quantity} × ${item.name}`, receiptMoney(item.quantity * item.unitPrice))}
         {details && <div className="receipt-detail">{details}</div>}
         {item.additions.map((addition) => row(<span className="receipt-detail">+ {addition.name}{addition.quantity !== 1 ? ` ×${addition.quantity}` : ""}</span>, receiptMoney(addition.quantity * addition.unitPrice)))}
@@ -3038,61 +3055,56 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
 function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
   const [queue, setQueue] = useState<QueueOrder[]>([]);
   const [readyQueue, setReadyQueue] = useState<QueueOrder[]>([]);
+  // Whose queue this is: a station (barista: bar, kitchen staff: kitchen) or everything (the counter).
+  const [view, setView] = useState<QueueView>({ station: null, canHandOff: true, pickupMode: "together" });
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    if (loaded) onCounts?.({ waiting: queue.length, ready: readyQueue.length });
-  }, [loaded, queue.length, readyQueue.length, onCounts]);
+    if (loaded) onCounts?.({ waiting: queue.length, ready: view.canHandOff ? readyQueue.length : 0 });
+  }, [loaded, queue.length, readyQueue.length, view.canHandOff, onCounts]);
   const [queueError, setQueueError] = useState("");
-  const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
-  // Lines the barista has ticked off while making an order ("orderId:lineIndex"). Screen-only.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  // Lines ticked off while making an order ("orderId:lineIndex"). Screen-only.
   const [doneLines, setDoneLines] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
 
   async function loadQueue() {
     const response = await fetch("/api/queue", { cache: "no-store" });
-    const payload = await response.json() as { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[]; recent?: QueueOrder[] }; error?: string };
+    const payload = await response.json() as { view?: QueueView; data?: { waiting?: QueueOrder[]; ready?: QueueOrder[]; recent?: QueueOrder[] }; error?: string };
     if (!response.ok) throw new Error(payload.error || "Unable to load queue.");
+    if (payload.view) setView(payload.view);
     setQueue(uniqueQueueOrders(payload.data?.waiting ?? []));
-    setReadyQueue(uniqueQueueOrders(payload.data?.ready ?? []));
+    // Parts picked up separately share an order id, so the ready list keeps them all.
+    setReadyQueue(payload.data?.ready ?? []);
     setLoaded(true);
   }
 
-  async function serveOrder(orderId: number) {
-    const response = await fetch("/api/queue", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order_id: orderId }),
-    });
+  // A station's part is done (station null: every part still being made, from the counter).
+  async function markReady(order: QueueOrder, station: Station | null) {
+    const response = await fetch("/api/queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_id: order.order_id, action: "ready", station }) });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error || "Unable to serve order.");
-    setQueue((current) => current.filter((order) => order.order_id !== orderId));
-    const servedOrder = queue.find((order) => order.order_id === orderId);
-    // A packed delivery order goes to the Deliveries page, not the pickup list.
-    if (servedOrder && servedOrder.service_type !== "delivery") setReadyQueue((current) => [servedOrder, ...current.filter((order) => order.order_id !== orderId)]);
-    setDoneLines((current) => new Set(Array.from(current).filter((key) => !key.startsWith(`${orderId}:`))));
+    if (!response.ok) throw new Error(payload?.error || "Unable to mark it ready.");
+    setDoneLines((current) => new Set(Array.from(current).filter((key) => !key.startsWith(`${order.order_id}:`))));
+    await loadQueue();
   }
 
-  async function flushOrder(orderId: number) {
-    const response = await fetch("/api/queue", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ order_id: orderId, action: "flush" }),
-    });
+  // Handed over at the counter: the whole order, or one part when drinks and food are picked up separately.
+  async function handOver(order: QueueOrder) {
+    const response = await fetch("/api/queue", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order_id: order.order_id, action: "pickup", station: order.handoff_station ?? null }) });
     const payload = await response.json();
-    if (!response.ok) throw new Error(payload?.error || "Unable to flush ready order.");
-    setReadyQueue((current) => current.filter((order) => order.order_id !== orderId));
+    if (!response.ok) throw new Error(payload?.error || "Unable to clear it from the ready list.");
+    await loadQueue();
   }
 
-  async function runOrderAction(orderId: number, action: (id: number) => Promise<void>, fallbackMessage: string) {
-    if (busyOrderId !== null) return;
-    setBusyOrderId(orderId);
+  async function run(key: string, action: () => Promise<void>, fallbackMessage: string) {
+    if (busyKey !== null) return;
+    setBusyKey(key);
     try {
-      await action(orderId);
+      await action();
       setQueueError("");
     } catch (error) {
       setQueueError(error instanceof Error ? error.message : fallbackMessage);
     } finally {
-      setBusyOrderId(null);
+      setBusyKey(null);
     }
   }
 
@@ -3129,13 +3141,20 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
   }, []);
 
   const oldestWait = queue.length > 0 ? getWaitInfo(queue.reduce((oldest, order) => order.created_at < oldest ? order.created_at : oldest, queue[0].created_at), now) : null;
+  const mine = view.station;
+  const title = mine === "kitchen" ? "Kitchen Queue" : mine === "bar" ? "Bar Queue" : "Now Making";
+  const hint = mine === "kitchen" ? "Oldest orders first. Tick off the food as you make it, then send it to the counter."
+    : mine === "bar" ? "Oldest orders first. Tap a drink to tick it off, then mark it ready."
+      : "Oldest orders first. The bar and the kitchen each mark their part ready.";
+  const partsOf = (order: QueueOrder): StationPart[] => order.parts?.length ? order.parts : [{ station: "bar", status: "waiting" }];
+  const partChip = (part: StationPart) => <span key={part.station} className={`queue-part is-${part.status}`}>{STATION_LABEL[part.station].icon} {STATION_LABEL[part.station].name} {part.status === "waiting" ? "· making" : part.status === "ready" ? "· ready" : "· handed over"}</span>;
 
   return <main className="queue-board" style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
     <section style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", flexShrink: 0 }}>
         <div>
-          <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", margin: 0 }}>Now Making</h1>
-          <p style={{ color: "#9C8278", fontSize: 12.5, margin: "3px 0 0" }}>Oldest orders first. Tap a drink to tick it off, then mark the order ready.</p>
+          <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", margin: 0 }}>{mine && <span aria-hidden="true">{STATION_LABEL[mine].icon} </span>}{title}</h1>
+          <p style={{ color: "#9C8278", fontSize: 12.5, margin: "3px 0 0" }}>{hint}</p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
           <span style={{ padding: "8px 14px", borderRadius: 10, background: "#3D2B1F", color: "#FDF9F5", fontWeight: 800, fontSize: 13 }}>{queue.length} waiting</span>
@@ -3148,16 +3167,43 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
         {queue.length === 0 && !queueError && (
           <div style={{ height: "100%", minHeight: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, border: "2px dashed #E8DDD5", borderRadius: 16, color: "#9C8278" }}>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, color: "#6B4C3B" }}>All caught up</strong>
-            <span style={{ fontSize: 13 }}>New orders from the counter and the mobile menu appear here automatically.</span>
+            <span style={{ fontSize: 13 }}>{mine === "kitchen" ? "New food orders appear here automatically." : "New orders from the counter and the mobile menu appear here automatically."}</span>
           </div>
         )}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(270px, 1fr))", gap: 14, alignItems: "start" }}>
           {queue.map((order) => {
             const wait = getWaitInfo(order.created_at, now);
             const isOnline = order.order_source === "online";
-            const lineKeys = order.order_details.map((_, index) => `${order.order_id}:${index}`);
+            const parts = partsOf(order);
+            const multi = parts.length > 1;
+            // The lines this person makes (with their index in the order, for the tick-off keys).
+            const lines = order.order_details.map((detail, index) => ({ detail, index, station: detail.station ?? "bar" })).filter((line) => !mine || line.station === mine);
+            const others = mine ? order.order_details.filter((detail) => (detail.station ?? "bar") !== mine) : [];
+            const lineKeys = lines.map((line) => `${order.order_id}:${line.index}`);
             const doneCount = lineKeys.filter((key) => doneLines.has(key)).length;
-            const busy = busyOrderId === order.order_id;
+            // The parts this person can mark ready now.
+            const readyButtons = parts.filter((part) => part.status === "waiting" && (!mine || part.station === mine));
+            const renderLine = ({ detail, index }: { detail: QueueOrderDetail; index: number }) => {
+              const key = `${order.order_id}:${index}`;
+              const done = doneLines.has(key);
+              const size = detail.size_label && detail.size_label.toLowerCase() !== "regular" ? detail.size_label : "";
+              return <li key={key}>
+                <button type="button" onClick={() => toggleLine(key)} aria-pressed={done} style={{ width: "100%", display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 6px", border: "none", borderRadius: 10, background: done ? "#F0FDF4" : "transparent", textAlign: "left", cursor: "pointer", opacity: done ? 0.55 : 1 }}>
+                  <span style={{ flexShrink: 0, minWidth: 34, height: 34, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: done ? "#16A34A" : "#3D2B1F", color: "#FDF9F5", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16 }}>{done ? "✓" : `${detail.quantity}×`}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: "block", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16, color: "#3D2B1F", lineHeight: 1.2, textDecoration: done ? "line-through" : "none" }}>{detail.product_name}</span>
+                    {(size || detail.temperature === "hot" || detail.temperature === "cold") && <span style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                      {size && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11.5, fontWeight: 700 }}>{size}</span>}
+                      {detail.temperature === "hot" && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#FFEDD5", color: "#C2410C", fontSize: 11.5, fontWeight: 800 }}>HOT</span>}
+                      {detail.temperature === "cold" && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#DBEAFE", color: "#1D4ED8", fontSize: 11.5, fontWeight: 800 }}>ICED</span>}
+                    </span>}
+                    {detail.additions.length > 0 && <span style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
+                      {detail.additions.map((addition) => <span key={addition.name} style={{ alignSelf: "flex-start", padding: "2px 8px", borderRadius: 6, background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF", fontSize: 12, fontWeight: 700 }}>+ {formatQueueAddition(addition, Number(detail.quantity))}</span>)}
+                    </span>}
+                  </span>
+                </button>
+              </li>;
+            };
             return <article key={order.order_id} style={{ display: "flex", flexDirection: "column", background: "#FDF9F5", border: "1px solid #E8DDD5", borderTop: `6px solid ${wait.color}`, borderRadius: 16, boxShadow: "0 4px 16px rgba(61,43,31,0.08)", overflow: "hidden" }}>
               <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px 10px", borderBottom: "1px dashed #E8DDD5" }}>
                 <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 34, fontWeight: 800, lineHeight: 1, color: "#3D2B1F" }}>#{order.queue_number}</strong>
@@ -3167,37 +3213,32 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
                 </div>
               </header>
+              {multi && <div className="queue-parts">{parts.map(partChip)}</div>}
               {order.id_check && <div className="queue-id-check">🪪 {order.id_check} discount · {order.service_type === "delivery" ? "the rider checks the ID at the door" : "check the ID at pickup"}</div>}
               {order.customer_name && <div className="queue-customer">
                 <span className="queue-customer-name">For <strong>{order.customer_name}</strong></span>
                 {order.customer_notes && <span className="queue-customer-note">📝 {order.customer_notes}</span>}
               </div>}
-              <ul style={{ listStyle: "none", margin: 0, padding: "6px 8px" }}>
-                {order.order_details.map((detail, index) => {
-                  const key = lineKeys[index];
-                  const done = doneLines.has(key);
-                  const size = detail.size_label && detail.size_label.toLowerCase() !== "regular" ? detail.size_label : "";
-                  return <li key={key}>
-                    <button type="button" onClick={() => toggleLine(key)} aria-pressed={done} style={{ width: "100%", display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 6px", border: "none", borderRadius: 10, background: done ? "#F0FDF4" : "transparent", textAlign: "left", cursor: "pointer", opacity: done ? 0.55 : 1 }}>
-                      <span style={{ flexShrink: 0, minWidth: 34, height: 34, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: done ? "#16A34A" : "#3D2B1F", color: "#FDF9F5", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16 }}>{done ? "✓" : `${detail.quantity}×`}</span>
-                      <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ display: "block", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16, color: "#3D2B1F", lineHeight: 1.2, textDecoration: done ? "line-through" : "none" }}>{detail.product_name}</span>
-                        {(size || detail.temperature === "hot" || detail.temperature === "cold") && <span style={{ display: "flex", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                          {size && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11.5, fontWeight: 700 }}>{size}</span>}
-                          {detail.temperature === "hot" && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#FFEDD5", color: "#C2410C", fontSize: 11.5, fontWeight: 800 }}>HOT</span>}
-                          {detail.temperature === "cold" && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#DBEAFE", color: "#1D4ED8", fontSize: 11.5, fontWeight: 800 }}>ICED</span>}
-                        </span>}
-                        {detail.additions.length > 0 && <span style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
-                          {detail.additions.map((addition) => <span key={addition.name} style={{ alignSelf: "flex-start", padding: "2px 8px", borderRadius: 6, background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF", fontSize: 12, fontWeight: 700 }}>+ {formatQueueAddition(addition, Number(detail.quantity))}</span>)}
-                        </span>}
-                      </span>
-                    </button>
-                  </li>;
-                })}
-              </ul>
+              {mine || !multi
+                ? <ul style={{ listStyle: "none", margin: 0, padding: "6px 8px" }}>{lines.map(renderLine)}</ul>
+                : (["bar", "kitchen"] as Station[]).filter((station) => lines.some((line) => line.station === station)).map((station) => <div key={station} className={`queue-station-group is-${station}`}>
+                  <p className="queue-station-title">{STATION_LABEL[station].icon} {STATION_LABEL[station].name}{parts.find((part) => part.station === station)?.status === "ready" ? " · ready" : ""}</p>
+                  <ul style={{ listStyle: "none", margin: 0, padding: "0 8px 4px" }}>{lines.filter((line) => line.station === station).map(renderLine)}</ul>
+                </div>)}
+              {others.length > 0 && <p className="queue-others">Also in this order: {others.map((detail) => `${detail.quantity}× ${detail.product_name}`).join(", ")}</p>}
               <footer style={{ marginTop: "auto", padding: "8px 12px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-                {lineKeys.length > 1 && <span style={{ fontSize: 11, color: "#9C8278", fontFamily: "JetBrains Mono, monospace" }}>{doneCount}/{lineKeys.length} drinks done</span>}
-                <button type="button" disabled={busy} onClick={() => void runOrderAction(order.order_id, serveOrder, "Unable to serve order.")} style={{ width: "100%", height: 48, border: "none", borderRadius: 12, background: busy ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: busy ? "default" : "pointer", boxShadow: busy ? "none" : "0 6px 14px rgba(217,119,6,0.28)" }}>{busy ? "Updating…" : order.service_type === "delivery" ? "Packed for rider" : "Mark as ready"}</button>
+                {lineKeys.length > 1 && <span style={{ fontSize: 11, color: "#9C8278", fontFamily: "JetBrains Mono, monospace" }}>{doneCount}/{lineKeys.length} {mine === "bar" ? "drinks" : "items"} done</span>}
+                <div style={{ display: "flex", gap: 6 }}>
+                  {readyButtons.map((part) => {
+                    const key = `${order.order_id}:${part.station}`;
+                    const busy = busyKey === key;
+                    const waitingFor = parts.filter((other) => other.station !== part.station && other.status === "waiting").map((other) => STATION_LABEL[other.station].things);
+                    const label = busy ? "Updating…" : multi ? `${STATION_LABEL[part.station].made} ready` : order.service_type === "delivery" ? "Packed for rider" : "Mark as ready";
+                    return <button key={part.station} type="button" disabled={busyKey !== null} onClick={() => void run(key, () => markReady(order, part.station), "Unable to mark it ready.")}
+                      title={waitingFor.length ? `Still waiting for the ${waitingFor.join(" and ")}` : undefined}
+                      style={{ flex: 1, height: 48, border: "none", borderRadius: 12, background: busy ? "#C9B8AF" : part.station === "kitchen" && multi ? "#B45309" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, cursor: busyKey !== null ? "default" : "pointer", boxShadow: busy ? "none" : "0 6px 14px rgba(217,119,6,0.28)" }}>{label}</button>;
+                  })}
+                </div>
               </footer>
             </article>;
           })}
@@ -3208,19 +3249,25 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
     <aside className="queue-ready" style={{ width: 300, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", background: "#FFF7ED", border: "1px solid #FED7AA", borderRadius: 16, overflow: "hidden" }}>
       <div style={{ padding: "14px 16px 12px", borderBottom: "1px solid #FED7AA", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#7C2D12" }}>Ready for Pickup</h2>
+          <h2 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#7C2D12" }}>{view.canHandOff ? "Ready for Pickup" : "Sent to the Counter"}</h2>
           <span style={{ padding: "3px 10px", borderRadius: 999, background: "#EA580C", color: "#FFFFFF", fontSize: 12, fontWeight: 800 }}>{readyQueue.length}</span>
         </div>
-        <p style={{ margin: "4px 0 0", color: "#9A3412", fontSize: 11.5 }}>Shown on the customer screen until picked up.</p>
+        <p style={{ margin: "4px 0 0", color: "#9A3412", fontSize: 11.5 }}>{!view.canHandOff ? "Food you finished. The counter hands it over." : view.pickupMode === "separate" ? "Drinks and food are called on their own. Clear each once picked up." : "Called when the whole order is ready. Shown until picked up."}</p>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
-        {readyQueue.length === 0 && <p style={{ margin: "18px 0", textAlign: "center", color: "#9A3412", fontSize: 13 }}>No orders waiting for pickup.</p>}
+        {readyQueue.length === 0 && <p style={{ margin: "18px 0", textAlign: "center", color: "#9A3412", fontSize: 13 }}>{view.canHandOff ? "No orders waiting for pickup." : "Nothing waiting at the counter."}</p>}
         {readyQueue.map((order) => {
-          const busy = busyOrderId === order.order_id;
-          return <div key={order.order_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#FFFFFF", border: "1px solid #FED7AA", borderRadius: 12 }}>
+          const key = `${order.order_id}:${order.handoff_station ?? "all"}`;
+          const busy = busyKey === key;
+          const part = order.handoff_station && partsOf(order).length > 1 ? STATION_LABEL[order.handoff_station] : null;
+          const shown = part ? order.order_details.filter((detail) => (detail.station ?? "bar") === order.handoff_station).map((detail) => `${detail.quantity}× ${detail.product_name}`).join(", ") : order.items;
+          return <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#FFFFFF", border: "1px solid #FED7AA", borderRadius: 12 }}>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, color: "#C2410C", minWidth: 58, lineHeight: 1 }}>#{order.queue_number}</strong>
-            <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{(order.customer_name || order.service_type) && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{[order.service_type === "take_out" ? "Take out" : order.service_type === "dine_in" ? "Dine in" : "", order.customer_name ?? ""].filter(Boolean).join(" · ")}</strong>}{order.items}</span>
-            <button type="button" disabled={busy} onClick={() => void runOrderAction(order.order_id, flushOrder, "Unable to flush ready order.")} title="Remove from the ready list once the customer has collected it" style={{ flexShrink: 0, border: "1px solid #EA580C", background: busy ? "#FED7AA" : "#FFFFFF", color: "#C2410C", borderRadius: 9, padding: "9px 11px", fontSize: 12, fontWeight: 800, cursor: busy ? "default" : "pointer" }}>{busy ? "…" : "Picked up"}</button>
+            <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
+              {(part || order.customer_name || order.service_type) && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{[part ? `${part.icon} ${part.made}` : "", order.service_type === "take_out" ? "Take out" : order.service_type === "dine_in" ? "Dine in" : "", order.customer_name ?? ""].filter(Boolean).join(" · ")}</strong>}
+              {shown}
+            </span>
+            {view.canHandOff && <button type="button" disabled={busyKey !== null} onClick={() => void run(key, () => handOver(order), "Unable to clear it from the ready list.")} title="Remove from the ready list once the customer has collected it" style={{ flexShrink: 0, border: "1px solid #EA580C", background: busy ? "#FED7AA" : "#FFFFFF", color: "#C2410C", borderRadius: 9, padding: "9px 11px", fontSize: 12, fontWeight: 800, cursor: busyKey !== null ? "default" : "pointer" }}>{busy ? "…" : "Picked up"}</button>}
           </div>;
         })}
       </div>

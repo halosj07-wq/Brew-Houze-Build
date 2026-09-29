@@ -2948,7 +2948,10 @@ type ProductVariant = { id?: number; size: string; price: number; temperature: P
 // "recipe": made from several inventory components (Americano).
 // "stock": a direct-sale item that deducts one inventory item per sale (Coke Can).
 type ProductType = "recipe" | "stock";
-type Product = { id: number; name: string; description: string; category: string; productType: ProductType; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[] };
+// Where a product is made: the bar or the kitchen (each has its own queue in the staff app).
+type Station = "bar" | "kitchen";
+const STATION_TEXT: Record<Station, string> = { bar: "☕ Bar", kitchen: "🍳 Kitchen" };
+type Product = { id: number; name: string; description: string; category: string; productType: ProductType; station?: Station; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[] };
 
 
 type DraftIngredient = { inventoryId: number; qty: string };
@@ -3050,6 +3053,7 @@ function exportMenu(products: Product[], inventory: InventoryItem[]) {
       { header: "Product", value: (row) => row.product.name },
       { header: "Category", value: (row) => row.product.category || "Uncategorized" },
       { header: "Type", value: (row) => row.product.productType === "stock" ? "Direct sale" : "Made to order" },
+      { header: "Made at", value: (row) => row.product.station === "kitchen" ? "Kitchen" : "Bar" },
       { header: "Size", value: (row) => row.variant.size || "Regular" },
       { header: "Temperature", value: (row) => row.variant.temperature === "hot" ? "Hot" : row.variant.temperature === "cold" ? "Cold" : "" },
       { header: "Price", value: (row) => Number(row.variant.price), kind: "money" },
@@ -3144,6 +3148,51 @@ async function shrinkProductImage(file: File): Promise<string> {
   }
 }
 
+// How an order with drinks and food is called at the counter (store_settings.pickup_mode, see
+// /api/stations): together when every part is ready, or each part on its own.
+function PickupModeButton() {
+  const [mode, setMode] = useState<"together" | "separate" | null>(null);
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    fetch("/api/stations", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
+      .then((payload: { data?: { pickupMode: "together" | "separate" } } | null) => { if (active && payload?.data) setMode(payload.data.pickupMode); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  async function choose(next: "together" | "separate") {
+    if (saving || next === mode) { setOpen(false); return; }
+    setSaving(true); setError("");
+    try {
+      const response = await fetch("/api/stations", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pickupMode: next }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save.");
+      setMode(next); setOpen(false);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  if (mode === null) return null;
+  return <>
+    <button type="button" className="inv-secondary" onClick={() => setOpen(true)} title="How orders with drinks and food are called">🔔 Pickup: {mode === "separate" ? "Separately" : "Together"}</button>
+    {open && <Modal onClose={() => setOpen(false)} closeDisabled={saving} label="Pickup">
+      <div className="pickup-dialog">
+        <DialogHeader title="Orders with drinks and food" sub="How the counter calls them. The bar and the kitchen always mark their own part ready." onClose={() => setOpen(false)} disabled={saving} />
+        <div className="pickup-options" role="radiogroup" aria-label="Pickup">
+          {([["together", "Called together", "The number is called once, when the drinks and the food are both ready. One pickup."], ["separate", "Called separately", "Drinks and food are each called when they are ready. The customer may pick up twice."]] as const).map(([value, title, text]) => (
+            <button key={value} type="button" role="radio" aria-checked={mode === value} disabled={saving} onClick={() => void choose(value)}><strong>{title}</strong><span>{text}</span></button>
+          ))}
+        </div>
+        {error && <p className="pickup-error">{error}</p>}
+      </div>
+    </Modal>}
+  </>;
+}
+
 function MenuProductCard({ product, insight, onEdit, onArchive }: { product: Product; insight: ProductInsight; onEdit: () => void; onArchive: () => void }) {
   const image = product.imageData || product.imageUrl.trim();
   const isStock = product.productType === "stock";
@@ -3161,7 +3210,7 @@ function MenuProductCard({ product, insight, onEdit, onArchive }: { product: Pro
         <strong>{product.name}</strong>
         <span>{insight.minPrice === insight.maxPrice ? menuPrice(insight.minPrice) : `${menuPrice(insight.minPrice)}–${menuPrice(insight.maxPrice)}`}</span>
       </div>
-      <span className="menu-card-category">{product.category || "Uncategorized"}</span>
+      <span className="menu-card-category">{product.category || "Uncategorized"} · <span className={`menu-station is-${product.station ?? "bar"}`}>{STATION_TEXT[product.station ?? "bar"]}</span></span>
       {isStock
         ? <p className="menu-line">{insight.stockLeft === null ? "Stock item not found" : `${insight.stockLeft} left in stock`}</p>
         : <div className="menu-sizes">
@@ -3658,6 +3707,7 @@ function ProductManagement({
   const [search, setSearch] = useState("");
   const [availability, setAvailability] = useState<"all" | "available" | "attention" | "nocost">("all");
   const [typeFilter, setTypeFilter] = useState<"all" | ProductType>("all");
+  const [stationFilter, setStationFilter] = useState<"all" | Station>("all");
   const [productSort, setProductSort] = useState<"category" | "name" | "price" | "margin">("category");
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
@@ -3670,6 +3720,7 @@ function ProductManagement({
     ...standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => ({ size, price: "", temperature, ingredients: [], active: false }))),
   ]);
   const [formType, setFormType] = useState<ProductType>("recipe");
+  const [formStation, setFormStation] = useState<Station>("bar");
   const [stockInventoryId, setStockInventoryId] = useState(0);
   const [stockQuantity, setStockQuantity] = useState("1");
   const [stockPrice, setStockPrice] = useState("");
@@ -3703,6 +3754,7 @@ function ProductManagement({
     setPendingVariantIndex(null);
     const stockVariant = product?.productType === "stock" ? product.variants[0] : undefined;
     setFormType(product?.productType ?? "recipe");
+    setFormStation(product?.station ?? "bar");
     setStockInventoryId(stockVariant?.ingredients[0]?.inventoryId ?? 0);
     setStockQuantity(stockVariant?.ingredients[0] ? String(stockVariant.ingredients[0].qty) : "1");
     setStockPrice(stockVariant ? String(stockVariant.price) : "");
@@ -3868,6 +3920,7 @@ function ProductManagement({
         description: formDescription.trim(),
         category: formCat || categoryNames[0] || "",
         productType: formType,
+        station: formStation,
         price: variants[0].price,
         imageUrl: formImage.trim(),
         imageData: formImageData,
@@ -3903,6 +3956,7 @@ function ProductManagement({
       const insight = insights.get(product.id)!;
       if (filterCat !== "All" && product.category !== filterCat) return false;
       if (typeFilter !== "all" && product.productType !== typeFilter) return false;
+      if (stationFilter !== "all" && (product.station ?? "bar") !== stationFilter) return false;
       if (availability === "available" && insight.status === "soldout") return false;
       if (availability === "attention" && insight.status === "available") return false;
       if (availability === "nocost" && insight.costKnown) return false;
@@ -3930,7 +3984,7 @@ function ProductManagement({
     attention: uniqueProducts.filter((product) => insights.get(product.id)!.status !== "available").length,
     noCost: uniqueProducts.filter((product) => !insights.get(product.id)!.costKnown).length,
   };
-  const filtersActive = filterCat !== "All" || typeFilter !== "all" || availability !== "all" || query !== "";
+  const filtersActive = filterCat !== "All" || typeFilter !== "all" || stationFilter !== "all" || availability !== "all" || query !== "";
   const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
   const inputBase: React.CSSProperties = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", width: "100%" };
 
@@ -3954,11 +4008,17 @@ function ProductManagement({
             <option value="all">All types</option><option value="recipe">Made to order</option><option value="stock">Direct sale</option>
           </select>
         </label>
+        <label className="inv-filter"><span>Made at</span>
+          <select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)} className={`inv-select${stationFilter !== "all" ? " is-active" : ""}`}>
+            <option value="all">Bar and kitchen</option><option value="bar">Bar</option><option value="kitchen">Kitchen</option>
+          </select>
+        </label>
         <label className="inv-filter"><span>Sort</span>
           <select value={productSort} onChange={(event) => setProductSort(event.target.value as typeof productSort)} className="inv-select">
             <option value="category">By category</option><option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="margin">Lowest margin first</option>
           </select>
         </label>
+        <PickupModeButton />
         <button type="button" className="inv-secondary" onClick={() => setFeaturedOpen(true)} disabled={products.length === 0} title="Barista Featured Specials on the mobile menu"><IconStar size={14} />Featured</button>
         <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>
         <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
@@ -3979,7 +4039,7 @@ function ProductManagement({
           {inventory.length > 0 && <button type="button" className="inv-primary" onClick={openModal}><IconPlus size={15} />Add product</button>}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="inv-empty">No products match. {filtersActive && <button type="button" className="inv-link" onClick={() => { setSearch(""); setFilterCat("All"); setTypeFilter("all"); setAvailability("all"); }}>Clear filters</button>}</div>
+        <div className="inv-empty">No products match. {filtersActive && <button type="button" className="inv-link" onClick={() => { setSearch(""); setFilterCat("All"); setTypeFilter("all"); setStationFilter("all"); setAvailability("all"); }}>Clear filters</button>}</div>
       ) : (
         <div className="flex flex-col gap-5">
           {productSections.map((section) => <section key={section.label ?? "all"} className="inv-section">
@@ -4045,6 +4105,17 @@ function ProductManagement({
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Short Description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><textarea value={formDescription} maxLength={240} onChange={(e) => setFormDescription(e.target.value)} placeholder="e.g. Smooth espresso with steamed milk and caramel." rows={3} style={{ ...inputBase, resize: "vertical" }} /><span style={{ color: "#9C8278", fontSize: 11 }}>{formDescription.length}/240</span></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><CategoryPicker value={formCat} names={formCategoryNames} onChange={setFormCat} onCreated={onCategoryCreated} inputStyle={inputBase} /></div>
+              <div className="flex flex-col gap-2" role="radiogroup" aria-label="Made at">
+                <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Made at</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {([["bar", "☕ Bar", "Drinks. Shows on the barista's queue."], ["kitchen", "🍳 Kitchen", "Food. Shows on the kitchen staff's queue."]] as const).map(([value, title, hint]) => (
+                    <button key={value} type="button" role="radio" aria-checked={formStation === value} onClick={() => setFormStation(value)} disabled={saving} style={{ border: formStation === value ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: formStation === value ? "#3D2B1F" : "#FDF9F5", color: formStation === value ? "#FDF9F5" : "#3D2B1F", textAlign: "left", cursor: saving ? "default" : "pointer", fontFamily: "Inter, sans-serif" }}>
+                      <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{title}</span>
+                      <span style={{ display: "block", marginTop: 3, fontSize: 11, opacity: 0.75 }}>{hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="flex flex-col gap-2" role="radiogroup" aria-label="Product type">
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Type</label>
                 <div className="grid grid-cols-2 gap-2">
@@ -6213,19 +6284,20 @@ function PermissionSwitch({ checked, title, description, onChange, disabled = fa
   </label>;
 }
 
-// Cashiers run the register; baristas only see and manage the queue in the staff app, and
-// riders only the deliveries.
-type StaffRole = "cashier" | "barista" | "rider";
+// Cashiers run the register; baristas only see and manage the bar queue in the staff app,
+// kitchen staff the kitchen queue, and riders only the deliveries.
+type StaffRole = "cashier" | "barista" | "kitchen" | "rider";
 const STAFF_ROLE_OPTIONS: { id: StaffRole; title: string; description: string }[] = [
   { id: "cashier", title: "Cashier", description: "Takes orders and payments, and manages the queue." },
-  { id: "barista", title: "Barista", description: "Only sees and manages the queue. No register, cash or refunds." },
+  { id: "barista", title: "Barista", description: "Makes the drinks: sees the bar queue and hands orders over. No register, cash or refunds." },
+  { id: "kitchen", title: "Kitchen staff", description: "Makes the food: sees only the kitchen queue. No register, cash or refunds." },
   { id: "rider", title: "Rider", description: "Only sees the deliveries: picks up, delivers, collects cash on delivery." },
 ];
 function staffRoleOf(role: string): StaffRole {
   const value = role.toLowerCase();
-  return value === "barista" ? "barista" : value === "rider" ? "rider" : "cashier";
+  return value === "barista" ? "barista" : value === "kitchen" ? "kitchen" : value === "rider" ? "rider" : "cashier";
 }
-const staffRoleLabel = (role: string) => ({ cashier: "Cashier", barista: "Barista", rider: "Rider" })[staffRoleOf(role)];
+const staffRoleLabel = (role: string) => ({ cashier: "Cashier", barista: "Barista", kitchen: "Kitchen staff", rider: "Rider" })[staffRoleOf(role)];
 function RolePicker({ value, disabled = false, onChange }: { value: StaffRole; disabled?: boolean; onChange: (role: StaffRole) => void }) {
   return <div className="acc-role-picker" role="radiogroup" aria-label="Role">
     {STAFF_ROLE_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={value === option.id} disabled={disabled} onClick={() => onChange(option.id)}>
@@ -6412,9 +6484,9 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
 
   async function setRole(role: StaffRole) {
     if (role === staffRoleOf(account.role)) return;
-    if (role !== "cashier" && !(await confirmAction({ title: `Make ${account.fullName} a ${role}?`, message: role === "rider" ? "They will only see the deliveries. Their cashier permissions are turned off, and the register closes for them on their next tap." : "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: `Make ${role}`, tone: "default" }))) return;
+    if (role !== "cashier" && !(await confirmAction({ title: `Make ${account.fullName} a ${role}?`, message: role === "rider" ? "They will only see the deliveries. Their cashier permissions are turned off, and the register closes for them on their next tap." : role === "kitchen" ? "They will only see the kitchen queue. Their cashier permissions are turned off, and the register closes for them on their next tap." : "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: `Make ${role}`, tone: "default" }))) return;
     const saved = await patch({ action: "set_role", role }, "role", "Could not change the role.");
-    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : role === "rider" ? "Now a rider. They only see the deliveries." : "Now a cashier. Turn on any permissions they need."); }
+    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : role === "kitchen" ? "Now kitchen staff. They only see the kitchen queue." : role === "rider" ? "Now a rider. They only see the deliveries." : "Now a cashier. Turn on any permissions they need."); }
   }
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
@@ -8333,7 +8405,7 @@ function Accounts() {
         ["Summary", excelInfo([
           [`Brew Houze employee report: ${account.fullName}`],
           ["Email", account.email],
-          ["Role", staffRoleOf(account.role) === "barista" ? "Barista (queue only)" : staffRoleOf(account.role) === "rider" ? "Rider (deliveries only)" : "Cashier"],
+          ["Role", staffRoleOf(account.role) === "barista" ? "Barista (bar queue only)" : staffRoleOf(account.role) === "kitchen" ? "Kitchen staff (kitchen queue only)" : staffRoleOf(account.role) === "rider" ? "Rider (deliveries only)" : "Cashier"],
           ["Status", account.isActive ? "Active" : "Deactivated"],
           ["Generated", excelNow()],
           [],
@@ -8468,7 +8540,7 @@ function Accounts() {
                   <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{!account.isActive ? "Deactivated" : account.onDutySince ? `On duty · ${clockTime(account.onDutySince)}` : "Off duty"}</span>
                 </span>
                 <span className="acc-perms">
-                  {staffRoleOf(account.role) !== "cashier" ? <span className="acc-perm is-on">✓ {staffRoleOf(account.role) === "rider" ? "Deliveries only" : "Queue only"}</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
+                  {staffRoleOf(account.role) !== "cashier" ? <span className="acc-perm is-on">✓ {staffRoleOf(account.role) === "rider" ? "Deliveries only" : staffRoleOf(account.role) === "kitchen" ? "Kitchen queue only" : "Queue only"}</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
                 </span>
                 <span className="acc-card-stats">
                   <span><em>This week</em><strong>{formatHours(account.stats.hoursThisWeek)}</strong></span>
@@ -9192,6 +9264,7 @@ export default function App() {
         image_url: product.imageUrl,
         image_data: product.imageData,
         product_type: product.productType,
+        station: product.station ?? "bar",
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,
@@ -9221,6 +9294,7 @@ export default function App() {
         image_url: product.imageUrl,
         image_data: product.imageData,
         product_type: product.productType,
+        station: product.station ?? "bar",
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
           inventory_id: ingredient.inventoryId,

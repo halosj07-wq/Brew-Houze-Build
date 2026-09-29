@@ -19,13 +19,13 @@ export async function POST(request: Request) {
       WHERE LOWER(email) = $1
         AND password_hash = crypt($2, password_hash)
         AND is_active = TRUE
-        AND LOWER(role) IN ('cashier', 'barista', 'rider', 'admin')
+        AND LOWER(role) IN ('cashier', 'barista', 'kitchen', 'rider', 'admin')
       LIMIT 1
     `, [email, password]);
     if (result.rowCount === 0) return NextResponse.json({ error: "Invalid cashier email or password." }, { status: 401 });
     const admin = result.rows[0];
     const isAdmin = String(admin.role).toLowerCase() === "admin";
-    const isBarista = ["barista", "rider"].includes(String(admin.role).toLowerCase());
+    const isBarista = ["barista", "kitchen", "rider"].includes(String(admin.role).toLowerCase());
     const session = {
       adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role,
       canVoidOrders: isAdmin ? true : !isBarista && Boolean(admin.can_void_orders),

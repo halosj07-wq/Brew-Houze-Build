@@ -1165,7 +1165,7 @@ strong.is-low { color: #B45309 !important; }
 .acc-role { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: middle; background: #F3EDE5; color: #6B4C3B; }
 .acc-card-name .acc-role { align-self: flex-start; margin-top: 4px; }
 .acc-role.is-barista { background: #E0F2FE; color: #0369A1; }
-.acc-role-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.acc-role-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .acc-role-picker button { display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border-radius: 12px; border: 1.5px solid #E8DDD5; background: #FFFFFF; text-align: left; cursor: pointer; }
 .acc-role-picker button strong { color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 14px; font-weight: 800; }
 .acc-role-picker button em { color: #9C8278; font-style: normal; font-size: 12px; line-height: 1.4; }
@@ -1397,3 +1397,14 @@ strong.is-low { color: #B45309 !important; }
 .dlv-now-tag.is-cash { background: #FEF3C7; color: #92400E; }
 .dlv-now-tag.is-out { background: #DBEAFE; color: #1D4ED8; }
 @media (max-width: 860px) { .fin-dlv-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Bar and kitchen: where a product is made, and how mixed orders are called. */
+.menu-station { font-weight: 700; color: #6B4C3B; }
+.menu-station.is-kitchen { color: #B45309; }
+.pickup-dialog { display: flex; flex-direction: column; gap: 14px; width: min(100%, 460px); padding: 18px; border-radius: 16px; background: #FDF9F5; box-shadow: 0 16px 48px rgba(61,43,31,0.22); }
+.pickup-options { display: flex; flex-direction: column; gap: 8px; }
+.pickup-options button { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; border: 1.5px solid #E8DDD5; border-radius: 12px; background: #FFFFFF; text-align: left; cursor: pointer; }
+.pickup-options button strong { color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 14.5px; }
+.pickup-options button span { color: #9C8278; font-size: 12.5px; line-height: 1.45; }
+.pickup-options button[aria-checked="true"] { border-color: #D97706; background: #FFF7ED; box-shadow: 0 0 0 3px rgba(217,119,6,0.12); }
+.pickup-error { margin: 0; color: #B91C1C; font-size: 12.5px; }

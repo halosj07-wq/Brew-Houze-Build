@@ -13,6 +13,11 @@ export type OrderItemInput = { productVariantId: number; quantity: number; addit
 export type OrderSource = "cashier" | "mobile";
 // Eaten at the café, taken away, or delivered (null: not recorded, for callers that do not ask).
 // Delivery orders come from the mobile menu or the counter (Messenger orders), with a delivery plan (see lib/delivery.ts).
+// Where a product is made: the bar (drinks) or the kitchen (food). Each has its own queue.
+export type Station = "bar" | "kitchen";
+export const STATIONS: Station[] = ["bar", "kitchen"];
+export const stationOf = (value: unknown): Station => (value === "kitchen" ? "kitchen" : "bar");
+
 export type ServiceType = "dine_in" | "take_out" | "delivery";
 export function parseServiceType(value: unknown): ServiceType | null {
   return value === "dine_in" || value === "take_out" || value === "delivery" ? value : null;
@@ -124,7 +129,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const variantIds = Array.from(quantities.keys());
   const variants = await client.query(`
-    SELECT pv.product_variant_id, pv.product_id, pv.price, p.product_name, p.product_type, p.product_category
+    SELECT pv.product_variant_id, pv.product_id, pv.price, p.product_name, p.product_type, p.product_category, p.station
     FROM product_variants pv
     JOIN products p ON p.product_id = pv.product_id
     WHERE pv.product_variant_id = ANY($1::int[])
@@ -292,10 +297,10 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   for (const variant of variants.rows) {
     for (const [groupKey, group] of Array.from(groupedItems.entries()).filter(([, item]) => item.productVariantId === Number(variant.product_variant_id))) {
       const itemResult = await client.query(`
-        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost, reward_id, reward_value)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost, reward_id, reward_value, station)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         RETURNING order_item_id
-      `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, group.rewardId ? 0 : variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null, group.rewardId, group.rewardId ? variant.price : null]);
+      `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, group.rewardId ? 0 : variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null, group.rewardId, group.rewardId ? variant.price : null, stationOf(variant.station)]);
       orderItemIds.set(groupKey, Number(itemResult.rows[0].order_item_id));
       for (const additionId of group.additionIds) {
         await client.query(`
@@ -308,6 +313,11 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
         `, [itemResult.rows[0].order_item_id, additionId, (group.additionCounts.get(additionId) ?? 1) * group.quantity]);
       }
     }
+  }
+
+  // The stations that make this order (bar, kitchen): each gets its part in its own queue.
+  for (const station of new Set(variants.rows.map((variant) => stationOf(variant.station)))) {
+    await client.query("INSERT INTO order_stations (order_id, station) VALUES ($1, $2) ON CONFLICT DO NOTHING", [orderId, station]);
   }
 
   // The ID discount register: who, which ID, which sales lines, and the amounts.

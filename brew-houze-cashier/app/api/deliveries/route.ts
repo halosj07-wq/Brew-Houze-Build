@@ -102,7 +102,7 @@ export async function PATCH(request: Request) {
     if (auth.role === "rider" && action !== "pickup" && row.rider_admin_id !== null && Number(row.rider_admin_id) !== auth.session.adminId) return await fail("Another rider has this delivery.", 403);
 
     if (action === "pickup") {
-      if (row.status !== "ready") return await fail(row.status === "preparing" ? "The barista has not packed this order yet." : "This delivery was already picked up.");
+      if (row.status !== "ready") return await fail(row.status === "preparing" ? "The order is still being made." : "This delivery was already picked up.");
       // A rider takes it themselves. A cashier or admin names the rider (or themselves).
       let riderId = auth.session.adminId;
       if (auth.role !== "rider" && body.riderId !== undefined && body.riderId !== null && Number(body.riderId) !== auth.session.adminId) {
