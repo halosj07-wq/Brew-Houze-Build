@@ -274,9 +274,9 @@
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
       introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], intro: dirtyWorkIntro, introClass: "dw-intro",
-      // The chorus (22 bars at 130.5 BPM), then the bridge: sparse with a break, the build, the
-      // drive, the outro and the fill back into the chorus.
-      stage: { beat: 60 / 130.53, cycle: 78.438, sections: [[0, "calm"], [40.45, "tension"], [55.16, "build"], [58.84, "drive"], [75.38, "drop"], [77.22, "hit"]] },
+      // The chorus (17 bars at 98 BPM), then the bridge: sparse bars with breaks, the build, the
+      // drive, and the drum fill back into the chorus (a slam on its last beat).
+      stage: { beat: 60 / 98, cycle: 78.438, sections: [[0, "calm"], [41.63, "tension"], [53.88, "build"], [58.78, "drive"], [75.92, "drop"], [77.76, "hit"]] },
       extras: ["logo-gold.webp", "logo-white.webp"],
     },
     armageddon: {
@@ -284,9 +284,9 @@
       title: "Brew Houze × aespa · Armageddon", toast: "Brew Houze × aespa · ARMAGEDDON",
       sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
       introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], intro: armageddonIntro, introClass: "am-intro",
-      // The chorus (16 bars at 122.6 BPM), then the bridge: straight into the drive, the fade and the
-      // bar of silence, the build, the hit, and the silence back into the chorus.
-      stage: { beat: 60 / 122.64, cycle: 65.226, sections: [[0, "calm"], [31.31, "drive"], [50.88, "drop"], [54.79, "build"], [62.62, "hit"], [64.58, "drop"]] },
+      // The chorus (12 bars at 92 BPM), then the bridge: straight into the drive, a bar of silence,
+      // the sparse bars, the build, and the silent last beat back into the chorus.
+      stage: { beat: 60 / 92, cycle: 65.226, sections: [[0, "calm"], [31.30, "drive"], [52.17, "drop"], [54.78, "tension"], [62.61, "build"], [64.57, "drop"]] },
       extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
     },
     // The intro runs straight into track 1; tracks 1 and 2 then take turns with no gap (1, 2, 1, 2…).
