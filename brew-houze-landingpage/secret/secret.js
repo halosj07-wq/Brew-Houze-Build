@@ -274,9 +274,9 @@
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
       introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], intro: dirtyWorkIntro, introClass: "dw-intro",
-      // The chorus (17 bars at 98 BPM), then the bridge: sparse bars with breaks, the build, the
-      // drive, and the drum fill back into the chorus (a slam on its last beat).
-      stage: { beat: 60 / 98, cycle: 78.438, sections: [[0, "calm"], [41.63, "tension"], [53.88, "build"], [58.78, "drive"], [75.92, "drop"], [77.76, "hit"]] },
+      // The chorus (16 bars at 98 BPM), then the bridge: its first bar and the sparse bars with
+      // breaks, the build, the drive, and the drum fill back into the chorus (a slam on its last beat).
+      stage: { beat: 60 / 98, cycle: 78.438, sections: [[0, "calm"], [39.18, "tension"], [53.88, "build"], [58.78, "drive"], [75.92, "drop"], [77.76, "hit"]] },
       extras: ["logo-gold.webp", "logo-white.webp"],
     },
     armageddon: {
