@@ -158,7 +158,7 @@
         if (scene === "type") type.textContent = value;
         if (photo) {
           const key = memberOrder[value];
-          sign.style.setProperty("--sign", `url("${siteUrl(`armageddon/${key}-signature.webp`)}")`);
+          sign.style.setProperty("--sign", `url("${siteUrl(`armageddon/${key}-signature.svg`)}")`);
           who.textContent = `0${value + 1} · ${MEMBERS[key].name}`;
         }
         box.className = `am-intro is-${ready ? scene : "void"}`;
@@ -188,7 +188,7 @@
       sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
       introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], seamless: true, intro: armageddonIntro, introClass: "am-intro",
       // Loaded ahead with the photos: the intro and the card backs use them.
-      extras: ["logo-black.webp", "logo-white.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.webp`)],
+      extras: ["logo-black.webp", "logo-white.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
     },
   };
   const photoOf = (theme, key) => `${THEMES[theme].folder}${key}.webp`;
@@ -233,7 +233,7 @@
       const m = MEMBERS[key];
       return `<li class="ae-member" style="--delay: ${index * 0.35}s" data-member="${key}" role="button" tabindex="0" aria-label="Open ${escapeHtml(m.name)}’s photo card">`
         + `<img draggable="false" class="ae-photo" src="${photoOf(theme, key)}" alt="" loading="lazy" onerror="this.remove()" />`
-        + (t.back === "signature" ? `<span class="am-plate-sign" aria-hidden="true" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.webp`)}')"></span>` : "")
+        + (t.back === "signature" ? `<span class="am-plate-sign" aria-hidden="true" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.svg`)}')"></span>` : "")
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
@@ -558,7 +558,7 @@
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <div class="am-back-photo" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
-      <div class="am-back-sign" role="img" aria-label="${escapeHtml(member.name)}’s signature" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.webp`)}')"></div>
+      <div class="am-back-sign" role="img" aria-label="${escapeHtml(member.name)}’s signature" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.svg`)}')"></div>
       <div class="am-back-name"><h3>${escapeHtml(member.name)}</h3><p class="ae-pc-kr">${escapeHtml(member.hangul)}</p></div>
       <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>` : `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
