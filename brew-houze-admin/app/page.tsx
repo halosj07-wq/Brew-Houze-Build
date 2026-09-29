@@ -8153,6 +8153,66 @@ function IconTruck({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
 }
 
+// The delivery hours, read back while the admin types them: a 24-hour bar with the window (wrapping
+// past midnight) and the time now, how long it runs, whether it is open right now, and the mistakes
+// that would stop delivery (one time only, the same time twice) or look like an AM/PM slip.
+const DAY_MINUTES = 24 * 60;
+function manilaMinutes(): number {
+  const [hour, minute] = new Date().toLocaleTimeString("en-GB", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false }).split(":").map(Number);
+  return (hour % 24) * 60 + minute;
+}
+const hhmmMinutes = (value: string) => { const [hour, minute] = value.split(":").map(Number); return hour * 60 + minute; };
+function clockOfMinutes(minutes: number): string {
+  const hour = Math.floor(minutes / 60) % 24;
+  return `${hour % 12 || 12}:${String(minutes % 60).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`;
+}
+function hoursLength(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  return [hours ? `${hours} h` : "", minutes % 60 ? `${minutes % 60} min` : ""].filter(Boolean).join(" ");
+}
+function deliveryHoursProblem(start: string, end: string): string | null {
+  if (!start && !end) return null;
+  if (!start || !end) return "Set both delivery times, or clear both (delivery then runs whenever a shift is open).";
+  if (start === end) return "The delivery start and end are the same time, so delivery would never open. Change one of them.";
+  return null;
+}
+function DeliveryHoursPreview({ start, end }: { start: string; end: string }) {
+  const [now, setNow] = useState(manilaMinutes);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(manilaMinutes()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const problem = deliveryHoursProblem(start, end);
+  const allDay = !start && !end;
+  const from = start ? hhmmMinutes(start) : 0;
+  const to = end ? hhmmMinutes(end) : 0;
+  const valid = !problem && !allDay;
+  const length = valid ? (to - from + DAY_MINUTES) % DAY_MINUTES : 0;
+  const overnight = valid && to < from;
+  const openNow = allDay || (valid && (overnight ? now >= from || now < to : now >= from && now < to));
+  // The window on the bar: one piece, or two when it runs past midnight.
+  const pieces = allDay ? [[0, DAY_MINUTES]] : !valid ? [] : overnight ? [[from, DAY_MINUTES], [0, to]] : [[from, to]];
+  const warning = !valid ? null
+    : length < 60 ? `Only ${hoursLength(length)} of delivery a day. If you meant a longer window, check the times and AM/PM.`
+    : length > 16 * 60 ? `That is ${hoursLength(length)} of delivery a day${overnight ? ", through the night" : ""}. If you meant a shorter window, check AM/PM.`
+    : null;
+  const state = problem ? "is-bad" : warning ? "is-warn" : "is-ok";
+  return <div className={`dlv-hours ${state}`} role="status" aria-live="polite">
+    <div className="dlv-hours-head">
+      <strong>{problem ? "Delivery would not open" : allDay ? "Whenever a shift is open" : `${clockOfMinutes(from)} – ${clockOfMinutes(to)}`}</strong>
+      {!problem && <span className={`dlv-hours-now ${openNow ? "is-open" : "is-closed"}`}>{openNow ? "Open now" : `Closed now · opens ${clockOfMinutes(from)}`}</span>}
+    </div>
+    <div className="dlv-hours-bar" aria-hidden="true">
+      {pieces.map(([a, b]) => <i key={a} style={{ left: `${(a / DAY_MINUTES) * 100}%`, width: `max(3px, ${((b - a) / DAY_MINUTES) * 100}%)` }} />)}
+      <b style={{ left: `${(now / DAY_MINUTES) * 100}%` }} title="Now" />
+    </div>
+    <div className="dlv-hours-scale" aria-hidden="true"><span>12 AM</span><span>6 AM</span><span>12 PM</span><span>6 PM</span><span>12 AM</span></div>
+    <p>{problem ?? (allDay ? "No set hours: delivery orders are taken whenever a shift is open (and delivery is on)."
+      : `${hoursLength(length)} a day${overnight ? `, past midnight: it ends at ${clockOfMinutes(to)} the next day` : ""}. Delivery also needs an open shift.`)}</p>
+    {warning && <p className="dlv-hours-warn">{warning}</p>}
+  </div>;
+}
+
 function Delivery() {
   const confirmAction = useConfirm();
   const [rules, setRules] = useState<DeliveryRules | null>(null);
@@ -8193,6 +8253,8 @@ function Delivery() {
   async function saveRules() {
     if (!rules) return;
     if (rules.enabled && activeZones.length === 0) { setError("Add at least one zone before switching delivery on."); return; }
+    const hoursProblem = deliveryHoursProblem(rules.start, rules.end);
+    if (hoursProblem) { setError(hoursProblem); return; }
     setSaving(true);
     setError("");
     try {
@@ -8253,6 +8315,7 @@ function Delivery() {
               <WizardField label="Delivery starts (optional)" hint="Empty: whenever a shift is open."><input type="time" value={rules.start} onChange={(event) => set("start", event.target.value)} style={packagingInput} /></WizardField>
               <WizardField label="Delivery ends (optional)" hint="Can be after midnight."><input type="time" value={rules.end} onChange={(event) => set("end", event.target.value)} style={packagingInput} /></WizardField>
             </div>
+            <DeliveryHoursPreview start={rules.start} end={rules.end} />
             <div className="inv-step-grid">
               <WizardField label="Deliveries at once (optional)" hint="New delivery orders wait when this many are in progress. Empty: no limit."><input type="number" min={1} max={100} step={1} value={rules.maxActive} onChange={(event) => set("maxActive", event.target.value)} style={packagingInput} /></WizardField>
               <WizardField label="Free delivery from (₱, optional)" hint="Orders at or above this amount pay no fee. Empty: never."><MoneyField value={rules.freeAbove} onChange={(typed) => set("freeAbove", typed)} style={packagingInput} /></WizardField>

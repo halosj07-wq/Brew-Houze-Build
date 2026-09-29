@@ -110,6 +110,8 @@ export async function PATCH(request: Request) {
       const start = time(body.start);
       const end = time(body.end);
       if (Boolean(start) !== Boolean(end)) return NextResponse.json({ error: "Set both delivery hours, or leave both empty." }, { status: 400 });
+      // The same time twice is a window of no length: delivery would never open.
+      if (start && start === end) return NextResponse.json({ error: "The delivery start and end are the same time, so delivery would never open." }, { status: 400 });
       const maxActive = body.maxActive === "" || body.maxActive === null || body.maxActive === undefined ? "" : Number(body.maxActive);
       if (maxActive !== "" && (!Number.isInteger(maxActive) || maxActive < 1 || maxActive > 100)) return NextResponse.json({ error: "Deliveries at once must be 1 to 100, or empty for no limit." }, { status: 400 });
       const freeAbove = money(body.freeAbove);
