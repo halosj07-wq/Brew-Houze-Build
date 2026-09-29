@@ -99,7 +99,7 @@ export async function planDelivery(db: Db, customerId: number | null, input: unk
   const payment: DeliveryPayment = raw.payment === "cod" ? "cod" : "gcash";
   const settings = await deliverySettings(db);
   if (!staff) {
-    if (!settings.enabled) throw new Error("Delivery is not available right now. Choose Dine in or Take Out.");
+    if (!settings.enabled) throw new Error("Delivery is not available right now. Choose Dine in or Take Out/Pick Up.");
     if (!withinDeliveryHours(settings)) throw new Error(`Delivery is only available from ${settings.start} to ${settings.end}.`);
     if (customerId === null && payment === "cod") throw new Error("Sign in to pay cash on delivery, or pay with GCash.");
   }
@@ -123,7 +123,7 @@ export async function planDelivery(db: Db, customerId: number | null, input: unk
   }
   if (!staff && settings.maxActive !== null) {
     const active = await db.query("SELECT COUNT(*)::int AS n FROM deliveries WHERE status = ANY($1::text[])", [ACTIVE_DELIVERY_STATUSES]);
-    if (Number(active.rows[0].n) >= settings.maxActive) throw new Error("The café has as many deliveries as it can handle right now. Please try again in a few minutes, or choose Take Out.");
+    if (Number(active.rows[0].n) >= settings.maxActive) throw new Error("The café has as many deliveries as it can handle right now. Please try again in a few minutes, or choose Take Out/Pick Up.");
   }
   if (!staff && payment === "cod") {
     if (!settings.cod.enabled) throw new Error("Cash on delivery is not available. Pay with GCash instead.");

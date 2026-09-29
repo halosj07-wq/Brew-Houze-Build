@@ -57,17 +57,39 @@ export async function markVerificationUsed(client: PoolClient, verificationId: n
 }
 
 // verifiedBy: the staff member who checked the ID (recorded on each discount it gives).
-export type SavedIdDiscount = { typeId: number; typeName: string; holderName: string; idNumber: string | null; verifiedBy: number | null };
+// expiresAt: when it is forgotten unless it is used again (see SAVED_ID_DAYS).
+export type SavedIdDiscount = { typeId: number; typeName: string; holderName: string; idNumber: string | null; verifiedBy: number | null; expiresAt: string };
 
-// The ID remembered on a customer's account, while its discount is still switched on.
-export async function savedIdDiscount(customerId: number, db: Db = pool): Promise<SavedIdDiscount | null> {
+// A saved ID is forgotten after this many days without use: counted from when the café checked it
+// or, later, the last completed order it gave the discount on.
+export const SAVED_ID_DAYS = 30;
+const SAVED_ID_LAST_USED = `GREATEST(c.id_verified_at, (
+  SELECT MAX(od.created_at) FROM order_discounts od JOIN sales_orders so ON so.order_id = od.order_id
+  WHERE so.customer_id = c.customer_id AND so.status = 'completed' AND od.discount_type_id = c.id_discount_type_id
+))`;
+
+// Forgets the saved IDs (one customer's, or everyone's) not used for SAVED_ID_DAYS.
+export async function forgetStaleSavedIds(db: Db = pool, customerId: number | null = null): Promise<number> {
   const result = await db.query(`
-    SELECT c.id_discount_type_id, dt.name, c.id_discount_name, c.id_discount_number, c.id_verified_by
+    UPDATE customers c SET id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE c.id_verified_at IS NOT NULL AND ($1::int IS NULL OR c.customer_id = $1::int)
+      AND ${SAVED_ID_LAST_USED} < CURRENT_TIMESTAMP - make_interval(days => $2::int)
+  `, [customerId, SAVED_ID_DAYS]);
+  return result.rowCount ?? 0;
+}
+
+// The ID remembered on a customer's account, while its discount is still switched on (an ID not
+// used for SAVED_ID_DAYS is forgotten first).
+export async function savedIdDiscount(customerId: number, db: Db = pool): Promise<SavedIdDiscount | null> {
+  await forgetStaleSavedIds(db, customerId);
+  const result = await db.query(`
+    SELECT c.id_discount_type_id, dt.name, c.id_discount_name, c.id_discount_number, c.id_verified_by,
+      TO_CHAR((${SAVED_ID_LAST_USED} + make_interval(days => $2::int)) AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS expires_at
     FROM customers c JOIN discount_types dt ON dt.discount_type_id = c.id_discount_type_id AND dt.is_active = TRUE
     WHERE c.customer_id = $1 AND c.id_verified_at IS NOT NULL AND c.id_discount_name IS NOT NULL
-  `, [customerId]);
+  `, [customerId, SAVED_ID_DAYS]);
   const row = result.rows[0];
-  return row ? { typeId: Number(row.id_discount_type_id), typeName: String(row.name), holderName: String(row.id_discount_name), idNumber: (row.id_discount_number as string | null) ?? null, verifiedBy: row.id_verified_by === null ? null : Number(row.id_verified_by) } : null;
+  return row ? { typeId: Number(row.id_discount_type_id), typeName: String(row.name), holderName: String(row.id_discount_name), idNumber: (row.id_discount_number as string | null) ?? null, verifiedBy: row.id_verified_by === null ? null : Number(row.id_verified_by), expiresAt: String(row.expires_at) } : null;
 }
 
 // Which of the order's items a mobile ID discount covers: { lines: [{ line, quantity }] } or

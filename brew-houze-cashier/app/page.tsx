@@ -1,10 +1,11 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
 
-type Page = "pos" | "queue" | "reversals" | "deliveries" | "accounts";
+// line: the counter line, everything from the mobile menu waiting for the cashier (see CounterLine).
+type Page = "pos" | "line" | "queue" | "reversals" | "deliveries" | "accounts";
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean };
 
 // Baristas and kitchen staff only see and manage their queue, riders only the deliveries (the
@@ -41,6 +42,10 @@ function IconUsers({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>;
 }
 
+function IconInbox({ size = 20 }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></svg>;
+}
+
 function IconList({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6" /><line x1="8" y1="12" x2="21" y2="12" /><line x1="8" y1="18" x2="21" y2="18" /><line x1="3" y1="6" x2="3.01" y2="6" /><line x1="3" y1="12" x2="3.01" y2="12" /><line x1="3" y1="18" x2="3.01" y2="18" /></svg>;
 }
@@ -64,8 +69,9 @@ function uniqueQueueOrders(orders: QueueOrder[]) {
 
 const navItems: { id: Page; label: string; Icon: React.FC<IconProps> }[] = [
   { id: "pos", label: "Point of Sale", Icon: IconGrid },
+  { id: "line", label: "Counter line", Icon: IconInbox },
   { id: "queue", label: "Queue", Icon: IconList },
-  { id: "reversals", label: "Void & Refund", Icon: IconUndo },
+  { id: "reversals", label: "Order history", Icon: IconUndo },
   { id: "deliveries", label: "Deliveries", Icon: IconTruck },
   { id: "accounts", label: "My Account", Icon: IconUsers },
 ];
@@ -96,7 +102,7 @@ function formatTimeAgo(timestamp: number, now: number): string {
   return `${Math.floor(minutes / 60)} h ago`;
 }
 
-function Sidebar({ current, collapsed, lastOrder, queueCounts, deliveryBadge, now, shiftOpen, canManageReversals, allowedPages, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; deliveryBadge: number; now: number; shiftOpen: boolean; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void; onToggle: () => void }) {
+function Sidebar({ current, collapsed, lastOrder, queueCounts, deliveryBadge, lineCount, now, shiftOpen, canManageReversals, allowedPages, onChange, onToggle }: { current: Page; collapsed: boolean; lastOrder: LastOrder | null; queueCounts: QueueCounts | null; deliveryBadge: number; lineCount: number; now: number; shiftOpen: boolean; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void; onToggle: () => void }) {
   const visibleNavItems = navItems.filter((item) => allowedPages ? allowedPages.includes(item.id) : item.id !== "reversals" || canManageReversals);
   const waiting = queueCounts?.waiting ?? 0;
   return <aside className={`app-sidebar ${collapsed ? "is-collapsed" : "is-expanded"} flex flex-col`} style={{ background: "#3D2B1F", minHeight: "100vh", width: collapsed ? 52 : 240, flexShrink: 0 }}>
@@ -108,10 +114,10 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, deliveryBadge, no
     <nav className="flex flex-col gap-1 px-3 pt-5 flex-1">
       {visibleNavItems.map(({ id, label, Icon }) => {
         const active = current === id;
-        const badge = id === "queue" && waiting > 0 ? waiting : id === "deliveries" ? deliveryBadge : 0;
+        const badge = id === "queue" && waiting > 0 ? waiting : id === "deliveries" ? deliveryBadge : id === "line" ? lineCount : 0;
         return <button key={id} onClick={() => onChange(id)} title={collapsed ? label : undefined} className="flex items-center gap-3 px-4 py-3 rounded-xl text-left w-full" style={{ position: "relative", background: active ? "#D97706" : "transparent", color: active ? "#FDF9F5" : "rgba(255,255,255,0.55)", fontFamily: "Inter, sans-serif", fontSize: 13.5, fontWeight: active ? 600 : 400, cursor: "pointer", border: "none" }}>
           <Icon size={17} /><span>{label}</span>
-          {badge > 0 && <b className="nav-badge" aria-label={id === "deliveries" ? `${badge} need attention` : `${badge} waiting`} style={{ marginLeft: "auto", minWidth: 22, height: 20, padding: "0 6px", borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: active ? "#FDF9F5" : "#D97706", color: active ? "#B45309" : "#FFFFFF", fontSize: 11, fontWeight: 800 }}>{badge > 99 ? "99+" : badge}</b>}
+          {badge > 0 && <b className="nav-badge" aria-label={id === "deliveries" ? `${badge} need attention` : id === "line" ? `${badge} in the line` : `${badge} waiting`} style={{ marginLeft: "auto", minWidth: 22, height: 20, padding: "0 6px", borderRadius: 999, display: "inline-flex", alignItems: "center", justifyContent: "center", background: active ? "#FDF9F5" : "#D97706", color: active ? "#B45309" : "#FFFFFF", fontSize: 11, fontWeight: 800 }}>{badge > 99 ? "99+" : badge}</b>}
         </button>;
       })}
     </nav>
@@ -137,14 +143,14 @@ function Sidebar({ current, collapsed, lastOrder, queueCounts, deliveryBadge, no
 }
 
 // Phones (portrait): the sidebar is hidden and these tabs sit at the bottom of the screen.
-const mobileTabLabels: Record<Page, string> = { pos: "POS", queue: "Queue", reversals: "Void & Refund", deliveries: "Deliveries", accounts: "Account" };
+const mobileTabLabels: Record<Page, string> = { pos: "POS", line: "Line", queue: "Queue", reversals: "History", deliveries: "Deliveries", accounts: "Account" };
 
-function MobileTabBar({ current, queueWaiting, deliveryBadge, canManageReversals, allowedPages, onChange }: { current: Page; queueWaiting: number; deliveryBadge: number; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void }) {
+function MobileTabBar({ current, queueWaiting, deliveryBadge, lineCount, canManageReversals, allowedPages, onChange }: { current: Page; queueWaiting: number; deliveryBadge: number; lineCount: number; canManageReversals: boolean; allowedPages: Page[] | null; onChange: (page: Page) => void }) {
   return <nav className="mobile-tabbar" aria-label="Cashier sections">
     {navItems.filter((item) => allowedPages ? allowedPages.includes(item.id) : item.id !== "reversals" || canManageReversals).map(({ id, Icon }) => {
       const active = current === id;
       return <button key={id} type="button" onClick={() => onChange(id)} aria-current={active ? "page" : undefined} className={`mobile-tab${active ? " is-active" : ""}`}>
-        <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}{id === "deliveries" && deliveryBadge > 0 && <b aria-label={`${deliveryBadge} need attention`}>{deliveryBadge > 99 ? "99+" : deliveryBadge}</b>}</span>
+        <span className="mobile-tab-icon"><Icon size={21} />{id === "queue" && queueWaiting > 0 && <b aria-label={`${queueWaiting} waiting`}>{queueWaiting > 99 ? "99+" : queueWaiting}</b>}{id === "deliveries" && deliveryBadge > 0 && <b aria-label={`${deliveryBadge} need attention`}>{deliveryBadge > 99 ? "99+" : deliveryBadge}</b>}{id === "line" && lineCount > 0 && <b aria-label={`${lineCount} in the line`}>{lineCount > 99 ? "99+" : lineCount}</b>}</span>
         <span>{mobileTabLabels[id]}</span>
       </button>;
     })}
@@ -383,7 +389,7 @@ function CampaignPreview() {
 }
 
 function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onAccount: () => void; onRequestLogout: () => void }) {
-  const title = page === "pos" ? "Point of Sale" : page === "queue" ? "Queue" : page === "reversals" ? "Void & Refund" : page === "deliveries" ? "Deliveries" : "My Account";
+  const title = page === "pos" ? "Point of Sale" : page === "line" ? "Counter line" : page === "queue" ? "Queue" : page === "reversals" ? "Order history" : page === "deliveries" ? "Deliveries" : "My Account";
   const isAdmin = user.role.toLowerCase() === "admin";
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
@@ -766,7 +772,7 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   row("Order", `#${receipt.orderId}${receipt.shiftId ? ` - shift ${receipt.shiftId}` : ""}`);
   row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "-");
   if (receipt.customerName) row("Customer", receipt.customerName);
-  if (receipt.serviceType) row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : receipt.serviceType === "delivery" ? "DELIVERY" : "DINE IN", { bold: true });
+  if (receipt.serviceType) row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT/PICK UP" : receipt.serviceType === "delivery" ? "DELIVERY" : "DINE IN", { bold: true });
   if (receipt.delivery) {
     row("Deliver to", receipt.delivery.recipient);
     row(`${receipt.delivery.street}${receipt.delivery.landmark ? `, near ${receipt.delivery.landmark}` : ""} (${receipt.delivery.zone})`, "", { size: base * 0.9, indent: 3 });
@@ -878,7 +884,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
     {row("Order", `#${receipt.orderId}${receipt.shiftId ? ` · shift ${receipt.shiftId}` : ""}`)}
     {row(receipt.orderSource === "online" ? "Ordered on" : "Cashier", receipt.orderSource === "online" ? "Mobile menu" : receipt.cashierName ?? "—")}
     {receipt.customerName && row("Customer", receipt.customerName)}
-    {receipt.serviceType && row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT" : receipt.serviceType === "delivery" ? "DELIVERY" : "DINE IN", true)}
+    {receipt.serviceType && row("Order type", receipt.serviceType === "take_out" ? "TAKE OUT/PICK UP" : receipt.serviceType === "delivery" ? "DELIVERY" : "DINE IN", true)}
     {receipt.delivery && <div className="receipt-item">
       {row("Deliver to", receipt.delivery.recipient)}
       <div className="receipt-detail">{receipt.delivery.street}{receipt.delivery.landmark ? `, near ${receipt.delivery.landmark}` : ""} ({receipt.delivery.zone})</div>
@@ -1332,67 +1338,11 @@ function customerInitials(name: string): string {
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
 }
 
-// Reads a QR code with the tablet camera (the back camera when there is one). jsQR is loaded
-// only when scanning, so the POS stays light.
-function QrScanner({ onCode, onCancel }: { onCode: (code: string) => void; onCancel: () => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [problem, setProblem] = useState("");
-  const onCodeRef = useRef(onCode);
-  useEffect(() => { onCodeRef.current = onCode; }, [onCode]);
-
-  useEffect(() => {
-    let stream: MediaStream | null = null;
-    let frame = 0;
-    let stopped = false;
-    let lastScan = 0;
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d", { willReadFrequently: true });
-    (async () => {
-      if (!navigator.mediaDevices?.getUserMedia) { setProblem("This device cannot use its camera here. Search by name instead."); return; }
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
-      } catch {
-        setProblem("The camera is blocked or not available. Allow camera access for this site, or search by name instead.");
-        return;
-      }
-      const video = videoRef.current;
-      if (stopped || !video) { stream.getTracks().forEach((track) => track.stop()); return; }
-      video.srcObject = stream;
-      await video.play().catch(() => undefined);
-      const { default: jsQR } = await import("jsqr");
-      const tick = (time: number) => {
-        if (stopped) return;
-        frame = requestAnimationFrame(tick);
-        if (time - lastScan < 180 || !context || video.readyState < 2 || !video.videoWidth) return;
-        lastScan = time;
-        const scale = Math.min(1, 640 / video.videoWidth);
-        canvas.width = Math.round(video.videoWidth * scale);
-        canvas.height = Math.round(video.videoHeight * scale);
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const found = jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: "dontInvert" });
-        if (found?.data) { stopped = true; cancelAnimationFrame(frame); onCodeRef.current(found.data); }
-      };
-      frame = requestAnimationFrame(tick);
-    })();
-    return () => { stopped = true; cancelAnimationFrame(frame); stream?.getTracks().forEach((track) => track.stop()); };
-  }, []);
-
-  return <div className="pos-scan">
-    {problem ? <p className="pos-scan-problem">{problem}</p> : <>
-      <video ref={videoRef} playsInline muted className="pos-scan-video" />
-      <span className="pos-scan-frame" aria-hidden="true" />
-      <p className="pos-scan-hint">Ask the customer to open <strong>Sign in → their account → My QR code</strong> on the mobile menu, then hold it up to the camera.</p>
-    </>}
-    <button type="button" className="pos-scan-cancel" onClick={onCancel}>Search by name instead</button>
-  </div>;
-}
-
 function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: AttachedCustomer) => void; onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AttachedCustomer[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     const text = query.trim();
@@ -1414,39 +1364,20 @@ function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: Attached
     return () => { active = false; window.clearTimeout(timer); };
   }, [query]);
 
-  async function lookUpCode(code: string) {
-    setScanning(false);
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch(`/api/customers?code=${encodeURIComponent(code)}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Could not look up that code.");
-      const found = (payload.data ?? [])[0] as AttachedCustomer | undefined;
-      if (found) onPick(found);
-      else setError("That QR code is not a Brew Houze customer account (or the account is deactivated). Try searching by name.");
-    } catch (lookupError) {
-      setError(lookupError instanceof Error ? lookupError.message : "Could not look up that code.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
   return <Modal onClose={onClose} label="Add a customer to this order">
     <section className="pos-customer-dialog">
       <div className="pos-customer-dialog-head">
         <div><p>Customer</p><h3>Who is this order for?</h3></div>
         <button type="button" onClick={onClose} aria-label="Close">×</button>
       </div>
-      {scanning ? <QrScanner onCode={(code) => void lookUpCode(code)} onCancel={() => setScanning(false)} /> : <>
+      <>
         <div className="pos-customer-search">
-          <input data-autofocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name or @username" autoComplete="off" autoCapitalize="none" aria-label="Search customers" />
-          <button type="button" onClick={() => setScanning(true)}>Scan QR</button>
+          <input data-autofocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Name, @username or mobile number" autoComplete="off" autoCapitalize="none" aria-label="Search customers" />
         </div>
         {error && <p className="pos-customer-error" role="alert">{error}</p>}
         <div className="pos-customer-results">
           {loading ? <p className="pos-customer-empty">Searching…</p>
-            : results === null ? <p className="pos-customer-empty">Type at least 2 letters of their name or username, or scan the QR code in their mobile menu account.</p>
+            : results === null ? <p className="pos-customer-empty">Type at least 2 letters of their name or username, or their mobile number. Customers with the app can also scan the Stars sign at the counter: they show up in the counter line.</p>
               : results.length === 0 ? <p className="pos-customer-empty">No customer matches. The admin can add regulars in Customers, or the customer can make an account on the mobile menu.</p>
                 : results.map((customer) => <button key={customer.id} type="button" className="pos-customer-result" onClick={() => onPick(customer)}>
                   <span className="pos-customer-avatar">{customerInitials(customer.fullName)}</span>
@@ -1457,7 +1388,7 @@ function CustomerPickerDialog({ onPick, onClose }: { onPick: (customer: Attached
                   </span>
                 </button>)}
         </div>
-      </>}
+      </>
     </section>
   </Modal>;
 }
@@ -1495,22 +1426,6 @@ function rewardMismatch(reward: LoyaltyRewardRule, item: { productId: number; ca
   if (reward.productId === null && reward.category && reward.category !== (item.category ?? "")) return `only ${reward.category}`;
   if (reward.maxPrice !== null && item.price > reward.maxPrice + 0.005) return `over ₱${reward.maxPrice.toFixed(2)}`;
   return null;
-}
-
-function WaitingClaims({ claims, rewards, busyId, onAccept, onDecline }: { claims: CounterClaim[]; rewards: LoyaltyRewardRule[]; busyId: number | null; onAccept: (claim: CounterClaim) => void; onDecline: (claim: CounterClaim) => void }) {
-  if (claims.length === 0) return null;
-  return <div className="pos-claims" role="region" aria-label="Customers waiting from the Stars sign">
-    <p className="pos-claims-title">★ Waiting at the counter</p>
-    {claims.map((claim) => {
-      const reward = rewards.find((item) => item.id === claim.rewardId) ?? null;
-      return <div key={claim.id} className="pos-claim">
-        <span className="pos-customer-avatar">{customerInitials(claim.fullName)}</span>
-        <span className="pos-customer-result-text"><strong>{claim.fullName}</strong><em>{reward ? `wants ${rewardLabel(reward)}` : "add me to this order"} · has ★ {claim.stars}{claim.birthdayTreat ? " · 🎂 birthday" : ""}</em></span>
-        <button type="button" className="pos-claim-accept" disabled={busyId !== null} onClick={() => onAccept(claim)}>{busyId === claim.id ? "…" : "Add"}</button>
-        <button type="button" className="pos-claim-decline" disabled={busyId !== null} onClick={() => onDecline(claim)} aria-label={`Decline ${claim.fullName}`} title="Decline">×</button>
-      </div>;
-    })}
-  </div>;
 }
 
 // ID discounts switched on in Admin → Discounts (senior, PWD and others) and the shop's VAT
@@ -1651,23 +1566,6 @@ type PendingIdCheck = {
 };
 const ID_REJECT_REASONS = ["The photo is blurry or cut off", "The ID has expired", "The name doesn't match", "This isn't a valid ID for this discount"];
 
-function WaitingIdChecks({ checks, notice, onOpen }: { checks: PendingIdCheck[]; notice: string; onOpen: (check: PendingIdCheck) => void }) {
-  if (checks.length === 0 && !notice) return null;
-  return <div className="pos-claims pos-idcheck" role="region" aria-label="ID photos waiting to be checked">
-    <p className="pos-claims-title">🪪 Check ID{checks.length > 1 ? ` · ${checks.length} waiting` : ""}</p>
-    {notice && <p className="pos-idcheck-notice">{notice}</p>}
-    {checks.map((check) => {
-      const units = check.items.reduce((sum, item) => sum + item.quantity, 0);
-      const minutes = Math.max(0, Math.round((new Date().getTime() - new Date(check.createdAt).getTime()) / 60_000));
-      return <div key={check.id} className="pos-claim">
-        <span className="pos-customer-avatar" style={{ background: "#1D4ED8" }}>🪪</span>
-        <span className="pos-customer-result-text"><strong>{check.discountName} · {check.holderName}</strong><em>{units} item{units === 1 ? "" : "s"} · mobile menu · {minutes < 1 ? "just now" : `${minutes} min ago`}</em></span>
-        <button type="button" className="pos-claim-accept" onClick={() => onOpen(check)}>Check</button>
-      </div>;
-    })}
-  </div>;
-}
-
 // lines: the order's items as the POS menu knows them, with how many units are the holder's own.
 type IdCheckLine = { label: string; qty: number; unit: number; covered: number };
 
@@ -1714,7 +1612,7 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
         <div className="pos-idcheck-facts">
           <span><em>Name typed</em><strong>{check.holderName}</strong></span>
           <span><em>{check.idLabel ?? "ID no."}</em><strong>{check.idNumber ?? "—"}</strong></span>
-          <span><em>Order</em><strong>{check.serviceType === "take_out" ? "Take out" : "Dine in"}{check.customerName ? ` · ${check.customerName}` : " · guest"}</strong></span>
+          <span><em>Order</em><strong>{check.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"}{check.customerName ? ` · ${check.customerName}` : " · guest"}</strong></span>
         </div>
         {check.remember && check.username && <p className="pos-idcheck-remember">They asked to remember this ID on their account (@{check.username}), so their next orders get the discount without a photo. Only the name and ID number are saved.</p>}
         <div className="pos-idd-lines">
@@ -1751,30 +1649,14 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
   </Modal>;
 }
 
-// Carts customers sent from the mobile menu to claim an ID discount: the cashier loads one into
-// the POS, checks the ID, and takes payment.
+// Carts customers sent from the mobile menu to pay at the counter: to claim an ID discount (the
+// cashier checks the ID), or simply to pay here (no discount). The cashier loads one into the POS
+// and takes payment.
 type CounterCart = {
   id: number; code: string; items: { productVariantId: number; quantity: number; additionIds: number[] }[];
   serviceType: "dine_in" | "take_out"; discountTypeId: number | null; discountName: string | null;
   createdAt: string; expiresAt: string; customer: AttachedCustomer | null;
 };
-
-function WaitingCounterCarts({ carts, loadedId, onLoad, onDismiss }: { carts: CounterCart[]; loadedId: number | null; onLoad: (cart: CounterCart) => void; onDismiss: (cart: CounterCart) => void }) {
-  const visible = carts.filter((cart) => cart.id !== loadedId);
-  if (visible.length === 0) return null;
-  return <div className="pos-claims pos-sent" role="region" aria-label="Carts sent from the mobile menu">
-    <p className="pos-claims-title">📱 Sent to the counter</p>
-    {visible.map((cart) => {
-      const units = cart.items.reduce((sum, item) => sum + item.quantity, 0);
-      return <div key={cart.id} className="pos-claim">
-        <span className="pos-sent-code">{cart.code}</span>
-        <span className="pos-customer-result-text"><strong>{cart.discountName ?? "ID discount"}{cart.customer ? ` · ${cart.customer.fullName}` : ""}</strong><em>{units} item{units === 1 ? "" : "s"} · {cart.serviceType === "take_out" ? "take out" : "dine in"} · sent {new Date(cart.createdAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</em></span>
-        <button type="button" className="pos-claim-accept" onClick={() => onLoad(cart)}>Load</button>
-        <button type="button" className="pos-claim-decline" onClick={() => onDismiss(cart)} aria-label={`Dismiss cart ${cart.code}`} title="Dismiss">×</button>
-      </div>;
-    })}
-  </div>;
-}
 
 // The customer line in the cart: a button to attach one, or who it is with the café's notes.
 // The customer, discounts or delivery address of the order, opened from the icons in the cart header.
@@ -1808,7 +1690,8 @@ function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }
   </div>;
 }
 
-function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
+// view: the menu and cart, or the counter line (the same component, so the order being made stays).
+function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { userName: string; view: "pos" | "line"; onView: (page: Page) => void; onLineChanged: () => void; onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
@@ -1861,6 +1744,13 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [confirmClear, setConfirmClear] = useState(false);
+  // Served from the line while another order is being made: add the customer to it, or not yet.
+  const [claimAsk, setClaimAsk] = useState<CounterClaim | null>(null);
+  // A note on the line page ("finish the current order first").
+  const [lineNotice, setLineNotice] = useState("");
+  const [lineClock, setLineClock] = useState(() => Date.now());
+  useEffect(() => { const timer = window.setInterval(() => setLineClock(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
   const [additions, setAdditions] = useState<Addition[]>([]);
   // The cart line that add-ons tapped in the POS list attach to.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -2042,6 +1932,15 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     };
   }, []);
 
+  // The stock the menu shows now (it refreshes), by inventory item: a cart line keeps the numbers
+  // from when it was added, so its limits use these instead.
+  const latestStock = useMemo(() => {
+    const stock = new Map<number, number>();
+    products.forEach((product) => product.variants.forEach((variant) => (variant.ingredients ?? []).forEach((ingredient) => stock.set(ingredient.inventory_id, Number(ingredient.available_quantity)))));
+    additions.forEach((addition) => stock.set(addition.inventory_id, Number(addition.available_quantity)));
+    return stock;
+  }, [products, additions]);
+
   // Inventory that ONE unit of a cart line consumes: its recipe components plus its add-ons.
   function getUnitUsage(item: Pick<CartItem, "ingredients" | "additions">) {
     const usage = new Map<number, { required: number; available: number }>();
@@ -2049,8 +1948,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       const current = usage.get(inventoryId);
       usage.set(inventoryId, { required: (current?.required ?? 0) + required, available: Math.min(current?.available ?? Number.POSITIVE_INFINITY, available) });
     };
-    item.ingredients.forEach((ingredient) => addUsage(ingredient.inventory_id, Number(ingredient.required_quantity), Number(ingredient.available_quantity)));
-    item.additions.forEach((addition) => addUsage(addition.inventory_id, Number(addition.quantity) * addition.count, Number(addition.available_quantity)));
+    item.ingredients.forEach((ingredient) => addUsage(ingredient.inventory_id, Number(ingredient.required_quantity), latestStock.get(ingredient.inventory_id) ?? Number(ingredient.available_quantity)));
+    item.additions.forEach((addition) => addUsage(addition.inventory_id, Number(addition.quantity) * addition.count, latestStock.get(addition.inventory_id) ?? Number(addition.available_quantity)));
     return usage;
   }
 
@@ -2086,7 +1985,7 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
   function canAddAddition(addition: Addition): boolean {
     if (!selectedLine) return false;
     const used = getCartUsage(cart).get(addition.inventory_id) ?? 0;
-    return used + Number(addition.quantity) <= Number(addition.available_quantity);
+    return used + Number(addition.quantity) <= (latestStock.get(addition.inventory_id) ?? Number(addition.available_quantity));
   }
 
   function addToCart(product: Product, variant: Variant | null) {
@@ -2096,6 +1995,14 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     const price = variant ? Number(variant.price) : 0;
     const isRecipe = product.product_type !== "stock";
     if (variant && getCartLimit(variant, cart, key) <= 0) return;
+    // The same item again joins its plain line (one with no add-ons and not a reward), so two
+    // taps are "2 ×", not two lines. Add-ons still split one cup off (see addAdditionToSelected).
+    const plain = [...cart].reverse().find((item) => item.variantId === variantId && item.productId === product.product_id && !item.rewardId && item.additions.length === 0);
+    if (plain) {
+      setCart((prev) => prev.map((item) => item.key === plain.key ? { ...item, qty: item.qty + 1 } : item));
+      if (isRecipe) setSelectedKey(plain.key);
+      return;
+    }
     setCart((prev) => [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, temperature: variant?.temperature, isRecipe, qty: 1, price, ingredients: variant?.ingredients ?? [], additions: [] }]);
     // A newly punched drink becomes the target for the add-ons tapped next.
     if (isRecipe) setSelectedKey(key);
@@ -2145,8 +2052,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       const item = prev.find((entry) => entry.key === key);
       if (!item) return prev;
       if (item.rewardId && delta > 0) return prev;
-      const limit = getLineLimit(item, prev, key);
-      const nextQuantity = Math.min(limit, Math.max(0, item.qty + delta));
+      if (delta > 0 && item.qty + delta > getLineLimit(item, prev, key)) return prev;
+      const nextQuantity = Math.max(0, item.qty + delta);
       return prev.flatMap((entry) => {
         if (entry.key !== key) return [entry];
         return nextQuantity > 0 ? [{ ...entry, qty: nextQuantity }] : [];
@@ -2249,9 +2156,10 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     });
   }
 
-  // Puts a sent cart into the POS (the current order must be empty), then asks for the ID.
+  // Puts a sent cart into the POS (the order being made must be finished first), then asks for
+  // the ID when it claims a discount.
   function loadCounterCart(sent: CounterCart) {
-    if (cart.length > 0) { setCheckoutError("Finish or clear the current order before loading a sent cart."); setCartOpen(true); return; }
+    if (cart.length > 0) { setLineNotice(`Finish or clear the order in the POS first, then serve cart ${sent.code}.`); return; }
     const variants = products.flatMap((product) => product.variants.map((variant) => ({ product, variant })));
     let missing = 0;
     const lines: CartItem[] = sent.items.flatMap((item) => {
@@ -2272,15 +2180,73 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
     setCounterCartId(sent.id);
     setCheckoutError(missing > 0 ? `${missing} item${missing === 1 ? "" : "s"} from cart ${sent.code} ${missing === 1 ? "is" : "are"} no longer available.` : "");
     setCartOpen(true);
-    setIdDiscountInitialType(sent.discountTypeId);
-    void loadIdDiscountSetup();
-    setIdDiscountDialogOpen(true);
+    if (sent.discountTypeId !== null) {
+      setIdDiscountInitialType(sent.discountTypeId);
+      void loadIdDiscountSetup();
+      setIdDiscountDialogOpen(true);
+    }
   }
 
+  // ── The counter line: everything from the mobile menu waiting for the cashier, oldest first ──
+  // (carts sent to pay here, ID photos to check, Stars sign scans). One is served at a time.
+  const lineEntries = [
+    ...counterCarts.filter((sent) => sent.id !== counterCartId).map((sent) => ({ key: `cart-${sent.id}`, at: sent.createdAt, kind: "cart" as const, sent })),
+    ...idChecks.map((check) => ({ key: `id-${check.id}`, at: check.createdAt, kind: "id" as const, check })),
+    ...loyalty.claims.map((claim) => ({ key: `claim-${claim.id}`, at: claim.createdAt, kind: "claim" as const, claim })),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  const lineSummary = [
+    lineEntries.filter((entry) => entry.kind === "cart").length ? `${lineEntries.filter((entry) => entry.kind === "cart").length} to pay` : "",
+    idChecks.length ? `${idChecks.length} ID${idChecks.length === 1 ? "" : "s"} to check` : "",
+    loyalty.claims.length ? `${loyalty.claims.length} Stars scan${loyalty.claims.length === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
+  // A sent cart's items as the menu knows them, and their total.
+  function sentItems(items: { productVariantId: number; quantity: number; additionIds: number[] }[]) {
+    const variants = products.flatMap((product) => product.variants.map((variant) => ({ product, variant })));
+    const lines = items.map((item) => {
+      const match = variants.find(({ variant }) => Number(variant.product_variant_id) === item.productVariantId);
+      const extras = additions.filter((addition) => item.additionIds.includes(addition.addition_id));
+      const unit = Number(match?.variant.price ?? 0) + extras.reduce((sum, addition) => sum + Number(addition.price), 0);
+      return { label: match ? `${item.quantity} × ${match.product.product_name}${match.variant.size_label && match.variant.size_label !== "Regular" ? ` ${match.variant.size_label}` : ""}` : `${item.quantity} × an item no longer on the menu`, total: unit * item.quantity };
+    });
+    return { text: lines.map((line) => line.label).join(", "), total: lines.reduce((sum, line) => sum + line.total, 0) };
+  }
+  const waited = (at: string) => { const minutes = Math.max(0, Math.round((lineClock - new Date(at).getTime()) / 60_000)); return minutes < 1 ? "just now" : `${minutes} min`; };
+  function serveCart(sent: CounterCart) {
+    if (cart.length > 0) { setLineNotice(`Finish or clear the order in the POS first (${cart.reduce((sum, item) => sum + item.qty, 0)} item${cart.reduce((sum, item) => sum + item.qty, 0) === 1 ? "" : "s"}), then serve cart ${sent.code}.`); return; }
+    setLineNotice("");
+    loadCounterCart(sent);
+    onView("pos");
+  }
+
+  // Back to an empty order.
+  function resetOrder() {
+    setCart([]); setCustomer(null); setClaimId(null); setDiscountReward(null); setIdDiscounts([]); setCounterCartId(null);
+    setServiceTypeState("dine_in"); setDeliveryForm(emptyCounterDelivery); setPaymentMethod("cash");
+    setReceivedAmount(""); setCashPart(""); setCheckoutError(""); setRewardPassword(""); setSelectedKey(null); setCartPanel(null); setConfirmClear(false);
+  }
+  // The whole order out (asked first): its customer's claim is declined, a sent cart goes back to the list.
+  function clearOrder() {
+    removeCustomer();
+    resetOrder();
+    setDeliveryForm(emptyCounterDelivery);
+  }
   async function dismissCounterCart(sent: CounterCart) {
     await fetch("/api/counter-carts", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: sent.id, action: "dismiss" }) }).catch(() => undefined);
     if (counterCartId === sent.id) setCounterCartId(null);
     void refreshCounterCarts();
+  }
+
+  // A cart loaded from a customer's phone belongs to that customer: no one else is attached to it.
+  function sentCustomerLocked(nextCustomerId: number) {
+    return counterCartId !== null && customer !== null && customer.id !== nextCustomerId;
+  }
+
+  // Serving a Stars sign scan: while an order is being made for someone else (or nobody yet), the
+  // cashier says whether the customer joins it first.
+  function askClaim(claim: CounterClaim) {
+    if (sentCustomerLocked(claim.customerId)) { setLineNotice(`The POS has a cart from ${customer?.fullName ?? "another customer"}'s phone. Finish or clear it first, then serve ${claim.fullName.split(" ")[0]}.`); return; }
+    if (cart.length > 0 && customer?.id !== claim.customerId) { setClaimAsk(claim); return; }
+    void acceptClaim(claim).then(() => onView("pos"));
   }
 
   async function acceptClaim(claim: CounterClaim) {
@@ -2290,8 +2256,11 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       const response = await fetch("/api/claims", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: claim.id, action: "accept" }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not add the customer.");
-      // A different customer's rewards leave the cart with them.
-      if (customer && customer.id !== payload.data.customer.id) { setCart((prev) => prev.filter((item) => !item.rewardId)); setDiscountReward(null); }
+      // A different customer's rewards leave the cart with them, and their own Stars claim is let go.
+      if (customer && customer.id !== payload.data.customer.id) {
+        setCart((prev) => prev.filter((item) => !item.rewardId)); setDiscountReward(null);
+        if (claimId !== null) void fetch("/api/claims", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: claimId, action: "decline" }) }).catch(() => undefined);
+      }
       setCustomer(payload.data.customer as AttachedCustomer);
       setClaimId(Number(payload.data.claimId));
       const reward = payload.data.reward as LoyaltyRewardRule | null;
@@ -2490,7 +2459,48 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
             : "";
   const hasValidPayment = deliveryProblem === "" && ((paymentMethod === "cod" && serviceType === "delivery") || (paymentMethod === "gcash" && (!gcashConfig || subtotal >= gcashConfig.minimumAmount)) || subtotal === 0 || (paymentMethod === "cash" && Number.isFinite(parsedReceivedAmount) && parsedReceivedAmount >= subtotal) || (paymentMethod === "split" && cashPart.trim() !== "" && splitProblem === ""));
 
-  return <main className="pos-layout" style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
+  // The counter line page (see view).
+  const inPos = cart.reduce((sum, item) => sum + item.qty, 0);
+  const counterLineView = <section className="pos-line" aria-label="Counter line">
+    <div className="pos-line-head">
+      <div><h2>Counter line</h2><p>Customers who ordered on the mobile menu and need the counter, oldest first. Serve one at a time: a cart goes into the POS, an ID photo is checked here.</p></div>
+      {inPos > 0
+        ? <button type="button" className="pos-line-current" onClick={() => onView("pos")}><span>In the POS now</span><strong>{inPos} item{inPos === 1 ? "" : "s"} · {formatPeso(subtotal)}{customer ? ` · ${customer.fullName}` : ""}</strong><em>Back to the POS ›</em></button>
+        : <span className="pos-line-current is-free"><span>The POS is free</span><strong>Serve the next customer</strong></span>}
+    </div>
+    {(lineNotice || idCheckNotice) && <p className="pos-line-notice" role="status">{lineNotice || idCheckNotice}</p>}
+    {lineEntries.length === 0
+      ? <div className="pos-line-empty"><IconInbox size={30} /><strong>No one is waiting</strong><span>Carts sent to pay at the counter, ID photos to check and Stars sign scans from the mobile menu show up here.</span></div>
+      : <ol className="pos-line-list">{lineEntries.map((entry, index) => {
+        if (entry.kind === "cart") {
+          const { sent } = entry;
+          const items = sentItems(sent.items);
+          return <li key={entry.key} className={`pos-line-item is-cart${index === 0 ? " is-next" : ""}`}>
+            <span className="pos-line-code">{sent.code}</span>
+            <span className="pos-line-text"><b className="pos-line-kind">{sent.discountTypeId !== null ? `🪪 ${sent.discountName ?? "ID discount"} at the counter` : "💳 Pay at the counter"}</b><strong>{sent.customer?.fullName ?? "Guest"} · {formatPeso(items.total)}</strong><em>{items.text} · {sent.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"} · waiting {waited(sent.createdAt)}</em></span>
+            <span className="pos-line-actions"><button type="button" className="pos-line-serve" onClick={() => serveCart(sent)}>Serve</button><button type="button" className="pos-claim-decline" onClick={() => { void dismissCounterCart(sent).then(onLineChanged); }} aria-label={`Dismiss cart ${sent.code}`} title="Dismiss (they never came)">×</button></span>
+          </li>;
+        }
+        if (entry.kind === "id") {
+          const { check } = entry;
+          const units = check.items.reduce((sum, item) => sum + item.quantity, 0);
+          return <li key={entry.key} className={`pos-line-item is-id${index === 0 ? " is-next" : ""}`}>
+            <span className="pos-line-code is-icon">🪪</span>
+            <span className="pos-line-text"><b className="pos-line-kind">ID photo to check · {check.discountName}</b><strong>{check.holderName}{check.customerName && check.customerName !== check.holderName ? ` · for ${check.customerName}` : ""}</strong><em>{units} item{units === 1 ? "" : "s"} · they pay on their phone once approved · waiting {waited(check.createdAt)}</em></span>
+            <span className="pos-line-actions"><button type="button" className="pos-line-serve" onClick={() => { void loadIdDiscountSetup(); setIdCheckOpen(check); }}>Check ID</button></span>
+          </li>;
+        }
+        const { claim } = entry;
+        const reward = loyalty.rewards.find((item) => item.id === claim.rewardId) ?? null;
+        return <li key={entry.key} className={`pos-line-item is-claim${index === 0 ? " is-next" : ""}`}>
+          <span className="pos-line-code is-icon">{customerInitials(claim.fullName)}</span>
+          <span className="pos-line-text"><b className="pos-line-kind">★ Stars sign</b><strong>{claim.fullName} · ★ {claim.stars}</strong><em>{reward ? `Wants ${rewardLabel(reward)}` : "Add me to my order"}{claim.birthdayTreat ? " · 🎂 birthday" : ""} · waiting {waited(claim.createdAt)}</em></span>
+          <span className="pos-line-actions"><button type="button" className="pos-line-serve" disabled={claimBusyId !== null} onClick={() => askClaim(claim)}>{claimBusyId === claim.id ? "…" : "Serve"}</button><button type="button" className="pos-claim-decline" disabled={claimBusyId !== null} onClick={() => { void declineClaim(claim).then(onLineChanged); }} aria-label={`Decline ${claim.fullName}`} title="Decline">×</button></span>
+        </li>;
+      })}</ol>}
+  </section>;
+  return <main className={`pos-layout${view === "line" ? " is-line" : ""}`} style={{ display: "flex", gap: 20, padding: 20, height: "100%", minHeight: 0 }}>
+    {view === "line" ? counterLineView : <>
     <section className="pos-menu" style={{ flex: 1, minWidth: 0, minHeight: 0, display: "flex", flexDirection: "column", gap: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <input className="pos-search" placeholder="Search all products and add-ons..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, padding: "12px 14px", borderRadius: 12, border: "1px solid #E8DDD5", minWidth: 0, background: "#FDF9F5", color: "#3D2B1F", outline: "none", boxShadow: "0 2px 8px rgba(61,43,31,0.04)" }} />
@@ -2675,10 +2685,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           </CartPanel>}
         </div>
         <div className="pos-cart-scroll">
-        <WaitingClaims claims={loyalty.claims} rewards={loyalty.rewards} busyId={claimBusyId} onAccept={(claim) => void acceptClaim(claim)} onDecline={(claim) => void declineClaim(claim)} />
-        <WaitingIdChecks checks={idChecks} notice={idCheckNotice} onOpen={(check) => { void loadIdDiscountSetup(); setIdCheckOpen(check); }} />
-        <WaitingCounterCarts carts={counterCarts} loadedId={counterCartId} onLoad={loadCounterCart} onDismiss={(sent) => void dismissCounterCart(sent)} />
-        {counterCartId !== null && <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu. The customer&apos;s phone follows this order once it is paid.</p>}
+        {lineEntries.length > 0 && <button type="button" className="pos-line-link" onClick={() => onView("line")}><span className="pos-line-link-count">{lineEntries.length}</span><span><strong>{lineEntries.length === 1 ? "1 waiting" : `${lineEntries.length} waiting`} in the counter line</strong><em>{lineSummary}</em></span><span aria-hidden="true">›</span></button>}
+        {counterCartId !== null && <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu{counterCarts.find((sent) => sent.id === counterCartId)?.discountTypeId === null ? " (paying at the counter)" : ""}. The customer&apos;s phone follows this order once it is paid.</p>}
         <div className="pos-cart-lines">
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {
@@ -2714,8 +2722,8 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
           {(hasOrderDiscount || deliveryZone) && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>{hasOrderDiscount && deliveryZone ? "Items (before discount)" : "Items"}</div><div>₱{itemsSubtotal.toFixed(2)}</div></div>}
           {deliveryZone && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#9C8278" }}><div>Delivery fee · {deliveryZone.name}</div><div>{deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</div></div>}
           <div style={{ marginTop: hasOrderDiscount || deliveryZone ? 10 : 0, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div className="pos-service" role="radiogroup" aria-label="Dine in, take out or delivery">
-              {([["dine_in", "Dine in"], ["take_out", "Take out"], ["delivery", "Delivery"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
+            <div className="pos-service" role="radiogroup" aria-label="Dine in, take out/pick up or delivery">
+              {([["dine_in", "Dine in"], ["take_out", "Take Out/Pick Up"], ["delivery", "Delivery"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
             </div>
             {serviceType === "delivery" && !deliveryAddressReady && deliveryAreas !== null && <button type="button" className="pos-dlv-missing" onClick={() => setDeliveryDialogOpen(true)}>Add the delivery address ›</button>}
             {serviceType === "delivery" && deliveryAddressReady && deliveryProblem && <p className="pos-dlv-warn">{deliveryProblem}</p>}
@@ -2777,18 +2785,34 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
         </div>
         <div className="pos-cart-foot">
           {checkoutError && <p style={{ color: "#B91C1C", fontSize: 12, margin: 0 }}>{checkoutError}</p>}
+          {confirmClear && <div className="pos-clear-confirm" role="alertdialog" aria-label="Clear the order">
+            <span>Clear the whole order{cart.length ? ` (${cart.reduce((sum, item) => sum + item.qty, 0)} item${cart.reduce((sum, item) => sum + item.qty, 0) === 1 ? "" : "s"})` : ""}?{counterCartId !== null ? " The sent cart goes back to the list." : ""}</span>
+            <button type="button" onClick={() => setConfirmClear(false)}>Keep</button>
+            <button type="button" className="is-danger" onClick={clearOrder}>Clear order</button>
+          </div>}
           <div className="pos-cart-total">
             <span>Total{hasOrderDiscount ? " after discount" : ""}{deliveryZone ? " with delivery" : ""}{cartDetailsHidden && cart.length > 0 && <button type="button" className="pos-cart-jump" onClick={() => cartDetailsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Order details ↓</button>}</span>
             <strong>₱{subtotal.toFixed(2)}</strong>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button disabled={checkingOut || cart.length === 0 || !hasValidPayment} onClick={() => void checkout()} style={{ flex: 1, border: "none", background: checkingOut || cart.length === 0 || !hasValidPayment ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", padding: "10px", borderRadius: 10, cursor: checkingOut || cart.length === 0 || !hasValidPayment ? "not-allowed" : "pointer" }}>{checkingOut ? "Processing..." : paymentMethod === "cod" ? "Send for delivery" : paymentMethod === "gcash" ? "Charge with GCash" : paymentMethod === "split" ? `Cash ₱${splitCash.toFixed(2)} + GCash ₱${splitGcash.toFixed(2)}` : "Checkout"}</button>
-            <button onClick={() => { removeCustomer(); setDiscountReward(null); setIdDiscounts([]); setCounterCartId(null); setCart([]); setReceivedAmount(""); setCashPart(""); setCheckoutError(""); setDeliveryForm(emptyCounterDelivery); }} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10 }}>Clear</button>
+            <button type="button" disabled={cart.length === 0 && !customer} onClick={() => setConfirmClear(true)} style={{ border: "1px solid #E8DDD5", background: "#fff", padding: "10px", borderRadius: 10, opacity: cart.length === 0 && !customer ? 0.5 : 1 }}>Clear</button>
           </div>
         </div>
       </div>
     </aside>
+    </>}
 
+    {claimAsk && <Modal onClose={() => setClaimAsk(null)} label="Is this their order?">
+      <section className="pos-customer-dialog pos-claim-ask">
+        <div className="pos-customer-dialog-head"><div><p>Stars sign · {claimAsk.fullName}</p><h3>Is this their order?</h3></div><button type="button" onClick={() => setClaimAsk(null)} aria-label="Close">×</button></div>
+        <p>{customer ? `The order in the POS is for ${customer.fullName}.` : `An order is being made in the POS (${cart.reduce((sum, item) => sum + item.qty, 0)} item${cart.reduce((sum, item) => sum + item.qty, 0) === 1 ? "" : "s"}).`} Is it {claimAsk.fullName.split(" ")[0]}&apos;s? If not, finish that order first and serve {claimAsk.fullName.split(" ")[0]} after.</p>
+        <div className="pos-claim-ask-actions">
+          <button type="button" className="pos-reward-button" onClick={() => { const claim = claimAsk; setClaimAsk(null); void acceptClaim(claim).then(() => onView("pos")); }}>Yes, add {claimAsk.fullName.split(" ")[0]} to this order</button>
+          <button type="button" className="pos-idcheck-secondary" onClick={() => setClaimAsk(null)}>No, not yet</button>
+        </div>
+      </section>
+    </Modal>}
     {deliveryDialogOpen && <DeliveryAddressDialog areas={deliveryAreas} initial={deliveryForm} itemsSubtotal={itemsSubtotal}
       onSave={(form) => { setDeliveryForm(form); setDeliveryDialogOpen(false); if (checkoutError) setCheckoutError(""); }}
       onClose={() => setDeliveryDialogOpen(false)} />}
@@ -2849,7 +2873,12 @@ function POSPage({ userName, onQueueAssigned }: { userName: string; onQueueAssig
       onAdd={(entry) => { setIdDiscounts((current) => [...current, entry]); setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); if (checkoutError) setCheckoutError(""); }} onClose={() => { setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); }} />}
     {idCheckOpen && <IdCheckDialog key={idCheckOpen.id} check={idCheckOpen} lines={idCheckLines(idCheckOpen)} types={idDiscountSetup.types} vat={idDiscountSetup.vat}
       onDecided={(message) => { setIdCheckOpen(null); setIdCheckNotice(message); void refreshIdChecks(); }} onClose={() => { setIdCheckOpen(null); void refreshIdChecks(); }} />}
-    {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => { if (customer && customer.id !== picked.id) removeCustomer(); setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError(""); }} />}
+    {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => {
+      // A cart sent from a customer's phone stays theirs: their phone follows this order.
+      if (sentCustomerLocked(picked.id)) { setCheckoutError(`This order came from ${customer?.fullName ?? "a customer"}'s phone. To serve someone else, finish or clear it first.`); setCustomerPickerOpen(false); return; }
+      if (customer && customer.id !== picked.id) removeCustomer();
+      setCustomer(picked); setCustomerPickerOpen(false); if (checkoutError) setCheckoutError("");
+    }} />}
     {selectionProduct && (
       <Modal onClose={() => setSelectionProduct(null)} label={`Choose ${selectionProduct.product_name}`}>
         <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 420px)", maxHeight: "85vh", overflowY: "auto", padding: 20, borderRadius: 18, background: "#FDF9F5", border: "1px solid #E8DDD5", boxShadow: "0 18px 48px rgba(61,43,31,0.24)" }}>
@@ -3002,7 +3031,7 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
           : card.status === "out" && card.payment !== "cod" && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered")}>{busyId === card.id ? "…" : "Delivered"}</button>)}
         {(card.status === "out" || card.status === "ready") && <button type="button" className="dlv-button is-danger" disabled={busyId !== null} onClick={() => setFailing({ id: card.id, reason: "" })}>Not delivered…</button>}
         {cash.includes(card) && !isRider && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "remit")}>{busyId === card.id ? "…" : `Received ₱${(card.codCollected ?? 0).toFixed(2)}`}</button>}
-        {failed.includes(card) && !isRider && <button type="button" className="dlv-button is-danger" onClick={onOpenReversals}>Void in Void & Refund</button>}
+        {failed.includes(card) && !isRider && <button type="button" className="dlv-button is-danger" onClick={onOpenReversals}>Void in Order history</button>}
       </span>
     </footer>
     {handing?.id === card.id && <div className="dlv-confirm">
@@ -3043,7 +3072,7 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       {section(isRider ? "Your cash to hand in" : "Cash on delivery to receive", cash, isRider ? "Give this cash to the cashier. They record it." : "Riders hand this in. Tap Received when you have counted it: it goes into this shift's drawer.")}
       {section("Ready for pickup", ready, "Packed by the barista.")}
       {section(isRider ? "Your deliveries on the way" : "On the way", out, "Tap Delivered at the door.")}
-      {!isRider && section("Not delivered: void these", failed, "Void the order in Void & Refund. It puts the stock back.")}
+      {!isRider && section("Not delivered: void these", failed, "Void the order in Order history. It puts the stock back.")}
       {isRider && section("Your deliveries that failed", failed, "A cashier voids these.")}
       {section("Being prepared", preparing, "The barista is making these. They show up as ready once packed.")}
       {section(isRider ? "Your deliveries this shift" : "Done this shift", done.slice(0, 30), "")}
@@ -3207,7 +3236,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
             return <article key={order.order_id} style={{ display: "flex", flexDirection: "column", background: "#FDF9F5", border: "1px solid #E8DDD5", borderTop: `6px solid ${wait.color}`, borderRadius: 16, boxShadow: "0 4px 16px rgba(61,43,31,0.08)", overflow: "hidden" }}>
               <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "12px 14px 10px", borderBottom: "1px dashed #E8DDD5" }}>
                 <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 34, fontWeight: 800, lineHeight: 1, color: "#3D2B1F" }}>#{order.queue_number}</strong>
-                {order.service_type && <span className={`queue-service is-${order.service_type}`}>{order.service_type === "take_out" ? "Take out" : order.service_type === "delivery" ? "🛵 Delivery" : "Dine in"}</span>}
+                {order.service_type && <span className={`queue-service is-${order.service_type}`}>{order.service_type === "take_out" ? "Take Out/Pick Up" : order.service_type === "delivery" ? "🛵 Delivery" : "Dine in"}</span>}
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5, marginLeft: "auto" }}>
                   <span style={{ padding: "3px 9px", borderRadius: 999, background: wait.background, color: wait.color, border: `1px solid ${wait.border}`, fontSize: 12, fontWeight: 800 }}>{wait.label}</span>
                   <span style={{ padding: "2px 8px", borderRadius: 999, background: isOnline ? "#CCFBF1" : "#F3EDE5", color: isOnline ? "#0F766E" : "#6B4C3B", fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", fontFamily: "JetBrains Mono, monospace" }}>{isOnline ? "Online" : "Counter"}</span>
@@ -3264,7 +3293,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
           return <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#FFFFFF", border: "1px solid #FED7AA", borderRadius: 12 }}>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 28, fontWeight: 800, color: "#C2410C", minWidth: 58, lineHeight: 1 }}>#{order.queue_number}</strong>
             <span style={{ flex: 1, minWidth: 0, color: "#7C2D12", fontSize: 11.5, lineHeight: 1.35, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
-              {(part || order.customer_name || order.service_type) && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{[part ? `${part.icon} ${part.made}` : "", order.service_type === "take_out" ? "Take out" : order.service_type === "dine_in" ? "Dine in" : "", order.customer_name ?? ""].filter(Boolean).join(" · ")}</strong>}
+              {(part || order.customer_name || order.service_type) && <strong style={{ display: "block", color: "#9A3412", fontSize: 12.5 }}>{[part ? `${part.icon} ${part.made}` : "", order.service_type === "take_out" ? "Take Out/Pick Up" : order.service_type === "dine_in" ? "Dine in" : "", order.customer_name ?? ""].filter(Boolean).join(" · ")}</strong>}
               {shown}
             </span>
             {view.canHandOff && <button type="button" disabled={busyKey !== null} onClick={() => void run(key, () => handOver(order), "Unable to clear it from the ready list.")} title="Remove from the ready list once the customer has collected it" style={{ flexShrink: 0, border: "1px solid #EA580C", background: busy ? "#FED7AA" : "#FFFFFF", color: "#C2410C", borderRadius: 9, padding: "9px 11px", fontSize: 12, fontWeight: 800, cursor: busyKey !== null ? "default" : "pointer" }}>{busy ? "…" : "Picked up"}</button>}
@@ -3405,8 +3434,8 @@ function ReversalsPage({ user }: { user: Session }) {
   return <main className="p-6" style={{ maxWidth: 1100 }}>
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <div>
-        <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", margin: 0 }}>Void & Refund</h1>
-        <p style={{ color: "#9C8278", fontSize: 12.5, margin: "4px 0 0" }}>Orders from the current shift. Orders from earlier shifts can’t be voided or refunded. Reversing an order returns its ingredients and add-ons to inventory.</p>
+        <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", margin: 0 }}>Order history</h1>
+        <p style={{ color: "#9C8278", fontSize: 12.5, margin: "4px 0 0" }}>The orders of the current shift: reprint a receipt, or void or refund an order. Orders from earlier shifts can’t be voided or refunded. Reversing an order returns its ingredients and add-ons to inventory.</p>
       </div>
       <button type="button" onClick={() => { setLoading(true); void loadOrders(); }} style={{ border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#6B4C3B", borderRadius: 10, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Refresh</button>
     </div>
@@ -4280,6 +4309,8 @@ export default function App() {
     setLoginNotice(notice);
   }
   const [page, setPage] = useState<Page>("pos");
+  // How many are waiting in the counter line (the sidebar badge).
+  const [lineCount, setLineCount] = useState(0);
   const [showSignOut, setShowSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -4357,7 +4388,8 @@ export default function App() {
     try {
       const response = await fetch("/api/queue?signatureOnly=1", { cache: "no-store" });
       if (!response.ok) return;
-      const payload = await response.json() as { signature?: { waiting_count?: number; ready_count?: number }; deliveries?: { ready?: number; failed?: number; cash?: number; mine_cash?: number } | null };
+      const payload = await response.json() as { signature?: { waiting_count?: number; ready_count?: number }; deliveries?: { ready?: number; failed?: number; cash?: number; mine_cash?: number } | null; line?: number | null };
+      setLineCount(Number(payload.line ?? 0));
       setQueueCounts({ waiting: Number(payload.signature?.waiting_count ?? 0), ready: Number(payload.signature?.ready_count ?? 0) });
       setDeliveryCounts(payload.deliveries ? { ready: Number(payload.deliveries.ready ?? 0), failed: Number(payload.deliveries.failed ?? 0), cash: Number(payload.deliveries.cash ?? 0), mineCash: Number(payload.deliveries.mine_cash ?? 0) } : null);
     } catch (error) {
@@ -4495,5 +4527,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
 }

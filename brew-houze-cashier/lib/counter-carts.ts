@@ -4,7 +4,8 @@ import type { PoolClient } from "pg";
 // brew-houze-cashier and brew-houze-mobile keep identical copies of this file.
 //
 // A customer with a senior, PWD or other discount ID cannot get the discount on a prepaid mobile
-// order: the ID has to be seen. So they send their cart to the counter instead. It waits there
+// order: the ID has to be seen. So they send their cart to the counter instead. A customer who
+// simply wants to pay at the counter (cash, or GCash there) sends it the same way, with no discount. It waits there
 // with a 4-digit code (waiting), the cashier loads it into the POS, checks the ID and takes payment.
 // The order it becomes carries the cart token as its customer_order_token, so the phone follows
 // the order in the queue like any mobile order.

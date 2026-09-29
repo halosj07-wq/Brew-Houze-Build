@@ -82,7 +82,7 @@ export async function GET() {
           zoneId: row.zone_id === null ? null : Number(row.zone_id), zoneName: (row.zone_name as string | null) ?? null, zoneFee: row.zone_fee === null ? null : Number(row.zone_fee), zoneActive: Boolean(row.zone_active),
           street: String(row.street), landmark: (row.landmark as string | null) ?? null, riderNotes: (row.rider_notes as string | null) ?? null, isDefault: Boolean(row.is_default),
         })),
-        savedId: savedId ? { typeId: savedId.typeId, typeName: savedId.typeName, holderName: savedId.holderName, idEnding: savedId.idNumber ? savedId.idNumber.slice(-4) : null } : null,
+        savedId: savedId ? { typeId: savedId.typeId, typeName: savedId.typeName, holderName: savedId.holderName, expiresAt: savedId.expiresAt, idEnding: savedId.idNumber ? savedId.idNumber.slice(-4) : null } : null,
         orders: orders.rows.map((row) => ({
           id: Number(row.order_id),
           queueNumber: row.queue_number === null ? null : Number(row.queue_number),

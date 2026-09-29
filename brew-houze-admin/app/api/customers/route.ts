@@ -65,10 +65,23 @@ function normalizePhone(value: unknown): string | null {
   return /^09\d{9}$/.test(local) ? local : null;
 }
 
+// A saved discount ID is forgotten after 30 days without use (the same rule as savedIdDiscount in
+// the mobile menu's lib/id-verifications.ts): from when it was checked or last gave a discount.
+async function forgetStaleSavedIds() {
+  await pool.query(`
+    UPDATE customers c SET id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, updated_at = CURRENT_TIMESTAMP
+    WHERE c.id_verified_at IS NOT NULL AND GREATEST(c.id_verified_at, (
+      SELECT MAX(od.created_at) FROM order_discounts od JOIN sales_orders so ON so.order_id = od.order_id
+      WHERE so.customer_id = c.customer_id AND so.status = 'completed' AND od.discount_type_id = c.id_discount_type_id
+    )) < CURRENT_TIMESTAMP - INTERVAL '30 days'
+  `);
+}
+
 export async function GET() {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   try {
+    await forgetStaleSavedIds().catch((error) => console.error("GET /api/customers: could not forget old saved IDs:", error));
     const result = await pool.query(`
       SELECT c.customer_id, c.username, c.full_name, c.email, TO_CHAR(c.birthday, 'YYYY-MM-DD') AS birthday, c.notes, c.is_active,
         (c.username IS NOT NULL AND c.password_hash IS NOT NULL) AS has_login,

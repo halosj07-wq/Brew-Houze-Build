@@ -7,7 +7,7 @@ import { PhoneField } from "@/lib/input-format";
 
 // Customer accounts on the mobile menu. Kept apart from the menu page on purpose:
 //   useCustomerAccount()  all the data and API calls (keep this when the layout is redesigned)
-//   AccountPage            the Account tab: profile, rewards, QR code, settings (or Join for guests)
+//   AccountPage            the Account tab: profile, rewards, settings (or Join for guests)
 //   OrderHistory           past orders, on the Orders tab
 //   AccountSheet           the forms: sign in, sign up, forgot/reset password, details, password,
 //                          addresses, delete, and the Stars sign at the counter
@@ -65,7 +65,7 @@ export type CustomerAccount = { username: string; fullName: string; email: strin
   // Mobile number and delivery addresses; codBlocked: cash on delivery switched off for this account.
   phone?: string | null; codBlocked?: boolean; completedOrders?: number; addresses?: CustomerAddress[];
   // A senior, PWD or other ID the café checked and the customer asked to remember (see ./id-discount.tsx).
-  savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null } | null };
+  savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null; expiresAt?: string } | null };
 
 // Rewards can be claimed in the cart (mobile orders) and with the Stars sign (counter orders).
 const REWARDS_CLAIMABLE = true;
@@ -218,29 +218,12 @@ function RewardsCard({ loyalty }: { loyalty: CustomerLoyalty & { campaign: Loyal
       {rewards.map((reward) => <li key={reward.id} className={reward.starsCost <= balance ? "is-ready" : ""}><span>{reward.starsCost <= balance ? "✓ " : ""}{reward.name}{reward.rewardType === "discount" ? ` · ${discountText(reward)}` : ""}</span><strong>★ {reward.starsCost}</strong></li>)}
     </ul>}
     {affordable.length > 0 && <p className="acct-rewards-claim">{REWARDS_CLAIMABLE ? "Use them in your cart when you order here, or scan the Stars sign at the counter." : "Claiming rewards opens soon. Your stars are saved."}</p>}
-    <p className="acct-rewards-rule">{earnRuleText(campaign)} Counter orders count too: show your QR code to the cashier.</p>
+    <p className="acct-rewards-rule">{earnRuleText(campaign)} Counter orders count too: scan the Stars sign at the counter with your phone.</p>
     {loyalty.history.length > 0 && <details className="acct-rewards-history">
       <summary>Star history</summary>
       <ul>{loyalty.history.map((entry, index) => <li key={index}><span>{STAR_ENTRY_LABELS[entry.kind] ?? entry.kind}{entry.orderQueue ? ` · order #${entry.orderQueue}` : ""}<small>{formatDate(entry.createdAt)}</small></span><strong className={entry.stars < 0 ? "is-minus" : ""}>{entry.stars > 0 ? "+" : ""}{entry.stars}</strong></li>)}</ul>
     </details>}
   </section>;
-}
-
-// The code the counter scans to attach this account to an order (the staff app reads the same
-// "brewhouze:customer:<username>" format). It only identifies the customer: it signs nobody in.
-function MyQrCode({ username }: { username: string }) {
-  const [image, setImage] = useState("");
-  useEffect(() => {
-    let active = true;
-    void import("qrcode").then(({ default: QRCode }) => QRCode.toDataURL(`brewhouze:customer:${username}`, { width: 440, margin: 1, color: { dark: "#2c1810", light: "#ffffff" } }))
-      .then((url) => { if (active) setImage(url); })
-      .catch(() => undefined);
-    return () => { active = false; };
-  }, [username]);
-  return <div className="acct-qr">
-    {image ? <Image src={image} alt={`QR code for @${username}`} width={220} height={220} unoptimized /> : <span className="acct-qr-placeholder">Making your code…</span>}
-    <p>Show this at the counter so the cashier can save your order to your account.</p>
-  </div>;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -349,9 +332,6 @@ function ClaimScreen({ state, fullName }: { state: CustomerAccountState; fullNam
 function IconChevron() {
   return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>;
 }
-function IconQr() {
-  return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 14h3v3M21 14v.01M14 21h3M21 18v3M17.5 17.5h.01" /></svg>;
-}
 
 // One row of the settings list.
 function SettingsRow({ icon, title, detail, onClick, tone }: { icon: string; title: string; detail?: string; onClick: () => void; tone?: "danger" }) {
@@ -362,10 +342,9 @@ function SettingsRow({ icon, title, detail, onClick, tone }: { icon: string; tit
   </button></li>;
 }
 
-// The Account tab. Signed in: who they are, their rewards, the QR code for the counter, and a
+// The Account tab. Signed in: who they are, their rewards, and a
 // settings list (each opens its form in AccountSheet). Guests: why to join, and the way in.
 export function AccountPage({ state, onOpen }: { state: CustomerAccountState; onOpen: (form: AccountForm) => void }) {
-  const [qrOpen, setQrOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const account = state.account;
   if (state.loading) return <div className="ac-page"><p className="ac-loading">Loading your account…</p></div>;
@@ -409,19 +388,13 @@ export function AccountPage({ state, onOpen }: { state: CustomerAccountState; on
       </div>
     </section>
 
-    <button type="button" className="ac-qr-card" onClick={() => setQrOpen(true)}>
-      <span className="ac-qr-icon"><IconQr /></span>
-      <span><strong>My QR code</strong><em>Show it at the counter to earn stars on counter orders</em></span>
-      <IconChevron />
-    </button>
-
     {/* Only when the treat is theirs to take (the cashier can explain the promo the rest of the year). */}
     {loyalty?.birthday && loyalty.birthday.eligible && !loyalty.birthday.claimed && <BirthdayCard birthday={loyalty.birthday} onAddBirthday={() => onOpen("edit")} />}
     {loyalty?.campaign
       ? <RewardsCard loyalty={{ ...loyalty, campaign: loyalty.campaign }} />
       : loyalty?.birthday ? null : <div className="acct-rewards-soon"><strong>Rewards</strong><span>When the café runs a rewards campaign, your stars and free treats show here.</span></div>}
     {account.savedId && <div className="acct-saved-id">
-      <div><strong>🪪 {account.savedId.typeName} discount saved</strong><span>{account.savedId.holderName}{account.savedId.idEnding ? ` · ID ending ${account.savedId.idEnding}` : ""}. Checked by the café, no photo kept. Show your ID at pickup.</span></div>
+      <div><strong>🪪 {account.savedId.typeName} discount saved</strong><span>{account.savedId.holderName}{account.savedId.idEnding ? ` · ID ending ${account.savedId.idEnding}` : ""}. Checked by the café, no photo kept. Show your ID at pickup.{account.savedId.expiresAt ? ` Forgotten on ${new Date(account.savedId.expiresAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", year: "numeric" })} unless you use it (30 days without use).` : ""}</span></div>
       <button type="button" disabled={busy} onClick={() => { setBusy(true); void state.forgetSavedId().finally(() => setBusy(false)); }}>Forget</button>
     </div>}
 
@@ -441,17 +414,11 @@ export function AccountPage({ state, onOpen }: { state: CustomerAccountState; on
     </section>
     <p className="ac-foot">Brew Houze keeps your details only for your account, orders and rewards. We never sell or share them.</p>
 
-    {qrOpen && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setQrOpen(false); }}>
-      <section className="bh-sheet ac-qr-sheet" role="dialog" aria-modal="true" aria-label="My QR code">
-        <div className="bh-sheet-head"><div><p className="bh-eyebrow">At the counter</p><h2>My QR code</h2></div><button type="button" className="bh-sheet-close" onClick={() => setQrOpen(false)} aria-label="Close">×</button></div>
-        <div className="bh-sheet-scroll"><MyQrCode username={account.username} /><p className="ac-qr-name">{account.fullName} · @{account.username}</p></div>
-      </section>
-    </div>}
   </div>;
 }
 
 // Past orders on the Orders tab (signed in), or why to sign in.
-export function OrderHistory({ state, onSignIn }: { state: CustomerAccountState; onSignIn: () => void }) {
+export function OrderHistory({ state, onSignIn, onReceipt }: { state: CustomerAccountState; onSignIn: () => void; onReceipt?: (orderId: number) => void }) {
   if (state.loading) return null;
   if (!state.account) return <div className="oh-guest">
     <strong>Keep a history of your orders</strong>
@@ -470,6 +437,7 @@ export function OrderHistory({ state, onSignIn }: { state: CustomerAccountState;
       <span>{order.source === "mobile" ? "Ordered here" : "At the counter"}</span>
       {order.discountLabel && (order.discountTotal ?? 0) > 0 && <span className="is-discount">−₱{(order.discountTotal ?? 0).toFixed(2)} · {order.discountLabel.replace(/\s*\(.*\)\s*$/, "")}</span>}
       {order.status !== "completed" && <span className="is-status">{order.status === "voided" ? "Cancelled" : order.status === "refunded" ? "Refunded" : order.status}</span>}
+      {onReceipt && <button type="button" className="oh-receipt" onClick={() => onReceipt(order.id)}>View receipt</button>}
     </div>
   </li>)}</ul>;
 }

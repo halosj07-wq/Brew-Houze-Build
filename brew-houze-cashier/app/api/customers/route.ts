@@ -4,24 +4,20 @@ import { birthdayStatus, runningCampaign } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { normalizePhone } from "@/lib/delivery";
 
-// Finds a customer to attach to the order at the counter: by name, username or mobile number (?q=), or by the
-// code on their phone (?code=, from the QR in their mobile menu account). Only what the counter
-// needs is returned: no email or birthday. Notes are the café's own, for serving them.
+// Finds a customer to attach to the order at the counter: by name, username or mobile number (?q=).
+// Only what the counter needs is returned: no email or birthday. Notes are the café's own, for
+// serving them.
 
 const MIN_QUERY_LENGTH = 2;
 const MAX_RESULTS = 12;
-// The QR in the customer's account holds "brewhouze:customer:<username>".
-const CODE_PREFIX = "brewhouze:customer:";
 
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   const params = new URL(request.url).searchParams;
-  const code = (params.get("code") ?? "").trim();
   const query = (params.get("q") ?? "").trim().replace(/^@/, "").slice(0, 80);
-  const username = code.toLowerCase().startsWith(CODE_PREFIX) ? code.slice(CODE_PREFIX.length) : code;
-  if (!username && query.length < MIN_QUERY_LENGTH) return NextResponse.json({ data: [] });
+  if (query.length < MIN_QUERY_LENGTH) return NextResponse.json({ data: [] });
   try {
     const escaped = query.replace(/[\\%_]/g, (character) => `\\${character}`);
     const result = await pool.query(`
@@ -33,10 +29,10 @@ export async function GET(request: Request) {
         SELECT COUNT(*)::int AS visits, MAX(created_at) AS last_visit FROM sales_orders WHERE customer_id = c.customer_id AND status = 'completed'
       ) o ON TRUE
       WHERE c.is_active = TRUE AND c.deleted_at IS NULL
-        AND ${username ? "LOWER(c.username) = LOWER($1)" : "(c.full_name ILIKE '%' || $1 || '%' OR c.username ILIKE $1 || '%' OR c.phone = $2)"}
-      ORDER BY ${username ? "c.customer_id" : "(LOWER(c.username) = LOWER($1)) DESC, o.last_visit DESC NULLS LAST, c.full_name"}
+        AND (c.full_name ILIKE '%' || $1 || '%' OR c.username ILIKE $1 || '%' OR c.phone = $2)
+      ORDER BY (LOWER(c.username) = LOWER($1)) DESC, o.last_visit DESC NULLS LAST, c.full_name
       LIMIT ${MAX_RESULTS}
-    `, username ? [username] : [escaped, normalizePhone(query) ?? ""]);
+    `, [escaped, normalizePhone(query) ?? ""]);
     // Stars in the running loyalty campaign (null when none is running).
     const campaign = await runningCampaign().catch(() => null);
     const balances = new Map<number, number>();

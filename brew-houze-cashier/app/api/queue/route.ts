@@ -45,7 +45,14 @@ export async function GET(request: Request) {
         FROM deliveries d JOIN sales_orders so ON so.order_id = d.order_id
         WHERE d.status IN ('ready', 'failed') OR (d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL)
       `, [session.adminId]).then((result) => result.rows[0]).catch(() => null);
-      return NextResponse.json({ signature: signatureResult.rows[0], deliveries }, { headers: { "Cache-Control": "no-store" } });
+      // The counter line (the cashier's badge): carts sent to pay at the counter, ID photos to check,
+      // and Stars sign scans, still in time. Not for staff who only see a queue.
+      const line = session.role && ["barista", "kitchen", "rider"].includes(String(session.role).toLowerCase()) ? null : await pool.query(`
+        SELECT (SELECT COUNT(*) FROM counter_carts WHERE status = 'waiting' AND expires_at > CURRENT_TIMESTAMP)
+          + (SELECT COUNT(*) FROM id_verifications WHERE status = 'pending' AND expires_at > CURRENT_TIMESTAMP)
+          + (SELECT COUNT(*) FROM loyalty_claims WHERE status = 'pending' AND expires_at > CURRENT_TIMESTAMP) AS n
+      `).then((result) => Number(result.rows[0].n)).catch(() => null);
+      return NextResponse.json({ signature: signatureResult.rows[0], deliveries, line }, { headers: { "Cache-Control": "no-store" } });
     }
     const result = await pool.query(`
       SELECT
@@ -153,7 +160,7 @@ export async function GET(request: Request) {
       JOIN sales_order_items soi ON soi.order_id = so.order_id
       JOIN products p ON p.product_id = soi.product_id
       LEFT JOIN product_variants pv ON pv.product_variant_id = soi.product_variant_id
-      -- Void & Refund lists the orders of the shift that is open now, the only ones that can be reversed.
+      -- Order history lists the orders of the shift that is open now, the only ones that can be reversed.
       WHERE so.status IN ('completed', 'voided', 'refunded') AND so.is_archived = FALSE
         AND so.shift_id = (SELECT shift_id FROM shifts WHERE closed_at IS NULL LIMIT 1)
       GROUP BY so.order_id, reverser.full_name, cu.customer_id

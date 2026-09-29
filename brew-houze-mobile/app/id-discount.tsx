@@ -190,7 +190,7 @@ export function IdCheckStatus({ check, payLabel, paying, onPay, onCancel, onRetr
           <div><span>Less discount</span><b>−{peso(check.breakdown.discountAmount)}</b></div>
           <div className="is-total"><span>Total</span><b>{peso(check.breakdown.total)}</b></div>
         </div> : <p className="id-sheet-problem">{check.problem ?? "Checking the total…"}</p>}
-        <p>{check.serviceType ? <><strong>{check.serviceType === "take_out" ? "Take out" : "Dine in"}</strong> order. </> : null}Show your ID when you pick up your order.</p>
+        <p>{check.serviceType ? <><strong>{check.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"}</strong> order. </> : null}Show your ID when you pick up your order.</p>
         <button className="add-order-button" disabled={paying || !check.breakdown} onClick={onPay}>{paying ? "Opening payment..." : payLabel} <span>{check.breakdown ? `${peso(check.breakdown.total)} →` : ""}</span></button>
         <button className="id-status-link" disabled={paying} onClick={onCancel}>Cancel this order</button>
       </> : check.status === "rejected" ? <>

@@ -409,12 +409,6 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-customer-result:hover { border-color: #D97706; background: #FFF7ED; }
 .pos-customer-empty { margin: 8px 2px; color: #9C8278; font-size: 12.5px; line-height: 1.5; }
 .pos-customer-error { margin: 0; padding: 9px 11px; border-radius: 9px; background: #FEF2F2; color: #B91C1C; font-size: 12.5px; }
-.pos-scan { position: relative; display: flex; flex-direction: column; gap: 10px; }
-.pos-scan-video { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 14px; background: #1F1410; }
-.pos-scan-frame { position: absolute; top: 12%; left: 50%; width: 52%; aspect-ratio: 1; transform: translateX(-50%); border: 3px solid rgba(253,249,245,0.9); border-radius: 16px; box-shadow: 0 0 0 999px rgba(0,0,0,0.18); pointer-events: none; }
-.pos-scan-hint, .pos-scan-problem { margin: 0; color: #6B4C3B; font-size: 12.5px; line-height: 1.5; }
-.pos-scan-problem { padding: 12px; border-radius: 10px; background: #FEF2F2; color: #B91C1C; }
-.pos-scan-cancel { height: 42px; border: 1px solid #E8DDD5; border-radius: 10px; background: #F3EDE5; color: #6B4C3B; font-weight: 700; cursor: pointer; }
 .queue-customer { display: flex; flex-direction: column; gap: 5px; padding: 8px 14px; border-bottom: 1px dashed #E8DDD5; background: #FFFBEB; }
 .queue-customer-name { color: #6B4C3B; font-size: 12.5px; }
 .queue-customer-name strong { color: #3D2B1F; font-size: 14px; }
@@ -461,6 +455,51 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-idcheck-secondary { height: 40px; padding: 0 14px; border: 1px solid #E8DDD5; border-radius: 10px; background: #FFFFFF; color: #6B4C3B; font-weight: 800; cursor: pointer; }
 .pos-idcheck-reject-button { background: #B91C1C; }
 @media (max-width: 520px) { .pos-idcheck-facts { grid-template-columns: 1fr; } }
+/* The counter line (see counterLine in POSPage): mobile requests waiting for the cashier, oldest first. */
+.pos-layout.is-line { display: block !important; overflow: auto; }
+.pos-line { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+.pos-line-head { display: flex; align-items: stretch; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.pos-line-head h2 { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 22px; font-weight: 800; color: #3D2B1F; }
+.pos-line-head p { margin: 4px 0 0; max-width: 520px; color: #9C8278; font-size: 13px; line-height: 1.5; }
+.pos-line-current { display: flex; flex-direction: column; gap: 2px; min-width: 230px; padding: 10px 14px; border: 1px solid #FCD34D; border-radius: 14px; background: #FFFBEB; text-align: left; cursor: pointer; }
+.pos-line-current span { color: #B45309; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.pos-line-current strong { color: #3D2B1F; font-size: 14px; }
+.pos-line-current em { color: #B45309; font-size: 12px; font-style: normal; font-weight: 700; }
+.pos-line-current.is-free { border-color: #BBF7D0; background: #F0FDF4; cursor: default; }
+.pos-line-current.is-free span { color: #15803D; }
+.pos-line-notice { margin: 0; padding: 9px 12px; border-radius: 10px; background: #FEF3C7; color: #92400E; font-size: 13px; font-weight: 600; }
+.pos-line-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 48px 20px; border: 1px dashed #E8DDD5; border-radius: 18px; background: #FDF9F5; color: #9C8278; text-align: center; font-size: 13px; }
+.pos-line-empty strong { color: #3D2B1F; font-size: 16px; }
+.pos-line-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.pos-line-item { display: flex; align-items: center; gap: 14px; padding: 13px 14px; border: 1px solid #E8DDD5; border-radius: 16px; background: #FFFFFF; }
+.pos-line-item.is-next { border-color: #D97706; box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12); }
+.pos-line-code { flex-shrink: 0; display: grid; place-items: center; min-width: 64px; height: 52px; padding: 0 8px; border-radius: 12px; background: #3D2B1F; color: #FDF9F5; font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; letter-spacing: 0.06em; }
+.pos-line-code.is-icon { font-family: 'Hanken Grotesk', sans-serif; font-size: 18px; background: #F3EDE5; color: #6B4C3B; }
+.pos-line-item.is-id .pos-line-code { background: #DBEAFE; color: #1D4ED8; }
+.pos-line-item.is-claim .pos-line-code { background: #FEF3C7; color: #B45309; }
+.pos-line-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pos-line-kind { color: #B45309; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+.pos-line-item.is-id .pos-line-kind { color: #1D4ED8; }
+.pos-line-text strong { color: #3D2B1F; font-size: 15px; }
+.pos-line-text em { color: #9C8278; font-size: 12.5px; font-style: normal; line-height: 1.4; }
+.pos-line-actions { flex-shrink: 0; display: flex; gap: 6px; }
+.pos-line-serve { height: 40px; padding: 0 18px; border: 0; border-radius: 10px; background: #D97706; color: #FFFFFF; font-weight: 800; font-size: 14px; cursor: pointer; }
+.pos-line-serve:disabled { opacity: 0.5; cursor: default; }
+.pos-line-item .pos-claim-decline { height: 40px; }
+/* In the cart: a link to the line when someone is waiting. */
+.pos-line-link { flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 9px 11px; border: 1px solid #FCD34D; border-radius: 12px; background: #FFFBEB; color: #3D2B1F; text-align: left; cursor: pointer; }
+.pos-line-link > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; }
+.pos-line-link strong { font-size: 13px; }
+.pos-line-link em { color: #B45309; font-size: 11.5px; font-style: normal; }
+.pos-line-link-count { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 999px; background: #D97706; color: #FFFFFF; font-weight: 800; font-size: 13px; }
+@media (max-width: 640px) { .pos-line-item { flex-wrap: wrap; } .pos-line-actions { width: 100%; } .pos-line-serve { flex: 1; } }
+.pos-clear-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 9px 10px; border-radius: 10px; border: 1px solid #FECACA; background: #FEF2F2; color: #7F1D1D; font-size: 12.5px; font-weight: 600; }
+.pos-clear-confirm span { flex: 1 1 160px; line-height: 1.35; }
+.pos-clear-confirm button { height: 32px; padding: 0 12px; border: 1px solid #E8DDD5; border-radius: 8px; background: #FFFFFF; color: #3D2B1F; font-weight: 800; cursor: pointer; }
+.pos-clear-confirm button.is-danger { border-color: #B91C1C; background: #B91C1C; color: #FFFFFF; }
+.pos-claim-ask { display: flex; flex-direction: column; gap: 12px; }
+.pos-claim-ask > p { margin: 0; color: #6B4C3B; font-size: 13.5px; line-height: 1.5; }
+.pos-claim-ask-actions { display: flex; flex-direction: column; gap: 8px; }
 .pos-sent-loaded { flex-shrink: 0; margin: 0; padding: 7px 10px; border-radius: 9px; background: #EFF6FF; color: #1E3A8A; font-size: 12px; font-weight: 600; line-height: 1.4; }
 .pos-reward-button { width: 100%; height: 40px; border: 0; border-radius: 10px; background: #3D2B1F; color: #FDF9F5; font-weight: 800; cursor: pointer; }
 .pos-reward-button:disabled { opacity: 0.55; cursor: default; }

@@ -5358,7 +5358,7 @@ function orderChannel(order: Pick<FinanceOrder, "orderSource" | "paymentMethod">
 }
 const channelLabels = { cash: "Cash", online: "Online at counter", split: "Split (cash + GCash)", mobile: "Mobile menu" } as const;
 
-const serviceTypeLabels: Record<string, string> = { dine_in: "Dine in", take_out: "Take out", delivery: "Delivery", unknown: "Not recorded" };
+const serviceTypeLabels: Record<string, string> = { dine_in: "Dine in", take_out: "Take Out/Pick Up", delivery: "Delivery", unknown: "Not recorded" };
 
 function orderStatusOf(order: Pick<FinanceOrder, "status">): "completed" | "voided" | "refunded" {
   const status = order.status.toLowerCase();
@@ -5548,7 +5548,7 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       </DashCard>
     </div>
 
-    {(data.serviceTypes ?? []).some((row) => row.type !== "unknown") && <DashCard title={(data.serviceTypes ?? []).some((row) => row.type === "delivery") ? "Dine in, take out and delivery" : "Dine in vs take out"} sub="Completed orders in this period.">
+    {(data.serviceTypes ?? []).some((row) => row.type !== "unknown") && <DashCard title={(data.serviceTypes ?? []).some((row) => row.type === "delivery") ? "Dine in, take out/pick up and delivery" : "Dine in vs take out/pick up"} sub="Completed orders in this period.">
       <ul className="fin-simple-list">
         {(data.serviceTypes ?? []).map((row) => {
           const totalOrders = (data.serviceTypes ?? []).reduce((sum, item) => sum + item.orders, 0);
@@ -5901,8 +5901,8 @@ function FinanceOrders({ start, end, preset }: { start: string; end: string; pre
       <div className="inv-range" role="group" aria-label="Payment">
         {([["all", "Any payment"], ["cash", "Cash"], ["online", "Online"], ["split", "Split"], ["mobile", "Mobile"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={channel === id} onClick={() => setChannel(id)}>{label}</button>)}
       </div>
-      <div className="inv-range" role="group" aria-label="Dine in or take out">
-        {([["all", "Any type"], ["dine_in", "Dine in"], ["take_out", "Take out"], ...(serviceFilter === "delivery" || orders.some((order) => order.serviceType === "delivery") ? [["delivery", "Delivery"] as const] : [])] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={serviceFilter === id} onClick={() => setServiceFilter(id)}>{label}</button>)}
+      <div className="inv-range" role="group" aria-label="Dine in or take out/pick up">
+        {([["all", "Any type"], ["dine_in", "Dine in"], ["take_out", "Take Out/Pick Up"], ...(serviceFilter === "delivery" || orders.some((order) => order.serviceType === "delivery") ? [["delivery", "Delivery"] as const] : [])] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={serviceFilter === id} onClick={() => setServiceFilter(id)}>{label}</button>)}
       </div>
     </div>
 
@@ -8291,7 +8291,7 @@ function Delivery() {
       {notice && <div className="acc-notice" role="status">{notice}</div>}
       {!rules ? <div className="inv-empty">Loading delivery settings…</div> : <>
         {live.length > 0 && <section className="acc-block dlv-now">
-          <header className="acc-block-head"><div><h3>Right now</h3><p>Riders and cashiers handle these in the staff app (Deliveries). Failed deliveries are voided in Void &amp; Refund.</p></div><button type="button" className="inv-mini" onClick={() => void load()}><IconRotateCcw size={12} />Refresh</button></header>
+          <header className="acc-block-head"><div><h3>Right now</h3><p>Riders and cashiers handle these in the staff app (Deliveries). Failed deliveries are voided in Order history.</p></div><button type="button" className="inv-mini" onClick={() => void load()}><IconRotateCcw size={12} />Refresh</button></header>
           <div className="acc-stats">
             <div><span>In progress</span><strong>{liveGoing.length}</strong><em className="fin-loy-sub">{liveGoing.filter((delivery) => delivery.status === "out").length} on the way · {liveGoing.filter((delivery) => delivery.status === "ready").length} waiting for a rider</em></div>
             <div><span>Not delivered</span><strong style={{ color: liveFailed.length ? "#B91C1C" : undefined }}>{liveFailed.length}</strong><em className="fin-loy-sub">{liveFailed.length ? "to void in the staff app" : "none"}</em></div>

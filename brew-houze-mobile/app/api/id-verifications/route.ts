@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { parseOrderItems, parseServiceType, quoteOrderBreakdown } from "@/lib/orders";
+import { parseOrderItems, parseServiceType, quoteOrderBreakdown, isSoldOut } from "@/lib/orders";
 import { cleanupIdVerifications, parseCoverage, PENDING_MINUTES } from "@/lib/id-verifications";
 import { getCustomerSession } from "@/lib/customers";
 
@@ -50,6 +50,7 @@ export async function POST(request: Request) {
     `, [token, customer?.customerId ?? null, typeId, holderName, idNumber, JSON.stringify(items), coverage.lines === null ? null : JSON.stringify(coverage.lines), coverage.groupSize, serviceType, photoBytes, photo[1], Boolean(customer) && body.remember === true, String(PENDING_MINUTES)]);
     return NextResponse.json({ data: { token, estimate, expiresAt: String(inserted.rows[0].expires_at) } }, { status: 201 });
   } catch (error) {
+    if (isSoldOut(error)) return NextResponse.json({ error: "Some items in your cart just sold out.", code: "sold_out" }, { status: 409 });
     console.error("POST /api/id-verifications failed:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not send your ID." }, { status: 400 });
   } finally {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { parseOrderItems, parseServiceType } from "@/lib/orders";
+import { parseOrderItems, parseServiceType, isSoldOut } from "@/lib/orders";
 import { startCheckout } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { getCustomerSession } from "@/lib/customers";
@@ -33,6 +33,7 @@ export async function POST(request: Request) {
     const started = await startCheckout({ source: "mobile", items, cashierAdminId: null, customerId: idDiscount?.customerId ?? customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, idDiscounts: idDiscount?.idDiscounts ?? [], idVerificationId: idDiscount?.verificationId ?? null, serviceType, delivery, returnUrl: (token) => `${origin}/?payment=${token}` });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
+    if (isSoldOut(error)) return NextResponse.json({ error: "Some items in your cart just sold out.", code: "sold_out" }, { status: 409 });
     console.error("POST /api/payments (mobile) failed:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Could not start the GCash payment." }, { status: 400 });
   }

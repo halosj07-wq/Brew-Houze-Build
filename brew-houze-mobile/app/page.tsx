@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { AccountPage, AccountSheet, CartAccountNote, discountText, OrderHistory, rewardMismatch, usableRewards, useCustomerAccount, type AccountForm, type LoyaltyReward } from "./account";
 import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, type IdDiscountRule, type VatSetting } from "./id-discount";
 import { PhoneField } from "@/lib/input-format";
+import { downloadReceipt, ReceiptSheet } from "./receipt";
 
 type Product = {
   id: number;
@@ -50,12 +51,47 @@ type PaymentCheck = { token: string; state: "checking" | "slow" | "failed"; mess
 // ID discounts (senior, PWD and others) are checked at the counter: the customer sends their cart
 // there with a 4-digit code and pays the cashier. Kept in storage so a reload keeps the code.
 type IdDiscountOption = IdDiscountRule;
-type SentCart = { token: string; code: string; expiresAt: string; discountName: string; status: "waiting" | "expired" | "cancelled" };
+// discountName: null when the customer simply pays at the counter (no ID discount).
+type SentCart = { token: string; code: string; expiresAt: string; discountName: string | null; status: "waiting" | "expired" | "cancelled" };
 const sentCartStorageKey = "brew-houze-sent-cart";
 // The Favorites chip (not a category name).
 const FAVORITES = "__favorites";
 // An ID photo the café is checking (or approved), so a reload keeps following it.
 const idCheckStorageKey = "brew-houze-id-check";
+
+// What the customer is told when something in their cart sold out: never which stock ran short.
+const SOLD_OUT_MESSAGE = "Some items just sold out, so we took them out of your cart. Check your cart and order again.";
+
+// The cart against a fresh menu: each line takes the latest stock of its item and add-ons, lines
+// whose item, option or add-on is gone or unavailable are dropped, and quantities are cut to what
+// is left (lines earlier in the cart first). changed: something was dropped or cut.
+function reconcileCart(cart: CartItem[], products: Product[]): { cart: CartItem[]; changed: boolean } {
+  const used = new Map<number, number>();
+  let changed = false;
+  const next: CartItem[] = [];
+  for (const line of cart) {
+    const product = products.find((candidate) => candidate.id === line.product.id);
+    const variant = product?.variants?.find((candidate) => candidate.id === line.variantId) ?? null;
+    const additions = line.additions.map((addition) => product?.additions?.find((candidate) => candidate.id === addition.id) ?? null);
+    if (!product || !variant || !variant.available || additions.some((addition) => addition === null)) { changed = true; continue; }
+    const fresh: CartItem = { ...line, product, ingredients: variant.ingredients, additions: additions as Addition[] };
+    // Units of this line the stock allows after the lines before it.
+    const needs = new Map<number, { available: number; required: number }>();
+    const need = (inventoryId: number, available: number, required: number) => {
+      const current = needs.get(inventoryId);
+      needs.set(inventoryId, { available: Math.min(current?.available ?? available, available), required: (current?.required ?? 0) + required });
+    };
+    fresh.ingredients.forEach((ingredient) => need(ingredient.inventoryId, ingredient.availableQuantity, ingredient.requiredQuantity));
+    fresh.additions.forEach((addition) => need(addition.inventoryId, addition.availableQuantity, addition.quantity));
+    const limit = needs.size === 0 ? fresh.quantity : Math.max(0, Math.floor(Math.min(...Array.from(needs).map(([inventoryId, resource]) => (resource.available - (used.get(inventoryId) ?? 0)) / resource.required))));
+    const quantity = Math.min(fresh.quantity, limit);
+    if (quantity < line.quantity) changed = true;
+    if (quantity <= 0) continue;
+    needs.forEach((resource, inventoryId) => used.set(inventoryId, (used.get(inventoryId) ?? 0) + resource.required * quantity));
+    next.push({ ...fresh, quantity });
+  }
+  return { cart: changed ? next : cart.map((line, index) => next[index] ?? line), changed };
+}
 
 function sortVariants(variants: Variant[]): Variant[] {
   const sizeOrder = new Map([["8 oz", 0], ["12 oz", 1], ["16 oz", 2], ["22 oz", 3]]);
@@ -105,6 +141,9 @@ function IconTrash() {
   return <svg width="15" height="15" viewBox="0 0 24 24" {...iconProps} aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>;
 }
 
+function IconDownload() {
+  return <svg width="16" height="16" viewBox="0 0 24 24" {...iconProps}><path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" /></svg>;
+}
 function IconReceipt() {
   return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" /><path d="M9 8h6M9 12h6M9 16h3" /></svg>;
 }
@@ -150,6 +189,14 @@ export default function MenuPage() {
   const [tab, setTab] = useState<"menu" | "orders" | "account">("menu");
   const [placingOrder, setPlacingOrder] = useState(false);
   const [orderError, setOrderError] = useState("");
+  // Paying at the counter instead of with GCash here (dine in and take out/pick up): the cart is
+  // sent to the counter with a code, like an ID discount claimed there.
+  const [payAtCounter, setPayAtCounter] = useState(false);
+  // The receipt being shown (a tracked order's token, or a past order's id).
+  const [receiptFor, setReceiptFor] = useState<{ token: string } | { orderId: number } | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  // The receipt being saved straight from an order card (its tracking token).
+  const [savingReceipt, setSavingReceipt] = useState<string | null>(null);
   const [trackedOrders, setTrackedOrders] = useState<TrackedOrder[]>([]);
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig>({ method: "none" });
   const [paymentCheck, setPaymentCheck] = useState<PaymentCheck | null>(null);
@@ -388,6 +435,8 @@ export default function MenuPage() {
     try { window.localStorage.removeItem(pendingPaymentStorageKey); } catch { /* storage unavailable */ }
     setPaymentCheck(null);
     setCartOpen(true);
+    // What sold out meanwhile leaves the cart.
+    void loadMenu(true).then((changed) => { if (changed) setOrderError(SOLD_OUT_MESSAGE); });
   }
 
   useEffect(() => {
@@ -480,27 +529,45 @@ export default function MenuPage() {
     return () => { active = false; window.clearInterval(intervalId); };
   }, [sentToken, refreshAccount]);
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/products", { cache: "default" })
-      .then(async (response) => {
-        const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; error?: string };
-        if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
-        if (active) {
-          setProducts(payload.data ?? []);
-          setStoreOpen(payload.storeOpen !== false);
-          if (payload.payment) setPaymentConfig(payload.payment);
-        }
-      })
-      .catch((loadError) => {
-        console.error("Mobile menu: failed to load products", loadError);
-        if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load the menu.");
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
+  // The menu with its stock. Loaded when the page opens, again every minute while it is on screen,
+  // and right after an order finds something sold out; each load keeps the cart within the stock.
+  // Resolves whether the cart had to change.
+  const loadMenu = useCallback(async (fresh = false): Promise<boolean> => {
+    try {
+      const response = await fetch("/api/products", { cache: fresh ? "no-store" : "default" });
+      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; error?: string };
+      if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
+      const menu = payload.data ?? [];
+      setProducts(menu);
+      setStoreOpen(payload.storeOpen !== false);
+      if (payload.payment) setPaymentConfig(payload.payment);
+      setError("");
+      let changed = false;
+      setCart((current) => { const result = reconcileCart(current, menu); changed = result.changed; return result.cart; });
+      return changed;
+    } catch (loadError) {
+      console.error("Mobile menu: failed to load products", loadError);
+      setError((current) => current || (loadError instanceof Error ? loadError.message : "Unable to load the menu."));
+      return false;
+    } finally {
+      setLoading(false);
+    }
   }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void loadMenu(), 0);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      void loadMenu(true).then((changed) => { if (changed) setAddedNote("Some items sold out and were taken out of your cart."); });
+    }, 60_000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [loadMenu]);
+  // An order found something sold out: the menu is loaded again and the cart trimmed, and the
+  // customer is only told that some items sold out.
+  async function handleSoldOut() {
+    await loadMenu(true);
+    setOrderError(SOLD_OUT_MESSAGE);
+    setCartOpen(true);
+  }
 
   const categories = useMemo(() => Array.from(new Set(products.map((product) => product.category).filter(Boolean))), [products]);
   const favoriteIds = useMemo(() => customer.account?.favorites ?? [], [customer.account]);
@@ -580,7 +647,8 @@ export default function MenuPage() {
   // opens the item sheet, so a size or temperature is never picked for the customer.
   const isSimple = (product: Product) => (product.additions ?? []).length === 0 && (product.variants ?? []).filter((variant) => variant.available).length <= 1;
   function quickAdd(product: Product) {
-    const variant = sortVariants(product.variants ?? []).find((option) => option.available && getCartLimit({ ingredients: option.ingredients, additions: [] }, cart, `${product.id}-${option.id}-`) >= 1);
+    // "" counts every line, this item's own too: the unit is added to that line.
+    const variant = sortVariants(product.variants ?? []).find((option) => option.available && getCartLimit({ ingredients: option.ingredients, additions: [] }, cart, "") >= 1);
     if (!variant) { openProduct(product); return; }
     const key = `${product.id}-${variant.id}-`;
     setCart((current) => current.some((item) => item.key === key)
@@ -614,7 +682,8 @@ export default function MenuPage() {
     const key = `${selectedProduct.id}-${variant?.id ?? "regular"}-${[...selectedAdditionIds].sort((a, b) => a - b).join(",")}`;
     const others = editingKey ? cart.filter((item) => item.key !== editingKey) : cart;
     if (variant) {
-      const limit = getCartLimit({ ingredients: variant.ingredients, additions: selectedAdditions }, others, key);
+      // Counts a line with the same choices too: the units join it.
+      const limit = getCartLimit({ ingredients: variant.ingredients, additions: selectedAdditions }, others, "");
       if (!variant.available || selectedQuantity > limit) return;
     }
     // Editing replaces the line; the same choices as another line join it.
@@ -696,8 +765,9 @@ export default function MenuPage() {
     setPlacingOrder(true);
     setOrderError("");
     try {
-      const response = await fetch("/api/counter-carts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, service_type: serviceType, discount_type_id: claimIdType }) });
-      const payload = await response.json() as { data?: { token: string; code: string; expiresAt: string; discountName: string }; error?: string };
+      const response = await fetch("/api/counter-carts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, service_type: serviceType, discount_type_id: claiming ? claimIdType : null }) });
+      const payload = await response.json() as { data?: { token: string; code: string; expiresAt: string; discountName: string | null }; error?: string; code?: string };
+      if (payload.code === "sold_out") { await handleSoldOut(); return; }
       if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your order to the counter.");
       const sent: SentCart = { ...payload.data, status: "waiting" };
       try { window.localStorage.setItem(sentCartStorageKey, JSON.stringify(sent)); } catch { /* storage unavailable: the code shows until the page is closed */ }
@@ -729,15 +799,17 @@ export default function MenuPage() {
     const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, delivery: deliveryBody, ...extra });
     if (paymentConfig.method === "gcash" && !payCod) {
       const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-      const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
-      if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
+      const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string; code?: string };
+      if (payload.code === "sold_out") void loadMenu(true);
+      if (!response.ok || !payload.data) throw new Error(payload.code === "sold_out" ? SOLD_OUT_MESSAGE : payload.error || "Could not start the GCash payment.");
       try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
       window.location.assign(payload.data.redirectUrl);
       return;
     }
     const response = await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-    const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
-    if (!response.ok || !payload.data) throw new Error(payload.error || "Unable to place order.");
+    const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string; code?: string };
+    if (payload.code === "sold_out") void loadMenu(true);
+    if (!response.ok || !payload.data) throw new Error(payload.code === "sold_out" ? SOLD_OUT_MESSAGE : payload.error || "Unable to place order.");
     const placed = payload.data;
     setCart([]); setClaimIdType(null); setServiceType("dine_in"); setCartOpen(false); setIdSheet(null);
     forgetIdCheck();
@@ -748,7 +820,8 @@ export default function MenuPage() {
 
   async function sendIdPhoto(details: { holderName: string; idNumber: string; coverage: IdCoverage; photo: string; remember: boolean }) {
     const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, coverage: details.coverage, remember: details.remember, consent: true, photo: details.photo }) });
-    const payload = await response.json() as { data?: { token: string }; error?: string };
+    const payload = await response.json() as { data?: { token: string }; error?: string; code?: string };
+    if (payload.code === "sold_out") { setIdSheet(null); await handleSoldOut(); return; }
     if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your ID.");
     try { window.localStorage.setItem(idCheckStorageKey, payload.data.token); } catch { /* storage unavailable: followed until the page is closed */ }
     setIdSheet(null);
@@ -811,6 +884,11 @@ export default function MenuPage() {
         : orderTotal > deliveryInfo.cod.maxAmount + 0.005 ? `For orders up to ₱${deliveryInfo.cod.maxAmount.toFixed(2)}`
           : null;
   const payCod = isDelivery && deliveryPayment === "cod" && codProblem === null;
+  // Paying at the counter: dine in or take out/pick up, with GCash set up here (otherwise orders
+  // already go straight to the café), not a free order, and no star rewards (those are claimed at
+  // the counter with the Stars sign).
+  const counterPayOffered = !isDelivery && !claiming && paymentConfig.method === "gcash" && orderTotal > 0;
+  const payingAtCounter = counterPayOffered && payAtCounter && !rewardsInCart;
   const deliveryProblem = !isDelivery ? ""
     : isGuest && paymentConfig.method !== "gcash" ? "Sign in to order delivery. Without an account it's paid by GCash, which isn't available right now."
       : !deliveryInfo?.enabled ? "Delivery isn't available right now."
@@ -834,6 +912,7 @@ export default function MenuPage() {
       else setIdSheet(idMode);
       return;
     }
+    if (payingAtCounter) { await sendToCounter(); return; }
     setPlacingOrder(true);
     setOrderError("");
     if (discountPreview.problem) { setOrderError(discountPreview.problem); setPlacingOrder(false); return; }
@@ -843,7 +922,8 @@ export default function MenuPage() {
     if (paymentConfig.method === "gcash" && orderTotal > 0 && !payCod) {
       try {
         const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }) });
-        const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string };
+        const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string; code?: string };
+        if (payload.code === "sold_out") { await handleSoldOut(); setPlacingOrder(false); return; }
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
         try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
         window.location.assign(payload.data.redirectUrl);
@@ -859,7 +939,8 @@ export default function MenuPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }),
       });
-      const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string };
+      const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string; code?: string };
+      if (payload.code === "sold_out") { await handleSoldOut(); return; }
       if (!response.ok) throw new Error(payload.error || "Unable to place order.");
       setCart([]); setDiscountReward(null); setServiceType("dine_in");
       setCartOpen(false);
@@ -985,7 +1066,7 @@ export default function MenuPage() {
 
   const serviceOptions = [
     { value: "dine_in" as const, label: "Dine in", Icon: IconDineIn, note: "" },
-    { value: "take_out" as const, label: "Take Out", Icon: IconTakeOut, note: "" },
+    { value: "take_out" as const, label: "Take Out/Pick Up", Icon: IconTakeOut, note: "" },
     { value: "delivery" as const, label: "Delivery", Icon: IconDelivery, note: !deliveryInfo?.enabled ? "Unavailable" : !deliveryInfo.openNow ? "Closed now" : "" },
   ];
   const serviceSwitch = (where: "page" | "cart") => <div className={`bh-service${where === "cart" ? " is-cart" : ""}`} role="radiogroup" aria-label="How you're ordering">
@@ -1006,13 +1087,31 @@ export default function MenuPage() {
     ? ({ preparing: "Preparing", ready: "Packed", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" } as Record<string, string>)[latestOrder.deliveryStatus ?? "preparing"] ?? "Preparing"
     : latestOrder.status === "served" ? "Ready for pickup" : partlyReady(latestOrder) ? `${readyPartNames(latestOrder)} ready` : "Preparing";
   const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served" || partlyReady(latestOrder)) : false;
-  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck);
+  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck || receiptFor);
   useEffect(() => {
     document.body.style.overflow = sheetOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [sheetOpen]);
 
   // An order in progress, as a card on the Orders tab.
+  // An order's receipt, on its card: what it is and the two things to do with it.
+  async function saveReceiptFor(token: string) {
+    setSavingReceipt(token);
+    try {
+      await downloadReceipt({ token });
+      setAddedNote("Receipt saved to your phone");
+    } catch (saveError) {
+      setAddedNote(saveError instanceof Error ? saveError.message : "Could not save the receipt.");
+    } finally {
+      setSavingReceipt(null);
+    }
+  }
+  const receiptStrip = (order: TrackedOrder) => <div className="bh-receipt-strip">
+    <span className="bh-receipt-icon" aria-hidden="true"><IconReceipt /></span>
+    <span className="bh-receipt-text"><strong>Your receipt</strong><small>View it or save it to your phone</small></span>
+    <button type="button" className="bh-receipt-view" onClick={() => setReceiptFor({ token: order.trackingToken })}>View</button>
+    <button type="button" className="bh-receipt-save" disabled={savingReceipt === order.trackingToken} onClick={() => void saveReceiptFor(order.trackingToken)} aria-label={`Save the receipt for order ${order.queueNumber ?? ""}`}><IconDownload />{savingReceipt === order.trackingToken ? "Saving…" : "Save"}</button>
+  </div>;
   const trackCard = (order: TrackedOrder) => {
     const queue = `#${order.queueNumber ?? "—"}`;
     if (order.delivery) {
@@ -1033,7 +1132,8 @@ export default function MenuPage() {
         <div className="bh-track-top"><div><p className="bh-track-badge"><i aria-hidden="true" />{badge} · Delivery</p><h3>{title}</h3></div><div className="bh-track-number"><span>Order</span><strong>{queue}</strong></div></div>
         {at >= 0 && <ol className="bh-track-steps">{["Preparing", "Packed", "On the way", "Delivered"].map((label, index) => <li key={label} className={index <= at ? "is-done" : ""}>{label}</li>)}</ol>}
         <p>{text}</p>
-        {order.doneAt && <button type="button" className="bh-link" onClick={() => setTrackedOrders((current) => current.filter((item) => item.trackingToken !== order.trackingToken))}>Got it, clear this</button>}
+        {receiptStrip(order)}
+        {order.doneAt && <div className="bh-track-actions"><button type="button" className="bh-link" onClick={() => setTrackedOrders((current) => current.filter((item) => item.trackingToken !== order.trackingToken))}>Got it, clear this</button></div>}
       </article>;
     }
     const ready = order.status === "served";
@@ -1046,6 +1146,7 @@ export default function MenuPage() {
       <ol className="bh-track-steps">{["Received", "Preparing", "Ready"].map((label, index) => <li key={label} className={index <= (ready ? 2 : 1) ? "is-done" : ""}>{label}</li>)}</ol>
       {parts && <div className="bh-track-parts">{parts.map((part) => <span key={part.station} className={`is-${part.status}`}>{PART_NAME[part.station].icon} {PART_NAME[part.station].name} · {part.status === "waiting" ? "being made" : part.status === "ready" ? "ready" : "picked up"}</span>)}</div>}
       <p>{ready ? "Pick it up at the counter. Show this number if they ask." : partly ? `Pick up your ${readyNames.toLowerCase()} at the counter. We'll ping you when the ${waitingFor} ${waitingFor === "drinks" ? "are" : "is"} ready.` : "We'll ping you when it's ready. You can keep browsing."}</p>
+      {receiptStrip(order)}
     </article>;
   };
   const firstName = customer.account?.fullName.split(" ")[0] ?? "";
@@ -1131,7 +1232,7 @@ export default function MenuPage() {
           <span>When you order, follow it here. We&apos;ll ping you when it&apos;s ready.</span>
           <button type="button" className="bh-primary is-center" onClick={() => goTab("menu")}>Browse the menu</button>
         </div>}
-      <section className="bh-section"><h2>Past orders</h2><OrderHistory state={customer} onSignIn={() => openAccount("signin")} /></section>
+      <section className="bh-section"><h2>Past orders</h2><OrderHistory state={customer} onSignIn={() => openAccount("signin")} onReceipt={(orderId) => setReceiptFor({ orderId })} /></section>
     </div>}
 
     {tab === "account" && <div className="bh-page bh-tabpage"><AccountPage state={customer} onOpen={openAccount} /></div>}
@@ -1214,9 +1315,15 @@ export default function MenuPage() {
     {cartOpen && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
       <section className="bh-sheet bh-cart" role="dialog" aria-modal="true" aria-label="Your cart">
         <div className="bh-sheet-head">
-          <div><p className="bh-eyebrow">{serviceType === "take_out" ? "Take-out order" : serviceType === "delivery" ? "Delivery order" : "Dine-in order"}</p><h2>Your cart</h2></div>
+          <div><p className="bh-eyebrow">{serviceType === "take_out" ? "Take Out/Pick Up order" : serviceType === "delivery" ? "Delivery order" : "Dine-in order"}</p><h2>Your cart</h2></div>
+          {cart.length > 0 && <button type="button" className="bh-cart-clear" onClick={() => setConfirmClear(true)}>Clear</button>}
           <button type="button" className="bh-sheet-close" onClick={() => setCartOpen(false)} aria-label="Close">×</button>
         </div>
+        {confirmClear && cart.length > 0 && <div className="bh-clear-confirm" role="alertdialog" aria-label="Clear your cart">
+          <span>Remove all {cartCount} item{cartCount === 1 ? "" : "s"} from your cart?</span>
+          <button type="button" onClick={() => setConfirmClear(false)}>Keep</button>
+          <button type="button" className="is-danger" onClick={() => { setCart([]); setDiscountReward(null); setClaimIdType(null); setPayAtCounter(false); setOrderError(""); setConfirmClear(false); }}>Clear cart</button>
+        </div>}
         <div className="bh-sheet-scroll">
           {orderError && <p className="bh-error">{orderError}</p>}
           {cart.length === 0 ? <>
@@ -1313,21 +1420,29 @@ export default function MenuPage() {
               </div>
             </div>}
 
+            {counterPayOffered && <div className="bh-cart-section"><h3>How you&apos;ll pay</h3>
+              <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
+                <button type="button" role="radio" aria-checked={!payingAtCounter} onClick={() => setPayAtCounter(false)}><strong>GCash</strong><span>Pay now on this phone</span></button>
+                <button type="button" role="radio" aria-checked={payingAtCounter} disabled={rewardsInCart} onClick={() => setPayAtCounter(true)}><strong>At the counter</strong><span>{rewardsInCart ? "Not with star rewards" : "Cash or GCash with the cashier"}</span></button>
+              </div>
+              {rewardsInCart && payAtCounter && <p className="cart-delivery-note">To pay at the counter, remove your star rewards here and scan the Stars sign at the counter instead.</p>}
+            </div>}
+
             <div className="bh-cart-section bh-summary">
               <div><span>Items</span><b>₱{cartItemsTotal.toFixed(2)}</b></div>
               {discountPreview.amount > 0 && <div><span>Reward discount</span><b>−₱{discountPreview.amount.toFixed(2)}</b></div>}
               {isDelivery && chosenZone && <div><span>Delivery fee · {chosenZone.name}</span><b>{deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</b></div>}
               {isDelivery && deliveryInfo?.freeAbove && deliveryFee > 0 ? <small>Free delivery from ₱{deliveryInfo.freeAbove.toFixed(2)} of items.</small> : null}
               <div className="is-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{orderTotal.toFixed(2)}</strong></div>
-              <p className="bh-pay-note">{payCod && !claiming ? <>Pay <strong>₱{orderTotal.toFixed(2)} in cash</strong> when your order arrives. Exact change helps the rider.</> : claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p>
+              <p className="bh-pay-note">{payingAtCounter ? <>You&apos;ll get a code to show at the counter. Pay the cashier there (cash or GCash), and your queue number appears here once you&apos;ve paid.</> : payCod && !claiming ? <>Pay <strong>₱{orderTotal.toFixed(2)} in cash</strong> when your order arrives. Exact change helps the rider.</> : claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p>
               <CartAccountNote state={customer} onOpen={() => openAccount("signin")} />
             </div>
           </>}
         </div>
         {cart.length > 0 && <div className="bh-sheet-foot is-stack">
           {deliveryProblem && <p className="cart-delivery-note is-warning">{deliveryProblem}</p>}
-          <button type="button" className="bh-primary" disabled={placingOrder || !storeOpen || Boolean(deliveryProblem) || (!claiming && !payCod && paymentConfig.method === "gcash" && orderTotal > 0 && orderTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>
-            <span>{!storeOpen ? "Café is closed" : payCod && !claiming ? (placingOrder ? "Placing your order…" : "Place order · cash on delivery") : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter…" : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash…" : "Sending order…") : orderTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"}</span><b>₱{orderTotal.toFixed(2)}</b>
+          <button type="button" className="bh-primary" disabled={placingOrder || !storeOpen || Boolean(deliveryProblem) || (!claiming && !payCod && !payingAtCounter && paymentConfig.method === "gcash" && orderTotal > 0 && orderTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>
+            <span>{!storeOpen ? "Café is closed" : payingAtCounter ? (placingOrder ? "Sending to the counter…" : "Send to the counter") : payCod && !claiming ? (placingOrder ? "Placing your order…" : "Place order · cash on delivery") : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter…" : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash…" : "Sending order…") : orderTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"}</span><b>₱{orderTotal.toFixed(2)}</b>
           </button>
         </div>}
       </section>
@@ -1366,7 +1481,7 @@ export default function MenuPage() {
           <p className="eyebrow">SENT TO THE COUNTER</p>
           <h2>Show this code at the counter</h2>
           <div className="queue-ticket sent-cart-code"><span>YOUR CODE</span><strong>{sentCart.code}</strong></div>
-          <p>Bring your <strong>{sentCart.discountName}</strong> ID. The cashier checks it, takes off your discount, and you pay at the counter. Your queue number appears here once you&apos;ve paid.</p>
+          <p>{sentCart.discountName ? <>Bring your <strong>{sentCart.discountName}</strong> ID. The cashier checks it, takes off your discount, and you pay at the counter.</> : <>Show this code to the cashier and pay there, in cash or GCash.</>} Your queue number appears here once you&apos;ve paid.</p>
           {sentCart.expiresAt && <p className="sent-cart-expiry">Keep this page open · the code works until {new Date(sentCart.expiresAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" })}</p>}
           <button className="add-order-button secondary" disabled={sentCartBusy} onClick={() => void cancelSentCart()}>{sentCartBusy ? "Cancelling..." : "Cancel and change my order"}</button>
         </> : <>
@@ -1377,6 +1492,7 @@ export default function MenuPage() {
         </>}
       </section>
     </div>}
+    {receiptFor && <ReceiptSheet source={receiptFor} onClose={() => setReceiptFor(null)} />}
     {paymentCheck && <div className="modal-backdrop bh-legacy">
       <section className="confirmation-modal payment-check" role="status" aria-live="polite">
         {paymentCheck.state === "failed" ? <>

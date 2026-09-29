@@ -61,6 +61,12 @@ const effectiveUnitCostSql = "CASE WHEN i.derived_from_inventory_id IS NOT NULL 
 
 // Reads cart lines from a request body: [{ product_variant_id, quantity, addition_ids }].
 // An addition id may repeat within one line (a Double Shot added twice to the same cup).
+// Something in the order ran out (or left the menu) while the customer was ordering. Staff see the
+// detail; the mobile menu only tells the customer that something sold out and takes it out of the
+// cart (see app/api/orders in brew-houze-mobile).
+export class SoldOutError extends Error {}
+export const isSoldOut = (error: unknown) => error instanceof SoldOutError;
+
 export function parseOrderItems(value: unknown): OrderItemInput[] {
   if (!Array.isArray(value)) return [];
   return value.map((raw) => {
@@ -137,7 +143,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     ORDER BY pv.product_variant_id
     FOR UPDATE OF pv
   `, [variantIds]);
-  if (variants.rowCount !== variantIds.length) throw new Error("One or more selected products are no longer available.");
+  if (variants.rowCount !== variantIds.length) throw new SoldOutError("One or more selected products are no longer available.");
 
   // Loyalty rewards: checked (and the customer's stars locked) before anything is deducted.
   const variantById = new Map(variants.rows.map((variant) => [Number(variant.product_variant_id), variant]));
@@ -212,7 +218,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     `, [deduction, inventoryId]);
     if (result.rowCount !== 1) {
       const item = await client.query("SELECT item_name FROM inventory WHERE inventory_id = $1", [inventoryId]);
-      throw new Error(`Insufficient stock for ${item.rows[0]?.item_name ?? "an ingredient"}.`);
+      throw new SoldOutError(`Insufficient stock for ${item.rows[0]?.item_name ?? "an ingredient"}.`);
     }
     const row = result.rows[0];
     deductionDetails.set(inventoryId, { itemName: row.item_name, category: row.ingredient_category, unit: row.unit_of_measure, quantityAfter: Number(row.quantity), quantityBefore: Number(row.quantity) + deduction });

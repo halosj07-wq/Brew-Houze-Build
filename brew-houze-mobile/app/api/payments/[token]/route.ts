@@ -9,7 +9,7 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
   try {
     const view = await refreshCheckout(token);
     if (!view || view.source !== "mobile") return NextResponse.json({ error: "Payment not found." }, { status: 404 });
-    return NextResponse.json({ data: { status: view.status, amount: view.amount, queueNumber: view.queueNumber, message: view.message, trackingToken: view.token } }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ data: { status: view.status, amount: view.amount, queueNumber: view.queueNumber, message: view.message, soldOut: view.soldOut, trackingToken: view.token } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET /api/payments/[token] (mobile) failed:", error);
     return NextResponse.json({ error: "Could not check the payment. Trying again…" }, { status: 502 });

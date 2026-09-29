@@ -31,6 +31,8 @@ export type CheckoutView = {
   queueNumber: number | null;
   shiftId: number | null;
   message: string | null;
+  // The order could not be made because something sold out.
+  soldOut: boolean;
 };
 
 type CheckoutRow = {
@@ -46,8 +48,14 @@ const selectCheckout = `
   LEFT JOIN sales_orders so ON so.order_id = pc.order_id
 `;
 
+// The saved reasons that mean something sold out (see SoldOutError in lib/orders.ts).
+const SOLD_OUT_REASON = /^(Insufficient stock|One or more selected products are no longer available)/;
+
 function toView(row: CheckoutRow): CheckoutView {
   const cashAmount = Number(row.cash_amount ?? 0);
+  // Staff see which stock ran short; a customer on the mobile menu only that something sold out.
+  const soldOut = Boolean(row.error && SOLD_OUT_REASON.test(row.error));
+  if (soldOut && row.source_app === "mobile") row = { ...row, error: "Some items sold out while you were paying" };
   // Split payment that did not go through: the cash part was already handed over.
   const cashBack = cashAmount > 0 ? ` Give the customer back the ₱${cashAmount.toFixed(2)} cash they paid.` : "";
   const messages: Partial<Record<CheckoutStatus, string>> = {
@@ -66,6 +74,7 @@ function toView(row: CheckoutRow): CheckoutView {
     shiftId: row.shift_id === null || row.shift_id === undefined ? null : Number(row.shift_id),
     cashAmount,
     message: messages[row.status] ? `${messages[row.status]}${cashBack}` : null,
+    soldOut,
   };
 }
 

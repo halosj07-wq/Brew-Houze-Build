@@ -311,9 +311,9 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 
 /* Dine in · Take Out · Delivery (also in the cart) */
 .bh-service { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; margin-top: 18px; padding: 4px; background: var(--cream); border: 1px solid var(--line); border-radius: 14px; }
-.bh-service button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 48px; padding: 6px 4px; color: var(--ink); background: transparent; border: 0; border-radius: 11px; font-size: 14px; font-weight: 600; white-space: nowrap; transition: background 150ms ease, color 150ms ease; }
+.bh-service button { display: flex; align-items: center; justify-content: center; gap: 7px; min-height: 48px; padding: 6px 4px; color: var(--ink); background: transparent; border: 0; border-radius: 11px; font-size: 14px; font-weight: 600; transition: background 150ms ease, color 150ms ease; }
 .bh-service button svg { width: 22px; height: 22px; flex-shrink: 0; }
-.bh-service button span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; }
+.bh-service button span { display: flex; flex-direction: column; align-items: flex-start; line-height: 1.1; text-align: left; }
 .bh-service button small { color: var(--orange); font-size: 9.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
 .bh-service button[aria-checked="true"] { color: #FFFFFF; background: var(--brown); box-shadow: 0 4px 12px rgba(91, 42, 22, 0.25); }
 .bh-service button[aria-checked="true"] small { color: #F8D9B8; }
@@ -481,7 +481,9 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .modal-backdrop { z-index: 55; }
 .bh-legacy { z-index: 60; }
 @media (min-width: 600px) { .bh-backdrop { align-items: center; padding: 20px; } .bh-sheet { border-radius: 22px; max-height: 88vh; } .bh-sheet::before { display: none; } }
-@media (max-width: 370px) { .bh-service button { flex-direction: column; gap: 3px; font-size: 13px; } .bh-service button span { align-items: center; } .bh-grid { gap: 10px; } }
+/* Phones: each option's icon above its name ("Take Out/Pick Up" gets the whole width, and may wrap). */
+@media (max-width: 480px) { .bh-service button { flex-direction: column; gap: 3px; font-size: 13px; } .bh-service button span { align-items: center; text-align: center; } }
+@media (max-width: 370px) { .bh-grid { gap: 10px; } }
 @media (prefers-reduced-motion: reduce) { .bh-sheet, .bh-backdrop, .bh-cartbar, .bh-added { animation: none; } .bh-orders-button i, .bh-order-pill i { animation: none; } }
 
 /* Delivery in the cart and the order status. */
@@ -540,6 +542,45 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .bh-track.is-ready { background: linear-gradient(160deg, #EDF7F1, #FFFFFF 70%); border-color: #A8D5BE; }
 .bh-track.is-problem { background: #FFF7F5; border-color: #F2C6BC; }
 .bh-track-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.bh-track-actions { display: flex; flex-wrap: wrap; gap: 16px; margin-top: -4px; }
+/* The receipt on an order card: easy to spot, with its two actions. */
+.bh-receipt-strip { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 12px; background: var(--paper, #FFFBF4); border: 1px dashed #D9C6B4; border-radius: 14px; }
+.bh-receipt-icon { display: grid; place-items: center; flex-shrink: 0; width: 38px; height: 38px; color: var(--brown, #5B2A16); background: var(--brown-soft, #F3E3D6); border-radius: 11px; }
+.bh-receipt-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.bh-receipt-text strong { font-size: 14px; color: var(--ink); }
+.bh-receipt-text small { color: var(--muted); font-size: 12px; }
+.bh-receipt-view, .bh-receipt-save { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; height: 36px; padding: 0 13px; border-radius: 999px; font-size: 13px; font-weight: 700; }
+.bh-receipt-view { color: var(--brown, #5B2A16); background: #fff; border: 1px solid var(--line); }
+.bh-receipt-save { color: #fff; background: var(--brown, #5B2A16); border: 1px solid var(--brown, #5B2A16); }
+.bh-receipt-save:disabled { opacity: 0.6; }
+.bh-track.is-ready .bh-receipt-strip { background: #FFFFFF; }
+@media (max-width: 360px) { .bh-receipt-text small { display: none; } }
+/* Clearing the cart: a small button in its header, confirmed in a bar under it. */
+.bh-cart-clear { align-self: center; margin-left: auto; padding: 6px 12px; color: #B4412B; background: #FBEAE5; border: 0; border-radius: 999px; font-size: 12.5px; font-weight: 700; }
+.bh-clear-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px 18px; background: #FFF4F0; border-bottom: 1px solid #F2C6BC; color: #7A2E1D; font-size: 13px; font-weight: 600; }
+.bh-clear-confirm span { flex: 1 1 180px; }
+.bh-clear-confirm button { padding: 7px 13px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 999px; font-size: 12.5px; font-weight: 700; }
+.bh-clear-confirm button.is-danger { color: #fff; background: #B4412B; border-color: #B4412B; }
+/* The virtual receipt (see receipt.tsx): a paper slip on the sheet. */
+.rc-sheet { max-width: 460px; }
+.rc-loading { margin: 20px 0; color: var(--muted); text-align: center; }
+.rc-paper { margin: 4px auto 8px; max-width: 360px; padding: 18px 18px 20px; background: #FFFDF9; border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(60, 35, 20, 0.08); color: #3D2B1F; font-size: 13px; }
+.rc-paper p { margin: 0; text-align: center; }
+.rc-paper hr { margin: 8px 0; border: 0; border-top: 1px dashed #CFC4BA; }
+.rc-name { font-size: 22px; font-weight: 800; }
+.rc-small, .rc-legal { color: #9C8278; font-size: 11px; }
+.rc-legal { margin-top: 2px !important; font-size: 9.5px !important; font-weight: 700; letter-spacing: 0.04em; }
+.rc-title { margin-top: 4px !important; color: #6B4C3B; font-size: 11px; font-weight: 700; letter-spacing: 0.12em; }
+.rc-center { font-weight: 600; }
+.rc-stamp { margin-top: 6px !important; color: #B91C1C; font-weight: 800; }
+.rc-detail { padding-left: 10px; color: #9C8278; font-size: 11px; text-align: left !important; }
+.rc-queue { display: flex; flex-direction: column; align-items: center; margin: 8px 0 2px; }
+.rc-queue span { color: #9C8278; font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; }
+.rc-queue strong { font-size: 34px; line-height: 1.1; }
+.rc-row { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; }
+.rc-row span:last-child { flex-shrink: 0; text-align: right; }
+.rc-row.is-bold { font-weight: 700; }
+.rc-row.is-sub { padding-left: 10px; color: #6B4C3B; font-size: 11.5px; }
 .bh-track-badge { display: inline-flex; align-items: center; gap: 7px; margin: 0; color: var(--orange); font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .bh-track-badge i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; animation: bh-pulse 1.6s ease-in-out infinite; }
 .bh-track.is-ready .bh-track-badge { color: var(--teal); }

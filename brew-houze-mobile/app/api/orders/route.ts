@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { parseOrderItems, parseServiceType, placeOrder } from "@/lib/orders";
+import { parseOrderItems, parseServiceType, placeOrder, isSoldOut } from "@/lib/orders";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { getCustomerSession } from "@/lib/customers";
 import { mobileIdDiscount } from "@/lib/mobile-id-discount";
@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ data: { orderId: placed.orderId, queueNumber: placed.queueNumber, trackingToken: customerToken, total: placed.total, createdAt: placed.createdAt, starsRedeemed: placed.starsRedeemed, discountAmount: placed.discountAmount, deliveryFee: placed.deliveryFee } }, { status: 201 });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (isSoldOut(error)) return NextResponse.json({ error: "Some items in your cart just sold out.", code: "sold_out" }, { status: 409 });
     console.error("POST /api/orders failed:", error);
     return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to place order." }, { status: 400 });
   } finally {

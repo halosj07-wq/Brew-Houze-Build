@@ -9,7 +9,7 @@ import { getSession } from "@/lib/sessions";
 //                 sends riderId: an active rider, or themselves when the café has no rider.
 //     delivered   out -> delivered; cash on delivery records what the rider collected
 //     failed      could not deliver, with a reason. Cash on delivery: the customer loses COD
-//                 until an admin allows it again. The order is then voided in Void & Refund.
+//                 until an admin allows it again. The order is then voided in Order history.
 //     remit       the cashier received a rider's COD cash (counts in this shift's drawer)
 // The barista marks an order packed from the queue (ready). Baristas do not use this page.
 
