@@ -264,6 +264,9 @@
       // joined: the intro clip runs straight into the loop (the song continues), so both play on
       // the loop's Web Audio clock, the loop starting on the very sample the intro ends.
       introClip: "whiplash/intro.mp3", loops: ["whiplash/loop.mp3"], joined: true, intro: whiplashIntro, introClass: "wl-intro", back: "spec",
+      // The loop is the chorus (6 bars at 126 BPM) then the bridge: quiet, the mids rising, the bass
+      // slam, the full drive, and the near-silence back into the chorus.
+      stage: { beat: 60 / 126, cycle: 47.627, sections: [[0, "calm"], [11.43, "tension"], [20.95, "build"], [26.67, "hit"], [28.57, "drive"], [43.81, "drop"]] },
       extras: ["device.webp", "logo-white.webp"],
     },
     dirtywork: {
@@ -271,6 +274,9 @@
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
       introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], intro: dirtyWorkIntro, introClass: "dw-intro",
+      // The chorus (22 bars at 130.5 BPM), then the bridge: sparse with a break, the build, the
+      // drive, the outro and the fill back into the chorus.
+      stage: { beat: 60 / 130.53, cycle: 78.438, sections: [[0, "calm"], [40.45, "tension"], [55.16, "build"], [58.84, "drive"], [75.38, "drop"], [77.22, "hit"]] },
       extras: ["logo-gold.webp", "logo-white.webp"],
     },
     armageddon: {
@@ -278,16 +284,21 @@
       title: "Brew Houze × aespa · Armageddon", toast: "Brew Houze × aespa · ARMAGEDDON",
       sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
       introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], intro: armageddonIntro, introClass: "am-intro",
+      // The chorus (16 bars at 122.6 BPM), then the bridge: straight into the drive, the fade and the
+      // bar of silence, the build, the hit, and the silence back into the chorus.
+      stage: { beat: 60 / 122.64, cycle: 65.226, sections: [[0, "calm"], [31.31, "drive"], [50.88, "drop"], [54.79, "build"], [62.62, "hit"], [64.58, "drop"]] },
       extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
     },
     // The intro runs straight into track 1; tracks 1 and 2 then take turns with no gap (1, 2, 1, 2…).
-    // Track 1 is the theme as it is; during track 2 the page moves with the music (see the Drama
-    // stage below).
+    // Track 1 is the theme as it is; during track 2 the page moves with the music (see the stage
+    // below).
     drama: {
       era: "Drama", folder: "drama/", tag: "DRAMA", back: "emblem",
       title: "Brew Houze × aespa · Drama", toast: "Brew Houze × aespa · Drama",
       sub: "Drama · System portal", h1: "Every Brew Houze app. I’m the Drama.", footer: "Brew Houze × aespa · Drama · café management system",
       introClip: "drama/intro.mp3", loops: ["drama/track-1.mp3", "drama/track-2.mp3"], joined: true, intro: dramaIntro, introClass: "dr-intro",
+      // Track 1 is the chorus, track 2 the bridge (its sections measured from the music).
+      stage: { beat: 60 / 131, parts: [29.304, 31.168], sections: [[0, "calm"], [29.304, "tension"], [42.154, "build"], [43.994, "drive"], [54.054, "drop"], [58.634, "hit"], [59.554, "hit2"]] },
       extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
     },
   };
@@ -344,71 +355,77 @@
     }).join("")}</ol>`;
   }
 
-  // ── The Drama stage ──
-  // During track 2 the page moves with the music; during track 1 (and the intro) it is the theme as
-  // it is. It follows the music's own clock (the part heard now, see position()); without sound it
-  // follows the same timeline on the page's clock. The stage is html[data-drama]: calm, then in
-  // track 2 tension (a pulse every 2 beats), build (the snare roll), drive (every beat), drop (the
-  // near-silence) and hit / hit2 (the two hits back into track 1). --drama-lag puts the beat
-  // animations in step with the music when a section starts.
-  const DRAMA_PARTS = [29.304, 31.168];
-  const DRAMA_BEAT = 60 / 131;
-  const DRAMA_SECTIONS = [[0, "tension", DRAMA_BEAT * 2], [12.85, "build", 0], [14.69, "drive", DRAMA_BEAT], [24.75, "drop", 0], [29.33, "hit", 0], [30.25, "hit2", 0]];
-  const dramaFx = document.createElement("div");
-  dramaFx.className = "dr-fx";
-  dramaFx.setAttribute("aria-hidden", "true");
-  dramaFx.innerHTML = '<i class="dr-fx-pulse"></i><i class="dr-fx-slash"></i><i class="dr-fx-slash is-b"></i><i class="dr-fx-dark"></i>';
-  document.body.appendChild(dramaFx);
-  let dramaFrame = 0;
-  let dramaStage = "";
-  let dramaClock = 0;
-  function setDramaStage(stage, lag = 0) {
-    if (stage === dramaStage) return;
-    dramaStage = stage;
-    root.style.setProperty("--drama-lag", `${(-lag).toFixed(3)}s`);
-    root.dataset.drama = stage;
+  // ── The stage: each theme's bridge moves the page ──
+  // Every loop is a chorus then a bridge (Drama: track 1 then track 2). During the chorus (and the
+  // intro) the theme is as it is; during the bridge the page moves with the music. It follows the
+  // music's own clock (the part heard now, see position()); without sound, the same timeline on the
+  // page's clock. THEMES[x].stage: the beat, the loop's length (cycle, or its parts), and the
+  // sections [seconds into the loop, name]: calm, then tension (a pulse every 2 beats), build,
+  // drive (every beat), drop, hit, hit2. The stage is html[data-stage]; --stage-beat is the theme's
+  // beat and --stage-lag starts the beat animations in step with the music when a section starts.
+  // The effects (.ae-fx) are styled by each theme.
+  const stageFx = document.createElement("div");
+  stageFx.className = "ae-fx";
+  stageFx.setAttribute("aria-hidden", "true");
+  stageFx.innerHTML = '<i class="fx-pulse"></i><i class="fx-slash"></i><i class="fx-slash is-b"></i><i class="fx-dark"></i>';
+  document.body.appendChild(stageFx);
+  let stageFrame = 0;
+  let stageName = "";
+  let stageClock = 0;
+  const stageOf = (theme) => THEMES[theme]?.stage ?? null;
+  const stageCycle = (stage) => stage.parts ? stage.parts.reduce((sum, part) => sum + part, 0) : stage.cycle;
+  function setStage(name, lag = 0) {
+    if (name === stageName) return;
+    stageName = name;
+    root.style.setProperty("--stage-lag", `${(-lag).toFixed(3)}s`);
+    root.dataset.stage = name;
   }
-  function dramaTick() {
-    if (current !== "drama") return;
-    const player = players.drama;
-    let index = null;
-    let offset = 0;
+  function stageTick() {
+    const stage = current ? stageOf(current) : null;
+    if (!stage) return;
+    const player = players[current];
+    let at = null; // seconds into the loop; -1 during the intro
     if (player && player.playing()) {
       const heard = player.position();
-      if (heard) { index = heard.index; offset = heard.offset; dramaClock = performance.now() - ((heard.index === 1 ? DRAMA_PARTS[0] : 0) + Math.max(0, offset)) * 1000; }
+      if (heard) {
+        at = heard.index < 0 ? -1 : (stage.parts ? stage.parts.slice(0, heard.index).reduce((sum, part) => sum + part, 0) : 0) + heard.offset;
+        if (at >= 0) stageClock = performance.now() - at * 1000;
+      }
     } else {
-      // No sound: the same timeline on the page's clock.
-      const cycle = DRAMA_PARTS[0] + DRAMA_PARTS[1];
-      const at = (((performance.now() - dramaClock) / 1000) % cycle + cycle) % cycle;
-      index = at < DRAMA_PARTS[0] ? 0 : 1;
-      offset = index === 0 ? at : at - DRAMA_PARTS[0];
+      const cycle = stageCycle(stage);
+      at = (((performance.now() - stageClock) / 1000) % cycle + cycle) % cycle;
     }
-    if (index === 1) {
-      let section = DRAMA_SECTIONS[0];
-      for (const entry of DRAMA_SECTIONS) if (offset >= entry[0]) section = entry;
-      const [start, name, period] = section;
-      setDramaStage(name, period ? (offset - start) % period : 0);
-    } else if (index !== null) {
-      setDramaStage("calm");
+    if (at !== null) {
+      if (at < 0) setStage("calm");
+      else {
+        let section = stage.sections[0];
+        for (const entry of stage.sections) if (at >= entry[0]) section = entry;
+        const [begins, name] = section;
+        const period = name === "tension" ? stage.beat * 2 : name === "drive" ? stage.beat : 0;
+        setStage(name, period ? (at - begins) % period : 0);
+      }
     }
-    dramaFrame = requestAnimationFrame(dramaTick);
+    stageFrame = requestAnimationFrame(stageTick);
   }
-  function startDrama() {
-    cancelAnimationFrame(dramaFrame);
-    dramaStage = "";
-    dramaClock = performance.now();
-    setDramaStage("calm");
-    if (motionOK()) dramaFrame = requestAnimationFrame(dramaTick);
+  function startStage(theme) {
+    cancelAnimationFrame(stageFrame);
+    stageName = "";
+    const stage = stageOf(theme);
+    if (!stage) { delete root.dataset.stage; return; }
+    root.style.setProperty("--stage-beat", `${Math.round(stage.beat * 1000)}ms`);
+    stageClock = performance.now();
+    setStage("calm");
+    if (motionOK()) stageFrame = requestAnimationFrame(stageTick);
   }
-  function stopDrama() {
-    cancelAnimationFrame(dramaFrame);
-    dramaStage = "";
-    delete root.dataset.drama;
+  function stopStage() {
+    cancelAnimationFrame(stageFrame);
+    stageName = "";
+    delete root.dataset.stage;
   }
 
   function applyTheme(theme) {
     current = theme;
-    if (theme === "drama") startDrama(); else stopDrama();
+    if (theme) startStage(theme); else stopStage();
     const t = theme ? THEMES[theme] : null;
     if (t) { root.dataset.theme = theme; root.dataset.secret = ""; } else { delete root.dataset.theme; delete root.dataset.secret; }
     brandName.innerHTML = t ? "Brew Houze <b>×</b> aespa" : cafe.brand;
