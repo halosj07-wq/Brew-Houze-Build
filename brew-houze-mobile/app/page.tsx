@@ -73,17 +73,8 @@ function IconCoffee() {
 }
 
 const iconProps = { fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-function IconBell() {
-  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></svg>;
-}
-function IconBag() {
-  return <svg width="22" height="22" viewBox="0 0 24 24" {...iconProps}><path d="M6 7h12l1 14H5L6 7Z" /><path d="M9 7a3 3 0 0 1 6 0" /></svg>;
-}
 function IconFilter() {
   return <svg width="20" height="20" viewBox="0 0 24 24" {...iconProps}><path d="M4 6h16M7 12h10M10 18h4" /></svg>;
-}
-function IconSliders() {
-  return <svg width="16" height="16" viewBox="0 0 24 24" {...iconProps}><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></svg>;
 }
 function IconSparkle() {
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M9 2l1.6 4.9L15.5 8.5l-4.9 1.6L9 15l-1.6-4.9L2.5 8.5l4.9-1.6L9 2Z" /><path d="M18 13l.9 2.6 2.6.9-2.6.9L18 20l-.9-2.6-2.6-.9 2.6-.9L18 13Z" opacity=".7" /></svg>;
@@ -96,6 +87,10 @@ function IconDelivery() {
 }
 function IconTakeOut() {
   return <svg width="28" height="28" viewBox="0 0 24 24" {...iconProps}><rect x="4" y="5" width="16" height="15" rx="3" /><path d="M9 9a3 3 0 0 0 6 0" /></svg>;
+}
+
+function IconTrash() {
+  return <svg width="15" height="15" viewBox="0 0 24 24" {...iconProps} aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" /></svg>;
 }
 
 function IconCart() {
@@ -122,6 +117,8 @@ export default function MenuPage() {
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
+  // The cart line being changed in the item sheet (null: adding a new one).
+  const [editingKey, setEditingKey] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [placingOrder, setPlacingOrder] = useState(false);
@@ -519,7 +516,9 @@ export default function MenuPage() {
     return getCartLimit(candidate, currentCart, "") >= quantity;
   }
 
-  // Add to Cart on a card: the first available size, no add-ons. Customize opens the full sheet.
+  // Nothing to choose: one option (available) and no add-ons. + adds these at once; anything else
+  // opens the item sheet, so a size or temperature is never picked for the customer.
+  const isSimple = (product: Product) => (product.additions ?? []).length === 0 && (product.variants ?? []).filter((variant) => variant.available).length <= 1;
   function quickAdd(product: Product) {
     const variant = sortVariants(product.variants ?? []).find((option) => option.available && getCartLimit({ ingredients: option.ingredients, additions: [] }, cart, `${product.id}-${option.id}-`) >= 1);
     if (!variant) { openProduct(product); return; }
@@ -527,15 +526,24 @@ export default function MenuPage() {
     setCart((current) => current.some((item) => item.key === key)
       ? current.map((item) => item.key === key ? { ...item, quantity: item.quantity + 1 } : item)
       : [...current, { key, product, variantId: variant.id, variantName: variant.size ?? "Regular", price: variant.price, quantity: 1, ingredients: variant.ingredients, additions: [] }]);
-    setAddedNote(`Added ${product.name}${variant.size ? ` · ${variant.size}` : ""}${variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Iced" : ""}`);
+    setAddedNote(`${product.name} added`);
   }
 
-  function openProduct(product: Product) {
+  // Opens the item sheet for a new line, or with a cart line's choices to change them.
+  function openProduct(product: Product, line?: CartItem) {
     setSelectedProduct(product);
     const sortedVariants = sortVariants(product.variants ?? []);
-    setSelectedVariantId(sortedVariants.find((variant) => variant.available)?.id ?? sortedVariants[0]?.id ?? null);
-    setSelectedQuantity(1);
-    setSelectedAdditionIds([]);
+    setSelectedVariantId(line?.variantId ?? sortedVariants.find((variant) => variant.available)?.id ?? sortedVariants[0]?.id ?? null);
+    setSelectedQuantity(line?.quantity ?? 1);
+    setSelectedAdditionIds(line ? line.additions.map((addition) => addition.id) : []);
+    setEditingKey(line?.key ?? null);
+    if (line) setCartOpen(false);
+  }
+  function closeProduct() {
+    const wasEditing = editingKey !== null;
+    setSelectedProduct(null);
+    setEditingKey(null);
+    if (wasEditing) setCartOpen(true);
   }
 
   function addToCart() {
@@ -543,17 +551,25 @@ export default function MenuPage() {
     const variant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
     const price = variant?.price ?? selectedProduct.price;
     const selectedAdditions = (selectedProduct.additions ?? []).filter((addition) => selectedAdditionIds.includes(addition.id));
-    const key = `${selectedProduct.id}-${variant?.id ?? "regular"}-${selectedAdditionIds.sort((a, b) => a - b).join(",")}`;
+    const key = `${selectedProduct.id}-${variant?.id ?? "regular"}-${[...selectedAdditionIds].sort((a, b) => a - b).join(",")}`;
+    const others = editingKey ? cart.filter((item) => item.key !== editingKey) : cart;
     if (variant) {
-      const limit = getCartLimit({ ingredients: variant.ingredients, additions: selectedAdditions }, cart, key);
+      const limit = getCartLimit({ ingredients: variant.ingredients, additions: selectedAdditions }, others, key);
       if (!variant.available || selectedQuantity > limit) return;
     }
-    setCart((current) => {
-      const existing = current.find((item) => item.key === key);
-      if (existing) return current.map((item) => item.key === key ? { ...item, quantity: item.quantity + selectedQuantity } : item);
-      return [...current, { key, product: selectedProduct, variantId: variant?.id ?? null, variantName: variant?.size ?? "Regular", price, quantity: selectedQuantity, ingredients: variant?.ingredients ?? [], additions: selectedAdditions }];
+    // Editing replaces the line; the same choices as another line join it.
+    setCart(() => {
+      const existing = others.find((item) => item.key === key);
+      if (existing) return others.map((item) => item.key === key ? { ...item, quantity: item.quantity + selectedQuantity } : item);
+      const line = { key, product: selectedProduct, variantId: variant?.id ?? null, variantName: variant?.size ?? "Regular", price, quantity: selectedQuantity, ingredients: variant?.ingredients ?? [], additions: selectedAdditions };
+      const at = editingKey ? cart.findIndex((item) => item.key === editingKey) : -1;
+      return at >= 0 ? [...others.slice(0, at), line, ...others.slice(at)] : [...others, line];
     });
+    const wasEditing = editingKey !== null;
     setSelectedProduct(null);
+    setEditingKey(null);
+    if (wasEditing) setCartOpen(true);
+    else setAddedNote(`${selectedQuantity > 1 ? `${selectedQuantity} × ` : ""}${selectedProduct.name} added`);
   }
 
   function updateCartItem(key: string, change: number) {
@@ -846,187 +862,353 @@ export default function MenuPage() {
 
   const priceText = (product: Product) => { const prices = (product.variants ?? []).map((variant) => variant.price); const low = lowestPrice(product); return prices.length > 1 && prices.some((price) => price !== low) ? `from ₱${low.toFixed(2)}` : `₱${low.toFixed(2)}`; };
   const soldOut = (product: Product) => Boolean(product.variants?.length && !product.variants.some((variant) => variant.available));
-  const productCard = (product: Product, featured = false) => <article className={featured ? "mm-feature" : "mm-item"} key={`${featured ? "f" : "p"}-${product.id}`}>
-    <div className="mm-photo">
-      {product.image ? <Image src={product.image} alt="" fill unoptimized sizes={featured ? "(max-width: 640px) 100vw, 480px" : "120px"} style={{ objectFit: "cover" }} /> : <div className="image-placeholder"><IconCoffee /></div>}
-      {featured && product.badge && <span className="mm-badge">★ {product.badge}</span>}
-    </div>
-    <div className="mm-info">
-      <h3>{product.name}</h3>
-      {!featured && product.badge && <span className="mm-badge is-inline">★ {product.badge}</span>}
-      {product.description && <p>{product.description}</p>}
-      <div className="mm-foot">
-        <strong>{soldOut(product) ? "Sold out" : priceText(product)}</strong>
-        <div className="mm-actions">
-          <button type="button" className="mm-customize" disabled={soldOut(product)} onClick={() => openProduct(product)} aria-label={`Customize ${product.name}`}><IconSliders />{featured ? "Customize" : ""}</button>
-          <button type="button" className="mm-add" disabled={soldOut(product)} onClick={() => quickAdd(product)} aria-label={`Add ${product.name} to cart`}><span aria-hidden="true">+</span>{featured ? "Add to Cart" : "Add"}</button>
-        </div>
-      </div>
-    </div>
-  </article>;
+  // How many of each product are in the cart (the card shows it).
+  const inCart = useMemo(() => {
+    const counts = new Map<number, number>();
+    cart.forEach((item) => counts.set(item.product.id, (counts.get(item.product.id) ?? 0) + item.quantity));
+    return counts;
+  }, [cart]);
+  // The same card everywhere (featured row and menu grid): tap it to open the item sheet; + adds at
+  // once when there is nothing to choose, otherwise it opens the sheet too.
+  const productCard = (product: Product, where: "row" | "grid") => {
+    const out = soldOut(product);
+    const count = inCart.get(product.id) ?? 0;
+    return <article className={`bh-card${out ? " is-out" : ""}${where === "row" ? " is-row" : ""}`} key={`${where}-${product.id}`}>
+      <button type="button" className="bh-card-open" disabled={out} onClick={() => openProduct(product)} aria-label={`${product.name}, ${out ? "sold out" : priceText(product)}`}>
+        <span className="bh-card-photo">
+          {product.image ? <Image src={product.image} alt="" fill unoptimized sizes="(max-width: 560px) 50vw, 260px" style={{ objectFit: "cover" }} /> : <span className="bh-placeholder"><IconCoffee /></span>}
+          {product.badge && <span className="bh-badge">★ {product.badge}</span>}
+          {out && <span className="bh-soldout">Sold out</span>}
+          {count > 0 && <span className="bh-incart">{count} in cart</span>}
+        </span>
+        <span className="bh-card-body">
+          <strong>{product.name}</strong>
+          {product.description && <small>{product.description}</small>}
+          <b>{out ? "Sold out" : priceText(product)}</b>
+        </span>
+      </button>
+      {!out && <button type="button" className="bh-plus" onClick={() => (isSimple(product) ? quickAdd(product) : openProduct(product))} aria-label={isSimple(product) ? `Add ${product.name} to cart` : `Choose options for ${product.name}`}>+</button>}
+    </article>;
+  };
 
-  return <main className="menu-shell mm-shell">
-    <header className="mm-header">
-      <div className="mm-brand"><Image src="/brand/badge.png" alt="" width={42} height={42} unoptimized priority /><span>Brew Houze Cafe</span></div>
-      <div className="mm-header-actions">
-        <button type="button" className="mm-icon-button" onClick={() => setOrderPlaced(true)} aria-label={activeOrder ? `Your orders: ${activeOrders.length} in progress` : "Your orders"} title="Your orders"><IconBell />{activeOrder && <span className="mm-dot">{activeOrders.length}</span>}</button>
-        <button type="button" className="mm-icon-button" onClick={() => setCartOpen(true)} aria-label={cartCount > 0 ? `Open cart with ${cartCount} items` : "Open empty cart"}><IconBag />{cartCount > 0 && <span className="mm-dot">{cartCount}</span>}</button>
+  // The item sheet: temperature, size, add-ons and quantity; adds a new line or updates the one
+  // being edited from the cart.
+  const sheetVariants = selectedProductVariants;
+  const sheetVariant = sheetVariants.find((variant) => variant.id === selectedVariantId) ?? null;
+  const temperatureOf = (variant: Variant | null) => (variant?.temperature === "hot" ? "hot" : variant?.temperature === "cold" ? "cold" : null);
+  const sheetTemperatures = Array.from(new Set(sheetVariants.map(temperatureOf)));
+  const hasTemperatureChoice = sheetTemperatures.length > 1 && !sheetTemperatures.includes(null);
+  const shownVariants = hasTemperatureChoice ? sheetVariants.filter((variant) => temperatureOf(variant) === temperatureOf(sheetVariant)) : sheetVariants;
+  const showSizes = shownVariants.length > 1 || (shownVariants.length === 1 && Boolean(shownVariants[0].size) && shownVariants[0].size !== "Regular" && selectedProduct?.productType !== "stock");
+  function chooseTemperature(temperature: "hot" | "cold") {
+    const options = sheetVariants.filter((variant) => temperatureOf(variant) === temperature);
+    const next = options.find((variant) => variant.size === sheetVariant?.size && variant.available) ?? options.find((variant) => variant.available) ?? options[0];
+    if (next) setSelectedVariantId(next.id);
+  }
+  const sheetAdditions = (selectedProduct?.additions ?? []).filter((addition) => selectedAdditionIds.includes(addition.id));
+  const sheetCartWithoutEdit = editingKey ? cart.filter((item) => item.key !== editingKey) : cart;
+  const sheetLimit = sheetVariant ? Math.min(sheetVariant.maxQuantity || Number.MAX_SAFE_INTEGER, getCartLimit({ ingredients: sheetVariant.ingredients, additions: sheetAdditions }, sheetCartWithoutEdit, "")) : Number.MAX_SAFE_INTEGER;
+  const sheetUnit = (sheetVariant?.price ?? selectedProduct?.price ?? 0) + sheetAdditions.reduce((sum, addition) => sum + addition.price, 0);
+  const sheetBlocked = Boolean(selectedProduct?.variants?.length && (!sheetVariant?.available || selectedQuantity > sheetLimit));
+
+  const serviceOptions = [
+    { value: "dine_in" as const, label: "Dine in", Icon: IconDineIn, note: "" },
+    { value: "take_out" as const, label: "Take Out", Icon: IconTakeOut, note: "" },
+    { value: "delivery" as const, label: "Delivery", Icon: IconDelivery, note: !deliveryInfo?.enabled ? "Unavailable" : !deliveryInfo.openNow ? "Closed now" : "" },
+  ];
+  const serviceLabel = serviceOptions.find((option) => option.value === serviceType)?.label ?? "Dine in";
+  const serviceSwitch = (where: "page" | "cart") => <div className={`bh-service${where === "cart" ? " is-cart" : ""}`} role="radiogroup" aria-label="How you're ordering">
+    {serviceOptions.map(({ value, label, Icon, note }) => {
+      const off = value === "delivery" && !deliveryInfo?.enabled;
+      return <button key={value} type="button" role="radio" aria-checked={serviceType === value} aria-disabled={off} className={off ? "is-off" : ""} onClick={() => { if (!off) setServiceType(value); }}>
+        <Icon /><span>{label}{note && <small>{note}</small>}</span>
+      </button>;
+    })}
+  </div>;
+
+  // The order in progress, shown as a pill above the cart bar (and in the header).
+  const latestOrder = activeOrders[activeOrders.length - 1] ?? null;
+  const orderPillText = !latestOrder ? "" : latestOrder.delivery
+    ? ({ preparing: "Preparing", ready: "Packed", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" } as Record<string, string>)[latestOrder.deliveryStatus ?? "preparing"] ?? "Preparing"
+    : latestOrder.status === "served" ? "Ready for pickup" : "Preparing";
+  const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served") : false;
+  const sheetOpen = Boolean(selectedProduct || cartOpen || orderPlaced || rewardPick || accountOpen || idSheet || sentCart || paymentCheck);
+  useEffect(() => {
+    document.body.style.overflow = sheetOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [sheetOpen]);
+
+  return <main className="bh-shell">
+    <header className="bh-header">
+      <div className="bh-brand"><Image src="/brand/badge.png" alt="" width={40} height={40} unoptimized priority /><span>Brew Houze Cafe</span></div>
+      <div className="bh-header-actions">
+        {activeOrder && <button type="button" className={`bh-orders-button${orderReady ? " is-ready" : ""}`} onClick={() => setOrderPlaced(true)} aria-label={`Your orders: ${activeOrders.length} in progress`}>
+          <i aria-hidden="true" />#{latestOrder?.queueNumber ?? "—"}
+        </button>}
         {!customer.loading && <AccountButton state={customer} onOpen={() => setAccountOpen(true)} />}
       </div>
     </header>
-    <div className="menu-container mm-container">
-      {!storeOpen && <div role="status" className="mm-closed"><strong>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
 
-      <section className="mm-welcome">
-        <h1>Welcome to Brew Houze Cafe</h1>
+    <div className="bh-page">
+      {!storeOpen && <div role="status" className="bh-closed"><strong>We&apos;re closed right now</strong>You can browse the menu. Ordering opens as soon as the café starts serving.</div>}
+
+      <section className="bh-hello">
+        <h1>{customer.account ? `Hi, ${customer.account.fullName.split(" ")[0]}!` : "Welcome to Brew Houze Cafe"}</h1>
         <p>Browse our menu and discover something made for your moment.</p>
       </section>
 
-      <section className="mm-dining" aria-labelledby="dining-title">
-        <h2 id="dining-title">Dining Experience</h2>
-        <div className="mm-dining-options" role="radiogroup" aria-label="Dining experience">
-          <button type="button" role="radio" aria-checked={serviceType === "dine_in"} onClick={() => setServiceType("dine_in")}><IconDineIn /><span>Dine in</span></button>
-          <button type="button" role="radio" aria-checked={serviceType === "delivery"} aria-disabled={!deliveryInfo?.enabled} className={deliveryInfo?.enabled ? "" : "is-soon"} title={deliveryInfo?.enabled ? (deliveryInfo.openNow ? "Delivered to your address" : "Delivery is closed right now") : "Delivery isn't available"} onClick={() => { if (deliveryInfo?.enabled) setServiceType("delivery"); }}><IconDelivery /><span>Delivery{!deliveryInfo?.enabled ? <small>Unavailable</small> : !deliveryInfo.openNow ? <small>Closed now</small> : null}</span></button>
-          <button type="button" role="radio" aria-checked={serviceType === "take_out"} onClick={() => setServiceType("take_out")}><IconTakeOut /><span>Take Out</span></button>
-        </div>
-      </section>
+      {serviceSwitch("page")}
 
-      <div className="mm-search-row">
-        <label className="mm-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search Products" aria-label="Search products" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
-        <button type="button" className={`mm-filter-button${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} onClick={() => setFilterOpen((open) => !open)}><IconFilter />Filter{filtersOn ? " •" : ""}</button>
+      <div className="bh-search-row">
+        <label className="bh-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
+        <button type="button" className={`bh-filter${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} aria-label="Filter and sort" onClick={() => setFilterOpen((open) => !open)}><IconFilter />{filtersOn && <i aria-hidden="true" />}</button>
       </div>
-      {filterOpen && <div className="mm-filters">
-        <div><span>Temperature</span><div className="mm-segment">{([["any", "Any"], ["hot", "Hot"], ["cold", "Iced"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tempFilter === value} onClick={() => setTempFilter(value)}>{label}</button>)}</div></div>
-        <div><span>Sort</span><div className="mm-segment">{([["menu", "Menu"], ["low", "Price ↑"], ["high", "Price ↓"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={sortBy === value} onClick={() => setSortBy(value)}>{label}</button>)}</div></div>
-        <label className="mm-check"><input type="checkbox" checked={availableOnly} onChange={(event) => setAvailableOnly(event.target.checked)} />Available only</label>
-        {filtersOn && <button type="button" className="mm-reset" onClick={() => { setTempFilter("any"); setSortBy("menu"); setAvailableOnly(false); }}>Reset</button>}
+      {filterOpen && <div className="bh-filters">
+        <div><span>Temperature</span><div className="bh-segment">{([["any", "Any"], ["hot", "Hot"], ["cold", "Iced"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={tempFilter === value} onClick={() => setTempFilter(value)}>{label}</button>)}</div></div>
+        <div><span>Sort</span><div className="bh-segment">{([["menu", "Menu"], ["low", "Price ↑"], ["high", "Price ↓"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={sortBy === value} onClick={() => setSortBy(value)}>{label}</button>)}</div></div>
+        <label className="bh-check"><input type="checkbox" checked={availableOnly} onChange={(event) => setAvailableOnly(event.target.checked)} />Available only</label>
+        {filtersOn && <button type="button" className="bh-reset" onClick={() => { setTempFilter("any"); setSortBy("menu"); setAvailableOnly(false); }}>Reset</button>}
       </div>}
-
-      <nav className="mm-chips" aria-label="Menu categories">
-        <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}><i aria-hidden="true" />All</button>
-        {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}><i aria-hidden="true" />{name}</button>)}
-        {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}><i aria-hidden="true" />Favorites</button>}
-      </nav>
-
-      <section className="menu-section mm-menu">
-        {loading && <div className="empty-state">Loading the current menu...</div>}
-        {error && <div className="empty-state error-state">{error}</div>}
-        {!loading && !error && <>
-          {showFeatured && <section className="mm-featured" aria-labelledby="featured-title">
-            <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
-            <div className="mm-featured-list">{featuredProducts.map((product) => productCard(product, true))}</div>
-          </section>}
-          {category === FAVORITES && <p className="mm-note">What you order most, most first.</p>}
-          {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="mm-group" key={group || "all"}>
-            {group && <h2 className="mm-group-title">{group}</h2>}
-            <div className="mm-list">{groupProducts.map((product) => productCard(product))}</div>
-          </section>)}
-          {visibleProducts.length === 0 && <div className="empty-state">{category === FAVORITES ? "Your favorites appear here after you order." : "No menu items match your search or filters."}</div>}
-        </>}
-      </section>
-
-      {cartCount > 0 && <button className="cart-bar" onClick={() => setCartOpen(true)}><span><strong>{cartCount}</strong> item{cartCount === 1 ? "" : "s"} · {serviceType === "take_out" ? "Take Out" : "Dine in"}</span><strong>View order · ₱{cartTotal.toFixed(2)}</strong></button>}
-      {addedNote && !cartOpen && <div className="mm-added" role="status">{addedNote}</div>}
-      <footer className="menu-footer"><IconCoffee /><span>Made with care at Brew Houze</span></footer>
     </div>
-    {selectedProduct && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setSelectedProduct(null); }}>
-      <section className="item-modal" aria-label="Customize item">
-        <button className="modal-close" onClick={() => setSelectedProduct(null)} aria-label="Close">×</button>
-        <div className="modal-image" style={{ position: "relative" }}>{selectedProduct.image ? <Image src={selectedProduct.image} alt="" fill unoptimized sizes="100vw" style={{ objectFit: "cover" }} /> : <IconCoffee />}</div>
-        <p className="eyebrow">{selectedProduct.category}</p><h2>{selectedProduct.name}</h2><p className="modal-description">{selectedProduct.description}</p>
-        {selectedProductVariants.length > 0 && !(selectedProduct.productType === "stock" && selectedProductVariants.length === 1) && <div className="variant-section"><div className="variant-heading"><strong>{selectedProduct.productType === "stock" ? "Select option" : "Select size"}</strong><span>Required</span></div><div className="variant-grid">{selectedProductVariants.map((variant) => <button disabled={!variant.available} key={variant.id} className={`${selectedVariantId === variant.id ? "variant-option selected" : "variant-option"}${!variant.available ? " unavailable" : ""}`} onClick={() => setSelectedVariantId(variant.id)}><strong>{variant.size || "Regular"}{variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Cold" : ""}</strong><span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span></button>)}</div></div>}
-        <div className="quantity-row"><strong>Quantity</strong><div className="quantity-control"><button onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))}>−</button><span>{selectedQuantity}</span><button onClick={() => setSelectedQuantity((value) => value + 1)}>+</button></div></div>
-        {(selectedProduct.additions ?? []).length > 0 && <div className="variant-section"><div className="variant-heading"><strong>Additions</strong><span>Optional</span></div>{selectedProduct.additions?.map((addition) => {
-          const selectedVariant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
-          const otherSelectedAdditions = (selectedProduct.additions ?? []).filter((item) => item.id !== addition.id && selectedAdditionIds.includes(item.id));
-          const available = additionAvailable(addition, selectedQuantity, cart, selectedVariant?.ingredients ?? [], otherSelectedAdditions);
-          return <label key={addition.id} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, color: available ? "#6B4C3B" : "#B9A398" }}><input type="checkbox" checked={selectedAdditionIds.includes(addition.id)} disabled={!selectedAdditionIds.includes(addition.id) && !available} onChange={() => setSelectedAdditionIds((current) => current.includes(addition.id) ? current.filter((id) => id !== addition.id) : [...current, addition.id])} />{addition.name} · ₱{addition.price.toFixed(2)} · {addition.quantity} {addition.unit}{!selectedAdditionIds.includes(addition.id) && !available ? " · insufficient stock" : ""}</label>;
-        })}</div>}
-        <button className="add-order-button" disabled={Boolean(selectedProduct.variants?.length && (!selectedProduct.variants.find((item) => item.id === selectedVariantId)?.available || selectedQuantity > (selectedProduct.variants.find((item) => item.id === selectedVariantId)?.maxQuantity ?? 0) || selectedProduct.additions?.some((addition) => selectedAdditionIds.includes(addition.id) && !additionAvailable(addition, selectedQuantity, cart, selectedProduct.variants?.find((item) => item.id === selectedVariantId)?.ingredients ?? [], (selectedProduct.additions ?? []).filter((item) => item.id !== addition.id && selectedAdditionIds.includes(item.id))))))} onClick={addToCart}>Add to order <span>₱{(((selectedProduct.variants?.find((item) => item.id === selectedVariantId)?.price ?? selectedProduct.price) + (selectedProduct.additions ?? []).filter((addition) => selectedAdditionIds.includes(addition.id)).reduce((total, addition) => total + addition.price, 0)) * selectedQuantity).toFixed(2)} →</span></button>
-      </section>
-    </div>}
-    {cartOpen && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
-      <section className="cart-modal" aria-label="Your order"><div className="cart-modal-heading"><div><p className="eyebrow">{serviceType === "take_out" ? "YOUR TAKE-OUT ORDER" : serviceType === "delivery" ? "YOUR DELIVERY ORDER" : "YOUR TABLE ORDER"}</p><h2>Review order</h2></div><button className="modal-close inline" onClick={() => setCartOpen(false)} aria-label="Close">×</button></div>
-        {orderError && <p className="error-message">{orderError}</p>}{cart.length === 0 ? <><div className="empty-cart"><IconCart /><strong>No current items in cart</strong><span>Add an item from the menu to start your order.</span></div>{starsSection}</> : <><div className="cart-items">{cart.map((item) => <div className="cart-item" key={item.key}><div><strong>{item.product.name}</strong><span>{item.rewardId ? `🎁 Free · ${item.rewardName} · ★ ${item.rewardCost}` : `${item.variantName} · ₱${item.price.toFixed(2)}`}</span>{item.additions.length > 0 && <small>+ {item.additions.map((addition) => `${addition.name} (₱${addition.price.toFixed(2)})`).join(", ")}</small>}</div><div className="quantity-control"><button onClick={() => updateCartItem(item.key, -1)}>−</button><span>{item.quantity}</span><button onClick={() => updateCartItem(item.key, 1)}>+</button></div></div>)}</div>
-        {starsSection}
-        {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
-        <div className={`service-choice${deliveryInfo?.enabled ? " is-three" : ""}`} role="radiogroup" aria-label="Dine in, take out or delivery">
-          {([["dine_in", "Dine in", "Enjoy it here"], ["take_out", "Take Out", "To go"], ...(deliveryInfo?.enabled ? [["delivery", "Delivery", "To your door"] as const] : [])] as const).map(([value, label, hint]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} onClick={() => setServiceType(value)}><strong>{label}</strong><span>{hint}</span></button>)}
-        </div>
-        {isDelivery && <div className="cart-delivery">
-          {!customer.account ? <p className="cart-delivery-note">Sign in to order delivery, so the café has your address and number. <button type="button" onClick={() => setAccountOpen(true)}>Sign in</button></p>
-            : deliveryAddresses.length === 0 ? <p className="cart-delivery-note">Add where the café should deliver. <button type="button" onClick={() => setAccountOpen(true)}>Add an address</button></p>
-              : chosenAddress && <>
-                <label className="cart-delivery-address"><span>Deliver to</span>
-                  <select value={chosenAddress.id} onChange={(event) => setDeliveryAddressId(Number(event.target.value))}>{deliveryAddresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.street}</option>)}</select>
-                </label>
-                <small className="cart-delivery-detail">{chosenAddress.recipientName} · {chosenAddress.phone} · {chosenZone?.name ?? chosenAddress.zoneName}{chosenAddress.landmark ? ` · near ${chosenAddress.landmark}` : ""} · <button type="button" onClick={() => setAccountOpen(true)}>Manage</button></small>
-                <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
-                  <button type="button" role="radio" aria-checked={!payCod} onClick={() => setDeliveryPayment("gcash")}><strong>GCash</strong><span>Pay now</span></button>
-                  <button type="button" role="radio" aria-checked={payCod} disabled={codProblem !== null} onClick={() => setDeliveryPayment("cod")}><strong>Cash on delivery</strong><span>{codProblem ?? "Pay the rider"}</span></button>
-                </div>
-              </>}
-          {deliveryInfo && !deliveryInfo.openNow && <p className="cart-delivery-note is-warning">Delivery is available from {deliveryInfo.hours?.start} to {deliveryInfo.hours?.end}.</p>}
-          {minimumShort > 0 && <p className="cart-delivery-note is-warning">Delivery to {chosenZone?.name} starts at ₱{chosenZone?.minOrder?.toFixed(2)} of items. Add ₱{minimumShort.toFixed(2)} more.</p>}
-        </div>}
-        {idDiscountOptions.length > 0 && <div className={`cart-id-claim${claiming ? " is-on" : ""}`}>
-          <label className="cart-id-toggle">
-            <input type="checkbox" checked={claiming} disabled={rewardsInCart} onChange={(event) => {
-              const on = event.target.checked;
-              setClaimIdType(on ? (savedIdUsable && savedId ? savedId.typeId : idDiscountOptions[0].id) : null);
-              if (on) setClaimMode(savedIdUsable ? "saved" : "photo");
-            }} />
-            <span><strong>{savedIdUsable && savedId ? `Use my ${savedId.typeName} discount` : "I have a discount ID"}</strong><small>{idDiscountOptions.map((option) => option.name).join(" · ")}</small></span>
-          </label>
-          {rewardsInCart ? <p className="cart-id-note">To use an ID discount, remove your star rewards first. One discount per order.</p>
-            : claiming && <>
-              <div className="cart-id-modes" role="radiogroup" aria-label="How to claim it">
-                {savedIdUsable && savedId && <button type="button" role="radio" aria-checked={idMode === "saved"} onClick={() => { setClaimMode("saved"); setClaimIdType(savedId.typeId); }}><strong>✓ My saved ID</strong><span>{savedId.holderName}{savedId.idEnding ? ` · ending ${savedId.idEnding}` : ""}</span></button>}
-                <button type="button" role="radio" aria-checked={idMode === "photo"} onClick={() => setClaimMode("photo")}><strong>📷 Photo of my ID</strong><span>The café checks it, you pay here</span></button>
-                {!isDelivery && <button type="button" role="radio" aria-checked={idMode === "counter"} onClick={() => setClaimMode("counter")}><strong>At the counter</strong><span>Show your ID, pay there</span></button>}
+
+    <nav className="bh-chips" aria-label="Menu categories">
+      <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}>All</button>
+      {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}>★ Favorites</button>}
+      {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}>{name}</button>)}
+    </nav>
+
+    <div className="bh-page">
+      {loading && <div className="bh-empty">Loading the menu…</div>}
+      {error && <div className="bh-empty is-error">{error}</div>}
+      {!loading && !error && <>
+        {showFeatured && <section className="bh-featured" aria-labelledby="featured-title">
+          <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
+          <div className="bh-row">{featuredProducts.map((product) => productCard(product, "row"))}</div>
+        </section>}
+        {category === FAVORITES && <p className="bh-note">What you order most, most first.</p>}
+        {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="bh-group" key={group || "all"}>
+          {group && <h2 className="bh-group-title">{group}</h2>}
+          <div className="bh-grid">{groupProducts.map((product) => productCard(product, "grid"))}</div>
+        </section>)}
+        {visibleProducts.length === 0 && <div className="bh-empty">{category === FAVORITES ? "Your favorites appear here after you order." : "Nothing on the menu matches your search or filters."}</div>}
+      </>}
+      <footer className="bh-footer"><IconCoffee /><span>Made with care at Brew Houze</span></footer>
+    </div>
+
+    {/* The cart bar, and the order in progress above it. */}
+    <div className="bh-dock">
+      {addedNote && !sheetOpen && <div className="bh-added" role="status">✓ {addedNote}</div>}
+      {activeOrder && !sheetOpen && <button type="button" className={`bh-order-pill${orderReady ? " is-ready" : ""}`} onClick={() => setOrderPlaced(true)}>
+        <i aria-hidden="true" /><span>Order #{latestOrder?.queueNumber ?? "—"} · {orderPillText}</span>{activeOrders.length > 1 && <small>+{activeOrders.length - 1} more</small>}<b>View</b>
+      </button>}
+      {cartCount > 0 && !sheetOpen && <button type="button" className="bh-cartbar" onClick={() => setCartOpen(true)}>
+        <span className="bh-cartbar-count">{cartCount}</span>
+        <span className="bh-cartbar-text"><strong>View cart</strong><small>{serviceLabel}</small></span>
+        <strong className="bh-cartbar-total">₱{cartTotal.toFixed(2)}</strong>
+      </button>}
+    </div>
+
+    {selectedProduct && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) closeProduct(); }}>
+      <section className="bh-sheet bh-item" role="dialog" aria-modal="true" aria-label={selectedProduct.name}>
+        <button type="button" className="bh-sheet-close is-floating" onClick={closeProduct} aria-label="Close">×</button>
+        <div className="bh-sheet-scroll">
+          <div className="bh-item-photo">{selectedProduct.image ? <Image src={selectedProduct.image} alt="" fill unoptimized sizes="560px" style={{ objectFit: "cover" }} /> : <span className="bh-placeholder"><IconCoffee /></span>}</div>
+          <div className="bh-item-body">
+            <p className="bh-eyebrow">{selectedProduct.category}</p>
+            <h2>{selectedProduct.name}</h2>
+            {selectedProduct.description && <p className="bh-item-desc">{selectedProduct.description}</p>}
+            {hasTemperatureChoice && <div className="bh-option-block">
+              <div className="bh-option-head"><strong>Temperature</strong></div>
+              <div className="bh-temp" role="radiogroup" aria-label="Temperature">
+                {(["hot", "cold"] as const).map((temperature) => {
+                  const any = sheetVariants.some((variant) => temperatureOf(variant) === temperature && variant.available);
+                  return <button key={temperature} type="button" role="radio" aria-checked={temperatureOf(sheetVariant) === temperature} disabled={!any} onClick={() => chooseTemperature(temperature)}>{temperature === "hot" ? "Hot" : "Iced"}</button>;
+                })}
               </div>
-              {idMode !== "saved" && <div className="cart-id-types" role="radiogroup" aria-label="Which discount">
-                {idDiscountOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={claimIdType === option.id} onClick={() => setClaimIdType(option.id)}>{option.name}</button>)}
-              </div>}
-              <p className="cart-id-note">{idMode === "saved" ? "No photo needed. Show your ID when you pick up your order." : idMode === "photo" ? "Take a photo of your ID. The café checks it, usually within a minute, then you pay here. Show your ID when you pick up." : "Send your order to the counter, then show your code and your ID to the cashier and pay there."} The discount covers your own food and drinks.</p>
-            </>}
-        </div>}
-        {isDelivery && chosenZone && <div className="cart-subtotals"><div><span>Items</span><b>₱{cartTotal.toFixed(2)}</b></div><div><span>Delivery fee · {chosenZone.name}</span><b>{deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</b></div>{deliveryInfo?.freeAbove && deliveryFee > 0 ? <small>Free delivery from ₱{deliveryInfo.freeAbove.toFixed(2)} of items.</small> : null}</div>}
-        <div className="cart-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{orderTotal.toFixed(2)}</strong></div><p className="no-payment-note">{payCod && !claiming ? <>Pay <strong>₱{orderTotal.toFixed(2)} in cash</strong> when your order arrives. Exact change helps the rider.</> : claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p><CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} /><button className="add-order-button" disabled={placingOrder || !storeOpen || Boolean(deliveryProblem) || (!claiming && !payCod && paymentConfig.method === "gcash" && orderTotal > 0 && orderTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>{!storeOpen ? "Café is closed" : payCod && !claiming ? (placingOrder ? "Placing your order..." : "Place order · cash on delivery") : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter..." : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash..." : "Sending order...") : orderTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"} <span>₱{orderTotal.toFixed(2)} →</span></button>{deliveryProblem && <p className="cart-delivery-note is-warning">{deliveryProblem}</p>}</>}
+            </div>}
+            {showSizes && <div className="bh-option-block">
+              <div className="bh-option-head"><strong>{selectedProduct.productType === "stock" ? "Option" : "Size"}</strong><span>Required</span></div>
+              <div className="bh-sizes" role="radiogroup" aria-label="Size">
+                {shownVariants.map((variant) => <button key={variant.id} type="button" role="radio" aria-checked={selectedVariantId === variant.id} disabled={!variant.available} onClick={() => setSelectedVariantId(variant.id)}>
+                  <strong>{variant.size || "Regular"}{!hasTemperatureChoice && variant.temperature === "hot" ? " · Hot" : !hasTemperatureChoice && variant.temperature === "cold" ? " · Iced" : ""}</strong>
+                  <span>{variant.available ? `₱${variant.price.toFixed(2)}` : "Unavailable"}</span>
+                </button>)}
+              </div>
+            </div>}
+            {(selectedProduct.additions ?? []).length > 0 && <div className="bh-option-block">
+              <div className="bh-option-head"><strong>Add-ons</strong><span>Optional</span></div>
+              <div className="bh-addons">{selectedProduct.additions?.map((addition) => {
+                const chosen = selectedAdditionIds.includes(addition.id);
+                const others = (selectedProduct.additions ?? []).filter((item) => item.id !== addition.id && selectedAdditionIds.includes(item.id));
+                const available = chosen || additionAvailable(addition, selectedQuantity, sheetCartWithoutEdit, sheetVariant?.ingredients ?? [], others);
+                return <button key={addition.id} type="button" role="checkbox" aria-checked={chosen} disabled={!available} onClick={() => setSelectedAdditionIds((current) => current.includes(addition.id) ? current.filter((id) => id !== addition.id) : [...current, addition.id])}>
+                  <i aria-hidden="true">{chosen ? "✓" : ""}</i><span>{addition.name}</span><b>{available ? `+₱${addition.price.toFixed(2)}` : "Out of stock"}</b>
+                </button>;
+              })}</div>
+            </div>}
+          </div>
+        </div>
+        <div className="bh-sheet-foot">
+          <div className="bh-stepper" aria-label="Quantity">
+            <button type="button" onClick={() => setSelectedQuantity((value) => Math.max(1, value - 1))} disabled={selectedQuantity <= 1} aria-label="One less">−</button>
+            <span>{selectedQuantity}</span>
+            <button type="button" onClick={() => setSelectedQuantity((value) => value + 1)} disabled={selectedQuantity >= sheetLimit} aria-label="One more">+</button>
+          </div>
+          <button type="button" className="bh-primary" disabled={sheetBlocked} onClick={addToCart}>
+            <span>{sheetBlocked && sheetVariant && sheetLimit === 0 ? "Out of stock" : editingKey ? "Update item" : "Add to cart"}</span><b>₱{(sheetUnit * selectedQuantity).toFixed(2)}</b>
+          </button>
+        </div>
       </section>
     </div>}
-    {orderPlaced && <div className="modal-backdrop"><section className="confirmation-modal order-list-modal"><div className="confirmation-modal-heading"><div><p className="eyebrow">YOUR ORDERS</p><h2>Order status</h2></div><button className="modal-close inline" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>{trackedOrders.length === 0 ? <p className="confirmation-empty">No active orders.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => {
-      if (order.delivery) {
-        const step = order.deliveryStatus ?? "preparing";
-        const info: Record<string, [string, string, string, boolean]> = {
-          preparing: ["PREPARING", "We're preparing your order.", "The café has your delivery order. We'll let you know when it's on the way.", false],
-          ready: ["READY FOR THE RIDER", "Your order is packed.", "It's waiting for the rider to pick it up.", false],
-          out: ["ON THE WAY", "Your order is on the way!", "The rider is heading to you. Keep your phone nearby.", true],
-          delivered: ["DELIVERED", "Delivered. Enjoy!", "Thank you for ordering from Brew Houze.", true],
-          failed: ["NOT DELIVERED", "We couldn't deliver this order.", "The café will contact you about it.", false],
-          cancelled: ["CANCELLED", "This order was cancelled.", "Contact the café if you have questions.", false],
-        };
-        const [badge, title, text, good] = info[step] ?? info.preparing;
-        const steps = ["preparing", "ready", "out", "delivered"];
-        return <article className={`tracked-order ${good ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${good ? "confirmation-ready" : "confirmation-waiting"}`}>{step === "delivered" ? "✓" : step === "out" ? "🛵" : "•••"}</div><div><p className="status-badge">{badge}</p><h3>{title}</h3></div></div><ol className="delivery-steps">{steps.map((name, index) => <li key={name} className={steps.indexOf(step) >= index ? "is-done" : ""}>{["Preparing", "Packed", "On the way", "Delivered"][index]}</li>)}</ol><div className="queue-ticket"><span>ORDER NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{text}</p></article>;
-      }
-      const ready = order.status === "served"; return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>; })}</div>}<button className="add-order-button" onClick={() => setOrderPlaced(false)}>Continue browsing</button></section></div>}
-    {rewardPick && <div className="modal-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setRewardPick(null); }}>
-      <section className="cart-modal" aria-label={`Choose the item for ${rewardPick.name}`}>
-        <div className="cart-modal-heading"><div><p className="eyebrow">REWARD · ★ {rewardPick.starsCost}</p><h2>{rewardPick.name}</h2></div><button className="modal-close inline" onClick={() => setRewardPick(null)} aria-label="Close">×</button></div>
-        <p className="modal-description" style={{ marginBottom: 12 }}>Choose the item you want for free.</p>
-        <div className="cart-items">
-          {(() => {
-            const options = products.flatMap((product) => sortVariants(product.variants ?? []).map((variant) => ({ product, variant }))).filter(({ product, variant }) => rewardMismatch(rewardPick, { productId: product.id, category: product.category, price: variant.price }) === null);
-            if (options.length === 0) return <p className="empty-state">Nothing on the menu fits this reward right now.</p>;
-            return options.map(({ product, variant }) => {
-              const unavailable = !variant.available || getCartLimit({ ingredients: variant.ingredients, additions: [] }, cart, "") < 1;
-              return <button key={variant.id} type="button" className="reward-option" disabled={unavailable} onClick={() => addRewardItem(product, variant, rewardPick)}>
-                <span><strong>{product.name}</strong><small>{variant.size || "Regular"}{variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Cold" : ""} · normally ₱{variant.price.toFixed(2)}</small></span>
-                <b>{unavailable ? "Unavailable" : "Free"}</b>
-              </button>;
-            });
-          })()}
+
+    {cartOpen && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setCartOpen(false); }}>
+      <section className="bh-sheet bh-cart" role="dialog" aria-modal="true" aria-label="Your cart">
+        <div className="bh-sheet-head">
+          <div><p className="bh-eyebrow">{serviceType === "take_out" ? "Take-out order" : serviceType === "delivery" ? "Delivery order" : "Dine-in order"}</p><h2>Your cart</h2></div>
+          <button type="button" className="bh-sheet-close" onClick={() => setCartOpen(false)} aria-label="Close">×</button>
+        </div>
+        <div className="bh-sheet-scroll">
+          {orderError && <p className="bh-error">{orderError}</p>}
+          {cart.length === 0 ? <>
+            <div className="bh-cart-empty"><IconCart /><strong>Your cart is empty</strong><span>Add something from the menu to start your order.</span><button type="button" className="bh-link" onClick={() => setCartOpen(false)}>Browse the menu</button></div>
+            {starsSection}
+          </> : <>
+            <ul className="bh-lines">{cart.map((item) => {
+              const unit = item.price + item.additions.reduce((sum, addition) => sum + addition.price, 0);
+              return <li key={item.key}>
+                <span className="bh-line-photo">{item.product.image ? <Image src={item.product.image} alt="" fill unoptimized sizes="56px" style={{ objectFit: "cover" }} /> : <IconCoffee />}</span>
+                <span className="bh-line-main">
+                  <strong>{item.product.name}</strong>
+                  <small>{item.rewardId ? `🎁 Reward · ${item.rewardName}${item.rewardCost ? ` · ★ ${item.rewardCost}` : ""}` : `${item.variantName}${(() => { const variant = item.product.variants?.find((option) => option.id === item.variantId); return variant?.temperature === "hot" ? " · Hot" : variant?.temperature === "cold" ? " · Iced" : ""; })()}`}</small>
+                  {item.additions.length > 0 && <small>+ {item.additions.map((addition) => addition.name).join(", ")}</small>}
+                  <span className="bh-line-foot">
+                    <b>{item.rewardId ? "Free" : `₱${(unit * item.quantity).toFixed(2)}`}</b>
+                    {!item.rewardId && <button type="button" className="bh-link" onClick={() => openProduct(item.product, item)}>Edit</button>}
+                  </span>
+                </span>
+                <span className="bh-stepper is-small">
+                  <button type="button" onClick={() => updateCartItem(item.key, -1)} aria-label={item.quantity === 1 ? `Remove ${item.product.name}` : "One less"}>{item.quantity === 1 ? <IconTrash /> : "−"}</button>
+                  <span>{item.quantity}</span>
+                  <button type="button" onClick={() => updateCartItem(item.key, 1)} disabled={Boolean(item.rewardId)} aria-label="One more">+</button>
+                </span>
+              </li>;
+            })}</ul>
+            <button type="button" className="bh-add-more" onClick={() => setCartOpen(false)}>+ Add more items</button>
+
+            <div className="bh-cart-section"><h3>How you&apos;re ordering</h3>{serviceSwitch("cart")}
+              {isDelivery && <div className="cart-delivery">
+                {!customer.account ? <p className="cart-delivery-note">Sign in to order delivery, so the café has your address and number. <button type="button" onClick={() => setAccountOpen(true)}>Sign in</button></p>
+                  : deliveryAddresses.length === 0 ? <p className="cart-delivery-note">Add where the café should deliver. <button type="button" onClick={() => setAccountOpen(true)}>Add an address</button></p>
+                    : chosenAddress && <>
+                      <label className="cart-delivery-address"><span>Deliver to</span>
+                        <select value={chosenAddress.id} onChange={(event) => setDeliveryAddressId(Number(event.target.value))}>{deliveryAddresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.street}</option>)}</select>
+                      </label>
+                      <small className="cart-delivery-detail">{chosenAddress.recipientName} · {chosenAddress.phone} · {chosenZone?.name ?? chosenAddress.zoneName}{chosenAddress.landmark ? ` · near ${chosenAddress.landmark}` : ""} · <button type="button" onClick={() => setAccountOpen(true)}>Manage</button></small>
+                      <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
+                        <button type="button" role="radio" aria-checked={!payCod} onClick={() => setDeliveryPayment("gcash")}><strong>GCash</strong><span>Pay now</span></button>
+                        <button type="button" role="radio" aria-checked={payCod} disabled={codProblem !== null} onClick={() => setDeliveryPayment("cod")}><strong>Cash on delivery</strong><span>{codProblem ?? "Pay the rider"}</span></button>
+                      </div>
+                    </>}
+                {deliveryInfo && !deliveryInfo.openNow && <p className="cart-delivery-note is-warning">Delivery is available from {deliveryInfo.hours?.start} to {deliveryInfo.hours?.end}.</p>}
+                {minimumShort > 0 && <p className="cart-delivery-note is-warning">Delivery to {chosenZone?.name} starts at ₱{chosenZone?.minOrder?.toFixed(2)} of items. Add ₱{minimumShort.toFixed(2)} more.</p>}
+              </div>}
+            </div>
+
+            {(starsSection || discountReward) && <div className="bh-cart-section"><h3>Rewards</h3>
+              {starsSection}
+              {discountReward && <div className="cart-discount"><span>🎁 {discountReward.name}<small>{discountPreview.problem ?? discountText(discountReward)}</small></span><strong>{discountPreview.amount ? `−₱${discountPreview.amount.toFixed(2)}` : "—"}</strong><button type="button" onClick={() => setDiscountReward(null)} aria-label="Remove discount">×</button></div>}
+            </div>}
+
+            {idDiscountOptions.length > 0 && <div className="bh-cart-section"><h3>Discount ID</h3>
+              <div className={`cart-id-claim${claiming ? " is-on" : ""}`}>
+                <label className="cart-id-toggle">
+                  <input type="checkbox" checked={claiming} disabled={rewardsInCart} onChange={(event) => {
+                    const on = event.target.checked;
+                    setClaimIdType(on ? (savedIdUsable && savedId ? savedId.typeId : idDiscountOptions[0].id) : null);
+                    if (on) setClaimMode(savedIdUsable ? "saved" : "photo");
+                  }} />
+                  <span><strong>{savedIdUsable && savedId ? `Use my ${savedId.typeName} discount` : "I have a discount ID"}</strong><small>{idDiscountOptions.map((option) => option.name).join(" · ")}</small></span>
+                </label>
+                {rewardsInCart ? <p className="cart-id-note">To use an ID discount, remove your star rewards first. One discount per order.</p>
+                  : claiming && <>
+                    <div className="cart-id-modes" role="radiogroup" aria-label="How to claim it">
+                      {savedIdUsable && savedId && <button type="button" role="radio" aria-checked={idMode === "saved"} onClick={() => { setClaimMode("saved"); setClaimIdType(savedId.typeId); }}><strong>✓ My saved ID</strong><span>{savedId.holderName}{savedId.idEnding ? ` · ending ${savedId.idEnding}` : ""}</span></button>}
+                      <button type="button" role="radio" aria-checked={idMode === "photo"} onClick={() => setClaimMode("photo")}><strong>📷 Photo of my ID</strong><span>The café checks it, you pay here</span></button>
+                      {!isDelivery && <button type="button" role="radio" aria-checked={idMode === "counter"} onClick={() => setClaimMode("counter")}><strong>At the counter</strong><span>Show your ID, pay there</span></button>}
+                    </div>
+                    {idMode !== "saved" && <div className="cart-id-types" role="radiogroup" aria-label="Which discount">
+                      {idDiscountOptions.map((option) => <button key={option.id} type="button" role="radio" aria-checked={claimIdType === option.id} onClick={() => setClaimIdType(option.id)}>{option.name}</button>)}
+                    </div>}
+                    <p className="cart-id-note">{idMode === "saved" ? "No photo needed. Show your ID when you pick up your order." : idMode === "photo" ? "Take a photo of your ID. The café checks it, usually within a minute, then you pay here. Show your ID when you pick up." : "Send your order to the counter, then show your code and your ID to the cashier and pay there."} The discount covers your own food and drinks.</p>
+                  </>}
+              </div>
+            </div>}
+
+            <div className="bh-cart-section bh-summary">
+              <div><span>Items</span><b>₱{cartItemsTotal.toFixed(2)}</b></div>
+              {discountPreview.amount > 0 && <div><span>Reward discount</span><b>−₱{discountPreview.amount.toFixed(2)}</b></div>}
+              {isDelivery && chosenZone && <div><span>Delivery fee · {chosenZone.name}</span><b>{deliveryFee === 0 ? "Free" : `₱${deliveryFee.toFixed(2)}`}</b></div>}
+              {isDelivery && deliveryInfo?.freeAbove && deliveryFee > 0 ? <small>Free delivery from ₱{deliveryInfo.freeAbove.toFixed(2)} of items.</small> : null}
+              <div className="is-total"><span>{claiming ? "Before your discount" : "Total"}</span><strong>₱{orderTotal.toFixed(2)}</strong></div>
+              <p className="bh-pay-note">{payCod && !claiming ? <>Pay <strong>₱{orderTotal.toFixed(2)} in cash</strong> when your order arrives. Exact change helps the rider.</> : claiming ? (idMode === "counter" ? <>The cashier takes off your discount and you pay at the counter (cash or GCash).</> : <>Your discount comes off in the next step.</>) : cartTotal === 0 && starsInCart > 0 ? <>Your stars cover this whole order (★ {starsInCart}). Nothing to pay: it goes straight to the café.</> : paymentConfig.method === "gcash" ? <>You&apos;ll pay with <strong>GCash</strong>. Your order goes to the café as soon as the payment goes through.{paymentConfig.testMode ? " (Test mode: no real money is charged.)" : ""}{paymentConfig.minimumAmount && cartTotal < paymentConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash payments start at ₱{paymentConfig.minimumAmount.toFixed(2)}.</strong> : null}</> : "Payment is not included yet. Your order will be sent to the café for preparation."}</p>
+              <CartAccountNote state={customer} onOpen={() => setAccountOpen(true)} />
+            </div>
+          </>}
+        </div>
+        {cart.length > 0 && <div className="bh-sheet-foot is-stack">
+          {deliveryProblem && <p className="cart-delivery-note is-warning">{deliveryProblem}</p>}
+          <button type="button" className="bh-primary" disabled={placingOrder || !storeOpen || Boolean(deliveryProblem) || (!claiming && !payCod && paymentConfig.method === "gcash" && orderTotal > 0 && orderTotal < (paymentConfig.minimumAmount ?? 0))} onClick={() => void submitOrder()}>
+            <span>{!storeOpen ? "Café is closed" : payCod && !claiming ? (placingOrder ? "Placing your order…" : "Place order · cash on delivery") : claiming ? (idMode === "counter" ? (placingOrder ? "Sending to the counter…" : "Send to the counter") : idMode === "saved" ? "Continue with my discount" : "Continue: send my ID") : placingOrder ? (paymentConfig.method === "gcash" && cartTotal > 0 ? "Opening GCash…" : "Sending order…") : orderTotal === 0 ? "Send free order" : paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order"}</span><b>₱{orderTotal.toFixed(2)}</b>
+          </button>
+        </div>}
+      </section>
+    </div>}
+
+    {orderPlaced && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setOrderPlaced(false); }}>
+      <section className="bh-sheet bh-orders" role="dialog" aria-modal="true" aria-label="Your orders">
+        <div className="bh-sheet-head"><div><p className="bh-eyebrow">Your orders</p><h2>Order status</h2></div><button type="button" className="bh-sheet-close" onClick={() => setOrderPlaced(false)} aria-label="Close order status">×</button></div>
+        <div className="bh-sheet-scroll">
+          {trackedOrders.length === 0 ? <p className="bh-empty">No orders in progress.</p> : <div className="tracked-order-list">{trackedOrders.slice().reverse().map((order) => {
+            if (order.delivery) {
+              const step = order.deliveryStatus ?? "preparing";
+              const info: Record<string, [string, string, string, boolean]> = {
+                preparing: ["PREPARING", "We're preparing your order.", "The café has your delivery order. We'll let you know when it's on the way.", false],
+                ready: ["READY FOR THE RIDER", "Your order is packed.", "It's waiting for the rider to pick it up.", false],
+                out: ["ON THE WAY", "Your order is on the way!", "The rider is heading to you. Keep your phone nearby.", true],
+                delivered: ["DELIVERED", "Delivered. Enjoy!", "Thank you for ordering from Brew Houze.", true],
+                failed: ["NOT DELIVERED", "We couldn't deliver this order.", "The café will contact you about it.", false],
+                cancelled: ["CANCELLED", "This order was cancelled.", "Contact the café if you have questions.", false],
+              };
+              const [badge, title, text, good] = info[step] ?? info.preparing;
+              const steps = ["preparing", "ready", "out", "delivered"];
+              return <article className={`tracked-order ${good ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${good ? "confirmation-ready" : "confirmation-waiting"}`}>{step === "delivered" ? "✓" : step === "out" ? "🛵" : "•••"}</div><div><p className="status-badge">{badge}</p><h3>{title}</h3></div></div><ol className="delivery-steps">{steps.map((name, index) => <li key={name} className={steps.indexOf(step) >= index ? "is-done" : ""}>{["Preparing", "Packed", "On the way", "Delivered"][index]}</li>)}</ol><div className="queue-ticket"><span>ORDER NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{text}</p></article>;
+            }
+            const ready = order.status === "served";
+            return <article className={`tracked-order ${ready ? "tracked-order-ready" : "tracked-order-waiting"}`} key={order.trackingToken}><div className="tracked-order-top"><div className={`confirmation-icon ${ready ? "confirmation-ready" : "confirmation-waiting"}`}>{ready ? "✓" : "•••"}</div><div><p className="status-badge">{ready ? "READY FOR PICKUP" : "ORDER SENT"}</p><h3>{ready ? "Your order is ready!" : "We’re preparing your order."}</h3></div></div><div className="queue-ticket"><span>QUEUE NUMBER</span><strong>#{order.queueNumber ?? "—"}</strong></div><p>{ready ? "Please pick up your order at the counter." : "The café has received your order. We’ll let you know when it’s ready for pickup."}</p></article>;
+          })}</div>}
+        </div>
+        <div className="bh-sheet-foot"><button type="button" className="bh-primary" onClick={() => setOrderPlaced(false)}><span>Continue browsing</span></button></div>
+      </section>
+    </div>}
+
+    {rewardPick && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) setRewardPick(null); }}>
+      <section className="bh-sheet" role="dialog" aria-modal="true" aria-label={`Choose the item for ${rewardPick.name}`}>
+        <div className="bh-sheet-head"><div><p className="bh-eyebrow">Reward · ★ {rewardPick.starsCost}</p><h2>{rewardPick.name}</h2></div><button type="button" className="bh-sheet-close" onClick={() => setRewardPick(null)} aria-label="Close">×</button></div>
+        <div className="bh-sheet-scroll">
+          <p className="bh-item-desc">Choose the item you want for free.</p>
+          <div className="bh-reward-list">
+            {(() => {
+              const options = products.flatMap((product) => sortVariants(product.variants ?? []).map((variant) => ({ product, variant }))).filter(({ product, variant }) => rewardMismatch(rewardPick, { productId: product.id, category: product.category, price: variant.price }) === null);
+              if (options.length === 0) return <p className="bh-empty">Nothing on the menu fits this reward right now.</p>;
+              return options.map(({ product, variant }) => {
+                const unavailable = !variant.available || getCartLimit({ ingredients: variant.ingredients, additions: [] }, cart, "") < 1;
+                return <button key={variant.id} type="button" className="reward-option" disabled={unavailable} onClick={() => addRewardItem(product, variant, rewardPick)}>
+                  <span><strong>{product.name}</strong><small>{variant.size || "Regular"}{variant.temperature === "hot" ? " · Hot" : variant.temperature === "cold" ? " · Iced" : ""} · normally ₱{variant.price.toFixed(2)}</small></span>
+                  <b>{unavailable ? "Unavailable" : "Free"}</b>
+                </button>;
+              });
+            })()}
+          </div>
         </div>
       </section>
     </div>}
@@ -1036,7 +1218,7 @@ export default function MenuPage() {
       onSendPhoto={sendIdPhoto} onPaySaved={(coverage) => payWithIdDiscount({ saved_id: coverage })} onClose={() => setIdSheet(null)} />}
     {idCheck && !paymentCheck && <IdCheckStatus check={idCheck} payLabel={idPayLabel} paying={idPaying} onPay={() => void payApproved()}
       onCancel={() => void cancelIdCheck("cart")} onRetry={() => void cancelIdCheck("retry")} onCounter={() => void cancelIdCheck("counter")} onClose={() => void cancelIdCheck(idCheck.status === "rejected" ? "plain" : "cart")} />}
-    {sentCart && <div className="modal-backdrop">
+    {sentCart && <div className="modal-backdrop bh-legacy">
       <section className="confirmation-modal sent-cart" role="status" aria-live="polite">
         {sentCart.status === "waiting" ? <>
           <p className="eyebrow">SENT TO THE COUNTER</p>
@@ -1053,7 +1235,7 @@ export default function MenuPage() {
         </>}
       </section>
     </div>}
-    {paymentCheck && <div className="modal-backdrop">
+    {paymentCheck && <div className="modal-backdrop bh-legacy">
       <section className="confirmation-modal payment-check" role="status" aria-live="polite">
         {paymentCheck.state === "failed" ? <>
           <div className="payment-check-icon is-failed" aria-hidden="true">!</div>
