@@ -2,7 +2,7 @@
 // dirtywork.css and armageddon.css; photos and sound in whiplash/, dirty-work/ and armageddon/).
 //
 // The "© Brew Houze" line in the footer cycles café → Whiplash → café → Dirty Work → café →
-// Armageddon → café. Each
+// Armageddon → café → Drama → café. Each
 // theme has the four members (plates that open photo cards), an intro that follows its own sound
 // clip, and music that loops while the theme is on. index.html sets the theme before the page
 // paints (so a reload keeps it without a flash) and provides showToast().
@@ -11,7 +11,7 @@
   const THEME_KEY = "brew-houze-theme"; // the theme that is on, or "cafe"
   const NEXT_KEY = "brew-houze-theme-next"; // the theme the next click from the café opens
   const SOUND_KEY = "brew-houze-aespa-sound"; // "off" when the visitor muted the music
-  const CYCLE = ["whiplash", "dirtywork", "armageddon"];
+  const CYCLE = ["whiplash", "dirtywork", "armageddon", "drama"];
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
@@ -209,6 +209,52 @@
     },
   };
 
+  // Drama: "Scene ver." in red and black. The clip's two booms (0.07 / 0.99 s) rip two red-edged
+  // slashes across the dark into an X, each showing a scene; in the silence the third scene holds
+  // in letterbox with the album line; the rolling bass hits (2.83 / 3.11 / 3.38 / 3.61 s) cut to the
+  // four members, each with her emblem stamped in red; the big chop (3.73 s) floods the screen red
+  // with the DRAMA logo in black, the loudest hit (4.19 s) turns it black with the logo in red, and
+  // 4.36 s floods red again, straight into track 1.
+  const dramaIntro = {
+    end: 4630,
+    cues: [
+      [0, "dark"], [70, "slash", 1], [990, "slash", 2], [1450, "hold"], [2640, "rise"],
+      [2830, "member", 0], [3110, "member", 1], [3380, "member", 2], [3610, "member", 3],
+      [3730, "flood"], [3870, "flood"], [4190, "invert"], [4360, "flood"],
+    ],
+    hits: new Set(["slash", "member", "flood", "invert"]),
+    mount(box, photos, flashes) {
+      box.innerHTML = `
+        <div class="dr-shot is-a"></div><div class="dr-shot is-b"></div><div class="dr-scene"></div>
+        <div class="dr-members"></div><i class="dr-emblem"></i><span class="dr-who"></span>
+        <div class="dr-bars"><i></i><i></i></div>
+        <p class="dr-caption is-left">aespa · The 4th Mini Album</p><p class="dr-caption is-right">Scene Ver.</p>
+        <div class="dr-logo"></div><div class="dr-grain"></div>`;
+      box.querySelector(".dr-shot.is-a").append(flashes[0]);
+      box.querySelector(".dr-shot.is-b").append(flashes[1]);
+      box.querySelector(".dr-scene").append(flashes[2], flashes[3]);
+      box.querySelector(".dr-members").append(...photos);
+      const emblem = box.querySelector(".dr-emblem");
+      const who = box.querySelector(".dr-who");
+      return (step) => {
+        const [, scene, value] = this.cues[step];
+        const photo = scene === "member" ? photos[value] : null;
+        const ready = !photo || (photo.complete && photo.naturalWidth > 0);
+        photos.forEach((img) => img.classList.toggle("is-current", img === photo));
+        if (photo) {
+          const key = memberOrder[value];
+          emblem.style.setProperty("--emblem", `url("${siteUrl(`drama/${key}-emblem.webp`)}")`);
+          who.textContent = MEMBERS[key].name;
+        }
+        const classes = ["dr-intro", `is-${ready ? scene : "rise"}`];
+        // The slashes stay once ripped: the second joins the first as an X.
+        if (scene === "slash" && value === 2) classes.push("is-x");
+        box.className = classes.join(" ");
+        if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+    },
+  };
+
   // ── The themes ──
   const THEMES = {
     whiplash: {
@@ -233,6 +279,16 @@
       sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
       introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], intro: armageddonIntro, introClass: "am-intro",
       extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
+    },
+    // The intro runs straight into track 1; tracks 1 and 2 then take turns with no gap (1, 2, 1, 2…).
+    // Track 1 is the theme as it is; during track 2 the page moves with the music (see the Drama
+    // stage below).
+    drama: {
+      era: "Drama", folder: "drama/", tag: "DRAMA", back: "emblem",
+      title: "Brew Houze × aespa · Drama", toast: "Brew Houze × aespa · Drama",
+      sub: "Drama · System portal", h1: "Every Brew Houze app. I’m the Drama.", footer: "Brew Houze × aespa · Drama · café management system",
+      introClip: "drama/intro.mp3", loops: ["drama/track-1.mp3", "drama/track-2.mp3"], joined: true, intro: dramaIntro, introClass: "dr-intro",
+      extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
     },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
@@ -282,13 +338,77 @@
       return `<li class="ae-member" style="--delay: ${index * 0.35}s" data-member="${key}" role="button" tabindex="0" aria-label="Open ${escapeHtml(m.name)}’s photo card">`
         + `<img draggable="false" class="ae-photo" src="${photoOf(theme, key)}" alt="" loading="lazy" onerror="this.remove()" />`
         + (t.back === "signature" ? `<span class="am-plate-sign" aria-hidden="true" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.svg`)}')"></span>` : "")
+        + (t.back === "emblem" ? `<span class="dr-plate-emblem" aria-hidden="true" style="--emblem: url('${siteUrl(`${t.folder}${key}-emblem.webp`)}')"></span>` : "")
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
   }
 
+  // ── The Drama stage ──
+  // During track 2 the page moves with the music; during track 1 (and the intro) it is the theme as
+  // it is. It follows the music's own clock (the part heard now, see position()); without sound it
+  // follows the same timeline on the page's clock. The stage is html[data-drama]: calm, then in
+  // track 2 tension (a pulse every 2 beats), build (the snare roll), drive (every beat), drop (the
+  // near-silence) and hit / hit2 (the two hits back into track 1). --drama-lag puts the beat
+  // animations in step with the music when a section starts.
+  const DRAMA_PARTS = [29.304, 31.168];
+  const DRAMA_BEAT = 60 / 131;
+  const DRAMA_SECTIONS = [[0, "tension", DRAMA_BEAT * 2], [12.85, "build", 0], [14.69, "drive", DRAMA_BEAT], [24.75, "drop", 0], [29.33, "hit", 0], [30.25, "hit2", 0]];
+  const dramaFx = document.createElement("div");
+  dramaFx.className = "dr-fx";
+  dramaFx.setAttribute("aria-hidden", "true");
+  dramaFx.innerHTML = '<i class="dr-fx-pulse"></i><i class="dr-fx-slash"></i><i class="dr-fx-slash is-b"></i><i class="dr-fx-dark"></i>';
+  document.body.appendChild(dramaFx);
+  let dramaFrame = 0;
+  let dramaStage = "";
+  let dramaClock = 0;
+  function setDramaStage(stage, lag = 0) {
+    if (stage === dramaStage) return;
+    dramaStage = stage;
+    root.style.setProperty("--drama-lag", `${(-lag).toFixed(3)}s`);
+    root.dataset.drama = stage;
+  }
+  function dramaTick() {
+    if (current !== "drama") return;
+    const player = players.drama;
+    let index = null;
+    let offset = 0;
+    if (player && player.playing()) {
+      const heard = player.position();
+      if (heard) { index = heard.index; offset = heard.offset; dramaClock = performance.now() - ((heard.index === 1 ? DRAMA_PARTS[0] : 0) + Math.max(0, offset)) * 1000; }
+    } else {
+      // No sound: the same timeline on the page's clock.
+      const cycle = DRAMA_PARTS[0] + DRAMA_PARTS[1];
+      const at = (((performance.now() - dramaClock) / 1000) % cycle + cycle) % cycle;
+      index = at < DRAMA_PARTS[0] ? 0 : 1;
+      offset = index === 0 ? at : at - DRAMA_PARTS[0];
+    }
+    if (index === 1) {
+      let section = DRAMA_SECTIONS[0];
+      for (const entry of DRAMA_SECTIONS) if (offset >= entry[0]) section = entry;
+      const [start, name, period] = section;
+      setDramaStage(name, period ? (offset - start) % period : 0);
+    } else if (index !== null) {
+      setDramaStage("calm");
+    }
+    dramaFrame = requestAnimationFrame(dramaTick);
+  }
+  function startDrama() {
+    cancelAnimationFrame(dramaFrame);
+    dramaStage = "";
+    dramaClock = performance.now();
+    setDramaStage("calm");
+    if (motionOK()) dramaFrame = requestAnimationFrame(dramaTick);
+  }
+  function stopDrama() {
+    cancelAnimationFrame(dramaFrame);
+    dramaStage = "";
+    delete root.dataset.drama;
+  }
+
   function applyTheme(theme) {
     current = theme;
+    if (theme === "drama") startDrama(); else stopDrama();
     const t = theme ? THEMES[theme] : null;
     if (t) { root.dataset.theme = theme; root.dataset.secret = ""; } else { delete root.dataset.theme; delete root.dataset.secret; }
     brandName.innerHTML = t ? "Brew Houze <b>×</b> aespa" : cafe.brand;
@@ -354,9 +474,12 @@
       return loading;
     };
     // Keeps about six seconds of music queued, each part starting exactly where the last one ends.
+    // What is scheduled when (on the audio clock): which part plays now (see position()).
+    let timeline = [];
     const schedule = () => {
       while (parts && nextAt < ctx.currentTime + 6) {
         const part = parts[index];
+        timeline.push({ index, at: nextAt, end: nextAt + part.duration });
         const node = ctx.createBufferSource();
         node.buffer = part.buffer;
         node.connect(gain);
@@ -378,6 +501,7 @@
       timer = null;
       sources.forEach((node) => { try { node.stop(); } catch { /* already stopped */ } });
       sources = [];
+      timeline = [];
     };
     const running = async () => {
       try { await Promise.race([ctx.resume(), new Promise((ok) => setTimeout(ok, 400))]); } catch { /* not allowed yet */ }
@@ -385,6 +509,16 @@
     };
     const player = {
       prime() { context().resume().catch(() => undefined); load().catch(() => undefined); },
+      // Playing (and not muted): the music the listener hears now is on the audio clock.
+      playing: () => Boolean(ctx && timer && ctx.state === "running"),
+      // The part heard now: { index (-1: the intro), offset in seconds }, or null between parts.
+      position() {
+        if (!player.playing()) return null;
+        const now = ctx.currentTime - (ctx.outputLatency || 0);
+        timeline = timeline.filter((entry) => entry.end > now - 2);
+        const entry = timeline.find((item) => now >= item.at && now < item.end);
+        return entry ? { index: entry.index, offset: now - entry.at } : null;
+      },
       // Decoded ahead (before the click) so a joined intro can start at once.
       preload() { load().catch(() => undefined); },
       // A joined theme: its intro clip, then the loop from the sample the intro ends on. Resolves the
@@ -403,6 +537,7 @@
         node.buffer = introPart.buffer;
         node.connect(gain);
         node.start(at, introPart.offset, introPart.duration);
+        timeline.push({ index: -1, at, end: at + introPart.duration });
         node.onended = () => { sources = sources.filter((s) => s !== node); };
         sources.push(node);
         index = 0;
@@ -603,7 +738,14 @@
     const back = document.getElementById("ae-pc-back");
     back.classList.toggle("is-signature", t.back === "signature");
     back.classList.toggle("is-spec", t.back === "spec");
-    back.innerHTML = t.back === "spec" ? `
+    back.classList.toggle("is-emblem", t.back === "emblem");
+    back.innerHTML = t.back === "emblem" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
+      <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
+      <div class="dr-back-photo" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
+      <div class="dr-back-emblem" role="img" aria-label="${escapeHtml(member.name)}’s emblem" style="--emblem: url('${siteUrl(`${t.folder}${key}-emblem.webp`)}')"></div>
+      <div class="dr-back-name"><h3>${escapeHtml(member.name)}</h3><p class="ae-pc-kr">${escapeHtml(member.hangul)}</p></div>
+      <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>` : t.back === "spec" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <div class="wl-back-device" aria-hidden="true"></div>

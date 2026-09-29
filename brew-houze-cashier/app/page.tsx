@@ -449,6 +449,13 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
   const [devicesMessage, setDevicesMessage] = useState("");
   const [signingOutOthers, setSigningOutOthers] = useState(false);
   const keypad = useContext(KeypadContext);
+  const sounds = useContext(SoundContext);
+  const soundRole = user.role.toLowerCase();
+  const soundKinds: [PingKind, string, string][] = [
+    ...(soundRole === "cashier" || soundRole === "admin" ? [["line", "🔔 Counter line", "A customer from the mobile menu is waiting for you"] as [PingKind, string, string]] : []),
+    ...(soundRole !== "rider" ? [["queue", "☕ Queue", soundRole === "barista" || soundRole === "kitchen" ? "A new order to make" : "An order is ready to hand out"] as [PingKind, string, string]] : []),
+    ...(soundRole !== "barista" && soundRole !== "kitchen" ? [["delivery", "🛵 Delivery", soundRole === "rider" ? "A packed order is waiting for you" : "A delivery needs attention"] as [PingKind, string, string]] : []),
+  ];
   const receipts = useContext(ReceiptContext);
 
   const loadDetails = useCallback(async () => {
@@ -552,6 +559,22 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
             </div>
             {!details.shift && !isQueueOnlyRole(user.role) && <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>No shift is open. Totals appear once a shift is opened.</p>}
           </>}
+        </AccountSection>
+
+        <AccountSection eyebrow="Settings" title="Sounds">
+          <div className="flex items-center gap-4" style={{ padding: "12px 14px", borderRadius: 12, background: "#FFFFFF", border: "1px solid #F0E8E2" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p id="sound-setting-label" style={{ margin: 0, color: "#3D2B1F", fontSize: 14, fontWeight: 700 }}>Ping when something new comes in</p>
+              <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12, lineHeight: 1.45 }}>A different sound for each, so you know which it is without looking. Saved on this device only. Tap the screen once after opening the app so it may play sounds.</p>
+            </div>
+            <button type="button" role="switch" aria-checked={sounds.enabled} aria-labelledby="sound-setting-label" onClick={() => sounds.setEnabled(!sounds.enabled)} className={`setting-switch${sounds.enabled ? " is-on" : ""}`}><span /></button>
+          </div>
+          <div className="sound-list">
+            {soundKinds.map(([kind, label, detail]) => <div key={kind} className="sound-row">
+              <span><strong>{label}</strong><em>{detail}</em></span>
+              <button type="button" onClick={() => playPing(kind)}>▶ Play</button>
+            </div>)}
+          </div>
         </AccountSection>
 
         {!isQueueOnlyRole(user.role) && <AccountSection eyebrow="Settings" title="This tablet">
@@ -954,6 +977,71 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
 
 const KEYPAD_STORAGE_KEY = "brew-houze-cashier-keypad";
 const KeypadContext = createContext<{ enabled: boolean; setEnabled: (enabled: boolean) => void }>({ enabled: false, setEnabled: () => undefined });
+
+// ── Ping sounds: something new for this staff member, a different sound for each kind ──
+//   line      a customer waiting in the counter line: a soft two-note doorbell (ding-dong)
+//   queue     a new order to make (baristas, kitchen) or an order ready to hand out (counter):
+//             a quick bright three-note chime
+//   delivery  the Deliveries badge went up (a packed order for the rider…): two short buzzy beeps
+// Made with Web Audio (no sound files). Browsers only allow sound after a tap, so the first tap
+// anywhere in the app unlocks it. On or off per device (SOUNDS_STORAGE_KEY).
+type PingKind = "line" | "queue" | "delivery";
+const SOUNDS_STORAGE_KEY = "brew-houze-cashier-sounds";
+const SoundContext = createContext<{ enabled: boolean; setEnabled: (enabled: boolean) => void }>({ enabled: true, setEnabled: () => undefined });
+let pingAudio: AudioContext | null = null;
+function pingContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
+  if (!pingAudio) {
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextClass) return null;
+    pingAudio = new AudioContextClass();
+  }
+  return pingAudio;
+}
+function unlockPings() {
+  const context = pingContext();
+  if (context && context.state !== "running") void context.resume().catch(() => undefined);
+}
+function pingNote(context: AudioContext, start: number, frequency: number, length: number, type: OscillatorType, peak: number, lowpass?: number) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = type;
+  oscillator.frequency.value = frequency;
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(peak, start + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+  let node: AudioNode = oscillator;
+  if (lowpass) { const filter = context.createBiquadFilter(); filter.type = "lowpass"; filter.frequency.value = lowpass; node.connect(filter); node = filter; }
+  node.connect(gain).connect(context.destination);
+  oscillator.start(start);
+  oscillator.stop(start + length + 0.05);
+}
+function playPing(kind: PingKind, delay = 0) {
+  const context = pingContext();
+  if (!context) return;
+  void context.resume().catch(() => undefined);
+  const at = context.currentTime + 0.03 + delay;
+  if (kind === "line") {
+    pingNote(context, at, 1318.5, 0.9, "sine", 0.32);
+    pingNote(context, at + 0.3, 987.8, 1.3, "sine", 0.32);
+  } else if (kind === "queue") {
+    [1046.5, 1318.5, 1568].forEach((frequency, index) => pingNote(context, at + index * 0.1, frequency, 0.35, "triangle", 0.3));
+  } else {
+    [0, 0.24].forEach((offset) => { pingNote(context, at + offset, 440, 0.17, "square", 0.14, 1800); pingNote(context, at + offset, 554.4, 0.17, "square", 0.1, 1800); });
+  }
+}
+function readSoundSetting(): boolean {
+  try { return window.localStorage.getItem(SOUNDS_STORAGE_KEY) !== "off"; } catch { return true; }
+}
+function saveSoundSetting(enabled: boolean) {
+  try { window.localStorage.setItem(SOUNDS_STORAGE_KEY, enabled ? "on" : "off"); } catch { /* storage unavailable: applies until the page reloads */ }
+}
+// The Deliveries badge: a rider's packed orders and cash to hand in; the counter's packed, failed
+// and unremitted deliveries.
+function deliveryBadgeFor(role: string, counts: DeliveryCounts | null): number {
+  if (!counts) return 0;
+  return role.toLowerCase() === "rider" ? counts.ready + counts.mineCash : counts.ready + counts.failed + counts.cash;
+}
 
 function readKeypadSetting(): boolean {
   try { return window.localStorage.getItem(KEYPAD_STORAGE_KEY) === "on"; } catch { return false; }
@@ -4323,10 +4411,27 @@ export default function App() {
   const [closingShift, setClosingShift] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [keypadEnabled, setKeypadEnabled] = useState(false);
+  const [soundsEnabled, setSoundsEnabled] = useState(true);
   useEffect(() => {
-    const timeout = window.setTimeout(() => setKeypadEnabled(readKeypadSetting()), 0);
+    const timeout = window.setTimeout(() => { setKeypadEnabled(readKeypadSetting()); setSoundsEnabled(readSoundSetting()); }, 0);
     return () => window.clearTimeout(timeout);
   }, []);
+  const soundSetting = { enabled: soundsEnabled, setEnabled: (enabled: boolean) => { setSoundsEnabled(enabled); saveSoundSetting(enabled); if (enabled) unlockPings(); } };
+  // Sound needs a tap first (browsers' rule): the first one anywhere unlocks it.
+  useEffect(() => {
+    const unlock = () => unlockPings();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    return () => { window.removeEventListener("pointerdown", unlock); window.removeEventListener("keydown", unlock); };
+  }, []);
+  // What the last count check found, to ping only for what is new (null: the first check).
+  const pingPrevious = useRef<{ line: number; waiting: number; ready: number; delivery: number } | null>(null);
+  const pingRole = useRef("");
+  const pingOn = useRef(true);
+  useEffect(() => { pingOn.current = soundsEnabled; }, [soundsEnabled]);
+  // Pings follow the signed-in staff member's role; a new sign-in starts from what is there now.
+  const signedInRole = user?.role ?? "";
+  useEffect(() => { pingRole.current = signedInRole; pingPrevious.current = null; }, [signedInRole]);
   const keypadSetting = { enabled: keypadEnabled, setEnabled: (enabled: boolean) => { setKeypadEnabled(enabled); saveKeypadSetting(enabled); } };
 
   // Receipts: settings saved on this tablet, and the slip being printed right now.
@@ -4390,6 +4495,21 @@ export default function App() {
       if (!response.ok) return;
       const payload = await response.json() as { signature?: { waiting_count?: number; ready_count?: number }; deliveries?: { ready?: number; failed?: number; cash?: number; mine_cash?: number } | null; line?: number | null };
       setLineCount(Number(payload.line ?? 0));
+      // Pings for what is new since the last check, each kind to the staff it concerns.
+      const deliveries = payload.deliveries ? { ready: Number(payload.deliveries.ready ?? 0), failed: Number(payload.deliveries.failed ?? 0), cash: Number(payload.deliveries.cash ?? 0), mineCash: Number(payload.deliveries.mine_cash ?? 0) } : null;
+      const role = pingRole.current.toLowerCase();
+      const next = { line: Number(payload.line ?? 0), waiting: Number(payload.signature?.waiting_count ?? 0), ready: Number(payload.signature?.ready_count ?? 0), delivery: deliveryBadgeFor(role, deliveries) };
+      const previous = pingPrevious.current;
+      pingPrevious.current = next;
+      if (previous && pingOn.current && role) {
+        const counter = role === "cashier" || role === "admin";
+        const makes = role === "barista" || role === "kitchen";
+        const kinds: PingKind[] = [];
+        if (counter && next.line > previous.line) kinds.push("line");
+        if ((makes && next.waiting > previous.waiting) || (counter && next.ready > previous.ready)) kinds.push("queue");
+        if ((counter || role === "rider") && next.delivery > previous.delivery) kinds.push("delivery");
+        kinds.forEach((kind, index) => playPing(kind, index * 1.4));
+      }
       setQueueCounts({ waiting: Number(payload.signature?.waiting_count ?? 0), ready: Number(payload.signature?.ready_count ?? 0) });
       setDeliveryCounts(payload.deliveries ? { ready: Number(payload.deliveries.ready ?? 0), failed: Number(payload.deliveries.failed ?? 0), cash: Number(payload.deliveries.cash ?? 0), mineCash: Number(payload.deliveries.mine_cash ?? 0) } : null);
     } catch (error) {
@@ -4519,13 +4639,11 @@ export default function App() {
   const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
   const queueOnly = isQueueOnlyRole(user.role);
   const allowedPages = limitedPages(user.role);
-  const deliveryBadge = !deliveryCounts || (allowedPages && !allowedPages.includes("deliveries")) ? 0
-    : user.role.toLowerCase() === "rider" ? deliveryCounts.ready + deliveryCounts.mineCash
-      : deliveryCounts.ready + deliveryCounts.failed + deliveryCounts.cash;
+  const deliveryBadge = allowedPages && !allowedPages.includes("deliveries") ? 0 : deliveryBadgeFor(user.role, deliveryCounts);
   const visiblePage: Page = allowedPages ? (allowedPages.includes(page) ? page : allowedPages[0]) : page === "reversals" && !canManageReversals ? "pos" : page;
   async function confirmSignOut() {
     setSigningOut(true);
     await logout();
   }
-  return <KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider>;
+  return <SoundContext.Provider value={soundSetting}><KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider></SoundContext.Provider>;
 }

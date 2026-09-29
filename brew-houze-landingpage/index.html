@@ -20,7 +20,7 @@
     // A secret theme (see secret/secret.js) is set before the page paints, so a reload keeps it
     // without flashing the café colors. "aespa" is the old name of Whiplash.
     try {
-      const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon" }[localStorage.getItem("brew-houze-theme")];
+      const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama" }[localStorage.getItem("brew-houze-theme")];
       if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
     } catch { /* storage blocked: default theme */ }
   </script>
@@ -28,6 +28,7 @@
   <link rel="stylesheet" href="secret/whiplash.css" />
   <link rel="stylesheet" href="secret/dirtywork.css" />
   <link rel="stylesheet" href="secret/armageddon.css" />
+  <link rel="stylesheet" href="secret/drama.css" />
   <style>
     :root {
       --espresso: #3D2B1F; --espresso-deep: #2A1D14; --roast: #6B4C3B; --latte: #9C8278;
