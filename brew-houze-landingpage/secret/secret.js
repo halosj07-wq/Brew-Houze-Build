@@ -215,7 +215,9 @@
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
       title: "Brew Houze × aespa · Whiplash", toast: "Brew Houze × aespa · WHIPLASH",
       sub: "Whiplash · System portal", h1: "Every Brew Houze app. Whiplash fast.", footer: "Brew Houze × aespa · Whiplash · café management system",
-      introClip: "whiplash/intro.mp3", loops: ["whiplash/loop.mp3"], intro: whiplashIntro, introClass: "wl-intro", back: "spec",
+      // joined: the intro clip runs straight into the loop (the song continues), so both play on
+      // the loop's Web Audio clock, the loop starting on the very sample the intro ends.
+      introClip: "whiplash/intro.mp3", loops: ["whiplash/loop.mp3"], joined: true, intro: whiplashIntro, introClass: "wl-intro", back: "spec",
       extras: ["device.webp", "logo-white.webp"],
     },
     dirtywork: {
@@ -308,10 +310,11 @@
   // at full volume, straight after the intro (no fade), and resolves false if the browser still wants a tap. mute()/unmute() keep the
   // place; stop() ends it; hide()/show() pause it while the tab is hidden.
   const VOLUME = 0.6;
-  function stitchedLoop(srcs) {
+  function stitchedLoop(srcs, introSrc = null) {
     let ctx = null;
     let gain = null;
     let parts = null;
+    let introPart = null;
     let loading = null;
     let sources = [];
     let nextAt = 0;
@@ -340,11 +343,13 @@
     };
     const load = () => {
       if (!loading) {
-        loading = Promise.all(srcs.map(async (src) => {
+        const decode = async (src) => {
           const response = await fetch(src);
           if (!response.ok) throw new Error(`Could not load ${src}`);
           return trim(await context().decodeAudioData(await response.arrayBuffer()));
-        })).then((decoded) => { parts = decoded; }, (error) => { loading = null; throw error; });
+        };
+        loading = Promise.all([Promise.all(srcs.map(decode)), introSrc ? decode(introSrc) : null])
+          .then(([decoded, intro]) => { parts = decoded; introPart = intro; }, (error) => { loading = null; throw error; });
       }
       return loading;
     };
@@ -380,6 +385,32 @@
     };
     const player = {
       prime() { context().resume().catch(() => undefined); load().catch(() => undefined); },
+      // Decoded ahead (before the click) so a joined intro can start at once.
+      preload() { load().catch(() => undefined); },
+      // A joined theme: its intro clip, then the loop from the sample the intro ends on. Resolves the
+      // intro's clock (ms into the clip file, for the cues), or null when it cannot start by the
+      // deadline (the intro then runs silent and the loop starts after it as usual).
+      async startWithIntro(deadline) {
+        const mine = ++generation;
+        context();
+        try { await load(); } catch { return null; }
+        if (!introPart || !(await running()) || mine !== generation || performance.now() > deadline) return null;
+        halt();
+        gain.gain.cancelScheduledValues(ctx.currentTime);
+        gain.gain.setValueAtTime(VOLUME, ctx.currentTime);
+        const at = ctx.currentTime + 0.05;
+        const node = ctx.createBufferSource();
+        node.buffer = introPart.buffer;
+        node.connect(gain);
+        node.start(at, introPart.offset, introPart.duration);
+        node.onended = () => { sources = sources.filter((s) => s !== node); };
+        sources.push(node);
+        index = 0;
+        nextAt = at + introPart.duration;
+        schedule();
+        timer = setInterval(schedule, 1000);
+        return () => (ctx.currentTime - at + introPart.offset) * 1000;
+      },
       async start() {
         const mine = ++generation;
         context();
@@ -420,14 +451,14 @@
   }
 
   const players = {};
-  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops));
+  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops, THEMES[theme].joined ? THEMES[theme].introClip : null));
   const clips = {};
   const clipFor = (theme) => { if (!clips[theme]) { clips[theme] = new Audio(THEMES[theme].introClip); clips[theme].preload = "auto"; } return clips[theme]; };
   // The next theme's intro sound, photos and extra images, loaded before the click so the intro
   // never skips a member.
   const warmed = {};
   function warm(theme) {
-    clipFor(theme);
+    if (THEMES[theme].joined) playerFor(theme).preload(); else clipFor(theme);
     if (warmed[theme]) return;
     const t = THEMES[theme];
     warmed[theme] = [...memberOrder.map((key) => photoOf(theme, key)), ...flashesOf(theme), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
@@ -459,10 +490,10 @@
   });
 
   // ── The intro player ──
+  // Resolves { joined: true } when a joined theme's music is already running (intro into loop).
   function playIntro(theme, withSound) {
     const t = THEMES[theme];
     const spec = t.intro;
-    const clip = clipFor(theme);
     return new Promise((done) => {
       const box = document.createElement("div");
       box.className = t.introClass;
@@ -483,14 +514,24 @@
         if (now >= spec.end) {
           box.classList.add("is-out");
           setTimeout(() => box.remove(), 260);
-          done();
+          done({ joined });
           return;
         }
         requestAnimationFrame(frame);
       };
+      let joined = false;
       const silent = () => { const start = performance.now(); clock = () => performance.now() - start; requestAnimationFrame(frame); };
       if (!withSound) { silent(); return; }
+      if (t.joined) {
+        // Follow the audio clock the intro and the loop share (or run silent if it cannot start soon).
+        void playerFor(theme).startWithIntro(performance.now() + 700).then((audioClock) => {
+          if (audioClock) { joined = true; clock = audioClock; } else silent();
+          if (audioClock) requestAnimationFrame(frame);
+        });
+        return;
+      }
       // Wait (briefly) for the sound to actually start, then follow it.
+      const clip = clipFor(theme);
       clip.currentTime = 0;
       let settled = false;
       const giveUp = setTimeout(() => { if (settled) return; settled = true; clip.pause(); silent(); }, 700);
@@ -520,7 +561,7 @@
     const sound = Boolean(entering) && soundWanted();
     if (sound) playerFor(entering).prime();
     const intro = entering && motion ? playIntro(entering, sound) : null;
-    if (leaving) { playerFor(leaving).stop(); clipFor(leaving).pause(); }
+    if (leaving) { playerFor(leaving).stop(); if (!THEMES[leaving].joined) clipFor(leaving).pause(); }
     applyTheme(entering);
     window.scrollTo({ top: 0, behavior: "instant" });
     store.set(THEME_KEY, entering ?? "cafe");
@@ -529,8 +570,8 @@
       store.set(NEXT_KEY, after);
       warm(after); // ready for the next click
     }
-    if (intro) await intro;
-    if (entering) showSoundState(sound ? ((await playerFor(entering).start()) ? "on" : "waiting") : "off");
+    const played = intro ? await intro : null;
+    if (entering) showSoundState(played?.joined ? "on" : sound ? ((await playerFor(entering).start()) ? "on" : "waiting") : "off");
     switching = false;
     if (motion) {
       const flash = document.createElement("div");
