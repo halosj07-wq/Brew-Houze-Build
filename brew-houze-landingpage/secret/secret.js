@@ -119,40 +119,93 @@
   };
 
   // ── The secret scenes (the glowing lyric of the bridge opens them; see playScene) ──
-  // A scene is { src, className, cues [[seconds into the clip, name]], mount(box, video) → show(cue, now), tick(now) }:
-  // the MV from the bridge to the end, framed in the era's look, following the video's own clock.
-  // Whiplash (126 BPM): the bridge on the red stage (0-16.41 s) plays on the camera's monitor under
-  // the viewfinder; the drop (16.41 s) flashes white and the shot fills the screen, the shutter
-  // firing on every bar (SHOT 01, 02…); the break (32.9 s) goes to a grey letterboxed low-light
-  // shot with the focus hunting; the final chorus (37.36 s) snaps back open; on the last hit
-  // (47.83 s) the chrome logo lands and the shot fades out.
+  // A scene is { src, className, cues [[seconds into the clip, name]], mount(box, video) →
+  // { show(cue, now), tick(now), unmount() } }: the MV from the bridge to the end, bleeding in and
+  // out of the page in the era's way, following the video's own clock.
+  // Mirrors: canvases in the page that show a part of the video (drawn every frame), so the MV can
+  // play inside the page's own parts. wall: the page box the video is spread over (as cover).
+  function drawMirror(canvas, video, wall) {
+    if (!video.videoWidth) return;
+    const box = canvas.getBoundingClientRect();
+    if (!box.width || !box.height) return;
+    const scale = Math.max(wall.width / video.videoWidth, wall.height / video.videoHeight);
+    const left = wall.left + (wall.width - video.videoWidth * scale) / 2;
+    const top = wall.top + (wall.height - video.videoHeight * scale) / 2;
+    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const width = Math.round(box.width * ratio);
+    const height = Math.round(box.height * ratio);
+    if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
+    canvas.getContext("2d").drawImage(video, (box.left - left) / scale, (box.top - top) / scale, box.width / scale, box.height / scale, 0, 0, width, height);
+  }
+
+  // Whiplash (126 BPM). The page stays; the MV bleeds into it:
+  //   bridge (0-16.41 s)  the MV plays inside the four member plates, one wide shot split across
+  //                       their photos, and a dark blur of it glows behind the header
+  //   drop (16.41 s)      a white flash; the MV bursts out of the plates through a slit to fill the screen
+  //   chorus              it bleeds in and out on the bars: one bar it whips in full screen (the
+  //                       shutter firing), the next it pulls back into the page and its plates
+  //   break (32.9 s)      the page goes dark and the MV shows only through the WHIPLASH logo, grey
+  //   final (37.36 s)     it rips back in through racing streaks, then in and out on the bars again
+  //   end (47.83 s)       it pulls back into the logo, which shrinks away over the page
   const WL_BAR = 240 / 126;
   const whiplashScene = {
     src: "whiplash/scene.mp4",
     className: "wl-scene",
-    cues: [[0, "bridge"], [16.41, "drop"], [17.2, "chorus"], [32.9, "break"], [37.36, "final"], [47.83, "end"]],
+    cues: [[0, "bridge"], [16.41, "drop"], [17.3, "chorus"], [32.9, "break"], [37.36, "final"], [38.3, "chorus2"], [47.83, "end"]],
     mount(box, video) {
       box.innerHTML = `
-        <div class="wls-frame"></div>
-        <i class="wls-lid is-top"></i><i class="wls-lid is-bottom"></i>
-        <div class="wls-hud"><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-focus"></i>
-          <span class="wls-rec">REC</span><span class="wls-tc">00:00:00:00</span><span class="wls-meta">ISO 0320 · 1/8000 · ƒ1.4</span><span class="wls-shot">STANDBY</span></div>
+        <i class="wls-dim"></i>
+        <div class="wls-screen"></div>
         <i class="wls-flash"></i>
-        <div class="wls-logo"></div><p class="wls-credit">Brew Houze × aespa · Whiplash</p>`;
-      box.querySelector(".wls-frame").append(video);
+        <div class="wls-hud"><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i>
+          <span class="wls-rec">REC</span><span class="wls-tc">00:00:00:00</span><span class="wls-shot">STANDBY</span></div>`;
+      box.querySelector(".wls-screen").append(video);
       const tc = box.querySelector(".wls-tc");
       const shot = box.querySelector(".wls-shot");
-      const meta = box.querySelector(".wls-meta");
+      // The mirrors: over each plate's photo, and a blur behind the header.
+      const lineup = document.getElementById("ae-lineup");
+      lineup.scrollIntoView({ block: "center" });
+      const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => {
+        const canvas = document.createElement("canvas");
+        canvas.className = "wls-plate";
+        canvas.setAttribute("aria-hidden", "true");
+        plate.querySelector(".ae-photo")?.after(canvas);
+        return canvas;
+      });
+      const hero = document.querySelector(".hero");
+      const ambient = document.createElement("canvas");
+      ambient.className = "wls-ambient";
+      ambient.setAttribute("aria-hidden", "true");
+      hero.prepend(ambient);
+      const heroWall = () => hero.getBoundingClientRect();
+      let bleed = "";
       return {
         show(cue, now) {
-          // The shutter fires on the bars of the chorus (its bar 1 is the drop).
           box.style.setProperty("--bar-lag", `${(-(((now - 16.41) % WL_BAR) + WL_BAR) % WL_BAR).toFixed(3)}s`);
-          meta.textContent = cue === "break" ? "ISO 6400 · 1/60 · ƒ1.4 · LOW LIGHT" : "ISO 0320 · 1/8000 · ƒ1.4";
         },
         tick(now) {
           const frames = Math.floor(now * 30);
           tc.textContent = `00:00:${String(Math.floor(frames / 30)).padStart(2, "0")}:${String(frames % 30).padStart(2, "0")}`;
-          shot.textContent = now < 16.41 ? "MONITOR · BRIDGE" : `SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}`;
+          shot.textContent = now < 16.41 ? "BRIDGE · PLATES" : `SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}`;
+          // In the choruses the MV takes the screen on the even bars and gives it back on the odd ones.
+          const bar = Math.floor((now - 16.41) / WL_BAR);
+          const cue = box.dataset.cue;
+          const next = cue === "chorus" || cue === "chorus2" ? (bar % 2 === 0 ? "screen" : "page") : "";
+          if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
+          // The mirrors, while the page shows.
+          const photos = plates.filter((canvas) => canvas.isConnected);
+          if (photos.length) {
+            const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
+            const wall = { left: Math.min(...boxes.map((b) => b.left)), top: Math.min(...boxes.map((b) => b.top)), width: 0, height: 0 };
+            wall.width = Math.max(...boxes.map((b) => b.right)) - wall.left;
+            wall.height = Math.max(...boxes.map((b) => b.bottom)) - wall.top;
+            photos.forEach((canvas) => drawMirror(canvas, video, wall));
+          }
+          drawMirror(ambient, video, heroWall());
+        },
+        unmount() {
+          plates.forEach((canvas) => canvas.remove());
+          ambient.remove();
         },
       };
     },
@@ -1027,8 +1080,8 @@
   document.addEventListener("pointerdown", (event) => { if (!picker.hidden && !picker.contains(event.target) && event.target !== footerYear) closePicker(); });
 
   // ── The secret scene ──
-  // The glowing lyric fades the theme out (its music and its stage) and plays the scene: the MV in
-  // the era's frame, with its own sound (muted if the visitor turned the music off). When it ends
+  // The glowing lyric fades the theme out (its music and its stage) and plays the scene: the MV
+  // bleeding in and out of the page, with its own sound (muted if the visitor turned the music off). When it ends
   // (or is skipped) the theme comes back as it is after its intro: track 1 from the top.
   let scenePlaying = false;
   function playScene(theme) {
@@ -1038,6 +1091,7 @@
     scenePlaying = true;
     const box = document.createElement("div");
     box.className = `ae-scene ${spec.className}`;
+    // (Transparent: the page stays, and the scene plays over it and in it.)
     box.setAttribute("role", "dialog");
     box.setAttribute("aria-modal", "true");
     box.setAttribute("aria-label", `${t.era}: the secret scene`);
@@ -1092,6 +1146,7 @@
         video.pause();
         video.removeAttribute("src");
         video.load();
+        scene.unmount?.();
         box.remove();
         delete root.dataset.scene;
         scenePlaying = false;
@@ -1113,7 +1168,13 @@
     video.addEventListener("ended", finish);
     skip.addEventListener("click", finish);
   }
-  document.addEventListener("click", (event) => { if (event.target.closest?.(".ae-glow") && current) playScene(current); });
+  // (Caught first, so a glowing lyric on a member's plate does not also open her photo card.)
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.(".ae-glow") || !current) return;
+    event.stopPropagation();
+    playScene(current);
+  }, true);
+  document.addEventListener("keydown", (event) => { if (event.target.closest?.(".ae-glow") && (event.key === "Enter" || event.key === " ")) event.stopPropagation(); }, true);
 
   // ── The members' photo cards ──
   const pcModal = document.getElementById("ae-pc-modal");
