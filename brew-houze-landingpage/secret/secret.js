@@ -118,6 +118,46 @@
     },
   };
 
+  // ── The secret scenes (the glowing lyric of the bridge opens them; see playScene) ──
+  // A scene is { src, className, cues [[seconds into the clip, name]], mount(box, video) → show(cue, now), tick(now) }:
+  // the MV from the bridge to the end, framed in the era's look, following the video's own clock.
+  // Whiplash (126 BPM): the bridge on the red stage (0-16.41 s) plays on the camera's monitor under
+  // the viewfinder; the drop (16.41 s) flashes white and the shot fills the screen, the shutter
+  // firing on every bar (SHOT 01, 02…); the break (32.9 s) goes to a grey letterboxed low-light
+  // shot with the focus hunting; the final chorus (37.36 s) snaps back open; on the last hit
+  // (47.83 s) the chrome logo lands and the shot fades out.
+  const WL_BAR = 240 / 126;
+  const whiplashScene = {
+    src: "whiplash/scene.mp4",
+    className: "wl-scene",
+    cues: [[0, "bridge"], [16.41, "drop"], [17.2, "chorus"], [32.9, "break"], [37.36, "final"], [47.83, "end"]],
+    mount(box, video) {
+      box.innerHTML = `
+        <div class="wls-frame"></div>
+        <i class="wls-lid is-top"></i><i class="wls-lid is-bottom"></i>
+        <div class="wls-hud"><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-focus"></i>
+          <span class="wls-rec">REC</span><span class="wls-tc">00:00:00:00</span><span class="wls-meta">ISO 0320 · 1/8000 · ƒ1.4</span><span class="wls-shot">STANDBY</span></div>
+        <i class="wls-flash"></i>
+        <div class="wls-logo"></div><p class="wls-credit">Brew Houze × aespa · Whiplash</p>`;
+      box.querySelector(".wls-frame").append(video);
+      const tc = box.querySelector(".wls-tc");
+      const shot = box.querySelector(".wls-shot");
+      const meta = box.querySelector(".wls-meta");
+      return {
+        show(cue, now) {
+          // The shutter fires on the bars of the chorus (its bar 1 is the drop).
+          box.style.setProperty("--bar-lag", `${(-(((now - 16.41) % WL_BAR) + WL_BAR) % WL_BAR).toFixed(3)}s`);
+          meta.textContent = cue === "break" ? "ISO 6400 · 1/60 · ƒ1.4 · LOW LIGHT" : "ISO 0320 · 1/8000 · ƒ1.4";
+        },
+        tick(now) {
+          const frames = Math.floor(now * 30);
+          tc.textContent = `00:00:${String(Math.floor(frames / 30)).padStart(2, "0")}:${String(frames % 30).padStart(2, "0")}`;
+          shot.textContent = now < 16.41 ? "MONITOR · BRIDGE" : `SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}`;
+        },
+      };
+    },
+  };
+
   // Dirty Work: the clip is two phrases with the same rhythm, a big hit then a triple hit (about
   // 0.76 / 0.83 / 0.90 s, and again 1.67 / 1.75 / 1.83 s), and it runs straight into track 1. Blackletter DIRTY slams in on the first
   // hit and WORK on the triple (the middle hit flashes the card orange); the second phrase opens
@@ -292,6 +332,7 @@
         sections: [[0, "calm"], ...[[0, "snap"], [7.619, "rise"], [14.286, "cut"], [15.238, "whip"], [16.667, "out"]].map(([at, name]) => [19.048 + at, name])],
       },
       extras: ["device.webp", "logo-white.webp"],
+      scene: whiplashScene,
     },
     dirtywork: {
       era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "facts",
@@ -510,6 +551,21 @@
       const line = pool[(deal * 7 + k + start) % pool.length];
       el.innerHTML = `<span class="ae-sr">${escapeHtml(lyricSaved.get(el)[1])}</span><span class="ae-lyric" aria-hidden="true" style="--ly-i: ${i % 9}">${escapeHtml(line)}</span>`;
     });
+    // One line on screen glows: a button that opens the theme's secret scene.
+    const t = current ? THEMES[current] : null;
+    if (!t?.scene) return;
+    // A big spot on screen if there is one (a heading, a name, a title), else any spot on screen.
+    const onScreen = targets.filter((el) => { const box = el.getBoundingClientRect(); return box.width > 40 && box.top > 70 && box.bottom < window.innerHeight - 70; });
+    const big = onScreen.filter((el) => el.matches(".hero h1, .section h2, .ae-name, .card h3, .guide-item strong"));
+    const pool = big.length ? big : onScreen.length ? onScreen : targets;
+    const pick = pool[(deal * 5 + 3) % pool.length];
+    const lyric = pick.querySelector(".ae-lyric");
+    const glow = document.createElement("button");
+    glow.type = "button";
+    glow.className = "ae-glow";
+    glow.setAttribute("aria-label", `${lyric.textContent}: play the secret ${t.era} scene`);
+    lyric.replaceWith(glow);
+    glow.append(lyric);
   }
   function restoreLyrics() {
     lyricSaved.forEach(([html], el) => { el.innerHTML = html; el.style.minHeight = ""; });
@@ -969,6 +1025,95 @@
     pickButtons[next].focus();
   });
   document.addEventListener("pointerdown", (event) => { if (!picker.hidden && !picker.contains(event.target) && event.target !== footerYear) closePicker(); });
+
+  // ── The secret scene ──
+  // The glowing lyric fades the theme out (its music and its stage) and plays the scene: the MV in
+  // the era's frame, with its own sound (muted if the visitor turned the music off). When it ends
+  // (or is skipped) the theme comes back as it is after its intro: track 1 from the top.
+  let scenePlaying = false;
+  function playScene(theme) {
+    const t = THEMES[theme];
+    const spec = t.scene;
+    if (!spec || scenePlaying || switching) return;
+    scenePlaying = true;
+    const box = document.createElement("div");
+    box.className = `ae-scene ${spec.className}`;
+    box.setAttribute("role", "dialog");
+    box.setAttribute("aria-modal", "true");
+    box.setAttribute("aria-label", `${t.era}: the secret scene`);
+    box.dataset.cue = "load";
+    const video = document.createElement("video");
+    video.src = spec.src;
+    video.preload = "auto";
+    video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.muted = !soundWanted();
+    const scene = spec.mount(box, video);
+    const skip = document.createElement("button");
+    skip.type = "button";
+    skip.className = "ae-scene-skip";
+    skip.textContent = "Skip ›";
+    box.append(skip);
+    document.body.appendChild(box);
+    root.dataset.scene = theme;
+    playerFor(theme).stop();
+    stopStage();
+    skip.focus({ preventScroll: true });
+    // Started inside the click, so phones let it play with sound.
+    video.play().catch(() => { video.muted = true; video.play().catch(() => finish()); });
+    let cue = "";
+    let frame = 0;
+    const tick = () => {
+      const now = video.currentTime;
+      let name = "load";
+      if (!video.paused || now > 0) for (const [at, entry] of spec.cues) if (now >= at) name = entry;
+      if (name !== cue) {
+        cue = name;
+        box.dataset.cue = name;
+        scene.show(name, now);
+        box.classList.remove("is-hit");
+        void box.offsetWidth;
+        box.classList.add("is-hit");
+      }
+      scene.tick(now);
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    const onKey = (event) => { if (event.key === "Escape") { event.preventDefault(); finish(); } };
+    document.addEventListener("keydown", onKey);
+    let done = false;
+    function finish() {
+      if (done) return;
+      done = true;
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKey);
+      box.classList.add("is-out");
+      setTimeout(() => {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+        box.remove();
+        delete root.dataset.scene;
+        scenePlaying = false;
+        if (current !== theme) return;
+        // Back to the theme as it is after its intro.
+        window.scrollTo({ top: 0, behavior: "instant" });
+        startStage(theme);
+        if (soundWanted()) void playerFor(theme).start().then((ok) => showSoundState(ok ? "on" : "waiting"));
+        else showSoundState("off");
+        if (motionOK()) {
+          const flash = document.createElement("div");
+          flash.className = "ae-flash";
+          document.body.appendChild(flash);
+          flash.addEventListener("animationend", () => flash.remove());
+        }
+        footerYear.focus({ preventScroll: true });
+      }, 500);
+    }
+    video.addEventListener("ended", finish);
+    skip.addEventListener("click", finish);
+  }
+  document.addEventListener("click", (event) => { if (event.target.closest?.(".ae-glow") && current) playScene(current); });
 
   // ── The members' photo cards ──
   const pcModal = document.getElementById("ae-pc-modal");
