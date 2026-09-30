@@ -140,6 +140,22 @@
     if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
     canvas.getContext("2d").drawImage(video, (box.left - left) / scale, (box.top - top) / scale, box.width / scale, box.height / scale, 0, 0, width, height);
   }
+  // A mirror framed on one spot of the video instead: centred on x (0-1 of its width), from top
+  // (0-1 of its height) down, as big as fits within maxWidth / maxHeight (fractions too).
+  function drawCrop(canvas, video, x, top, maxWidth, maxHeight) {
+    if (!video.videoWidth) return;
+    const box = canvas.getBoundingClientRect();
+    if (!box.width || !box.height || box.bottom < 0 || box.top > window.innerHeight) return;
+    const aspect = box.width / box.height;
+    let height = maxHeight * video.videoHeight;
+    let width = height * aspect;
+    if (width > maxWidth * video.videoWidth) { width = maxWidth * video.videoWidth; height = width / aspect; }
+    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const w = Math.round(box.width * ratio);
+    const h = Math.round(box.height * ratio);
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    canvas.getContext("2d").drawImage(video, x * video.videoWidth - width / 2, top * video.videoHeight, width, height, 0, 0, w, h);
+  }
   const mirror = (className) => { const canvas = document.createElement("canvas"); canvas.className = className; canvas.setAttribute("aria-hidden", "true"); return canvas; };
   // What is on screen now, of the page's parts (for the focus box to lock onto).
   const onScreen = (selector) => [...document.querySelectorAll(selector)].filter((el) => { const box = el.getBoundingClientRect(); return box.width > 30 && box.top > 40 && box.bottom < window.innerHeight - 40; });
@@ -157,6 +173,9 @@
   //   final (37.36 s)     it rips back in from the side, blurred with speed, then the slits again
   //   end (47.83 s)       it pulls back into the logo, which shrinks away; the snapshots blow away
   const WL_BAR = 240 / 126;
+  // The final pose (from 47.83 s): the four stand in a row, mirrored against the plates (left to
+  // right Ningning, Winter, Giselle, Karina); each plate frames its own member, head down.
+  const WL_POSE = { karina: 0.848, giselle: 0.634, winter: 0.377, ningning: 0.16 };
   const whiplashScene = {
     src: "whiplash/scene.mp4",
     className: "wl-scene",
@@ -221,7 +240,10 @@
       return {
         show(cue, now) {
           box.style.setProperty("--bar-lag", `${(-(((now - 16.41) % WL_BAR) + WL_BAR) % WL_BAR).toFixed(3)}s`);
-          if (cue === "end") snaps.forEach((figure, index) => { figure.style.setProperty("--k", index); figure.classList.add("is-gone"); });
+          if (cue === "end") {
+            snaps.forEach((figure, index) => { figure.style.setProperty("--k", index); figure.classList.add("is-gone"); });
+            plates.forEach((canvas) => canvas.classList.add("is-framed"));
+          }
         },
         tick(now) {
           const frames = Math.floor(now * 30);
@@ -238,7 +260,8 @@
           if (beat !== lastBeat) { lastBeat = beat; if (cue !== "end" && cue !== "load" && cue !== "break") lockOn(beat); }
           // The mirrors (only those on screen are drawn).
           const photos = plates.filter((canvas) => canvas.isConnected);
-          if (photos.length) {
+          if (cue === "end") photos.forEach((canvas) => drawCrop(canvas, video, WL_POSE[canvas.closest(".ae-member")?.dataset.member] ?? 0.5, 0.13, 0.225, 0.8));
+          else if (photos.length) {
             const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
             const wall = { left: Math.min(...boxes.map((b) => b.left)), top: Math.min(...boxes.map((b) => b.top)), width: 0, height: 0 };
             wall.width = Math.max(...boxes.map((b) => b.right)) - wall.left;
