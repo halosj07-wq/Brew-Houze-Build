@@ -271,6 +271,23 @@
       introClip: "whiplash/intro.mp3", loops: [{ src: "whiplash/track-1.mp3", length: 19.048 }, { src: "whiplash/track-2.mp3", length: 17.143 }], joined: true, intro: whiplashIntro, introClass: "wl-intro", back: "spec",
       stage: {
         beat: 60 / 126, parts: [19.048, 17.143], grid: 19.048,
+        lyrics: [
+        "One look, give 'em whiplash",
+        "Beat drop with a big flash",
+        "집중해 좀 더 think fast",
+        "Day one, know I been bad",
+        "무리해도 can't touch that",
+        "Under pressure, body sweating, can you focus?",
+        "어디서나 거침없어 I'm the coldest",
+        "Just close your eyes, breathe in and visualize",
+        "Whip-whiplash, whip-whiplash",
+        "It's glowing and it's flashy",
+        "알아, 적당함이 뭔지 keep it classy",
+        "기횐 오직 one time, unforgettable",
+        "I'm the highlight 비춰 red light",
+        "Yeah, tonight it's all about me",
+        "만들어갈 history",
+      ],
         fx: `<i class="wlx-glint"></i><div class="wlx-streaks">${"<b></b>".repeat(10)}</div><div class="wlx-rev">${Array.from({ length: 14 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div><i class="wlx-lid is-top"></i><i class="wlx-lid is-bottom"></i><i class="wlx-flash"></i><i class="wlx-logo"></i>`,
         sections: [[0, "calm"], ...[[0, "snap"], [7.619, "rise"], [14.286, "cut"], [15.238, "whip"], [16.667, "out"]].map(([at, name]) => [19.048 + at, name])],
       },
@@ -288,6 +305,23 @@
       introClip: "dirty-work/intro.mp3", loops: ["dirty-work/track-1.mp3", "dirty-work/track-2.mp3"], joined: true, intro: dirtyWorkIntro, introClass: "dw-intro",
       stage: {
         beat: 60 / 98, parts: [19.616, 39.218], grid: 19.616,
+        lyrics: [
+        "World domination, I don't gotta say it",
+        "Set 'em on fire",
+        "I don't really wanna play nicely, nicely",
+        "Open your eyes, come and bite me",
+        "Sharp teeth, bite first",
+        "Real bad business, that's dirty work",
+        "Bold eyes, cold stare",
+        "I'm not an it girl, more like a hit girl",
+        "Call me the reaper, I'm knock, knock, knocking",
+        "It's me, it's me, a little baddie",
+        "Hold tight, get tough",
+        "We don't see you as a threat",
+        "Kick up the dust, let 'em talk about it",
+        "Drop it low, low, low",
+        "Work it out, work it out",
+      ],
         fx: `<div class="dwx-tape is-top"><span>${"Dirty Work ✦ ".repeat(16)}</span></div><div class="dwx-tape is-bottom"><span>${"Dirty Worker Ver. ✦ ".repeat(14)}</span></div><i class="dwx-stamp"></i><i class="dwx-gold"></i><i class="dwx-still"></i><div class="dwx-sparks">${"<i>✦</i>".repeat(12)}</div>`,
         sections: [[0, "calm"], ...[[0, "grind"], [3.674, "freeze"], [4.286, "grind"], [8.571, "freeze"], [9.184, "grind"], [13.469, "freeze"], [14.082, "grind"], [14.694, "build"], [19.592, "drive"], [36.735, "fill"], [38.571, "slam"]].map(([at, name]) => [19.616 + at, name])],
       },
@@ -306,7 +340,24 @@
       introClip: "armageddon/intro.mp3", introLength: 2.609, loops: [{ src: "armageddon/track-1.mp3", length: 20.870 }, { src: "armageddon/track-2.mp3", length: 33.913 }], joined: true, intro: armageddonIntro, introClass: "am-intro",
       stage: {
         beat: 60 / 92, parts: [20.870, 33.913], grid: 20.870,
-        fx: `<div class="amx-orbit"><i></i><i></i><i></i></div><i class="amx-bracket"></i><div class="amx-alert"><b>Incoming danger</b><span class="amx-level"></span></div><i class="amx-dark"></i><i class="amx-line"></i><div class="amx-rings"><i></i><i></i></div><div class="amx-logo"><i></i><i></i><i></i></div><i class="amx-flash"></i>`,
+        lyrics: [
+        "Armageddon",
+        "I'ma get 'em",
+        "Shoot",
+        "I'ma bite back",
+        "사라진 feedback 시작된 code black",
+        "Bang, chitty bang bang",
+        "널 향해 겨눠 get it, gone",
+        "이젠 널 끝내 better run",
+        "Full shot, pull it up Armageddon",
+        "We never play nice",
+        "Three to get ready 우린 shoot and go",
+        "정의해 이젠 나만의 complete",
+        "Born like a queen, born like a king",
+        "Throw it back, throw it back",
+        "끝과 시작의 Armageddon",
+      ],
+        fx: `<div class="amx-orbit"><i></i><i></i><i></i></div><i class="amx-bracket"></i><div class="amx-alert"><b>Incoming danger</b><span class="amx-level"><span>${Array.from({ length: 101 }, (_, n) => `<i>${n}%</i>`).join("")}</span></span></div><i class="amx-dark"></i><i class="amx-line"></i><div class="amx-rings"><i></i><i></i></div><div class="amx-logo"><i></i><i></i><i></i></div><i class="amx-flash"></i>`,
         sections: [[0, "calm"], ...[[0, "orbit"], [10.435, "lock"], [20.870, "void"], [23.478, "stomp"], [31.304, "strike"], [33.261, "blackout"]].map(([at, name]) => [20.870 + at, name])],
       },
       extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
@@ -326,6 +377,24 @@
       // chorus with its second hit (29.31 / 30.23 s). Its effects are its own (fx, styled in drama.css).
       stage: {
         beat: 60 / 131, parts: [29.304, 31.168], grid: 29.304,
+        lyrics: [
+        "I'm the drama",
+        "Ziggy-ziggy-zag, I'm new",
+        "Hold up, what? Oh, my God",
+        "You better watch out",
+        "I li-li-like me when I roll",
+        "Li-li-like me when I'm savage",
+        "One, two, it's time to go",
+        "Yeah, I'm coming",
+        "I bring, I bring all the drama-ma-ma-ma",
+        "With my girls in the back",
+        "I break trauma-ma-ma-ma",
+        "나로 시작되는 drama",
+        "깜짝 놀랄 다음 scene",
+        "Into the real world",
+        "Oh, I'ma make it my way",
+        "너로 시작될 my drama",
+      ],
         fx: `<i class="drx-spot"></i><div class="drx-emblems"><i></i><i></i><i></i><i></i></div><i class="drx-beam"></i><i class="drx-beam is-b"></i><i class="drx-claw"></i><i class="drx-claw is-b"></i><div class="drx-scene"><i></i><i></i><i></i></div><i class="drx-flash"></i><i class="drx-logo"></i><b class="drx-slate"></b>`,
         sections: [[0, "calm"], ...[[0, "spot"], [12.824, "rise"], [14.656, "drive"], [24.733, "hit"], [25.649, "stab1"], [26.565, "stab2"], [27.481, "stab3"], [27.939, "hush"], [28.855, "pickup"], [29.313, "encore"], [30.229, "encore2"]].map(([at, name]) => [29.304 + at, name])],
       },
@@ -409,6 +478,45 @@
     root.style.setProperty("--stage-lag", `${(-lag).toFixed(3)}s`);
     root.dataset.stage = name;
   }
+  // ── The lyrics: through the bridge, the page's text turns into lines of the song ──
+  // Every two bars the lines are dealt again over the headings, notes, cards, guide, tips, plates
+  // and footer (the buttons, links, status and QR codes stay as they are); each theme brings its
+  // lines in its own way (.ae-lyric, styled in its stylesheet). The real text stays for screen
+  // readers, and it all comes back when the bridge ends.
+  const LYRIC_TARGETS = ".hero h1, .hero .lead, .ae-collab, .ae-name, .ae-role, .section .eyebrow, .section h2, .section-note, .card h3, .card .who, .card .desc, .guide-item strong, .guide-item span, .tips li, footer .wrap > span:first-child";
+  const LYRIC_SHORT = ".ae-name, .ae-role, .ae-collab, .section .eyebrow, .card h3, .card .who, .guide-item strong";
+  const lyricSaved = new Map(); // element → [its own markup, its text]
+  let lyricDeal = -1;
+  function dealLyrics(lines, deal) {
+    if (deal === lyricDeal) return;
+    lyricDeal = deal;
+    const targets = lyricSaved.size ? [...lyricSaved.keys()] : [...document.querySelectorAll(LYRIC_TARGETS)];
+    // Small spots (names, labels, titles) take the short lines.
+    const short = lines.filter((line) => line.length <= 24);
+    // Each kind of spot (the four names, the four roles…) is dealt in turn, so siblings differ.
+    const dealt = new Map(); // kind → how many lines it has been given this deal
+    targets.forEach((el, i) => {
+      if (!lyricSaved.has(el)) {
+        lyricSaved.set(el, [el.innerHTML, el.textContent]);
+        // Each keeps at least its own height, so the page does not jump about.
+        el.style.minHeight = `${el.offsetHeight}px`;
+      }
+      const pool = short.length && el.matches(LYRIC_SHORT) ? short : lines;
+      const kind = `${el.tagName}.${el.className}`;
+      const k = dealt.get(kind) ?? 0;
+      dealt.set(kind, k + 1);
+      // Each kind starts at its own place in the lines (the names and the roles apart).
+      const start = [...kind].reduce((sum, c) => sum + c.charCodeAt(0) * 7, 0);
+      const line = pool[(deal * 7 + k + start) % pool.length];
+      el.innerHTML = `<span class="ae-sr">${escapeHtml(lyricSaved.get(el)[1])}</span><span class="ae-lyric" aria-hidden="true" style="--ly-i: ${i % 9}">${escapeHtml(line)}</span>`;
+    });
+  }
+  function restoreLyrics() {
+    lyricSaved.forEach(([html], el) => { el.innerHTML = html; el.style.minHeight = ""; });
+    lyricSaved.clear();
+    lyricDeal = -1;
+  }
+
   function stageTick() {
     const stage = current ? stageOf(current) : null;
     if (!stage) return;
@@ -425,7 +533,7 @@
       at = (((performance.now() - stageClock) / 1000) % cycle + cycle) % cycle;
     }
     if (at !== null) {
-      if (at < 0) setStage("calm");
+      if (at < 0) { setStage("calm"); restoreLyrics(); }
       else {
         let section = stage.sections[0];
         for (const entry of stage.sections) if (at >= entry[0]) section = entry;
@@ -434,6 +542,8 @@
         const bar = stage.beat * 4;
         const grid = stage.grid ?? stage.sections[1]?.[0] ?? 0;
         setStage(name, begins === 0 && name === "calm" ? 0 : ((at - grid) % bar + bar) % bar);
+        if (name === "calm" || !stage.lyrics) restoreLyrics();
+        else dealLyrics(stage.lyrics, Math.floor((at - grid) / (bar * 2)));
       }
     }
     stageFrame = requestAnimationFrame(stageTick);
@@ -441,6 +551,7 @@
   function startStage(theme) {
     cancelAnimationFrame(stageFrame);
     stageName = "";
+    restoreLyrics();
     const stage = stageOf(theme);
     if (!stage) { delete root.dataset.stage; return; }
     root.style.setProperty("--stage-beat", `${Math.round(stage.beat * 1000)}ms`);
@@ -454,6 +565,7 @@
   function stopStage() {
     cancelAnimationFrame(stageFrame);
     stageName = "";
+    restoreLyrics();
     delete root.dataset.stage;
   }
 
