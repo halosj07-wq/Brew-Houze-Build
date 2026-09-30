@@ -1,17 +1,17 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
 // dirtywork.css and armageddon.css; photos and sound in whiplash/, dirty-work/ and armageddon/).
 //
-// The "© Brew Houze" line in the footer cycles café → Whiplash → café → Dirty Work → café →
-// Armageddon → café → Drama → café. Each
+// The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
+// Armageddon or Drama, straight from any of them. Each
 // theme has the four members (plates that open photo cards), an intro that follows its own sound
 // clip, and music that loops while the theme is on. index.html sets the theme before the page
 // paints (so a reload keeps it without a flash) and provides showToast().
 (() => {
   const root = document.documentElement;
   const THEME_KEY = "brew-houze-theme"; // the theme that is on, or "cafe"
-  const NEXT_KEY = "brew-houze-theme-next"; // the theme the next click from the café opens
+  const LAST_KEY = "brew-houze-theme-next"; // the theme last picked (loaded ahead in the café)
   const SOUND_KEY = "brew-houze-aespa-sound"; // "off" when the visitor muted the music
-  const CYCLE = ["whiplash", "dirtywork", "armageddon", "drama"];
+  const ORDER = ["whiplash", "dirtywork", "armageddon", "drama"]; // the picker's order, after the café
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
@@ -158,17 +158,17 @@
 
   // Armageddon: "Incoming danger. Armageddon or manipulation?" (the album's photo book) typed in
   // hard cuts on the opening hits; the logo slams in ice cyan with an RGB split on the big hit
-  // (0.51 s); the four evenly spaced hits (0.68 / 0.84 / 1.00 / 1.17 s) flash each member with
-  // her signature written across the photo; in the silence a scanner sweeps on the stab (1.52 s)
-  // and the blip (1.75 s) round the orbit emblem; the drop (2.03 s) floods the screen ice cyan
-  // with the black logo. The group photos show like surveillance footage: the fisheye one behind the
+  // (0.54 s); the four evenly spaced hits (0.71 / 0.87 / 1.03 / 1.20 s) flash each member with
+  // her signature written across the photo; in the silence a scanner sweeps on the stab (1.55 s)
+  // and the blip (1.78 s) round the orbit emblem; the drop (2.06 s) floods the screen ice cyan
+  // with the black logo, and the clip runs straight into track 1. The group photos show like surveillance footage: the fisheye one behind the
   // second caption, the hooded one in the silence, and the other two uncovered by the scanner's sweeps.
   const armageddonIntro = {
-    end: 2640,
+    end: 2660,
     cues: [
-      [0, "boot"], [30, "type", "Incoming danger."], [350, "type", "Armageddon or manipulation?", 1], [510, "logo"],
-      [680, "photo", 0], [840, "photo", 1], [1000, "photo", 2], [1170, "photo", 3],
-      [1340, "void", null, 3], [1520, "scan", null, 0], [1750, "scan-up", null, 2], [2030, "final"],
+      [0, "boot"], [60, "type", "Incoming danger."], [380, "type", "Armageddon or manipulation?", 1], [540, "logo"],
+      [710, "photo", 0], [870, "photo", 1], [1030, "photo", 2], [1200, "photo", 3],
+      [1370, "void", null, 3], [1550, "scan", null, 0], [1780, "scan-up", null, 2], [2060, "final"],
     ],
     hits: new Set(["type", "logo", "photo", "scan", "scan-up", "final"]),
     mount(box, photos, flashes) {
@@ -297,10 +297,18 @@
       era: "Armageddon", folder: "armageddon/", tag: "ARMAGEDDON", back: "signature",
       title: "Brew Houze × aespa · Armageddon", toast: "Brew Houze × aespa · ARMAGEDDON",
       sub: "Armageddon · System portal", h1: "Every Brew Houze app. Only we can define it.", footer: "Brew Houze × aespa · Armageddon · café management system",
-      introClip: "armageddon/intro.mp3", loops: ["armageddon/loop.mp3"], intro: armageddonIntro, introClass: "am-intro",
-      // The chorus (12 bars at 92 BPM), then the bridge: straight into the drive, a bar of silence,
-      // the sparse bars, the build, and the silent last beat back into the chorus.
-      stage: { beat: 60 / 92, cycle: 65.226, sections: [[0, "calm"], [31.30, "drive"], [52.17, "drop"], [54.78, "tension"], [62.61, "build"], [64.57, "drop"]] },
+      // The intro (one bar at 92 BPM) runs straight into track 1 (the chorus, 8 bars); tracks 1 and 2
+      // (the bridge, 13 bars) then take turns with no gap, each played for exactly its bars. The
+      // bridge (seconds into track 2): the drive with its snares on beats 2 and 4 (bars 1-4, then
+      // 5-8 at 10.43 s), the bar that drains to silence (20.87 s), the half-time stomps on beats 1
+      // and 3 (23.48 s), the strike (31.30 s) and the silent last beat (33.26 s). Its effects are its
+      // own (fx, styled in armageddon.css).
+      introClip: "armageddon/intro.mp3", introLength: 2.609, loops: [{ src: "armageddon/track-1.mp3", length: 20.870 }, { src: "armageddon/track-2.mp3", length: 33.913 }], joined: true, intro: armageddonIntro, introClass: "am-intro",
+      stage: {
+        beat: 60 / 92, parts: [20.870, 33.913], grid: 20.870,
+        fx: `<div class="amx-orbit"><i></i><i></i><i></i></div><i class="amx-bracket"></i><div class="amx-alert"><b>Incoming danger</b><span class="amx-level"></span></div><i class="amx-dark"></i><i class="amx-line"></i><div class="amx-rings"><i></i><i></i></div><div class="amx-logo"><i></i><i></i><i></i></div><i class="amx-flash"></i>`,
+        sections: [[0, "calm"], ...[[0, "orbit"], [10.435, "lock"], [20.870, "void"], [23.478, "stomp"], [31.304, "strike"], [33.261, "blackout"]].map(([at, name]) => [20.870 + at, name])],
+      },
       extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
     },
     // The intro runs straight into track 1; tracks 1 and 2 then take turns with no gap (1, 2, 1, 2…).
@@ -455,7 +463,6 @@
     footerText.textContent = t ? t.footer : cafe.footer;
     document.title = t ? t.title : cafe.title;
     footerYear.textContent = t ? `${yearText} × aespa` : yearText;
-    footerYear.setAttribute("aria-pressed", String(Boolean(t)));
     document.querySelector('meta[name="color-scheme"]').setAttribute("content", t ? "dark" : "light");
     if (t) renderLineup(theme); else { lineup.innerHTML = ""; closeMember(); }
   }
@@ -628,7 +635,7 @@
   }
 
   const players = {};
-  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops, THEMES[theme].joined ? THEMES[theme].introClip : null));
+  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops, THEMES[theme].joined ? { src: THEMES[theme].introClip, length: THEMES[theme].introLength } : null));
   const clips = {};
   const clipFor = (theme) => { if (!clips[theme]) { clips[theme] = new Audio(THEMES[theme].introClip); clips[theme].preload = "auto"; } return clips[theme]; };
   // The next theme's intro sound, photos and extra images, loaded before the click so the intro
@@ -725,16 +732,16 @@
   }
 
   // ── Switching ──
-  const nextTheme = () => (CYCLE.includes(store.get(NEXT_KEY)) ? store.get(NEXT_KEY) : CYCLE[0]);
+  const lastTheme = () => (ORDER.includes(store.get(LAST_KEY)) ? store.get(LAST_KEY) : ORDER[0]);
   let switching = false;
-  async function toggleTheme() {
-    if (switching) return;
+  // Switches to a theme (null: the café), from the café or straight from another theme.
+  async function switchTo(entering) {
+    if (switching || entering === current) return;
     switching = true;
     const leaving = current;
-    const entering = leaving ? null : nextTheme();
     const motion = motionOK();
     // Entering plays the intro (with its sound) while the page switches and goes back to the top
-    // behind it. Leaving fades the music out, and the next click opens the next theme.
+    // behind it. Leaving fades the music out.
     const sound = Boolean(entering) && soundWanted();
     if (sound) playerFor(entering).prime();
     const intro = entering && motion ? playIntro(entering, sound) : null;
@@ -742,11 +749,7 @@
     applyTheme(entering);
     window.scrollTo({ top: 0, behavior: "instant" });
     store.set(THEME_KEY, entering ?? "cafe");
-    if (leaving) {
-      const after = CYCLE[(CYCLE.indexOf(leaving) + 1) % CYCLE.length];
-      store.set(NEXT_KEY, after);
-      warm(after); // ready for the next click
-    }
+    if (entering) store.set(LAST_KEY, entering);
     const played = intro ? await intro : null;
     if (entering) showSoundState(played?.joined ? "on" : sound ? ((await playerFor(entering).start()) ? "on" : "waiting") : "off");
     switching = false;
@@ -758,6 +761,97 @@
     }
     toast(entering ? THEMES[entering].toast : "☕ Back to the café");
   }
+
+  // ── The theme picker ──
+  // A popover over the "© Brew Houze" line: a photocard for each era (its group photo and logo) and
+  // one for the café; the one on now is marked. A theme's sound and photos load when its card is
+  // pointed at, touched or focused, so the intro is ready by the tap.
+  const PICKS = {
+    whiplash: { logo: "whiplash/logo-white.webp", tint: "#F2F4F7", mask: true },
+    dirtywork: { logo: "dirty-work/logo-white.webp", tint: "#EE6A2A", mask: true },
+    armageddon: { logo: "armageddon/logo-white.webp", tint: "#BFF4F1", mask: true },
+    drama: { logo: "drama/logo.webp", tint: "#F30306", mask: false },
+  };
+  const picker = document.createElement("div");
+  picker.className = "ae-picker";
+  picker.id = "ae-picker";
+  picker.hidden = true;
+  picker.setAttribute("role", "dialog");
+  picker.setAttribute("aria-label", "Choose a theme");
+  const pickCard = (theme) => {
+    if (!theme) return `<button type="button" class="ae-pick is-cafe" data-pick="cafe" role="radio" style="--i: 0"><span class="ae-pick-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M17 10.5h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8-.6 1.7 0 2.5M11.5 3.5c-.6.8-.6 1.7 0 2.5M15 3.5c-.6.8-.6 1.7 0 2.5"/></svg></span><span class="ae-pick-name">Café</span></button>`;
+    const p = PICKS[theme];
+    return `<button type="button" class="ae-pick" data-pick="${theme}" role="radio" style="--i: ${ORDER.indexOf(theme) + 1}; --tint: ${p.tint}">`
+      + `<span class="ae-pick-art" data-src="${flashesOf(theme)[0]}"><i class="ae-pick-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')"></i></span>`
+      + `<span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span></button>`;
+  };
+  picker.innerHTML = `<p class="ae-picker-head"><b>Brew Houze</b> × aespa <span>· pick an era</span></p>`
+    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER].map(pickCard).join("")}</div>`;
+  document.body.appendChild(picker);
+  footerYear.setAttribute("aria-haspopup", "dialog");
+  footerYear.setAttribute("aria-controls", "ae-picker");
+  footerYear.setAttribute("aria-expanded", "false");
+  const pickButtons = [...picker.querySelectorAll(".ae-pick")];
+  // Above the line, its tail pointing at it, kept on screen.
+  function placePicker() {
+    const at = footerYear.getBoundingClientRect();
+    const width = picker.offsetWidth;
+    const left = Math.max(16, Math.min(at.left + at.width / 2 - width / 2, window.innerWidth - 16 - width));
+    picker.style.left = `${left}px`;
+    picker.style.bottom = `${window.innerHeight - at.top + 14}px`;
+    picker.style.setProperty("--tail-x", `${Math.min(Math.max(18, at.left + at.width / 2 - left), width - 18)}px`);
+  }
+  function openPicker() {
+    picker.querySelectorAll(".ae-pick-art[data-src]").forEach((art) => { art.style.backgroundImage = `url('${siteUrl(art.dataset.src)}')`; art.removeAttribute("data-src"); });
+    const on = current ?? "cafe";
+    pickButtons.forEach((button) => {
+      const isOn = button.dataset.pick === on;
+      button.setAttribute("aria-checked", String(isOn));
+      button.tabIndex = isOn ? 0 : -1;
+    });
+    picker.hidden = false;
+    footerYear.setAttribute("aria-expanded", "true");
+    placePicker();
+    picker.classList.remove("is-open");
+    void picker.offsetWidth;
+    picker.classList.add("is-open");
+    pickButtons.find((button) => button.dataset.pick === on)?.focus({ preventScroll: true });
+    window.addEventListener("resize", placePicker);
+    window.addEventListener("scroll", placePicker, { passive: true });
+  }
+  function closePicker(refocus = false) {
+    if (picker.hidden) return;
+    picker.hidden = true;
+    footerYear.setAttribute("aria-expanded", "false");
+    window.removeEventListener("resize", placePicker);
+    window.removeEventListener("scroll", placePicker);
+    if (refocus) footerYear.focus({ preventScroll: true });
+  }
+  const togglePicker = () => { if (picker.hidden) openPicker(); else closePicker(); };
+  picker.addEventListener("click", (event) => {
+    const button = event.target.closest(".ae-pick");
+    if (!button) return;
+    closePicker(true);
+    void switchTo(button.dataset.pick === "cafe" ? null : button.dataset.pick);
+  });
+  const warmPick = (event) => { const button = event.target.closest?.(".ae-pick"); if (button && button.dataset.pick !== "cafe") warm(button.dataset.pick); };
+  picker.addEventListener("pointerover", warmPick);
+  picker.addEventListener("pointerdown", warmPick);
+  picker.addEventListener("focusin", warmPick);
+  // Arrow keys move between the cards (one tab stop), Escape closes.
+  picker.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") { event.preventDefault(); closePicker(true); return; }
+    if (event.key === "Tab") { closePicker(); return; }
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    const home = { Home: 0, End: pickButtons.length - 1 }[event.key];
+    if (step === undefined && home === undefined) return;
+    event.preventDefault();
+    const now = pickButtons.indexOf(document.activeElement);
+    const next = home ?? (now + step + pickButtons.length) % pickButtons.length;
+    pickButtons.forEach((button, index) => { button.tabIndex = index === next ? 0 : -1; });
+    pickButtons[next].focus();
+  });
+  document.addEventListener("pointerdown", (event) => { if (!picker.hidden && !picker.contains(event.target) && event.target !== footerYear) closePicker(); });
 
   // ── The members' photo cards ──
   const pcModal = document.getElementById("ae-pc-modal");
@@ -919,8 +1013,8 @@
     if (soundWanted()) void playerFor(current).start().then((ok) => showSoundState(ok ? "on" : "waiting"));
     else showSoundState("off");
   } else {
-    warm(nextTheme()); // ready for the first click
+    warm(lastTheme()); // the theme last picked, ready for the tap
   }
-  footerYear.addEventListener("click", toggleTheme);
-  footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); toggleTheme(); } });
+  footerYear.addEventListener("click", togglePicker);
+  footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); togglePicker(); } });
 })();
