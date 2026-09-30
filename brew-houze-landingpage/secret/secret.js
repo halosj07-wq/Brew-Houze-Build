@@ -121,13 +121,16 @@
   // ── The secret scenes (the glowing lyric of the bridge opens them; see playScene) ──
   // A scene is { src, className, cues [[seconds into the clip, name]], mount(box, video) →
   // { show(cue, now), tick(now), unmount() } }: the MV from the bridge to the end, bleeding in and
-  // out of the page in the era's way, following the video's own clock.
-  // Mirrors: canvases in the page that show a part of the video (drawn every frame), so the MV can
-  // play inside the page's own parts. wall: the page box the video is spread over (as cover).
-  function drawMirror(canvas, video, wall) {
+  // out of the page in the era's way, following the video's own clock. The page stays scrollable
+  // and usable under it.
+  // Mirrors: canvases in the page that show a part of the video (drawn every frame while on
+  // screen), so the MV plays inside the page's own parts. wall: the box the video is spread over
+  // (as cover); a mirror shows the part of it under the mirror.
+  const viewportWall = () => ({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight });
+  function drawMirror(canvas, video, wall = canvas.getBoundingClientRect()) {
     if (!video.videoWidth) return;
     const box = canvas.getBoundingClientRect();
-    if (!box.width || !box.height) return;
+    if (!box.width || !box.height || box.bottom < 0 || box.top > window.innerHeight) return;
     const scale = Math.max(wall.width / video.videoWidth, wall.height / video.videoHeight);
     const left = wall.left + (wall.width - video.videoWidth * scale) / 2;
     const top = wall.top + (wall.height - video.videoHeight * scale) / 2;
@@ -137,16 +140,22 @@
     if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
     canvas.getContext("2d").drawImage(video, (box.left - left) / scale, (box.top - top) / scale, box.width / scale, box.height / scale, 0, 0, width, height);
   }
+  const mirror = (className) => { const canvas = document.createElement("canvas"); canvas.className = className; canvas.setAttribute("aria-hidden", "true"); return canvas; };
+  // What is on screen now, of the page's parts (for the focus box to lock onto).
+  const onScreen = (selector) => [...document.querySelectorAll(selector)].filter((el) => { const box = el.getBoundingClientRect(); return box.width > 30 && box.top > 40 && box.bottom < window.innerHeight - 40; });
 
-  // Whiplash (126 BPM). The page stays; the MV bleeds into it:
-  //   bridge (0-16.41 s)  the MV plays inside the four member plates, one wide shot split across
-  //                       their photos, and a dark blur of it glows behind the header
-  //   drop (16.41 s)      a white flash; the MV bursts out of the plates through a slit to fill the screen
-  //   chorus              it bleeds in and out on the bars: one bar it whips in full screen (the
-  //                       shutter firing), the next it pulls back into the page and its plates
+  // Whiplash (126 BPM). The page stays; the MV bleeds into it, through the camera:
+  //   everywhere  every app card turns into a monitor playing the MV; a green autofocus box locks
+  //               onto a new part of the page on every beat; the viewfinder frames the screen
+  //   bridge (0-16.41 s)  the MV plays inside the four member plates, one wide shot across their
+  //                       photos, a blur of it glowing behind the header; the page dims around them
+  //   drop (16.41 s)      a white flash; the MV bursts out through a slit and fills the screen
+  //   chorus              by the bar: the MV whips in through racing slits across the screen (the
+  //                       page between them), then the shutter fires and the frame drops onto the
+  //                       page as a snapshot (SHOT 04 · 00:00:22:10), where it stays as you scroll
   //   break (32.9 s)      the page goes dark and the MV shows only through the WHIPLASH logo, grey
-  //   final (37.36 s)     it rips back in through racing streaks, then in and out on the bars again
-  //   end (47.83 s)       it pulls back into the logo, which shrinks away over the page
+  //   final (37.36 s)     it rips back in from the side, blurred with speed, then the slits again
+  //   end (47.83 s)       it pulls back into the logo, which shrinks away; the snapshots blow away
   const WL_BAR = 240 / 126;
   const whiplashScene = {
     src: "whiplash/scene.mp4",
@@ -155,44 +164,79 @@
     mount(box, video) {
       box.innerHTML = `
         <i class="wls-dim"></i>
+        <div class="wls-slits">${"<div></div>".repeat(6)}</div>
         <div class="wls-screen"></div>
         <i class="wls-flash"></i>
+        <div class="wls-focus"><b>AF · LOCK</b></div>
         <div class="wls-hud"><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i>
           <span class="wls-rec">REC</span><span class="wls-tc">00:00:00:00</span><span class="wls-shot">STANDBY</span></div>`;
       box.querySelector(".wls-screen").append(video);
       const tc = box.querySelector(".wls-tc");
       const shot = box.querySelector(".wls-shot");
-      // The mirrors: over each plate's photo, and a blur behind the header.
+      const focus = box.querySelector(".wls-focus");
+      const slits = [...box.querySelectorAll(".wls-slits > div")].map((slit) => { const canvas = mirror("wls-slit"); slit.append(canvas); return canvas; });
+      // The mirrors in the page: the plates' photos, a blur behind the header, and every app card.
       const lineup = document.getElementById("ae-lineup");
       lineup.scrollIntoView({ block: "center" });
-      const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => {
-        const canvas = document.createElement("canvas");
-        canvas.className = "wls-plate";
-        canvas.setAttribute("aria-hidden", "true");
-        plate.querySelector(".ae-photo")?.after(canvas);
-        return canvas;
-      });
+      const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => { const canvas = mirror("wls-plate"); plate.querySelector(".ae-photo")?.after(canvas); return canvas; });
       const hero = document.querySelector(".hero");
-      const ambient = document.createElement("canvas");
-      ambient.className = "wls-ambient";
-      ambient.setAttribute("aria-hidden", "true");
+      const ambient = mirror("wls-ambient");
       hero.prepend(ambient);
-      const heroWall = () => hero.getBoundingClientRect();
+      const cards = [...document.querySelectorAll(".card")].map((card, index) => { const canvas = mirror("wls-card"); canvas.style.setProperty("--i", index % 6); card.prepend(canvas); return canvas; });
+      // The snapshots: the frame on the shutter, dropped onto the page (they scroll with it).
+      const snaps = [];
+      const snapshot = (now) => {
+        if (!video.videoWidth) return;
+        const width = Math.round(Math.min(250, window.innerWidth * 0.42));
+        const figure = document.createElement("figure");
+        figure.className = "wls-snap";
+        figure.setAttribute("aria-hidden", "true");
+        const canvas = document.createElement("canvas");
+        canvas.width = 400;
+        canvas.height = 225;
+        canvas.getContext("2d").drawImage(video, 0, 0, 400, 225);
+        const frames = Math.floor(now * 30);
+        figure.innerHTML = `<figcaption><b>SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}</b> 00:00:${String(Math.floor(frames / 30)).padStart(2, "0")}:${String(frames % 30).padStart(2, "0")}</figcaption>`;
+        figure.prepend(canvas);
+        const left = window.scrollX + 16 + Math.random() * Math.max(0, window.innerWidth - width - 32);
+        const top = window.scrollY + 70 + Math.random() * Math.max(0, window.innerHeight - width * 0.75 - 150);
+        figure.style.cssText = `left: ${left.toFixed(0)}px; top: ${top.toFixed(0)}px; width: ${width}px; --r: ${(Math.random() * 18 - 9).toFixed(1)}deg`;
+        document.body.append(figure);
+        snaps.push(figure);
+        if (snaps.length > 8) snaps.shift().remove();
+      };
+      // The autofocus box: onto a part of the page on screen.
+      const lockOn = (beat) => {
+        const targets = onScreen(".ae-member, .card, .section h2, .guide-item, .hero h1, .tips li");
+        if (!targets.length) return;
+        const target = targets[(((beat * 7 + 3) % targets.length) + targets.length) % targets.length].getBoundingClientRect();
+        focus.style.cssText = `left: ${target.left - 6}px; top: ${target.top - 6}px; width: ${target.width + 12}px; height: ${target.height + 12}px`;
+        focus.classList.remove("is-locked");
+        void focus.offsetWidth;
+        focus.classList.add("is-locked");
+      };
       let bleed = "";
+      let lastBar = null;
+      let lastBeat = null;
       return {
         show(cue, now) {
           box.style.setProperty("--bar-lag", `${(-(((now - 16.41) % WL_BAR) + WL_BAR) % WL_BAR).toFixed(3)}s`);
+          if (cue === "end") snaps.forEach((figure, index) => { figure.style.setProperty("--k", index); figure.classList.add("is-gone"); });
         },
         tick(now) {
           const frames = Math.floor(now * 30);
           tc.textContent = `00:00:${String(Math.floor(frames / 30)).padStart(2, "0")}:${String(frames % 30).padStart(2, "0")}`;
           shot.textContent = now < 16.41 ? "BRIDGE · PLATES" : `SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}`;
-          // In the choruses the MV takes the screen on the even bars and gives it back on the odd ones.
-          const bar = Math.floor((now - 16.41) / WL_BAR);
           const cue = box.dataset.cue;
-          const next = cue === "chorus" || cue === "chorus2" ? (bar % 2 === 0 ? "screen" : "page") : "";
+          const chorus = cue === "chorus" || cue === "chorus2";
+          const bar = Math.floor((now - 16.41) / WL_BAR);
+          const beat = Math.floor((now - 16.41) / (WL_BAR / 4));
+          // By the bar in the choruses: the slits on the even bars, the snapshot on the odd ones.
+          const next = chorus ? (bar % 2 === 0 ? "slits" : "page") : "";
           if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
-          // The mirrors, while the page shows.
+          if (bar !== lastBar) { lastBar = bar; if (chorus && bar % 2 === 1) snapshot(now); }
+          if (beat !== lastBeat) { lastBeat = beat; if (cue !== "end" && cue !== "load" && cue !== "break") lockOn(beat); }
+          // The mirrors (only those on screen are drawn).
           const photos = plates.filter((canvas) => canvas.isConnected);
           if (photos.length) {
             const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
@@ -201,11 +245,13 @@
             wall.height = Math.max(...boxes.map((b) => b.bottom)) - wall.top;
             photos.forEach((canvas) => drawMirror(canvas, video, wall));
           }
-          drawMirror(ambient, video, heroWall());
+          drawMirror(ambient, video, hero.getBoundingClientRect());
+          cards.forEach((canvas) => drawMirror(canvas, video));
+          if (bleed === "slits") slits.forEach((canvas) => drawMirror(canvas, video, viewportWall()));
         },
         unmount() {
-          plates.forEach((canvas) => canvas.remove());
-          ambient.remove();
+          [...plates, ambient, ...cards].forEach((canvas) => canvas.remove());
+          snaps.forEach((figure) => figure.remove());
         },
       };
     },
@@ -963,6 +1009,7 @@
   // Switches to a theme (null: the café), from the café or straight from another theme.
   async function switchTo(entering) {
     if (switching || entering === current) return;
+    stopScene?.(false);
     switching = true;
     const leaving = current;
     const motion = motionOK();
@@ -1084,6 +1131,7 @@
   // bleeding in and out of the page, with its own sound (muted if the visitor turned the music off). When it ends
   // (or is skipped) the theme comes back as it is after its intro: track 1 from the top.
   let scenePlaying = false;
+  let stopScene = null; // ends the scene now (resume: bring the theme back after it)
   function playScene(theme) {
     const t = THEMES[theme];
     const spec = t.scene;
@@ -1092,8 +1140,7 @@
     const box = document.createElement("div");
     box.className = `ae-scene ${spec.className}`;
     // (Transparent: the page stays, and the scene plays over it and in it.)
-    box.setAttribute("role", "dialog");
-    box.setAttribute("aria-modal", "true");
+    box.setAttribute("role", "region");
     box.setAttribute("aria-label", `${t.era}: the secret scene`);
     box.dataset.cue = "load";
     const video = document.createElement("video");
@@ -1133,16 +1180,17 @@
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    const onKey = (event) => { if (event.key === "Escape") { event.preventDefault(); finish(); } };
+    const onKey = (event) => { if (event.key === "Escape" && !document.querySelector(".ae-pc-modal:not([hidden]), .ae-picker:not([hidden])")) { event.preventDefault(); finish(); } };
     document.addEventListener("keydown", onKey);
     let done = false;
-    function finish() {
+    function finish(resume = true) {
       if (done) return;
       done = true;
+      stopScene = null;
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKey);
       box.classList.add("is-out");
-      setTimeout(() => {
+      const close = () => {
         video.pause();
         video.removeAttribute("src");
         video.load();
@@ -1150,7 +1198,7 @@
         box.remove();
         delete root.dataset.scene;
         scenePlaying = false;
-        if (current !== theme) return;
+        if (!resume || current !== theme) return;
         // Back to the theme as it is after its intro.
         window.scrollTo({ top: 0, behavior: "instant" });
         startStage(theme);
@@ -1163,10 +1211,12 @@
           flash.addEventListener("animationend", () => flash.remove());
         }
         footerYear.focus({ preventScroll: true });
-      }, 500);
+      };
+      if (resume) setTimeout(close, 500); else close();
     }
-    video.addEventListener("ended", finish);
-    skip.addEventListener("click", finish);
+    stopScene = finish;
+    video.addEventListener("ended", () => finish());
+    skip.addEventListener("click", () => finish());
   }
   // (Caught first, so a glowing lyric on a member's plate does not also open her photo card.)
   document.addEventListener("click", (event) => {
