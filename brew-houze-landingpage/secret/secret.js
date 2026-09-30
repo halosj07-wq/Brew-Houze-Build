@@ -715,8 +715,9 @@
   //                        billboard (the MV lighting the header, claws ripping on beats 1 and 3)
   //   noir (38.5 s)        the page drains to black and white with the MV, grain and vignette;
   //                        only the slate keeps its red
-  //   winter (46.85 s)     the page goes dark but for Winter's plate, lifted in a red glow; the MV
-  //                        through her star emblem, her name sweeping in
+  //   winter (47.7 s)      the page goes dark but for Winter's plate, lifted in a red glow and playing
+  //                        her (following her across the frame; holding her while the shot is
+  //                        elsewhere); the MV through her star emblem, her name sweeping in
   //   spin (53.25 s)       the MV on a red turntable disc, a quarter turn on every beat with the
   //                        pointing choreo, the plates swaying
   //   hush (61 s)          the spotlight again, slow           end (66.95 s)  each member framed in
@@ -726,6 +727,18 @@
   // The ending: left to right on the billboard stage Ningning, Winter, Karina, Giselle; the camera
   // pulls back, so each is tracked: [time, x of each (0-1), top, height, max width] (fractions).
   const DR_END = { ningning: 0, winter: 1, karina: 2, giselle: 3 };
+  // Winter's moment: where she is across the frame (0-1) while she is in it; between these the shot
+  // is on the headlights and the crowd from above, and her plate holds her last frame.
+  const DR_WINTER = [[47.7, 0.3], [48.05, 0.46], [48.3, 0.44], [48.55, 0.46], [48.8, 0.4], [49.05, 0.42], [49.28, 0.42], null, [51.25, 0.61], [51.55, 0.57], [51.77, 0.57]];
+  function drWinterAt(now) {
+    for (let i = 0; i < DR_WINTER.length - 1; i++) {
+      const a = DR_WINTER[i];
+      const b = DR_WINTER[i + 1];
+      if (!a || !b) continue;
+      if (now >= a[0] && now <= b[0]) return a[1] + (b[1] - a[1]) * ((now - a[0]) / (b[0] - a[0]));
+    }
+    return null;
+  }
   const DR_END_KEYS = [[67.0, [0.303, 0.431, 0.566, 0.719], 0.5, 0.34, 0.125], [69.4, [0.344, 0.459, 0.581, 0.694], 0.515, 0.22, 0.108], [71.5, [0.347, 0.459, 0.569, 0.681], 0.52, 0.2, 0.104]];
   function drEndFrame(now, slot) {
     const keys = DR_END_KEYS;
@@ -756,7 +769,7 @@
   const dramaScene = {
     src: "drama/scene.mp4",
     className: "dr-scene",
-    cues: [[0, "spot"], [11.59, "flame"], [15.2, "slash"], [31.47, "eye"], [32.19, "impact"], [33.1, "chorus"], [38.5, "noir"], [43.3, "chorus2"], [46.85, "winter"], [51.77, "chorus3"], [53.25, "spin"], [56.5, "chorus4"], [61.0, "hush"], [66.95, "end"]],
+    cues: [[0, "spot"], [11.59, "flame"], [15.2, "slash"], [31.47, "eye"], [32.19, "impact"], [33.1, "chorus"], [38.5, "noir"], [43.3, "chorus2"], [47.7, "winter"], [51.77, "chorus3"], [53.25, "spin"], [56.5, "chorus4"], [61.0, "hush"], [66.95, "end"]],
     mount(box, video) {
       box.innerHTML = `
         <i class="drs-dim"></i>
@@ -817,6 +830,12 @@
           }
           if (cue === "spot" || cue === "hush") drawMirror(lamp, video, viewportWall());
           if (bleed === "billboard") drawMirror(billboard, video, hero.getBoundingClientRect());
+          // Winter's plate plays her while she is in the shot (and holds her when she is not).
+          if (cue === "winter") {
+            const x = drWinterAt(now);
+            const plate = plates.find((canvas) => canvas.closest(".ae-member")?.dataset.member === "winter");
+            if (x !== null && plate) drawCrop(plate, video, x, 0, 0.3, 1);
+          }
           if (cue === "end") plates.forEach((canvas) => {
             const slot = DR_END[canvas.closest(".ae-member")?.dataset.member];
             if (slot === undefined) return;
