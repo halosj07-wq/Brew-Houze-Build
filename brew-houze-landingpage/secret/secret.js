@@ -61,20 +61,20 @@
   // clip's own clock, so the cues stay in time even if the sound starts late; without sound they
   // follow the page clock instead.
 
-  // Whiplash: the album's chrome camera. The clip's three opening stabs (0.03 / 0.27 / 0.50 s)
+  // Whiplash: the album's chrome camera. The clip's three opening stabs (0.06 / 0.30 / 0.53 s)
   // snap it closer out of the dark (its green button glowing); in the pause it pushes in and dives
   // through the lens into the viewfinder (REC, timecode, focus brackets). The groove's four hits
-  // (1.10 / 1.34 / 1.70 / 1.94 s) are camera flashes, each whip-panning in a group photo; the next
-  // two (2.18 / 2.41 s) drop the members in as four strips, two at a time, and they go grey in the
-  // lull. The logo whips in in chrome on 3.01 s, and the crash (3.24 s) flips to white with the
-  // black logo, strobing on the last two hits.
+  // (1.13 / 1.37 / 1.73 / 1.97 s) are camera flashes, each whip-panning in a group photo; the next
+  // two (2.21 / 2.44 s) drop the members in as four strips, two at a time, and they go grey in the
+  // lull. The logo whips in in chrome on 3.04 s, and the crash (3.27 s) flips to white with the
+  // black logo, strobing on the last two hits; the clip runs straight into track 1.
   const whiplashIntro = {
-    end: 3720,
+    end: 3750,
     cues: [
-      [0, "dark"], [30, "lens", 1], [270, "lens", 2], [500, "lens", 3], [880, "dive"],
-      [1100, "shot", 0], [1340, "shot", 1], [1700, "shot", 2], [1940, "shot", 3],
-      [2180, "strips", 2], [2410, "strips", 4], [2620, "fade", 4],
-      [3010, "logo"], [3240, "final"], [3480, "final-invert"], [3600, "final"],
+      [0, "dark"], [60, "lens", 1], [300, "lens", 2], [530, "lens", 3], [910, "dive"],
+      [1130, "shot", 0], [1370, "shot", 1], [1730, "shot", 2], [1970, "shot", 3],
+      [2210, "strips", 2], [2440, "strips", 4], [2650, "fade", 4],
+      [3040, "logo"], [3270, "final"], [3510, "final-invert"], [3630, "final"],
     ],
     hits: new Set(["lens", "shot", "strips", "logo", "final", "final-invert"]),
     mount(box, photos, flashes) {
@@ -119,24 +119,24 @@
   };
 
   // Dirty Work: the clip is two phrases with the same rhythm, a big hit then a triple hit (about
-  // 0.73 / 0.80 / 0.87 s, and again 1.64 / 1.72 / 1.80 s). Blackletter DIRTY slams in on the first
+  // 0.76 / 0.83 / 0.90 s, and again 1.67 / 1.75 / 1.83 s), and it runs straight into track 1. Blackletter DIRTY slams in on the first
   // hit and WORK on the triple (the middle hit flashes the card orange); the second phrase opens
   // the "aespa ‘Dirty Work’" labels and flashes the four members, each with her gold initial, and
-  // it lands on the gold DIRTY WORK logo. Between the phrases, the hits at 1.11 / 1.27 / 1.41 /
-  // 1.49 s strobe the four group photos in orange and black.
+  // it lands on the gold DIRTY WORK logo. Between the phrases, the hits at 1.14 / 1.30 / 1.44 /
+  // 1.52 s strobe the four group photos in orange and black.
   const dirtyWorkIntro = {
-    end: 2350,
+    end: 2500,
     cues: [
-      [0, "dirty"], [730, "work"], [800, "invert"], [870, "work"],
-      [1110, "flash", 0], [1270, "flash", 1], [1410, "flash", 2], [1490, "flash", 3],
-      [1560, "photo", 0], [1640, "photo", 1], [1720, "photo", 2], [1800, "photo", 3], [1880, "final"],
+      [0, "dirty"], [760, "work"], [830, "invert"], [900, "work"],
+      [1140, "flash", 0], [1300, "flash", 1], [1440, "flash", 2], [1520, "flash", 3],
+      [1590, "photo", 0], [1670, "photo", 1], [1750, "photo", 2], [1830, "photo", 3], [1910, "final"],
     ],
     hits: new Set(["dirty", "work", "invert", "flash", "photo", "final"]),
     mount(box, photos, flashes) {
       box.innerHTML = `
         <div class="dw-grain"></div>
         <span class="dw-label is-left">aespa ‘Dirty Work’</span><span class="dw-label is-right">Dirty Worker Ver.</span>
-        <div class="dw-stack"><b class="dw-word is-dirty">Dirty</b><b class="dw-word is-work">Work</b></div>
+        <div class="dw-stack" role="img" aria-label="Dirty Work"><i class="dw-word is-dirty"></i><i class="dw-word is-work"></i></div>
         <div class="dw-flashes"></div><div class="dw-photos"></div><i class="dw-initial"></i>
         <div class="dw-final"><img src="dirty-work/logo-gold.webp" alt="" draggable="false" /><small>Brew Houze × aespa</small></div>`;
       box.querySelector(".dw-flashes").append(...flashes);
@@ -263,21 +263,35 @@
       sub: "Whiplash · System portal", h1: "Every Brew Houze app. Whiplash fast.", footer: "Brew Houze × aespa · Whiplash · café management system",
       // joined: the intro clip runs straight into the loop (the song continues), so both play on
       // the loop's Web Audio clock, the loop starting on the very sample the intro ends.
-      introClip: "whiplash/intro.mp3", loops: ["whiplash/loop.mp3"], joined: true, intro: whiplashIntro, introClass: "wl-intro", back: "spec",
-      // The loop is the chorus (6 bars at 126 BPM) then the bridge: quiet, the mids rising, the bass
-      // slam, the full drive, and the near-silence back into the chorus.
-      stage: { beat: 60 / 126, cycle: 47.627, sections: [[0, "calm"], [11.43, "tension"], [20.95, "build"], [26.67, "hit"], [28.57, "drive"], [43.81, "drop"]] },
+      // Track 1 is the chorus (10 bars at 126 BPM), track 2 the bridge (9 bars); both are played for
+      // exactly their bars (length), so track 2 keeps the silence it ends on and track 1 comes back
+      // on the beat. The bridge (seconds into track 2): the verse with its snaps on beats 2 and 4,
+      // the riser (7.62 s), the two-beat cut (14.29 s), the three sub-bass slams (15.24 s), and the
+      // silent last beat (16.67 s). Its effects are its own (fx, styled in whiplash.css).
+      introClip: "whiplash/intro.mp3", loops: [{ src: "whiplash/track-1.mp3", length: 19.048 }, { src: "whiplash/track-2.mp3", length: 17.143 }], joined: true, intro: whiplashIntro, introClass: "wl-intro", back: "spec",
+      stage: {
+        beat: 60 / 126, parts: [19.048, 17.143], grid: 19.048,
+        fx: `<i class="wlx-glint"></i><div class="wlx-streaks">${"<b></b>".repeat(10)}</div><div class="wlx-rev">${Array.from({ length: 14 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div><i class="wlx-lid is-top"></i><i class="wlx-lid is-bottom"></i><i class="wlx-flash"></i><i class="wlx-logo"></i>`,
+        sections: [[0, "calm"], ...[[0, "snap"], [7.619, "rise"], [14.286, "cut"], [15.238, "whip"], [16.667, "out"]].map(([at, name]) => [19.048 + at, name])],
+      },
       extras: ["device.webp", "logo-white.webp"],
     },
     dirtywork: {
       era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "facts",
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
-      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/loop.mp3"], intro: dirtyWorkIntro, introClass: "dw-intro",
-      // The chorus (16 bars at 98 BPM), then the bridge: its first bar and the sparse bars with
-      // breaks, the build, the drive, and the drum fill back into the chorus (a slam on its last beat).
-      stage: { beat: 60 / 98, cycle: 78.438, sections: [[0, "calm"], [39.18, "tension"], [53.88, "build"], [58.78, "drive"], [75.92, "drop"], [77.76, "hit"]] },
-      extras: ["logo-gold.webp", "logo-white.webp"],
+      // The intro runs straight into track 1 (the chorus, 8 bars at 98 BPM); tracks 1 and 2 (the
+      // bridge, 16 bars) then take turns with no gap. The bridge (seconds into track 2): the grind
+      // (a full bar, then sparse bars whose beat 3 drops out: the freezes at 3.67 / 8.57 /
+      // 13.47 s), the build (14.69 s), the drive (19.59 s), and the drum fill (36.73 s) with a slam
+      // on its last beat (38.57 s). Its effects are its own (fx, styled in dirtywork.css).
+      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/track-1.mp3", "dirty-work/track-2.mp3"], joined: true, intro: dirtyWorkIntro, introClass: "dw-intro",
+      stage: {
+        beat: 60 / 98, parts: [19.616, 39.218], grid: 19.616,
+        fx: `<div class="dwx-tape is-top"><span>${"Dirty Work ✦ ".repeat(16)}</span></div><div class="dwx-tape is-bottom"><span>${"Dirty Worker Ver. ✦ ".repeat(14)}</span></div><i class="dwx-stamp"></i><i class="dwx-gold"></i><i class="dwx-still"></i><div class="dwx-sparks">${"<i>✦</i>".repeat(12)}</div>`,
+        sections: [[0, "calm"], ...[[0, "grind"], [3.674, "freeze"], [4.286, "grind"], [8.571, "freeze"], [9.184, "grind"], [13.469, "freeze"], [14.082, "grind"], [14.694, "build"], [19.592, "drive"], [36.735, "fill"], [38.571, "slam"]].map(([at, name]) => [19.616 + at, name])],
+      },
+      extras: ["logo-gold.webp", "logo-gold-cut.webp", "logo-white.webp"],
     },
     armageddon: {
       era: "Armageddon", folder: "armageddon/", tag: "ARMAGEDDON", back: "signature",
@@ -367,7 +381,7 @@
   const stageFx = document.createElement("div");
   stageFx.className = "ae-fx";
   stageFx.setAttribute("aria-hidden", "true");
-  stageFx.innerHTML = '<i class="fx-pulse"></i><i class="fx-slash"></i><i class="fx-slash is-b"></i><i class="fx-dark"></i>';
+  const SHARED_FX = '<i class="fx-pulse"></i><i class="fx-slash"></i><i class="fx-slash is-b"></i><i class="fx-dark"></i>';
   document.body.appendChild(stageFx);
   let stageFrame = 0;
   let stageName = "";
@@ -401,8 +415,10 @@
         let section = stage.sections[0];
         for (const entry of stage.sections) if (at >= entry[0]) section = entry;
         const [begins, name] = section;
-        const period = name === "tension" ? stage.beat * 2 : name === "drive" ? stage.beat : 0;
-        setStage(name, period ? (at - begins) % period : 0);
+        // The beat animations start in step with the bridge's bars (grid: where its bar 1 starts).
+        const bar = stage.beat * 4;
+        const grid = stage.grid ?? stage.sections[1]?.[0] ?? 0;
+        setStage(name, begins === 0 && name === "calm" ? 0 : ((at - grid) % bar + bar) % bar);
       }
     }
     stageFrame = requestAnimationFrame(stageTick);
@@ -413,6 +429,10 @@
     const stage = stageOf(theme);
     if (!stage) { delete root.dataset.stage; return; }
     root.style.setProperty("--stage-beat", `${Math.round(stage.beat * 1000)}ms`);
+    root.style.setProperty("--stage-bar", `${Math.round(stage.beat * 4000)}ms`);
+    // The theme's own effects, or the shared ones.
+    stageFx.innerHTML = stage.fx ?? SHARED_FX;
+    root.dataset.stageFx = stage.fx ? "own" : "shared";
     stageClock = performance.now();
     setStage("calm");
     if (motionOK()) stageFrame = requestAnimationFrame(stageTick);
@@ -421,6 +441,7 @@
     cancelAnimationFrame(stageFrame);
     stageName = "";
     delete root.dataset.stage;
+    delete root.dataset.stageFx;
   }
 
   function applyTheme(theme) {
@@ -469,21 +490,25 @@
       }
       return ctx;
     };
-    const trim = (buffer) => {
+    // length (seconds from the first sound): the part is played for exactly that long, its own
+    // silence at the end included (a part that ends on a rest).
+    const trim = (buffer, length) => {
       const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
       const loud = (i) => channels.some((data) => Math.abs(data[i]) > 1e-4);
       let first = 0;
       while (first < buffer.length && !loud(first)) first++;
       let last = buffer.length - 1;
       while (last > first && !loud(last)) last--;
-      return { buffer, offset: first / buffer.sampleRate, duration: (last + 1 - first) / buffer.sampleRate };
+      const offset = first / buffer.sampleRate;
+      return { buffer, offset, duration: length ? Math.min(length, buffer.duration - offset) : (last + 1 - first) / buffer.sampleRate };
     };
     const load = () => {
       if (!loading) {
-        const decode = async (src) => {
+        const decode = async (entry) => {
+          const { src, length } = typeof entry === "string" ? { src: entry } : entry;
           const response = await fetch(src);
           if (!response.ok) throw new Error(`Could not load ${src}`);
-          return trim(await context().decodeAudioData(await response.arrayBuffer()));
+          return trim(await context().decodeAudioData(await response.arrayBuffer()), length);
         };
         loading = Promise.all([Promise.all(srcs.map(decode)), introSrc ? decode(introSrc) : null])
           .then(([decoded, intro]) => { parts = decoded; introPart = intro; }, (error) => { loading = null; throw error; });
