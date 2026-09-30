@@ -319,8 +319,16 @@
       title: "Brew Houze × aespa · Drama", toast: "Brew Houze × aespa · Drama",
       sub: "Drama · System portal", h1: "Every Brew Houze app. I’m the Drama.", footer: "Brew Houze × aespa · Drama · café management system",
       introClip: "drama/intro.mp3", loops: ["drama/track-1.mp3", "drama/track-2.mp3"], joined: true, intro: dramaIntro, introClass: "dr-intro",
-      // Track 1 is the chorus, track 2 the bridge (its sections measured from the music).
-      stage: { beat: 60 / 131, parts: [29.304, 31.168], sections: [[0, "calm"], [29.304, "tension"], [42.154, "build"], [43.994, "drive"], [54.054, "drop"], [58.634, "hit"], [59.554, "hit2"]] },
+      // Track 1 is the chorus (16 bars at 131 BPM), track 2 the bridge (17 bars). The bridge
+      // (seconds into track 2): the groove with its clap on beat 3 (bars 1-7), the riser (12.82 s),
+      // the drive accented on beats 1 and 3 (14.66 s), the hit (24.73 s), three lone stabs (25.65 /
+      // 26.57 / 27.48 s), the hush and its pickup (27.94 / 28.86 s), and the slam back into the
+      // chorus with its second hit (29.31 / 30.23 s). Its effects are its own (fx, styled in drama.css).
+      stage: {
+        beat: 60 / 131, parts: [29.304, 31.168], grid: 29.304,
+        fx: `<i class="drx-spot"></i><div class="drx-emblems"><i></i><i></i><i></i><i></i></div><i class="drx-beam"></i><i class="drx-beam is-b"></i><i class="drx-claw"></i><i class="drx-claw is-b"></i><div class="drx-scene"><i></i><i></i><i></i></div><i class="drx-flash"></i><i class="drx-logo"></i><b class="drx-slate"></b>`,
+        sections: [[0, "calm"], ...[[0, "spot"], [12.824, "rise"], [14.656, "drive"], [24.733, "hit"], [25.649, "stab1"], [26.565, "stab2"], [27.481, "stab3"], [27.939, "hush"], [28.855, "pickup"], [29.313, "encore"], [30.229, "encore2"]].map(([at, name]) => [29.304 + at, name])],
+      },
       extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
     },
   };
@@ -378,18 +386,17 @@
   }
 
   // ── The stage: each theme's bridge moves the page ──
-  // Every loop is a chorus then a bridge (Drama: track 1 then track 2). During the chorus (and the
+  // Every loop is track 1 (the chorus) then track 2 (the bridge). During the chorus (and the
   // intro) the theme is as it is; during the bridge the page moves with the music. It follows the
   // music's own clock (the part heard now, see position()); without sound, the same timeline on the
-  // page's clock. THEMES[x].stage: the beat, the loop's length (cycle, or its parts), and the
-  // sections [seconds into the loop, name]: calm, then tension (a pulse every 2 beats), build,
-  // drive (every beat), drop, hit, hit2. The stage is html[data-stage]; --stage-beat is the theme's
-  // beat and --stage-lag starts the beat animations in step with the music when a section starts.
-  // The effects (.ae-fx) are styled by each theme.
+  // page's clock. THEMES[x].stage: the beat, the loop's parts (or its cycle), the grid (where the
+  // bridge's bar 1 starts), the theme's own effects (fx, the markup put in .ae-fx and styled in the
+  // theme's stylesheet) and the sections [seconds into the loop, name], "calm" first. The stage is
+  // html[data-stage]; --stage-beat and --stage-bar are the theme's beat and bar, and --stage-lag
+  // starts the beat animations in step with the bars when a section starts.
   const stageFx = document.createElement("div");
   stageFx.className = "ae-fx";
   stageFx.setAttribute("aria-hidden", "true");
-  const SHARED_FX = '<i class="fx-pulse"></i><i class="fx-slash"></i><i class="fx-slash is-b"></i><i class="fx-dark"></i>';
   document.body.appendChild(stageFx);
   let stageFrame = 0;
   let stageName = "";
@@ -438,9 +445,8 @@
     if (!stage) { delete root.dataset.stage; return; }
     root.style.setProperty("--stage-beat", `${Math.round(stage.beat * 1000)}ms`);
     root.style.setProperty("--stage-bar", `${Math.round(stage.beat * 4000)}ms`);
-    // The theme's own effects, or the shared ones.
-    stageFx.innerHTML = stage.fx ?? SHARED_FX;
-    root.dataset.stageFx = stage.fx ? "own" : "shared";
+    // The theme's own effects.
+    stageFx.innerHTML = stage.fx;
     stageClock = performance.now();
     setStage("calm");
     if (motionOK()) stageFrame = requestAnimationFrame(stageTick);
@@ -449,7 +455,6 @@
     cancelAnimationFrame(stageFrame);
     stageName = "";
     delete root.dataset.stage;
-    delete root.dataset.stageFx;
   }
 
   function applyTheme(theme) {
