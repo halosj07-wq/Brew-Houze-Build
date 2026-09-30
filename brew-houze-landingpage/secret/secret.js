@@ -156,6 +156,8 @@
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     canvas.getContext("2d").drawImage(video, x * video.videoWidth - width / 2, top * video.videoHeight, width, height, 0, 0, w, h);
   }
+  // An SVG as a CSS url() (for the masks the scenes draw).
+  const svgUrl = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   const mirror = (className) => { const canvas = document.createElement("canvas"); canvas.className = className; canvas.setAttribute("aria-hidden", "true"); return canvas; };
   // What is on screen now, of the page's parts (for the focus box to lock onto).
   const onScreen = (selector) => [...document.querySelectorAll(selector)].filter((el) => { const box = el.getBoundingClientRect(); return box.width > 30 && box.top > 40 && box.bottom < window.innerHeight - 40; });
@@ -170,6 +172,9 @@
   //                       page between them), then the shutter fires and the frame drops onto the
   //                       page as a snapshot (SHOT 04 · 00:00:22:10), where it stays as you scroll
   //   break (32.9 s)      the page goes dark and the MV shows only through the WHIPLASH logo, grey
+  //   giselle (18.23 s)   Giselle, pink-haired, at the start of the chorus: the autofocus locks onto her
+  //                       plate, which lifts in chrome and plays her, the page dark around it; the
+  //                       shutter fires on her hits and drops her snapshot onto the page
   //   final (37.36 s)     it rips back in from the side, blurred with speed, then the slits again
   //   end (47.83 s)       it pulls back into the logo, which shrinks away; the snapshots blow away
   const WL_BAR = 240 / 126;
@@ -179,7 +184,7 @@
   const whiplashScene = {
     src: "whiplash/scene.mp4",
     className: "wl-scene",
-    cues: [[0, "bridge"], [16.41, "drop"], [17.3, "chorus"], [32.9, "break"], [37.36, "final"], [38.3, "chorus2"], [47.83, "end"]],
+    cues: [[0, "bridge"], [16.41, "drop"], [17.3, "chorus"], [18.23, "giselle"], [21.37, "chorus"], [32.9, "break"], [37.36, "final"], [38.3, "chorus2"], [47.83, "end"]],
     mount(box, video) {
       box.innerHTML = `
         <i class="wls-dim"></i>
@@ -187,6 +192,7 @@
         <div class="wls-screen"></div>
         <i class="wls-flash"></i>
         <div class="wls-focus"><b>AF · LOCK</b></div>
+        <p class="wls-subject" aria-hidden="true">Subject <b>Giselle</b> <span>지젤</span></p>
         <div class="wls-hud"><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i><i class="wls-corner"></i>
           <span class="wls-rec">REC</span><span class="wls-tc">00:00:00:00</span><span class="wls-shot">STANDBY</span></div>`;
       box.querySelector(".wls-screen").append(video);
@@ -204,7 +210,7 @@
       const cards = [...document.querySelectorAll(".card")].map((card, index) => { const canvas = mirror("wls-card"); canvas.style.setProperty("--i", index % 6); card.prepend(canvas); return canvas; });
       // The snapshots: the frame on the shutter, dropped onto the page (they scroll with it).
       const snaps = [];
-      const snapshot = (now) => {
+      const snapshot = (now, caption) => {
         if (!video.videoWidth) return;
         const width = Math.round(Math.min(250, window.innerWidth * 0.42));
         const figure = document.createElement("figure");
@@ -215,7 +221,7 @@
         canvas.height = 225;
         canvas.getContext("2d").drawImage(video, 0, 0, 400, 225);
         const frames = Math.floor(now * 30);
-        figure.innerHTML = `<figcaption><b>SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}</b> 00:00:${String(Math.floor(frames / 30)).padStart(2, "0")}:${String(frames % 30).padStart(2, "0")}</figcaption>`;
+        figure.innerHTML = `<figcaption><b>${caption ?? `SHOT ${String(Math.floor((now - 16.41) / WL_BAR) + 1).padStart(2, "0")}`}</b> 00:00:${String(Math.floor(frames / 30)).padStart(2, "0")}:${String(frames % 30).padStart(2, "0")}</figcaption>`;
         figure.prepend(canvas);
         const left = window.scrollX + 16 + Math.random() * Math.max(0, window.innerWidth - width - 32);
         const top = window.scrollY + 70 + Math.random() * Math.max(0, window.innerHeight - width * 0.75 - 150);
@@ -234,6 +240,11 @@
         void focus.offsetWidth;
         focus.classList.add("is-locked");
       };
+      // Giselle: her plate, and the shutter on her hits (measured).
+      const giselle = plates.find((canvas) => canvas.closest(".ae-member")?.dataset.member === "giselle");
+      const focusLabel = focus.querySelector("b");
+      const WL_GISELLE_HITS = [18.45, 18.88, 19.29, 19.84, 20.32, 20.85, 21.17];
+      let nextShutter = 0;
       let bleed = "";
       let lastBar = null;
       let lastBeat = null;
@@ -257,9 +268,24 @@
           const next = chorus ? (bar % 2 === 0 ? "slits" : "page") : "";
           if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
           if (bar !== lastBar) { lastBar = bar; if (chorus && bar % 2 === 1) snapshot(now); }
-          if (beat !== lastBeat) { lastBeat = beat; if (cue !== "end" && cue !== "load" && cue !== "break") lockOn(beat); }
+          if (beat !== lastBeat) { lastBeat = beat; if (cue !== "end" && cue !== "load" && cue !== "break" && cue !== "giselle") lockOn(beat); }
+          focusLabel.textContent = cue === "giselle" ? "AF · GISELLE" : "AF · LOCK";
+          // Giselle: the box stays locked on her plate; the shutter fires on her hits, the first one a snapshot.
+          if (cue === "giselle" && giselle) {
+            const at = giselle.closest(".ae-member").getBoundingClientRect();
+            focus.style.cssText = `left: ${at.left - 8}px; top: ${at.top - 8}px; width: ${at.width + 16}px; height: ${at.height + 16}px`;
+            if (nextShutter > 0 && now < WL_GISELLE_HITS[nextShutter - 1] - 0.5) nextShutter = 0;
+            while (nextShutter < WL_GISELLE_HITS.length && WL_GISELLE_HITS[nextShutter] <= now) {
+              if (now - WL_GISELLE_HITS[nextShutter] < 0.2) {
+                box.classList.remove("is-shutter"); void box.offsetWidth; box.classList.add("is-shutter");
+                if (nextShutter === 1) snapshot(now, "GISELLE · 지젤");
+              }
+              nextShutter++;
+            }
+          }
           // The mirrors (only those on screen are drawn).
-          const photos = plates.filter((canvas) => canvas.isConnected);
+          const photos = plates.filter((canvas) => canvas.isConnected && !(cue === "giselle" && canvas === giselle));
+          if (cue === "giselle" && giselle) drawCrop(giselle, video, 0.49, 0, 0.34, 0.95);
           if (cue === "end") photos.forEach((canvas) => drawCrop(canvas, video, WL_POSE[canvas.closest(".ae-member")?.dataset.member] ?? 0.5, 0.13, 0.225, 0.8));
           else if (photos.length) {
             const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
@@ -275,6 +301,518 @@
         unmount() {
           [...plates, ambient, ...cards].forEach((canvas) => canvas.remove());
           snaps.forEach((figure) => figure.remove());
+        },
+      };
+    },
+  };
+
+  // Dirty Work (98 BPM). The page stays; the MV gets on it like dirt, water and work. It follows the
+  // song itself: its bass and its melody (DW_ENV, measured from the MV's sound 20 times a second)
+  // drive the mud, the shimmer, the tapes and the logo, and the choreo's hits move the page.
+  //   bridge (0-20 s)      mud lands on the page on the bass hits: splats that are smeared windows
+  //                        onto the MV behind the page, flecks flying, drips running down (they scroll
+  //                        with the page); the plates play it in grimy sepia
+  //   wet (20 s)           the rain: the mud rinses off, rain streaks the page (harder with the
+  //                        melody), water drops slide down the screen, each showing the MV upside down
+  //   ningning (24.45 s)   her close-up in her plate, lifted in gold, the rest dark, her name stamped
+  //   wet2 (26.3 s)        the splash: spray and ripples, then the drops again
+  //   strobe (36.8 s)      the rain strobe flickers the page
+  //   drop (39.21 s)       two caution tapes slam across the screen in an X, the MV inside them
+  //   chorus               by the bar: the tapes (throbbing with the bass) whip back in, then a gold
+  //                        DIRTY WORK stamp of the frame thuds onto the page; gold shimmer on the melody
+  //   breakdown (56 s)     the long dance take through the giant DIRTY WORK logo (pulsing with the
+  //                        bass), gold sparks; every 2 bars it gives the stage back to the plates
+  //   shake (58.7 s)       the page shaken on every hit of the choreo
+  //   hips (62 s)          the page sways with their hips, left and right, dropping low on each hit
+  //   strobe2 (75.57 s)    the reflective jackets strobe; the tapes and stamps are ripped off
+  //   iris (77.6 s)        the last wide shot closes to a circle, the drain pipe of the bridge
+  //   title (79.75 s)      the MV's own DIRTY WORK and aespa cards print onto the page itself (the
+  //                        page's own logo steps aside for them)
+  const DW_BEAT = 60 / 98;
+  const DW_DROP = 39.21; // bar 1 of the chorus (the grid of the rest of the MV)
+  // The song's bass and its melody (treble), 0-63 a character, 20 a second from the start of the MV.
+  const DW_ENV = { low: "uKRIDzylciXMFnmi847uzDCBErpswk9EUZEHDmwBywBxojinouXSw60553lXVCd86a79SZF92033343365b88becbcdafxwDzzAPMylkkd6o-YKxu200cyzzAywxtsqngLYLxrjkzCGHIwyqpolsTRl85344oX_ra6456cSYD800174434555300144423fAzByzAJNzmol85lMYsf81013swwuspqplhieKVPhehhlgb77eouwxzzUSq31320pWZn61000dVYB722343333551232664222dnomhhuROtlqptwzMWBsuxxyAfeddddnCDEEDSUGkcbczAAABuDAAEEzpmnqtjvDszJGnnmipiotwnqrnggrmnhtuxyztsvxutormnnqqROlikhknsrqrb9aghqV-KfbbqvcbjoRYWQLJfbbflpuxqrniz--nmqsxzK--Q8bbdgq_-QqnknlfrDHzACABClfabnjoqpnnhFW_xxtywvtrmusutwuytvxuyytqwyBB_WSvsrsuxBywtqnptwMV-ErywzwJ--PssvyAzTQItwysqtxByrswtxzrppstvvvtronBZUnjlpqpF--uffdjnpyrvpvrsojzGJSXREEFcchjqrvtorvuF-_qoqspnK--Dieefnw--MtqniijAFLBDBCFIfhkjoknprrrrJ-YGzryxaLTRwrvymtiywkjrhplkrnpT-JgynqtsCtjuuCqzApedb7fddaggda9ffafdd789jjfa76geb7ec88da97beb8baa8xNInqpqomEORkuyvuqpuFNUUZMBpoknFWEjfgdgihfhopmqmrINJCBFzDrF--xuyACDDLGxHzBndppjloooroqnomoomnvttrsJVOqrllioAJJvCCyxvnyGENFGIrosrlDKzhjefgeikdoppolnBLQTIKQDBJ--OTNMUVLIMttwDifrnihnpomihfiheiihnqqrrDPCmppqnmOOKszzzwwuzHJR_WJDusqqIVEgbdefgbfgmqnqooDNFEHIEztw--GQPNLSRSKvvzxmjpomlqpoqqmionqpnqrpuvuO-PqursooLSIzAEECvwuTWRUUGFppqqKNBjfecdhdihqnonponjkmkholhmmhoekrqmmjebijfaafjfdaeeahdieacbfbc8aaaANFssqnooKKHtuAAzvsDQRUURFqwrpqMUAiddbbceddkkhiikESOIKIBFEQ--suwDAFJQVpBJBkkookktqofabacfcdemqoomnU-SwvpqpoKNKxAFJBBuDOXQSVKyqnnsELziffcdechgnpmnkhLXPQRTKFCT--GTXV_ZROSnuwxjhnlkisnoqnkhllmnmhlmnmlIOBpklkihSMEpwzDxCxEW_Z-TKzqtotJYygbdba9dadookpmmGUHPPMFEAS--wHLQQWRTSnDEypipolkspoebb9ggdfgnppnnrT-IwuqqnnKRDuBDJDFxzNNUNNJDnqovBQuijeeheeihlnplkiwqvpxuwwtwyxtuuAyBuqqosrpqggihdhjrnihnhilljeigkejotyyBBzzwutwxxAAxyvwzwyzAwg10000000000000000000000100121010000100012312132314122010010100001000000000000000000000000000000000000000000", high: "vxtpAQytKSFtAVpnqwJKAFEptMNquvqxrruiaTHttaqGncIwpnstneEBvrrjlvWvte8uvkdte0gjwxHOAsrule--JErnqogjhiCBqusppkcsidDVn65GvoimkdckrsrunwktPrq-Xwc9Frihtgeowlj7tDwGzp6yQvtgmFFxvu21pvxxyxAxvnGA-LBDHGKJFCzCQBBlxAvcAVLfD-zsyyKQTFslrMEECAADqdBnbZJHGHCuyMBtoDttCqAD83MBwO-MCKLOMMqononwAvstvurqm6ZEyzBEBTNFwyBFJPUrHSGqEgBUIAGGxttvovvnCsqqqtxxrLP-ColkojyBwrbxZKLDHKLqJKlnHQUSCAMWZXTIKKIHHMSLEFqmxMSQWJFxqOQORNRPQ-_KCzFBKWyzwpororslfrqqplfqnmnjg-wigfcjnlhe8pmj8Gsoe5l97GYGAByBsoidacmmdbLxrc8999YTGHGAwsold9rqwkbvICjjAtCMDxrhqurqoqmxutrliBuqrhjGBrlkhqsspndrmgbqmmniob9AOJDyvurnhhmhqramslFElom8HFGFGEGyuyAyvrplhFumhonkOPwxtnlnutqnfmrqsllrpopnf-yqomejqoifdpklatrsl8k97ZQrstpvlgkiefprkdCtkbadbb-wpoqppjheflwnd64AGt8njiBBvpkgisurlhgotqkgkqpkidgIohdebjjgedavGCBIvlabcbkGFBysqpsCCAvtumezNSQKpywFXP_TSHP_S----DBDDJDuqrgc-XxurpsokokcaevHGFEvlgytu-zBECyByMuphpkwuqimiCvjaQMuphgqmFJpwonOmrSDDBvosv-vrswtsnpnzAoijkhdkgqtkaMEohffspxxlqomztkyHADwxtD-yswBGDDyxAIIrojg9jdprf9PDkhb9qktIsvnGFcEsrBwtrsE-EBzBCIECFGuDvvwrmmblpd7YLAxxruxTHk9sBwqsrtnghI-S-CyzzuxrqnkkzutpndmmvxhaPAqqmgqnEMvyurJVzsDyyxsrC_qlptruoojjhrmgfc9rFCta8WHndegtGNpqmrWEbwpArpnmoC-uooppzDDxwuIIIzAjjBCwjltAxnhjoy-MIxzSLkpAEBxsllqzDHIMQSRPPOKGCwurpHywuoh-IvrrmrvromlgtsklixtrtvtM-IxstBNJEIJqzpieeengikbe-MDyxrvrfahjpxunljwslmihL-BuuvwEyspfeojjfcewotqec-HtljtzqDnzspAxwRJKFAAGBS-GEAABvvDvogomlgb9nqvob9_CofdgqwEeBxqHxcRMRGHDBCW_DFHHIHAAzAyxyyxurymlsjm-EupqvAlifcbfnrkmjFoiiljRXAtqqyDGDAyyAqshgfpiknbf_CtpmiujimfcqAvomlConmkE--CxzwwwponJFonplgiuntvkc-GrljizsJAwuuoInbKKDAzyuW-BwADFzxolwDyAEEAmhjwuqlvDztletxJSJytMEcOCHIEAtrwxDIIMLDEDyCDxqga8448a83233332264223331000000000000000000000000000000000000000001000011000001000000000000000000000000000000000000000000000000000000" };
+  const DW_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-";
+  const dwLevel = (band, now) => { const text = DW_ENV[band]; const i = Math.max(0, Math.min(text.length - 1, Math.floor(now * 20))); return DW_CHARS.indexOf(text[i]) / 63; };
+  // The choreo's hits (measured): Ningning's, the shake at 0:59, and the hip sways from 1:02.
+  const DW_HITS = [[24.47, "ning"], [25.46, "ning"], [26.05, "ning"],
+    ...[58.8, 59.26, 59.41, 59.76, 60.01, 60.33].map((t) => [t, "jolt"]),
+    ...[62.12, 62.44, 62.9, 63.43, 63.78, 64.16, 64.45, 64.83, 65.23, 65.47, 65.91].map((t) => [t, "hip"])];
+  // A mud splat: a blob with a few drops, as an SVG mask (seeded, so each one differs).
+  function splatMask(seed) {
+    let state = seed % 2147483646 + 1;
+    const rand = () => (state = (state * 16807) % 2147483647) / 2147483647;
+    const count = 16;
+    const points = Array.from({ length: count }, (_, i) => {
+      const angle = (i / count) * Math.PI * 2;
+      const radius = 24 + rand() * 12 + (rand() < 0.3 ? 8 : 0);
+      return [50 + Math.cos(angle) * radius, 50 + Math.sin(angle) * radius];
+    });
+    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    let path = `M${mid(points[count - 1], points[0]).map((v) => v.toFixed(1)).join(" ")}`;
+    points.forEach((point, i) => { const next = mid(point, points[(i + 1) % count]); path += ` Q${point.map((v) => v.toFixed(1)).join(" ")} ${next.map((v) => v.toFixed(1)).join(" ")}`; });
+    const drops = Array.from({ length: 5 }, () => {
+      const angle = rand() * Math.PI * 2;
+      const radius = 40 + rand() * 7;
+      return `<circle cx='${(50 + Math.cos(angle) * radius).toFixed(1)}' cy='${(50 + Math.sin(angle) * radius).toFixed(1)}' r='${(1.2 + rand() * 2.4).toFixed(1)}'/>`;
+    }).join("");
+    // Its drips: a few runs down from its lower edge.
+    const drips = Array.from({ length: 3 }, () => { const x = 30 + rand() * 40; const w = 1.6 + rand() * 2.4; return `<path d='M${(x - w).toFixed(1)} 60 L${(x + w).toFixed(1)} 60 L${(x + w * 0.5).toFixed(1)} ${(90 + rand() * 9).toFixed(1)} Q${x.toFixed(1)} 100 ${(x - w * 0.5).toFixed(1)} ${(90 + rand() * 9).toFixed(1)} Z'/>`; }).join("");
+    return { splat: svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='${path}'/>${drops}</svg>`), drips: svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'>${drips}</svg>`) };
+  }
+  // A water drop on the screen: the MV under it, magnified and upside down, as a real drop shows it.
+  function drawDrop(canvas, video) {
+    if (!video.videoWidth) return;
+    const box = canvas.getBoundingClientRect();
+    if (!box.width || box.bottom < 0 || box.top > window.innerHeight) return;
+    const scale = Math.max(window.innerWidth / video.videoWidth, window.innerHeight / video.videoHeight);
+    const left = (window.innerWidth - video.videoWidth * scale) / 2;
+    const top = (window.innerHeight - video.videoHeight * scale) / 2;
+    const reach = box.width * 1.4; // how much of the screen the drop gathers
+    const cx = box.left + box.width / 2;
+    const cy = box.top + box.height / 2;
+    const size = Math.round(box.width * Math.min(window.devicePixelRatio || 1, 1.5));
+    if (canvas.width !== size) { canvas.width = size; canvas.height = size; }
+    const ctx = canvas.getContext("2d");
+    ctx.setTransform(-1, 0, 0, -1, size, size);
+    ctx.drawImage(video, (cx - reach - left) / scale, (cy - reach - top) / scale, (reach * 2) / scale, (reach * 2) / scale, 0, 0, size, size);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+  const dirtyWorkScene = {
+    src: "dirty-work/scene.mp4",
+    className: "dw-scene",
+    cues: [[0, "bridge"], [20, "wet"], [24.45, "ningning"], [26.3, "wet2"], [36.8, "strobe"], [DW_DROP, "drop"], [40.4, "chorus"], [56, "breakdown"], [58.7, "shake"], [60.5, "breakdown2"], [62, "hips"], [66.2, "breakdown3"], [75.57, "strobe2"], [77.6, "iris"], [79.75, "title"], [82.3, "title2"]],
+    mount(box, video) {
+      const tape = (name, text) => `<div class="dws-tape ${name}"><canvas class="dws-tape-video" aria-hidden="true"></canvas><span>${text.repeat(12)}</span><span>${text.repeat(12)}</span></div>`;
+      box.innerHTML = `
+        <i class="dws-dim"></i>
+        <i class="dws-rain"></i>
+        <div class="dws-screen"></div>
+        <div class="dws-drops">${"<i><canvas aria-hidden='true'></canvas></i>".repeat(12)}</div>
+        <div class="dws-splash">${"<i></i>".repeat(16)}<b></b><b></b></div>
+        ${tape("is-a", "DIRTY WORK ✦ ")}${tape("is-b", "DIRTY WORKER VER. ✦ ")}
+        <i class="dws-shimmer"></i>
+        <div class="dws-sparks">${"<i>✦</i>".repeat(12)}</div>
+        <p class="dws-name" aria-hidden="true">Ningning <span>닝닝</span></p>
+        <i class="dws-flash"></i>
+        <p class="dws-tag"><b>⚠ Dirty Work</b> <span class="dws-time">00:00</span></p>`;
+      box.querySelector(".dws-screen").append(video);
+      const time = box.querySelector(".dws-time");
+      const tapes = [...box.querySelectorAll(".dws-tape-video")];
+      const drops = [...box.querySelectorAll(".dws-drops canvas")];
+      // The plates: the MV across their photos, as in the bridge of Whiplash, but grimy.
+      const lineup = document.getElementById("ae-lineup");
+      lineup.scrollIntoView({ block: "center" });
+      const hero = document.querySelector(".hero");
+      const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => { const canvas = mirror("dws-plate"); plate.querySelector(".ae-photo")?.after(canvas); return canvas; });
+      const ningning = lineup.querySelector('.ae-member[data-member="ningning"] .dws-plate');
+      // The print: the title cards, screened onto the page (outside the scene, so it blends with the page).
+      const print = mirror("dws-print");
+      document.body.append(print);
+      // What lands on the page (it scrolls with it): the mud and the stamps.
+      const muds = [];
+      const stamps = [];
+      let seed = 7;
+      const landing = (width, height) => ({
+        left: window.scrollX + 12 + Math.random() * Math.max(0, window.innerWidth - width - 24),
+        top: window.scrollY + 60 + Math.random() * Math.max(0, window.innerHeight - height - 120),
+      });
+      const splat = (strength) => {
+        const size = Math.round(Math.min(340, window.innerWidth * 0.5) * (0.5 + strength * 0.5));
+        const at = landing(size, size * 1.4);
+        const masks = splatMask(seed += 97);
+        const el = document.createElement("div");
+        el.className = "dws-mud";
+        el.setAttribute("aria-hidden", "true");
+        el.style.cssText = `left: ${at.left.toFixed(0)}px; top: ${at.top.toFixed(0)}px; width: ${size}px; height: ${size}px; --splat: ${masks.splat}; --drips: ${masks.drips}; --r: ${(Math.random() * 40 - 20).toFixed(0)}deg`;
+        el.innerHTML = `<div class="dws-splat"></div><i class="dws-drip"></i><div class="dws-flecks">${Array.from({ length: 7 }, () => `<i style="--fx: ${(Math.random() * 2 - 1).toFixed(2)}; --fy: ${(Math.random() * 2 - 1).toFixed(2)}"></i>`).join("")}</div>`;
+        el.firstChild.append(mirror("dws-splat-video"));
+        document.body.append(el);
+        muds.push(el);
+        if (muds.length > 12) muds.shift().remove();
+      };
+      const stamp = () => {
+        if (!video.videoWidth) return;
+        const width = Math.round(Math.min(380, window.innerWidth * 0.62));
+        const at = landing(width, width * 835 / 1600);
+        const el = document.createElement("div");
+        el.className = "dws-stamp";
+        el.setAttribute("aria-hidden", "true");
+        const canvas = document.createElement("canvas");
+        canvas.width = 480;
+        canvas.height = 250;
+        const crop = video.videoWidth / (480 / 250);
+        canvas.getContext("2d").drawImage(video, 0, (video.videoHeight - crop) / 2, video.videoWidth, crop, 0, 0, 480, 250);
+        el.append(canvas);
+        el.style.cssText = `left: ${at.left.toFixed(0)}px; top: ${at.top.toFixed(0)}px; width: ${width}px; --r: ${(Math.random() * 16 - 8).toFixed(1)}deg`;
+        document.body.append(el);
+        stamps.push(el);
+        if (stamps.length > 6) stamps.shift().remove();
+      };
+      // The choreo's hits: the page shaken or swaying, her plate pulsing.
+      let nextHit = 0;
+      let hipSide = 1;
+      const restart = (el, name) => { el.classList.remove(name); void el.offsetWidth; el.classList.add(name); };
+      const hit = (kind) => {
+        if (kind === "jolt") restart(root, "is-dw-jolt");
+        if (kind === "hip") { hipSide = -hipSide; root.classList.remove("is-dw-hip-l", "is-dw-hip-r"); void root.offsetWidth; root.classList.add(hipSide < 0 ? "is-dw-hip-l" : "is-dw-hip-r"); }
+        if (kind === "ning") restart(box, "is-ning-hit");
+      };
+      let bleed = "";
+      let lastBar = null;
+      let lastSplat = -9;
+      return {
+        show(cue) {
+          // The mud rinses off in the rain, the stamps rip off from the second strobe (also when skipped past).
+          if (cue !== "bridge") muds.forEach((el, i) => { el.style.setProperty("--k", i); el.classList.add("is-rinsed"); });
+          if (["strobe2", "iris", "title", "title2"].includes(cue)) stamps.forEach((el, i) => { el.style.setProperty("--k", i); el.classList.add("is-ripped"); });
+          box.style.setProperty("--beat-lag", `${(-((((video.currentTime - DW_DROP) % DW_BEAT) + DW_BEAT) % DW_BEAT)).toFixed(3)}s`);
+        },
+        tick(now) {
+          time.textContent = `${String(Math.floor(now / 60)).padStart(2, "0")}:${String(Math.floor(now % 60)).padStart(2, "0")}`;
+          const cue = box.dataset.cue;
+          // The song, now: its bass and its melody drive the page's parts.
+          const low = dwLevel("low", now);
+          const high = dwLevel("high", now);
+          for (const el of [box, hero, lineup]) { el.style.setProperty("--low", low.toFixed(2)); el.style.setProperty("--high", high.toFixed(2)); }
+          // The choreo's hits (only when reached in play, not skipped past).
+          if (nextHit > 0 && now < DW_HITS[nextHit - 1][0] - 0.5) { const i = DW_HITS.findIndex(([t]) => t > now); nextHit = i < 0 ? DW_HITS.length : i; }
+          while (nextHit < DW_HITS.length && DW_HITS[nextHit][0] <= now) { if (now - DW_HITS[nextHit][0] < 0.2) hit(DW_HITS[nextHit][1]); nextHit++; }
+          // Mud on the bass hits of the bridge.
+          if (cue === "bridge" && low > 0.58 && now - lastSplat > 0.55) { lastSplat = now; splat(low); }
+          if (now < lastSplat) lastSplat = now - 1;
+          const bar = Math.floor((now - DW_DROP) / (DW_BEAT * 4));
+          let next = "";
+          if (cue === "chorus") {
+            next = bar % 2 === 0 ? "tapes" : "page";
+            if (bar !== lastBar) { lastBar = bar; if (bar % 2 === 1) stamp(); }
+          }
+          if (cue === "drop") next = "tapes";
+          if (cue.startsWith("breakdown")) next = Math.floor(bar / 2) % 2 === 0 ? "logo" : "plates";
+          if (cue === "shake") next = "logo";
+          if (cue === "hips") next = "plates";
+          if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
+          // The mirrors (only those on screen are drawn).
+          const photos = cue.startsWith("title") ? [] : plates.filter((canvas) => canvas.isConnected && !(cue === "ningning" && canvas === ningning));
+          if (photos.length) {
+            const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
+            const wall = { left: Math.min(...boxes.map((b) => b.left)), top: Math.min(...boxes.map((b) => b.top)), width: 0, height: 0 };
+            wall.width = Math.max(...boxes.map((b) => b.right)) - wall.left;
+            wall.height = Math.max(...boxes.map((b) => b.bottom)) - wall.top;
+            photos.forEach((canvas) => drawMirror(canvas, video, wall));
+          }
+          if (cue === "ningning" && ningning) drawCrop(ningning, video, 0.5, 0, 0.5, 1);
+          muds.forEach((el) => drawMirror(el.firstChild.firstChild, video, viewportWall()));
+          if (cue.startsWith("wet") || cue === "ningning") drops.forEach((canvas) => drawDrop(canvas, video));
+          if (bleed === "tapes") tapes.forEach((canvas) => drawMirror(canvas, video, viewportWall()));
+          if (cue === "title" || cue === "title2") drawMirror(print, video, viewportWall());
+        },
+        unmount() {
+          [...plates, print, ...muds, ...stamps].forEach((el) => el.remove());
+          root.classList.remove("is-dw-jolt", "is-dw-hip-l", "is-dw-hip-r");
+          for (const el of [hero, lineup]) { el.style.removeProperty("--low"); el.style.removeProperty("--high"); }
+        },
+      };
+    },
+  };
+
+  // Armageddon (92 BPM; its bars from 2.25 s). The page stays; the MV breaks in like a signal:
+  //   signal (0-7.47 s)    the MV on a CRT monitor in the middle of the page, rolling and tearing
+  //                        (no vertical hold), static and NO SIGNAL, until it locks on the bar
+  //   orbit (7.47 s)       the orbit emblem as a round lens onto the MV, its rings turning (2 bars)
+  //   freeze (12.69 s)     ice crystals grow from the middle across the page, the MV frozen in them
+  //   scan (17.91 s)       an ice scanner sweeps down the screen every bar, the MV showing through
+  //   stomp (20.93 s)      each half-time stomp sends out an ice shockwave that is a ring of the MV
+  //   karina (25.54 s)     target locked on Karina: brackets snap onto her plate, which lifts and plays
+  //                        her close-up while the rest goes dark; the page shakes on every stomp
+  //   glitch (28.03 s)     the MV tears through the page in slices jumping sideways, red and blue
+  //   danger (33.27 s)     "Incoming danger" counts to 100%, the alert flashing
+  //   drop (36.17 s)       the explosion: the MV fills the screen for an instant and bursts into glass
+  //                        shards flying outward, a white-hot flash and a shockwave knocking the page back
+  //   chorus               by the bar: the MV locked in closing target brackets, then the page with
+  //                        every app card, guide item and plate a CCTV feed while the scanner sweeps
+  //   wave (57.02 s)       the body wave: the MV ripples in slices, the plates wave, the page shakes
+  //   wings (58.47 s)      the golden wings take the screen          outro (59.7 s)  the MV only
+  //                        through the ice ARMAGEDDON logo
+  //   end (67.23 s)        the ring of fire through the orbit lens, grown huge, the rings closing on it
+  const AM_BEAT = 60 / 92;
+  const AM_BAR1 = 2.253; // a downbeat (the grid of the whole MV)
+  // The choreo's hits (measured, some between the beats): the page jolts on each, in the tunnel
+  // stomps with Karina and in the body wave.
+  const AM_HITS = [25.74, 26.06, 26.73, 27.36, 27.68, 57.05, 57.41, 57.69, 57.95, 58.24];
+  // The cameras: each feed frames the MV differently ([x, top, width, height] as fractions).
+  const AM_CAMS = [[0.5, 0.05, 0.9, 0.9], [0.3, 0.1, 0.35, 0.5], [0.7, 0.2, 0.4, 0.45], [0.45, 0.35, 0.3, 0.4], [0.62, 0.02, 0.5, 0.6], [0.2, 0.3, 0.4, 0.55], [0.55, 0.15, 0.25, 0.35], [0.8, 0.4, 0.35, 0.5]];
+  // Ice crystals: sharp spikes and shards out from the middle (a mask that grows over the page).
+  function crystalMask() {
+    let state = 23;
+    const rand = () => (state = (state * 16807) % 2147483647) / 2147483647;
+    const point = (a, r) => `${(50 + Math.cos(a) * r).toFixed(1)} ${(50 + Math.sin(a) * r).toFixed(1)}`;
+    let shapes = "";
+    for (let i = 0; i < 22; i++) {
+      const angle = (i / 22) * Math.PI * 2 + rand() * 0.2;
+      const reach = 26 + rand() * 24;
+      const width = 0.08 + rand() * 0.1;
+      shapes += `<path d='M${point(angle - width, 6)} L${point(angle, reach)} L${point(angle + width, 6)} Z'/>`;
+      if (rand() < 0.6) shapes += `<path d='M${point(angle + 0.12, reach * 0.45)} L${point(angle + 0.3, reach * 0.8)} L${point(angle + 0.2, reach * 0.42)} Z'/>`;
+    }
+    shapes += `<polygon points='${Array.from({ length: 6 }, (_, i) => point((i / 6) * Math.PI * 2, 12).replace(" ", ",")).join(" ")}'/>`;
+    return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'>${shapes}</svg>`);
+  }
+  // The explosion's shards: triangles from the middle to the screen's edge that tile it together.
+  function shardPolygons(count) {
+    // A point on the edge, going round it (0-100 the top, 100-200 the right, 200-300 the bottom, 300-400 the left).
+    const edge = (s) => { s = ((s % 400) + 400) % 400; if (s < 100) return [s, 0]; if (s < 200) return [100, s - 100]; if (s < 300) return [300 - s, 100]; return [0, 400 - s]; };
+    let state = 5;
+    const rand = () => (state = (state * 16807) % 2147483647) / 2147483647;
+    const cuts = Array.from({ length: count }, (_, i) => (i + 0.2 + rand() * 0.6) * (400 / count));
+    return cuts.map((from, i) => {
+      const to = i + 1 < count ? cuts[i + 1] : cuts[0] + 400;
+      const points = [[50, 50], edge(from)];
+      for (const corner of [100, 200, 300, 400, 500]) if (corner > from && corner < to) points.push(edge(corner));
+      points.push(edge(to));
+      const mid = edge((from + to) / 2);
+      return { polygon: `polygon(${points.map(([x, y]) => `${x.toFixed(1)}% ${y.toFixed(1)}%`).join(", ")})`, dx: (mid[0] - 50) * 1.6, dy: (mid[1] - 50) * 1.6, rot: (rand() * 80 - 40).toFixed(0) };
+    });
+  }
+  const armageddonScene = {
+    src: "armageddon/scene.mp4",
+    className: "am-scene",
+    cues: [[0, "signal"], [7.47, "orbit"], [12.69, "freeze"], [17.91, "scan"], [20.93, "stomp"], [25.54, "karina"], [28.03, "glitch"], [33.27, "danger"], [36.17, "drop"], [37.4, "chorus"], [57.02, "wave"], [58.47, "wings"], [59.7, "outro"], [67.23, "end"]],
+    mount(box, video) {
+      const shards = shardPolygons(11);
+      box.innerHTML = `
+        <i class="ams-dim"></i>
+        <div class="ams-screen"></div>
+        <div class="ams-crt"><canvas class="ams-crt-video" aria-hidden="true"></canvas><i class="ams-static"></i><span class="ams-crt-label">NO SIGNAL</span></div>
+        <div class="ams-scan"></div>
+        <div class="ams-slices">${"<div></div>".repeat(7)}</div>
+        <div class="ams-waves">${Array.from({ length: 14 }, (_, i) => `<div style="--i: ${i}"></div>`).join("")}</div>
+        <div class="ams-shards">${shards.map((shard) => `<i style="clip-path: ${shard.polygon}; --dx: ${shard.dx.toFixed(1)}vw; --dy: ${shard.dy.toFixed(1)}vh; --rot: ${shard.rot}deg"></i>`).join("")}</div>
+        <i class="ams-wave-ring"></i>
+        <div class="ams-orbit"><div class="ams-lens"></div><i></i><i></i><i></i></div>
+        <i class="ams-target"></i>
+        <i class="ams-lock"></i>
+        <p class="ams-locked" aria-hidden="true">Target locked <b>Karina</b> <span>카리나</span></p>
+        <div class="ams-alert"><b>Incoming danger</b><span class="ams-level"><span>${Array.from({ length: 101 }, (_, n) => `<i>${n}%</i>`).join("")}</span></span></div>
+        <i class="ams-flash"></i>
+        <p class="ams-tag"><i></i> SIGNAL · <span class="ams-time">00:00</span></p>`;
+      box.querySelector(".ams-screen").append(video);
+      box.style.setProperty("--crystal", crystalMask());
+      const time = box.querySelector(".ams-time");
+      const crt = box.querySelector(".ams-crt-video");
+      const crtLabel = box.querySelector(".ams-crt-label");
+      const lens = mirror("ams-lens-video");
+      box.querySelector(".ams-lens").append(lens);
+      const scan = mirror("ams-scan-video");
+      box.querySelector(".ams-scan").append(scan);
+      const slices = [...box.querySelectorAll(".ams-slices > div")].map((slice) => { slice.append(mirror("ams-slice")); return slice; });
+      const waves = [...box.querySelectorAll(".ams-waves > div")].map((band) => { const canvas = mirror("ams-slice"); band.append(canvas); return canvas; });
+      const shardEls = [...box.querySelectorAll(".ams-shards > i")];
+      const lock = box.querySelector(".ams-lock");
+      // The feeds in the page: app cards, guide items and plates, each a camera.
+      const lineup = document.getElementById("ae-lineup");
+      lineup.scrollIntoView({ block: "center" });
+      const karina = lineup.querySelector('.ae-member[data-member="karina"]');
+      const feeds = [...document.querySelectorAll(".card, .guide-item, #ae-lineup .ae-member")].map((host, index) => {
+        const canvas = mirror("ams-feed");
+        const label = document.createElement("span");
+        label.className = "ams-cam";
+        label.setAttribute("aria-hidden", "true");
+        label.textContent = `CAM ${String(index + 1).padStart(2, "0")}`;
+        host.prepend(canvas);
+        host.append(label);
+        return { host, canvas, label, cam: AM_CAMS[index % AM_CAMS.length] };
+      });
+      const karinaFeed = feeds.find((feed) => feed.host === karina);
+      let bleed = "";
+      let lastBeat = null;
+      let nextHit = 0;
+      const jolt = () => { root.classList.remove("is-am-jolt"); void root.offsetWidth; root.classList.add("is-am-jolt"); };
+      return {
+        show(cue, now) {
+          box.style.setProperty("--beat-lag", `${(-((((now - AM_BAR1) % AM_BEAT) + AM_BEAT) % AM_BEAT)).toFixed(3)}s`);
+          box.style.setProperty("--bar-lag", `${(-((((now - AM_BAR1) % (AM_BEAT * 4)) + AM_BEAT * 4) % (AM_BEAT * 4))).toFixed(3)}s`);
+          // Stomps come on beats 1 and 3: their lag within a half bar.
+          box.style.setProperty("--half-lag", `${(-((((now - AM_BAR1) % (AM_BEAT * 2)) + AM_BEAT * 2) % (AM_BEAT * 2))).toFixed(3)}s`);
+          // The explosion: the frame of the blast, frozen onto the shards that fly apart.
+          if (cue === "drop" && video.videoWidth) {
+            const frame = document.createElement("canvas");
+            frame.width = 960;
+            frame.height = Math.round((960 * video.videoHeight) / video.videoWidth);
+            frame.getContext("2d").drawImage(video, 0, 0, frame.width, frame.height);
+            const image = `url("${frame.toDataURL("image/jpeg", 0.82)}")`;
+            shardEls.forEach((shard) => { shard.style.backgroundImage = image; });
+          }
+        },
+        tick(now) {
+          time.textContent = `${String(Math.floor(now / 60)).padStart(2, "0")}:${String(Math.floor(now % 60)).padStart(2, "0")}`;
+          const cue = box.dataset.cue;
+          const bar = Math.floor((now - AM_BAR1) / (AM_BEAT * 4));
+          const next = cue === "chorus" ? (bar % 2 === 0 ? "target" : "feeds") : "";
+          if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
+          const view = viewportWall();
+          // A band that slides carries its picture with it: the screen, shifted as far as the band is.
+          const sliding = (canvas) => { const at = canvas.getBoundingClientRect(); return { left: at.left, top: 0, width: at.width, height: window.innerHeight }; };
+          // The choreo's hits (only when reached in play, not skipped past).
+          if (nextHit > 0 && now < AM_HITS[nextHit - 1] - 0.5) nextHit = AM_HITS.findIndex((t) => t > now) < 0 ? AM_HITS.length : AM_HITS.findIndex((t) => t > now);
+          while (nextHit < AM_HITS.length && AM_HITS[nextHit] <= now) { if (now - AM_HITS[nextHit] < 0.2) jolt(); nextHit++; }
+          // The CRT: its own picture (it rolls with it), locking in on the second bar.
+          if (cue === "signal") {
+            drawMirror(crt, video);
+            const locked = now >= 4.86;
+            crtLabel.textContent = locked ? "● SIGNAL LOCKED" : "NO SIGNAL";
+            box.classList.toggle("is-locked", locked);
+          }
+          if (cue === "orbit" || cue === "end") drawMirror(lens, video, view);
+          if (cue === "scan" || bleed === "feeds") drawMirror(scan, video, view);
+          // The glitch: the slices jump to new offsets on every eighth note.
+          if (cue === "glitch") {
+            const beat = Math.floor((now - AM_BAR1) / (AM_BEAT / 2));
+            if (beat !== lastBeat) { lastBeat = beat; slices.forEach((slice) => slice.style.setProperty("--x", `${((Math.random() - 0.5) * 16).toFixed(1)}vw`)); }
+            slices.forEach((slice) => drawMirror(slice.firstChild, video, sliding(slice.firstChild)));
+          }
+          if (cue === "wave") waves.forEach((canvas) => drawMirror(canvas, video, sliding(canvas)));
+          // Karina: the brackets follow her plate (wherever it is scrolled), her close-up in it.
+          if (cue === "karina" && karina) {
+            const at = karina.getBoundingClientRect();
+            lock.style.cssText = `left: ${(at.left - 10).toFixed(0)}px; top: ${(at.top - 10).toFixed(0)}px; width: ${(at.width + 20).toFixed(0)}px; height: ${(at.height + 20).toFixed(0)}px`;
+            if (karinaFeed) drawCrop(karinaFeed.canvas, video, 0.5, 0, 0.42, 1);
+          }
+          if (cue === "chorus") feeds.forEach(({ canvas, cam }) => drawCrop(canvas, video, cam[0], cam[1], cam[2], cam[3]));
+        },
+        unmount() {
+          feeds.forEach(({ canvas, label }) => { canvas.remove(); label.remove(); });
+          root.classList.remove("is-am-jolt");
+        },
+      };
+    },
+  };
+
+  // Drama (131 BPM; its bars from 1.05 s; the MV is widescreen, 2.35:1). "Scene Ver.": the page is
+  // the set, the MV is shot on it:
+  //   spot (0-11.59 s)     a red spotlight drifts over the dimmed page, the MV only in its beam
+  //   flame (11.59 s)      the page catches fire: the MV burns up the screen from the bottom behind
+  //                        a wall of flame tongues, embers rising, the page glowing orange
+  //   slash (15.2 s)       every 2 bars a claw slash (the logo's three torn strokes) rips across the
+  //                        page with the MV inside, from alternate sides
+  //   eye (31.47 s)        the red eye: the page flushes red
+  //   impact (32.19 s)     the chorus hits: white then red, the MV slams in, the glass cracks from
+  //                        the middle and a shockwave rings out, the page jolting
+  //   chorus (and 2-4)     by the bar: cinema (the MV full screen, widescreen, a SCENE slate), then
+  //                        billboard (the MV lighting the header, claws ripping on beats 1 and 3)
+  //   noir (38.5 s)        the page drains to black and white with the MV, grain and vignette;
+  //                        only the slate keeps its red
+  //   winter (46.85 s)     the page goes dark but for Winter's plate, lifted in a red glow; the MV
+  //                        through her star emblem, her name sweeping in
+  //   spin (53.25 s)       the MV on a red turntable disc, a quarter turn on every beat with the
+  //                        pointing choreo, the plates swaying
+  //   hush (61 s)          the spotlight again, slow           end (66.95 s)  each member framed in
+  //                        her own plate through the camera's pull-back, FIN
+  const DR_BEAT = 60 / 131;
+  const DR_BAR1 = 1.046; // a downbeat (the impact at 32.19 s is one)
+  // The ending: left to right on the billboard stage Ningning, Winter, Karina, Giselle; the camera
+  // pulls back, so each is tracked: [time, x of each (0-1), top, height, max width] (fractions).
+  const DR_END = { ningning: 0, winter: 1, karina: 2, giselle: 3 };
+  const DR_END_KEYS = [[67.0, [0.303, 0.431, 0.566, 0.719], 0.5, 0.34, 0.125], [69.4, [0.344, 0.459, 0.581, 0.694], 0.515, 0.22, 0.108], [71.5, [0.347, 0.459, 0.569, 0.681], 0.52, 0.2, 0.104]];
+  function drEndFrame(now, slot) {
+    const keys = DR_END_KEYS;
+    let a = keys[0];
+    let b = keys[keys.length - 1];
+    for (let i = 0; i < keys.length - 1; i++) if (now >= keys[i][0] && now <= keys[i + 1][0]) { a = keys[i]; b = keys[i + 1]; }
+    const k = b[0] === a[0] ? 0 : Math.min(1, Math.max(0, (now - a[0]) / (b[0] - a[0])));
+    const mix = (x, y) => x + (y - x) * k;
+    return [mix(a[1][slot], b[1][slot]), mix(a[2], b[2]), mix(a[4], b[4]), mix(a[3], b[3])];
+  }
+  // SVG masks (stretched over the screen): the burning edge, its flame tongues, the claw slashes.
+  function flameEdge(filled) {
+    let state = 11;
+    const rand = () => (state = (state * 16807) % 2147483647) / 2147483647;
+    let path = "M0 30";
+    for (let x = 0; x < 100; x += 4) {
+      const peak = 2 + rand() * 16;
+      path += ` Q${(x + 1).toFixed(1)} ${(peak + 6).toFixed(1)} ${(x + 2).toFixed(1)} ${peak.toFixed(1)} Q${(x + 3).toFixed(1)} ${(peak + 10).toFixed(1)} ${x + 4} ${(22 + rand() * 8).toFixed(1)}`;
+    }
+    if (filled) return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 200' preserveAspectRatio='none'><path d='${path} L100 200 L0 200 Z'/></svg>`);
+    return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 40' preserveAspectRatio='none'><defs><linearGradient id='f' x1='0' y1='1' x2='0' y2='0'><stop offset='0' stop-color='#FFF1B0'/><stop offset='0.35' stop-color='#FF9A1F'/><stop offset='0.75' stop-color='#F30306' stop-opacity='0.7'/><stop offset='1' stop-color='#F30306' stop-opacity='0'/></linearGradient></defs><path d='${path} L100 40 L0 40 Z' fill='url(#f)'/></svg>`);
+  }
+  function clawMask(flip) {
+    const stroke = (x1, y1, x2, y2, w) => `<path d='M${x1} ${y1} L${x2} ${y2 - w * 0.5} L${x2 + 1.5} ${y2 + w * 0.3} L${x1 + 2} ${y1 + w}Z'/>`;
+    const strokes = stroke(-5, 78, 105, 18, 9) + stroke(-5, 96, 105, 38, 12) + stroke(0, 112, 105, 58, 8);
+    return svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'><g${flip ? " transform='translate(100 0) scale(-1 1)'" : ""}>${strokes}</g></svg>`);
+  }
+  const dramaScene = {
+    src: "drama/scene.mp4",
+    className: "dr-scene",
+    cues: [[0, "spot"], [11.59, "flame"], [15.2, "slash"], [31.47, "eye"], [32.19, "impact"], [33.1, "chorus"], [38.5, "noir"], [43.3, "chorus2"], [46.85, "winter"], [51.77, "chorus3"], [53.25, "spin"], [56.5, "chorus4"], [61.0, "hush"], [66.95, "end"]],
+    mount(box, video) {
+      box.innerHTML = `
+        <i class="drs-dim"></i>
+        <div class="drs-screen"></div>
+        <div class="drs-lamp"></div>
+        <i class="drs-fire"></i>
+        <div class="drs-embers">${"<i></i>".repeat(14)}</div>
+        <i class="drs-crack"></i><i class="drs-wave"></i>
+        <i class="drs-claw"></i><i class="drs-claw is-b"></i>
+        <i class="drs-grain"></i>
+        <p class="drs-name" aria-hidden="true">Winter <span>윈터</span></p>
+        <i class="drs-flash"></i>
+        <p class="drs-slate">Scene 01</p>
+        <p class="drs-take"><i></i> aespa ‘Drama’ · Take 01 · <span class="drs-time">00:00</span></p>`;
+      box.querySelector(".drs-screen").append(video);
+      box.style.setProperty("--burn", flameEdge(true));
+      box.style.setProperty("--flames", flameEdge(false));
+      box.style.setProperty("--claw-a", clawMask(false));
+      box.style.setProperty("--claw-b", clawMask(true));
+      const time = box.querySelector(".drs-time");
+      const slate = box.querySelector(".drs-slate");
+      const lamp = mirror("drs-lamp-video");
+      box.querySelector(".drs-lamp").append(lamp);
+      // The page's parts: the header as a billboard, and the plates for the ending.
+      const lineup = document.getElementById("ae-lineup");
+      lineup.scrollIntoView({ block: "center" });
+      const hero = document.querySelector(".hero");
+      const billboard = mirror("drs-billboard");
+      hero.prepend(billboard);
+      const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => { const canvas = mirror("drs-plate"); plate.querySelector(".ae-photo")?.after(canvas); return canvas; });
+      let bleed = "";
+      let lastSlash = null;
+      let scene = 1;
+      const slates = { spot: "Scene 01", flame: "Scene 02 · Fire", slash: "Scene 03", eye: "Scene 03", impact: "I’m the Drama", noir: "Scene 04 · Noir", winter: "Winter · 윈터", spin: "Scene 06 · Turn", hush: "Scene 07", end: "Fin · aespa ‘Drama’" };
+      return {
+        show(cue, now) {
+          box.style.setProperty("--beat-lag", `${(-((((now - DR_BAR1) % DR_BEAT) + DR_BEAT) % DR_BEAT)).toFixed(3)}s`);
+          box.style.setProperty("--bar-lag", `${(-((((now - DR_BAR1) % (DR_BEAT * 4)) + DR_BEAT * 4) % (DR_BEAT * 4))).toFixed(3)}s`);
+          if (slates[cue]) slate.textContent = slates[cue];
+          if (cue.startsWith("chorus")) slate.textContent = `Scene 05 · Take ${String(++scene).padStart(2, "0")}`;
+        },
+        tick(now) {
+          time.textContent = `${String(Math.floor(now / 60)).padStart(2, "0")}:${String(Math.floor(now % 60)).padStart(2, "0")}`;
+          const cue = box.dataset.cue;
+          const bar = Math.floor((now - DR_BAR1) / (DR_BEAT * 4));
+          const next = cue.startsWith("chorus") ? (bar % 2 === 0 ? "cinema" : "billboard") : "";
+          if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
+          // The slashes: a new one every 2 bars, from alternate sides.
+          if (cue === "slash") {
+            const slash = Math.floor(bar / 2);
+            if (slash !== lastSlash) {
+              lastSlash = slash;
+              box.dataset.slash = slash % 2 ? "b" : "a";
+              box.classList.remove("is-slash");
+              void box.offsetWidth;
+              box.classList.add("is-slash");
+            }
+          }
+          if (cue === "spot" || cue === "hush") drawMirror(lamp, video, viewportWall());
+          if (bleed === "billboard") drawMirror(billboard, video, hero.getBoundingClientRect());
+          if (cue === "end") plates.forEach((canvas) => {
+            const slot = DR_END[canvas.closest(".ae-member")?.dataset.member];
+            if (slot === undefined) return;
+            const [x, top, width, height] = drEndFrame(now, slot);
+            drawCrop(canvas, video, x, top, width, height);
+          });
+        },
+        unmount() {
+          [billboard, ...plates].forEach((canvas) => canvas.remove());
         },
       };
     },
@@ -489,6 +1027,7 @@
         sections: [[0, "calm"], ...[[0, "grind"], [3.674, "freeze"], [4.286, "grind"], [8.571, "freeze"], [9.184, "grind"], [13.469, "freeze"], [14.082, "grind"], [14.694, "build"], [19.592, "drive"], [36.735, "fill"], [38.571, "slam"]].map(([at, name]) => [19.616 + at, name])],
       },
       extras: ["logo-gold.webp", "logo-gold-cut.webp", "logo-white.webp"],
+      scene: dirtyWorkScene,
     },
     armageddon: {
       era: "Armageddon", folder: "armageddon/", tag: "ARMAGEDDON", back: "signature",
@@ -524,6 +1063,7 @@
         sections: [[0, "calm"], ...[[0, "orbit"], [10.435, "lock"], [20.870, "void"], [23.478, "stomp"], [31.304, "strike"], [33.261, "blackout"]].map(([at, name]) => [20.870 + at, name])],
       },
       extras: ["logo-black.webp", "logo-white.webp", "logo-chrome.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-signature.svg`)],
+      scene: armageddonScene,
     },
     // The intro runs straight into track 1; tracks 1 and 2 then take turns with no gap (1, 2, 1, 2…).
     // Track 1 is the theme as it is; during track 2 the page moves with the music (see the stage
@@ -562,6 +1102,7 @@
         sections: [[0, "calm"], ...[[0, "spot"], [12.824, "rise"], [14.656, "drive"], [24.733, "hit"], [25.649, "stab1"], [26.565, "stab2"], [27.481, "stab3"], [27.939, "hush"], [28.855, "pickup"], [29.313, "encore"], [30.229, "encore2"]].map(([at, name]) => [29.304 + at, name])],
       },
       extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
+      scene: dramaScene,
     },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
@@ -615,6 +1156,31 @@
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
+  }
+
+  // ── The secret scene's button: in each era's own look, rising at the bottom of the screen only
+  // while the page's text is the song's lyrics (the bridge); it goes when the chorus comes back ──
+  const CTAS = {
+    whiplash: { kicker: "● REC", label: "Shoot the secret take" },
+    dirtywork: { kicker: "⚠ Dirty Worker Ver.", label: "Clock in for the dirty work" },
+    armageddon: { kicker: "● Incoming", label: "Intercept the signal" },
+    drama: { kicker: "Scene 00 · Take 01", label: "Action" },
+  };
+  const cta = document.createElement("div");
+  cta.className = "ae-cta";
+  cta.id = "ae-cta";
+  document.body.append(cta);
+  function renderCta(theme) {
+    const t = theme ? THEMES[theme] : null;
+    const words = theme ? CTAS[theme] : null;
+    if (!t?.scene || !words) { cta.innerHTML = ""; return; }
+    cta.innerHTML = `<button type="button" class="ae-cta-btn is-${theme}" aria-label="Play the secret ${escapeHtml(t.era)} scene" tabindex="-1">`
+      + `<i class="ae-cta-icon" aria-hidden="true"></i><span class="ae-cta-text"><small>${escapeHtml(words.kicker)}</small><b>${escapeHtml(words.label)}</b></span></button>`;
+  }
+  function showCta(on) {
+    if (cta.classList.contains("is-on") === on) return;
+    cta.classList.toggle("is-on", on);
+    cta.querySelector(".ae-cta-btn")?.setAttribute("tabindex", on ? "0" : "-1");
   }
 
   // ── The stage: each theme's bridge moves the page ──
@@ -673,23 +1239,11 @@
       const line = pool[(deal * 7 + k + start) % pool.length];
       el.innerHTML = `<span class="ae-sr">${escapeHtml(lyricSaved.get(el)[1])}</span><span class="ae-lyric" aria-hidden="true" style="--ly-i: ${i % 9}">${escapeHtml(line)}</span>`;
     });
-    // One line on screen glows: a button that opens the theme's secret scene.
-    const t = current ? THEMES[current] : null;
-    if (!t?.scene) return;
-    // A big spot on screen if there is one (a heading, a name, a title), else any spot on screen.
-    const onScreen = targets.filter((el) => { const box = el.getBoundingClientRect(); return box.width > 40 && box.top > 70 && box.bottom < window.innerHeight - 70; });
-    const big = onScreen.filter((el) => el.matches(".hero h1, .section h2, .ae-name, .card h3, .guide-item strong"));
-    const pool = big.length ? big : onScreen.length ? onScreen : targets;
-    const pick = pool[(deal * 5 + 3) % pool.length];
-    const lyric = pick.querySelector(".ae-lyric");
-    const glow = document.createElement("button");
-    glow.type = "button";
-    glow.className = "ae-glow";
-    glow.setAttribute("aria-label", `${lyric.textContent}: play the secret ${t.era} scene`);
-    lyric.replaceWith(glow);
-    glow.append(lyric);
+    // While the lyrics are on, the theme's scene button rises at the bottom of the screen.
+    showCta(Boolean(current && THEMES[current]?.scene));
   }
   function restoreLyrics() {
+    showCta(false);
     lyricSaved.forEach(([html], el) => { el.innerHTML = html; el.style.minHeight = ""; });
     lyricSaved.clear();
     lyricDeal = -1;
@@ -760,6 +1314,7 @@
     footerYear.textContent = t ? `${yearText} × aespa` : yearText;
     document.querySelector('meta[name="color-scheme"]').setAttribute("content", t ? "dark" : "light");
     if (t) renderLineup(theme); else { lineup.innerHTML = ""; closeMember(); }
+    renderCta(theme);
   }
 
   // ── Sound ──
@@ -1183,8 +1738,19 @@
     playerFor(theme).stop();
     stopStage();
     skip.focus({ preventScroll: true });
-    // Started inside the click, so phones let it play with sound.
-    video.play().catch(() => { video.muted = true; video.play().catch(() => finish()); });
+    // Started inside the click, so phones let it play with sound. If the browser still refuses the
+    // sound (some embedded browsers do), it plays muted with a "Tap for sound" button.
+    const unmute = document.createElement("button");
+    unmute.type = "button";
+    unmute.className = "ae-scene-sound";
+    unmute.textContent = "🔊 Tap for sound";
+    unmute.hidden = true;
+    box.append(unmute);
+    unmute.addEventListener("click", () => { video.muted = false; void video.play().catch(() => undefined); unmute.hidden = true; });
+    video.play().catch(() => {
+      video.muted = true;
+      video.play().then(() => { if (soundWanted()) unmute.hidden = false; }, () => finish());
+    });
     let cue = "";
     let frame = 0;
     const tick = () => {
@@ -1194,6 +1760,7 @@
       if (name !== cue) {
         cue = name;
         box.dataset.cue = name;
+        root.dataset.sceneCue = name;
         scene.show(name, now);
         box.classList.remove("is-hit");
         void box.offsetWidth;
@@ -1220,6 +1787,7 @@
         scene.unmount?.();
         box.remove();
         delete root.dataset.scene;
+        delete root.dataset.sceneCue;
         scenePlaying = false;
         if (!resume || current !== theme) return;
         // Back to the theme as it is after its intro.
@@ -1241,13 +1809,8 @@
     video.addEventListener("ended", () => finish());
     skip.addEventListener("click", () => finish());
   }
-  // (Caught first, so a glowing lyric on a member's plate does not also open her photo card.)
-  document.addEventListener("click", (event) => {
-    if (!event.target.closest?.(".ae-glow") || !current) return;
-    event.stopPropagation();
-    playScene(current);
-  }, true);
-  document.addEventListener("keydown", (event) => { if (event.target.closest?.(".ae-glow") && (event.key === "Enter" || event.key === " ")) event.stopPropagation(); }, true);
+  // The theme's own button at the foot of the page opens its scene.
+  cta.addEventListener("click", (event) => { if (event.target.closest(".ae-cta-btn") && current) playScene(current); });
 
   // ── The members' photo cards ──
   const pcModal = document.getElementById("ae-pc-modal");
