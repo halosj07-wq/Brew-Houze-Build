@@ -127,14 +127,15 @@
   // screen), so the MV plays inside the page's own parts. wall: the box the video is spread over
   // (as cover); a mirror shows the part of it under the mirror.
   const viewportWall = () => ({ left: 0, top: 0, width: window.innerWidth, height: window.innerHeight });
-  function drawMirror(canvas, video, wall = canvas.getBoundingClientRect()) {
-    if (!video.videoWidth) return;
+  function drawMirror(canvas, video, wall) {
+    if (!mirrorsDue || !video.videoWidth) return;
+    wall ??= canvas.getBoundingClientRect();
     const box = canvas.getBoundingClientRect();
     if (!box.width || !box.height || box.bottom < 0 || box.top > window.innerHeight) return;
     const scale = Math.max(wall.width / video.videoWidth, wall.height / video.videoHeight);
     const left = wall.left + (wall.width - video.videoWidth * scale) / 2;
     const top = wall.top + (wall.height - video.videoHeight * scale) / 2;
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const ratio = mirrorRatio();
     const width = Math.round(box.width * ratio);
     const height = Math.round(box.height * ratio);
     if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
@@ -143,19 +144,25 @@
   // A mirror framed on one spot of the video instead: centred on x (0-1 of its width), from top
   // (0-1 of its height) down, as big as fits within maxWidth / maxHeight (fractions too).
   function drawCrop(canvas, video, x, top, maxWidth, maxHeight) {
-    if (!video.videoWidth) return;
+    if (!mirrorsDue || !video.videoWidth) return;
     const box = canvas.getBoundingClientRect();
     if (!box.width || !box.height || box.bottom < 0 || box.top > window.innerHeight) return;
     const aspect = box.width / box.height;
     let height = maxHeight * video.videoHeight;
     let width = height * aspect;
     if (width > maxWidth * video.videoWidth) { width = maxWidth * video.videoWidth; height = width / aspect; }
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const ratio = mirrorRatio();
     const w = Math.round(box.width * ratio);
     const h = Math.round(box.height * ratio);
     if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
     canvas.getContext("2d").drawImage(video, x * video.videoWidth - width / 2, top * video.videoHeight, width, height, 0, 0, w, h);
   }
+  // Phones and tablets run the scenes lighter: the mirrors drawn about 24 times a second at 1x, the
+  // costliest effects off (html[data-scene-lite], see the scene styles). On a computer the mirrors
+  // are drawn up to 60 times a second. mirrorsDue is set by the scene player every frame.
+  const SCENE_LITE = window.matchMedia("(pointer: coarse)").matches || /iP(hone|ad|od)/.test(navigator.userAgent);
+  let mirrorsDue = true;
+  const mirrorRatio = () => (SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5));
   // An SVG as a CSS url() (for the masks the scenes draw).
   const svgUrl = (svg) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   const mirror = (className) => { const canvas = document.createElement("canvas"); canvas.className = className; canvas.setAttribute("aria-hidden", "true"); return canvas; };
@@ -362,7 +369,7 @@
   }
   // A water drop on the screen: the MV under it, magnified and upside down, as a real drop shows it.
   function drawDrop(canvas, video) {
-    if (!video.videoWidth) return;
+    if (!mirrorsDue || !video.videoWidth) return;
     const box = canvas.getBoundingClientRect();
     if (!box.width || box.bottom < 0 || box.top > window.innerHeight) return;
     const scale = Math.max(window.innerWidth / video.videoWidth, window.innerHeight / video.videoHeight);
@@ -371,7 +378,7 @@
     const reach = box.width * 1.4; // how much of the screen the drop gathers
     const cx = box.left + box.width / 2;
     const cy = box.top + box.height / 2;
-    const size = Math.round(box.width * Math.min(window.devicePixelRatio || 1, 1.5));
+    const size = Math.round(box.width * mirrorRatio());
     if (canvas.width !== size) { canvas.width = size; canvas.height = size; }
     const ctx = canvas.getContext("2d");
     ctx.setTransform(-1, 0, 0, -1, size, size);
@@ -429,7 +436,7 @@
         el.firstChild.append(mirror("dws-splat-video"));
         document.body.append(el);
         muds.push(el);
-        if (muds.length > 12) muds.shift().remove();
+        if (muds.length > (SCENE_LITE ? 6 : 12)) muds.shift().remove();
       };
       const stamp = () => {
         if (!video.videoWidth) return;
@@ -461,6 +468,7 @@
       let bleed = "";
       let lastBar = null;
       let lastSplat = -9;
+      let lastLevels = "";
       return {
         show(cue) {
           // The mud rinses off in the rain, the stamps rip off from the second strobe (also when skipped past).
@@ -474,7 +482,12 @@
           // The song, now: its bass and its melody drive the page's parts.
           const low = dwLevel("low", now);
           const high = dwLevel("high", now);
-          for (const el of [box, hero, lineup]) { el.style.setProperty("--low", low.toFixed(2)); el.style.setProperty("--high", high.toFixed(2)); }
+          const levels = `${(Math.round(low * 10) / 10).toFixed(1)} ${(Math.round(high * 10) / 10).toFixed(1)}`;
+          if (levels !== lastLevels) {
+            lastLevels = levels;
+            const [l, h] = levels.split(" ");
+            for (const el of SCENE_LITE ? [box] : [box, hero, lineup]) { el.style.setProperty("--low", l); el.style.setProperty("--high", h); }
+          }
           // The choreo's hits (only when reached in play, not skipped past).
           if (nextHit > 0 && now < DW_HITS[nextHit - 1][0] - 0.5) { const i = DW_HITS.findIndex(([t]) => t > now); nextHit = i < 0 ? DW_HITS.length : i; }
           while (nextHit < DW_HITS.length && DW_HITS[nextHit][0] <= now) { if (now - DW_HITS[nextHit][0] < 0.2) hit(DW_HITS[nextHit][1]); nextHit++; }
@@ -503,7 +516,7 @@
           }
           if (cue === "ningning" && ningning) drawCrop(ningning, video, 0.5, 0, 0.5, 1);
           muds.forEach((el) => drawMirror(el.firstChild.firstChild, video, viewportWall()));
-          if (cue.startsWith("wet") || cue === "ningning") drops.forEach((canvas) => drawDrop(canvas, video));
+          if (cue.startsWith("wet") || cue === "ningning") drops.forEach((canvas, i) => { if (!SCENE_LITE || i < 6) drawDrop(canvas, video); });
           if (bleed === "tapes") tapes.forEach((canvas) => drawMirror(canvas, video, viewportWall()));
           if (cue === "title" || cue === "title2") drawMirror(print, video, viewportWall());
         },
@@ -671,7 +684,7 @@
             if (beat !== lastBeat) { lastBeat = beat; slices.forEach((slice) => slice.style.setProperty("--x", `${((Math.random() - 0.5) * 16).toFixed(1)}vw`)); }
             slices.forEach((slice) => drawMirror(slice.firstChild, video, sliding(slice.firstChild)));
           }
-          if (cue === "wave") waves.forEach((canvas) => drawMirror(canvas, video, sliding(canvas)));
+          if (cue === "wave") waves.forEach((canvas, i) => { if (i % 2 === 0) drawMirror(canvas, video, sliding(canvas)); });
           // Karina: the brackets follow her plate (wherever it is scrolled), her close-up in it.
           if (cue === "karina" && karina) {
             const at = karina.getBoundingClientRect();
@@ -1753,8 +1766,13 @@
     });
     let cue = "";
     let frame = 0;
+    let lastMirrors = 0;
+    if (SCENE_LITE) root.dataset.sceneLite = "";
     const tick = () => {
       const now = video.currentTime;
+      const clock = performance.now();
+      mirrorsDue = clock - lastMirrors >= (SCENE_LITE ? 40 : 15);
+      if (mirrorsDue) lastMirrors = clock;
       let name = "load";
       if (!video.paused || now > 0) for (const [at, entry] of spec.cues) if (now >= at) name = entry;
       if (name !== cue) {
@@ -1788,6 +1806,8 @@
         box.remove();
         delete root.dataset.scene;
         delete root.dataset.sceneCue;
+        delete root.dataset.sceneLite;
+        mirrorsDue = true;
         scenePlaying = false;
         if (!resume || current !== theme) return;
         // Back to the theme as it is after its intro.
