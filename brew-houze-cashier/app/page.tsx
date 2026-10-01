@@ -3917,12 +3917,73 @@ function PortalAuthLayout({ children }: { children: React.ReactNode }) {
   </main>;
 }
 
+const SAVED_ACCOUNTS_KEY = "brewhouze-staff-saved-accounts";
+// Accounts that signed in on this device, newest first, so the next sign-in is a tap and a
+// password. Only the email, name and role are kept (never the password), in this browser only.
+type SavedAccount = { email: string; name: string; role: string; lastUsed: number };
+const SAVED_ACCOUNTS_MAX = 8;
+
+function readSavedAccounts(): SavedAccount[] {
+  try {
+    const list = JSON.parse(window.localStorage.getItem(SAVED_ACCOUNTS_KEY) ?? "[]") as SavedAccount[];
+    return Array.isArray(list) ? list.filter((entry) => entry && typeof entry.email === "string" && entry.email).sort((a, b) => b.lastUsed - a.lastUsed) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSavedAccounts(list: SavedAccount[]) {
+  try { window.localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(list.slice(0, SAVED_ACCOUNTS_MAX))); } catch { /* storage unavailable: nothing is remembered */ }
+}
+
+function rememberAccount(session: { email: string; fullName: string; role: string }) {
+  const email = session.email.trim().toLowerCase();
+  writeSavedAccounts([{ email, name: session.fullName, role: session.role, lastUsed: Date.now() }, ...readSavedAccounts().filter((entry) => entry.email !== email)]);
+}
+
+function accountInitials(name: string, email: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return (words.length ? words.slice(0, 2).map((word) => word[0]) : [email[0] ?? "?"]).join("").toUpperCase();
+}
+
 function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => void; notice?: string }) {
   const [mode, setMode] = useState<"login" | "forgot" | "sent">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Saved accounts on this device: pick one, then only the password is typed.
+  const [saved, setSaved] = useState<SavedAccount[]>([]);
+  const [picking, setPicking] = useState(false);
+  const [chosen, setChosen] = useState<SavedAccount | null>(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const list = readSavedAccounts();
+      setSaved(list);
+      setPicking(list.length > 0);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+  function chooseAccount(account: SavedAccount) {
+    setChosen(account);
+    setEmail(account.email);
+    setPassword("");
+    setError("");
+    setPicking(false);
+  }
+  function enterAnotherAccount() {
+    setChosen(null);
+    setEmail("");
+    setPassword("");
+    setError("");
+    setPicking(false);
+  }
+  function forgetAccount(account: SavedAccount) {
+    const next = saved.filter((entry) => entry.email !== account.email);
+    writeSavedAccounts(next);
+    setSaved(next);
+    if (next.length === 0) setPicking(false);
+  }
 
   async function signIn(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -3932,6 +3993,7 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to sign in.");
+      rememberAccount(payload.data as Session);
       onLoggedIn(payload.data);
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : "Unable to sign in.");
@@ -3971,13 +4033,35 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
   </label>;
 
   return <PortalAuthLayout>
-    {mode === "login" && <form onSubmit={signIn} className="login-card">
+    {mode === "login" && picking && <div className="login-card">
+      <p style={authEyebrow}>Welcome back</p>
+      <h1 style={authTitle}>Choose your account</h1>
+      <p style={authLead}>Accounts that signed in on this device. You only need the password.</p>
+      {notice && <AuthAlert tone="success">{notice}</AuthAlert>}
+      <ul className="login-accounts">
+        {saved.map((account) => <li key={account.email}>
+          <button type="button" className="login-account" onClick={() => chooseAccount(account)}>
+            <span className="login-account-avatar" aria-hidden="true">{accountInitials(account.name, account.email)}</span>
+            <span className="login-account-text"><strong>{account.name || account.email}</strong><em>{account.email}{account.role ? ` · ${account.role.charAt(0).toUpperCase()}${account.role.slice(1).toLowerCase()}` : ""}</em></span>
+          </button>
+          <button type="button" className="login-account-forget" onClick={() => forgetAccount(account)} aria-label={`Remove ${account.email} from this device`} title="Remove from this device">×</button>
+        </li>)}
+      </ul>
+      <button type="button" onClick={enterAnotherAccount} style={{ ...authLinkButton, marginTop: 18, alignSelf: "center" }}>Use another account</button>
+    </div>}
+
+    {mode === "login" && !picking && <form onSubmit={signIn} className="login-card">
       <p style={authEyebrow}>Welcome back</p>
       <h1 style={authTitle}>Sign in to the staff portal</h1>
       <p style={authLead}>Use the email and password of your Brew Houze account.</p>
       {notice && <AuthAlert tone="success">{notice}</AuthAlert>}
-      {emailField}
-      <AuthPasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="Enter your password" />
+      {chosen && chosen.email === email ? <div className="login-chosen" style={{ marginTop: 26 }}>
+        <span className="login-account-avatar" aria-hidden="true">{accountInitials(chosen.name, chosen.email)}</span>
+        <span className="login-account-text"><strong>{chosen.name || chosen.email}</strong><em>{chosen.email}</em></span>
+        <button type="button" onClick={() => { setPicking(saved.length > 0); if (saved.length === 0) enterAnotherAccount(); }} style={authLinkButton}>Switch</button>
+        <input type="email" value={email} readOnly autoComplete="username" hidden />
+      </div> : emailField}
+      <AuthPasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" placeholder="Enter your password" autoFocus={Boolean(chosen && chosen.email === email)} />
       <div className="flex justify-end" style={{ marginTop: 10 }}>
         <button type="button" onClick={() => switchMode("forgot")} style={authLinkButton}>Forgot password?</button>
       </div>
