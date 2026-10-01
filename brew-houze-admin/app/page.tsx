@@ -5,7 +5,7 @@ import Image from "next/image";
 import * as XLSX from "xlsx";
 import { MoneyField, PhoneField } from "@/lib/input-format";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -308,6 +308,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "products", label: "Menu", short: "Menu", Icon: IconCoffee },
   { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
   { id: "treasury", label: "Treasury", short: "Treasury", Icon: IconSafe },
+  { id: "insights", label: "Insights", short: "Insights", Icon: IconSparkle },
   { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
   { id: "loyalty", label: "Loyalty", short: "Loyalty", Icon: IconStar },
   { id: "discounts", label: "Discounts", short: "Discounts", Icon: IconTag },
@@ -319,7 +320,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "treasury", "customers", "loyalty", "discounts", "delivery", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "treasury", "insights", "customers", "loyalty", "discounts", "delivery", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -6848,6 +6849,174 @@ function FinanceExpenses({ start, end }: { start: string; end: string }) {
   </div>;
 }
 
+// ─── Insights ─────────────────────────────────────────────────────────────────
+// Short predictive warnings and advice written by Claude from the café's numbers (see
+// app/api/insights). Claude is asked only when an admin presses the button, and only while the
+// switch is on; every result is saved, so reading it again costs nothing.
+type InsightCard = { tone: "warning" | "good" | "tip"; title: string; message: string; page: "inventory" | "finance" | "treasury" | "products" | "shift" };
+type InsightResult = { id: number; start: string; end: string; headline: string; cards: InsightCard[]; model: string; inputTokens: number | null; outputTokens: number | null; requestedBy: string | null; createdAt: string };
+type InsightsData = { enabled: boolean; configured: boolean; cooldownSeconds: number; model: string; insights: InsightResult[] };
+
+const insightTone: Record<InsightCard["tone"], { label: string; icon: string }> = {
+  warning: { label: "Heads up", icon: "⚠" },
+  good: { label: "Good news", icon: "✓" },
+  tip: { label: "Tip", icon: "💡" },
+};
+const insightPageLabels: Record<InsightCard["page"], string> = { inventory: "Inventory", finance: "Finance", treasury: "Treasury", products: "Menu", shift: "Shift" };
+
+// What one request cost, from its tokens at Claude Opus 5.5's prices ($4 in, $20 out per million).
+function insightCost(result: InsightResult): string | null {
+  if (result.inputTokens === null || result.outputTokens === null) return null;
+  const dollars = (result.inputTokens * 4 + result.outputTokens * 20) / 1_000_000;
+  return `${(result.inputTokens + result.outputTokens).toLocaleString("en-PH")} tokens · about $${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
+}
+
+function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
+  const [today] = useState(() => getFinanceDateStamp());
+  const presets = useMemo(() => financePresets(today).filter((entry) => ["week", "7", "month", "30"].includes(entry.id)), [today]);
+  const [presetId, setPresetId] = useState("7");
+  const [data, setData] = useState<InsightsData | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [asking, setAsking] = useState(false);
+  const [switching, setSwitching] = useState(false);
+  const [error, setError] = useState("");
+  const [cooldown, setCooldown] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/insights", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the insights.");
+        if (!active) return;
+        setData(payload.data);
+        setCooldown(payload.data.cooldownSeconds);
+      } catch (loadError) {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the insights.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [reloadKey]);
+
+  // The cooldown counts down on screen.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = window.setInterval(() => setCooldown((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [cooldown]);
+
+  const preset = presets.find((entry) => entry.id === presetId) ?? presets[0];
+
+  async function ask() {
+    if (!preset || asking) return;
+    setAsking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "generate", start: preset.start, end: preset.end }) });
+      const payload = await response.json();
+      if (typeof payload?.cooldownSeconds === "number") setCooldown(payload.cooldownSeconds);
+      if (!response.ok) throw new Error(payload?.error || "Could not get insights.");
+      setData((current) => current ? { ...current, insights: [payload.data, ...current.insights] } : current);
+      setSelectedId(payload.data.id);
+      setCooldown(5 * 60);
+    } catch (askError) {
+      setError(askError instanceof Error ? askError.message : "Could not get insights.");
+    } finally {
+      setAsking(false);
+    }
+  }
+
+  async function setEnabled(enabled: boolean) {
+    setSwitching(true);
+    setError("");
+    try {
+      const response = await fetch("/api/insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set_enabled", enabled }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not change the setting.");
+      setData((current) => current ? { ...current, enabled } : current);
+    } catch (switchError) {
+      setError(switchError instanceof Error ? switchError.message : "Could not change the setting.");
+    } finally {
+      setSwitching(false);
+    }
+  }
+
+  if (loading && !data) return <div className="inv-wrap"><div className="inv"><div className="inv-empty">Loading insights…</div></div></div>;
+  if (!data) return <div className="inv-wrap"><div className="inv"><div className="inv-empty is-error">{error || "Could not load the insights."} <button type="button" className="inv-link" onClick={() => { setLoading(true); setError(""); setReloadKey((key) => key + 1); }}>Try again</button></div></div></div>;
+
+  const shown = data.insights.find((entry) => entry.id === selectedId) ?? data.insights[0] ?? null;
+  const blocked = !data.enabled ? "Turn AI insights on to ask Claude." : !data.configured ? "Not set up yet: the ANTHROPIC_API_KEY setting is missing on the server." : cooldown > 0 ? `You can ask again in ${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}.` : null;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <section className="ins-top">
+        <div>
+          <p className="ins-kicker"><IconSparkle size={14} />AI insights by Claude</p>
+          <h2>Predictive warnings and advice</h2>
+          <p className="inv-hint">Claude reads this period’s numbers (sales, profit, stock pace, waste, fees, expenses, the cash drawer) and points out what needs attention next. Only numbers are sent, never customer or staff details. Nothing runs until someone presses the button.</p>
+        </div>
+        <label className={`ins-switch${data.enabled ? " is-on" : ""}`}>
+          <input type="checkbox" role="switch" checked={data.enabled} disabled={switching} onChange={(event) => void setEnabled(event.target.checked)} />
+          <span className="ins-switch-track" aria-hidden="true"><span /></span>
+          <span>{data.enabled ? "On" : "Off"}</span>
+        </label>
+      </section>
+
+      {!data.enabled && <div className="ins-setup is-off"><strong>AI insights are off.</strong> Turn them on with the switch above to ask Claude or read saved insights. While they are off, nothing is sent to Claude.</div>}
+
+      {/* Everything below is disabled while the switch is off. */}
+      <div className={`ins-body${data.enabled ? "" : " is-off"}`} inert={!data.enabled} aria-disabled={!data.enabled}>
+      {!data.configured && <div className="ins-setup"><strong>Not set up yet.</strong> Add the Claude API key to the admin app as <code>ANTHROPIC_API_KEY</code> (in <code>.env.local</code> and in the Vercel project settings), then reload this page. Saved insights stay readable.</div>}
+
+      <div className="fin-datebar">
+        <div className="menu-chips" role="group" aria-label="Period">
+          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => setPresetId(entry.id)}>{entry.label}</button>)}
+        </div>
+        <div className="ins-ask">
+          <button type="button" className="inv-primary" onClick={() => void ask()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is reading the numbers…" : "Ask Claude for insights"}</button>
+          <span className="inv-hint">{blocked ?? `${preset ? formatRange(preset.start, preset.end) : ""} · Claude Opus 5.5 · about $0.02 per request`}</span>
+        </div>
+      </div>
+
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+      {!shown ? <div className="inv-empty">{data.enabled ? "No insights yet. Choose a period and ask Claude." : "No insights yet. Turn AI insights on, then ask Claude."}</div> : <>
+        <div className="ins-result">
+          <div className="ins-result-head">
+            <h3>{shown.headline || "Insights"}</h3>
+            <p>{formatRange(shown.start, shown.end)} · asked {shiftTime(shown.createdAt)}{shown.requestedBy ? ` by ${shown.requestedBy}` : ""}{insightCost(shown) ? ` · ${insightCost(shown)}` : ""}</p>
+          </div>
+          <ul className="ins-cards">
+            {shown.cards.map((card, index) => <li key={index} className={`is-${card.tone}`}>
+              <span className="ins-card-icon" aria-hidden="true">{insightTone[card.tone]?.icon ?? "•"}</span>
+              <div>
+                <strong>{card.title}</strong>
+                <p>{card.message}</p>
+                {insightPageLabels[card.page] && <button type="button" className="inv-link" onClick={() => onNavigate(card.page)}>Open {insightPageLabels[card.page]} <IconChevron size={12} /></button>}
+              </div>
+            </li>)}
+          </ul>
+          <p className="inv-hint">Written by AI from the numbers above. Check the figures on the linked page before acting on them.</p>
+        </div>
+        {data.insights.length > 1 && <DashCard title="Earlier insights" sub="Saved results. Opening one costs nothing.">
+          <ul className="fin-simple-list">
+            {data.insights.map((entry) => <li key={entry.id}>
+              <span><strong>{entry.headline || `${entry.cards.length} insights`}</strong><em>{formatRange(entry.start, entry.end)} · {shiftTime(entry.createdAt)}{entry.requestedBy ? ` · ${entry.requestedBy}` : ""}</em></span>
+              {entry.id === shown.id ? <span className="inv-hint">Showing</span> : <button type="button" className="inv-mini" onClick={() => setSelectedId(entry.id)}>Open</button>}
+            </li>)}
+          </ul>
+        </DashCard>}
+      </>}
+      </div>
+    </div>
+  </div>;
+}
+
 // ─── Treasury ─────────────────────────────────────────────────────────────────
 // The owner's logbook of where the business money is (see treasury-migration.sql and
 // treasury-paymongo-migration.sql). Two accounts, each with a history that reads like a ledger:
@@ -10402,7 +10571,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", insights: "Insights", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -10424,6 +10593,7 @@ export default function App() {
         {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
         {page === "finance" && <Finance />}
         {page === "treasury" && <Treasury />}
+        {page === "insights" && <InsightsPage onNavigate={goTo} />}
         {page === "customers" && <Customers />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
         {page === "discounts" && <Discounts />}
