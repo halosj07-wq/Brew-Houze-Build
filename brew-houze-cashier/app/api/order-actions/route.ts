@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
-  type Body = { order_id?: unknown; action?: unknown; password?: unknown; return_method?: unknown; gcash_name?: unknown; gcash_number?: unknown; reference?: unknown };
+  type Body = { order_id?: unknown; action?: unknown; password?: unknown; return_method?: unknown; gcash_name?: unknown; gcash_number?: unknown; reference?: unknown; made?: unknown };
   let body: Body;
   try {
     body = await request.json() as Body;
@@ -56,6 +56,10 @@ export async function POST(request: Request) {
   if (returnMethod !== "cash" && returnMethod !== "gcash" && returnMethod !== "split" && returnMethod !== "none") {
     return NextResponse.json({ error: "Choose how the money is returned: cash or GCash." }, { status: 400 });
   }
+  // Whether the order was already made (see write-off-requests-migration.sql). Made: its stock is
+  // gone, so it does not come back, and the order cost counts as stock written off. Not made: the
+  // stock comes back, as it always did.
+  const made = body.made === true;
   const gcashName = String(body.gcash_name ?? "").trim().replace(/\s+/g, " ").slice(0, 120);
   const gcashNumber = normalizeGcashNumber(body.gcash_number);
   const reference = String(body.reference ?? "").trim().slice(0, 60);
@@ -151,7 +155,9 @@ export async function POST(request: Request) {
       [orderId]
     )).rowCount !== 0;
     const restorations = new Map<number, number>();
-    if (hasDeductionLog) {
+    if (made) {
+      // Made: nothing goes back to stock.
+    } else if (hasDeductionLog) {
       for (const row of loggedRows.rows) {
         restorations.set(Number(row.inventory_id), Number(row.quantity));
       }
@@ -197,6 +203,21 @@ export async function POST(request: Request) {
       }
     }
 
+    // Made: what its items cost, from the cost saved with the order when it was sold (null when an
+    // item or add-on had no cost), counted as stock written off.
+    let wastedCost: number | null = null;
+    if (made) {
+      const cost = await client.query(`
+        SELECT CASE WHEN bool_and(soi.unit_cost IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM sales_order_item_additions soia WHERE soia.order_item_id = soi.order_item_id AND soia.unit_cost IS NULL
+          )) THEN SUM(soi.quantity * soi.unit_cost + COALESCE((
+            SELECT SUM(soia.quantity * soia.unit_cost) FROM sales_order_item_additions soia WHERE soia.order_item_id = soi.order_item_id
+          ), 0)) END AS cost
+        FROM sales_order_items soi WHERE soi.order_id = $1
+      `, [orderId]);
+      wastedCost = cost.rows[0]?.cost === null || cost.rows[0]?.cost === undefined ? null : Math.round(Number(cost.rows[0].cost) * 100) / 100;
+    }
+
     // A reversed order leaves the queue: its bar and kitchen parts are closed with it.
     await client.query("UPDATE order_stations SET status = 'picked_up', picked_up_at = COALESCE(picked_up_at, CURRENT_TIMESTAMP) WHERE order_id = $1 AND status <> 'picked_up'", [orderId]);
     const updated = await client.query(`
@@ -210,10 +231,12 @@ export async function POST(request: Request) {
           return_method = $5,
           return_gcash_name = $6,
           return_gcash_number = $7,
-          return_reference = $8
+          return_reference = $8,
+          reversed_after_made = $9,
+          wasted_cost = $10
       WHERE order_id = $1
-      RETURNING order_id, status, total_amount, return_method, return_gcash_name, return_gcash_number, return_reference
-    `, [orderId, action, session.adminId, shiftId, returnMethod === "none" ? null : returnMethod, returnMethod === "cash" || returnMethod === "none" ? null : gcashName, returnMethod === "cash" || returnMethod === "none" ? null : gcashNumber, reference || null]);
+      RETURNING order_id, status, total_amount, return_method, return_gcash_name, return_gcash_number, return_reference, reversed_after_made, wasted_cost
+    `, [orderId, action, session.adminId, shiftId, returnMethod === "none" ? null : returnMethod, returnMethod === "cash" || returnMethod === "none" ? null : gcashName, returnMethod === "cash" || returnMethod === "none" ? null : gcashNumber, reference || null, made, wastedCost]);
     await client.query("UPDATE deliveries SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP WHERE order_id = $1 AND status IN ('preparing', 'ready', 'out')", [orderId]);
     // Stars the order earned are taken back.
     await reverseOrderStarsSafely(client, orderId, session.adminId);

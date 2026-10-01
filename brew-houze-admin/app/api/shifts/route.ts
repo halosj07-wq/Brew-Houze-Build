@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { lastFloatKept, pesoText, recordShiftDeposit, recordShiftFloat, recordShiftGcash, SafeShortError } from "@/lib/treasury";
 
 // Shift reports for Finance. Shifts are opened/closed from the staff app; totals come from
 // the shift_summaries view (see shift-migration.sql). A shift's business date is the date it
@@ -22,6 +23,10 @@ function mapSummary(row: SummaryRow) {
     closingNotes: row.closing_notes ?? null,
     hoursOpen: Number(row.hours_open ?? 0),
     startingCash: Number(row.starting_cash ?? 0),
+    // Cash the last closing left in the drawer (the rest of the starting cash came from the safe),
+    // and cash this closing left for the next shift (the rest went to the safe).
+    carriedFloat: optionalNumber(row.carried_float),
+    floatKept: optionalNumber(row.float_kept),
     countedCash: optionalNumber(row.counted_cash),
     expectedCash: Number(row.expected_cash ?? 0),
     cashDifference: optionalNumber(row.cash_difference),
@@ -41,6 +46,10 @@ function mapSummary(row: SummaryRow) {
     netSales: Number(row.net_sales ?? 0),
     costOfGoods: Number(row.cost_of_goods ?? 0),
     uncostedItems: Number(row.uncosted_items ?? 0),
+    // Fees PayMongo kept on the shift's GCash orders (voided and refunded ones too).
+    paymentFees: Number(row.payment_fees ?? 0),
+    // Stock written off in the shift, made orders voided or refunded in it included.
+    writtenOff: Number(row.written_off ?? 0),
     // Discounts in the shift's sales (already taken off the sales figures above).
     discounts: { scPwd: Number(row.sc_pwd_discount ?? 0), scPwdCount: Number(row.sc_pwd_count ?? 0), vatExempt: Number(row.vat_exempt ?? 0), otherId: Number(row.other_id_discount ?? 0), rewards: Number(row.reward_discount ?? 0) },
     // Delivery orders of the shift. codReceived: riders' cash on delivery handed in during the
@@ -51,13 +60,16 @@ function mapSummary(row: SummaryRow) {
 
 const summarySelect = `
   SELECT
-    ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
+    ss.*, sx.carried_float, sx.float_kept, (SELECT COALESCE(SUM(payment_fee), 0) FROM sales_orders pf WHERE pf.shift_id = ss.shift_id) AS payment_fees,
+    (SELECT COALESCE(SUM(write_off_cost), 0) FROM inventory_log wl WHERE wl.shift_id = ss.shift_id AND wl.change_type = 'written_off')
+      + (SELECT COALESCE(SUM(wasted_cost), 0) FROM sales_orders wo WHERE wo.reversed_shift_id = ss.shift_id AND wo.reversed_after_made = TRUE) AS written_off, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
     dlv.delivery_orders, dlv.delivery_fee_total, dlv.cod_order_total, dlv.delivered_count, dlv.failed_count, dlv.cod_with_riders,
     TO_CHAR(ss.business_date, 'YYYY-MM-DD') AS business_date_text,
     TO_CHAR(ss.opened_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS opened_at_text,
     TO_CHAR(ss.closed_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS closed_at_text,
     EXTRACT(EPOCH FROM (COALESCE(ss.closed_at, CURRENT_TIMESTAMP) - ss.opened_at)) / 3600 AS hours_open
   FROM shift_summaries ss
+    JOIN shifts sx ON sx.shift_id = ss.shift_id
     LEFT JOIN LATERAL (
       SELECT COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code IN ('senior', 'pwd')), 0) AS sc_pwd_discount,
         COUNT(*) FILTER (WHERE od.type_code IN ('senior', 'pwd'))::int AS sc_pwd_count,
@@ -147,6 +159,16 @@ export async function GET(request: Request) {
         WHERE cm.shift_id = $1
         ORDER BY cm.created_at ASC, cm.movement_id ASC
       `, [shiftId]);
+
+      // What the shift moved in and out of the safe (its float, cash drops and cash ins, closing).
+      const safeResult = await pool.query(`
+        SELECT te.entry_id, te.kind, te.amount, te.balance_after, te.reason, au.full_name,
+          TO_CHAR(te.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
+        FROM treasury_entries te
+        LEFT JOIN admin_users au ON au.admin_id = te.admin_id
+        WHERE te.shift_id = $1
+        ORDER BY te.created_at ASC, te.entry_id ASC
+      `, [shiftId]);
       return NextResponse.json({
         data: {
           summary: mapSummary(summaryResult.rows[0]),
@@ -183,6 +205,15 @@ export async function GET(request: Request) {
             note: row.note ?? null,
             by: row.full_name ?? null,
             source: String(row.source_app),
+            createdAt: String(row.created_at),
+          })),
+          safeMoves: safeResult.rows.map((row) => ({
+            id: Number(row.entry_id),
+            kind: String(row.kind),
+            amount: Number(row.amount),
+            balanceAfter: Number(row.balance_after),
+            reason: String(row.reason),
+            by: row.full_name ?? null,
             createdAt: String(row.created_at),
           })),
           attendance: attendanceResult.rows.map((row) => ({
@@ -250,7 +281,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
-  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown };
+  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; float_kept?: unknown; shift_id?: unknown; notes?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -263,8 +294,11 @@ export async function POST(request: Request) {
       const startingCash = parseAmount(body.starting_cash);
       if (startingCash === null) return NextResponse.json({ error: "Enter the starting cash in the drawer (0 or more)." }, { status: 400 });
       await client.query("BEGIN");
-      const inserted = await client.query("INSERT INTO shifts (opened_by, starting_cash) VALUES ($1, $2) RETURNING shift_id", [session.adminId, startingCash]);
+      const carried = await lastFloatKept(client);
+      const inserted = await client.query("INSERT INTO shifts (opened_by, starting_cash, carried_float) VALUES ($1, $2, $3) RETURNING shift_id", [session.adminId, startingCash, carried]);
       const shiftId = Number(inserted.rows[0].shift_id);
+      // More than the last closing left in the drawer comes from the safe; less goes back to it.
+      await recordShiftFloat(client, { shiftId, startingCash, carried, adminId: session.adminId, sourceApp: "admin" });
       await client.query("UPDATE employee_time_logs SET shift_id = $1 WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
       await client.query("COMMIT");
       const summary = await pool.query(`${summarySelect} WHERE ss.shift_id = $1`, [shiftId]);
@@ -275,8 +309,11 @@ export async function POST(request: Request) {
       const shiftId = Number(body.shift_id);
       const countedCash = parseAmount(body.counted_cash);
       const notes = String(body.notes ?? "").trim().slice(0, 500);
+      // Cash left in the drawer for the next shift; the rest of the count goes to the safe.
+      const floatKept = body.float_kept === undefined ? 0 : parseAmount(body.float_kept);
       if (!Number.isInteger(shiftId) || shiftId <= 0) return NextResponse.json({ error: "A valid shift is required." }, { status: 400 });
       if (countedCash === null) return NextResponse.json({ error: "Count the cash in the drawer and enter the amount (0 or more)." }, { status: 400 });
+      if (floatKept === null || floatKept > countedCash) return NextResponse.json({ error: "The cash left in the drawer can be ₱0 up to the counted cash." }, { status: 400 });
       await client.query("BEGIN");
       // Waits for any checkout still running in this shift (they hold a share lock on it).
       const locked = await client.query("SELECT shift_id FROM shifts WHERE shift_id = $1 AND closed_at IS NULL FOR UPDATE", [shiftId]);
@@ -300,9 +337,11 @@ export async function POST(request: Request) {
       const expected = await client.query("SELECT expected_cash FROM shift_summaries WHERE shift_id = $1", [shiftId]);
       await client.query(`
         UPDATE shifts
-        SET closed_at = CURRENT_TIMESTAMP, closed_by = $2, counted_cash = $3, expected_cash = $4, closing_notes = NULLIF($5, '')
+        SET closed_at = CURRENT_TIMESTAMP, closed_by = $2, counted_cash = $3, expected_cash = $4, closing_notes = NULLIF($5, ''), float_kept = $6
         WHERE shift_id = $1
-      `, [shiftId, session.adminId, countedCash, Number(expected.rows[0].expected_cash), notes]);
+      `, [shiftId, session.adminId, countedCash, Number(expected.rows[0].expected_cash), notes, floatKept]);
+      await recordShiftDeposit(client, { shiftId, countedCash, floatKept, adminId: session.adminId, sourceApp: "admin" });
+      await recordShiftGcash(client, { shiftId, adminId: session.adminId, sourceApp: "admin" });
       await client.query("UPDATE employee_time_logs SET time_out = CURRENT_TIMESTAMP WHERE time_out IS NULL");
       await client.query("UPDATE user_sessions SET ended_at = CURRENT_TIMESTAMP, end_reason = 'shift_closed' WHERE app = 'cashier' AND ended_at IS NULL");
       // Their bar and kitchen parts are closed too (see kitchen-stations-migration.sql).
@@ -316,6 +355,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unknown shift action." }, { status: 400 });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (error instanceof SafeShortError) {
+      return NextResponse.json({ error: `The safe only has ${pesoText(error.available)}, but this starting cash needs ${pesoText(error.needed)} from it. Start with less, or add cash to the safe in Treasury first.` }, { status: 409 });
+    }
     if (error && typeof error === "object" && (error as { code?: string }).code === "23505") {
       return NextResponse.json({ error: "A shift is already open. Refresh to see it." }, { status: 409 });
     }

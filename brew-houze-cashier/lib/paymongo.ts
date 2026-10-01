@@ -65,7 +65,14 @@ export async function createGcashPayment(input: { amount: number; description: s
 }
 
 // redirectUrl: the GCash page to send the customer to, while the payment still waits for them.
-export type IntentState = { status: "succeeded" | "pending" | "failed"; paymentId: string | null; failure: string | null; redirectUrl: string | null };
+// fee: what PayMongo kept on a paid payment, in pesos (null when PayMongo did not say).
+export type IntentState = { status: "succeeded" | "pending" | "failed"; paymentId: string | null; failure: string | null; redirectUrl: string | null; fee: number | null };
+
+// PayMongo amounts are in centavos.
+export function feeInPesos(value: unknown): number | null {
+  const centavos = Number(value);
+  return value === null || value === undefined || !Number.isFinite(centavos) ? null : Math.round(centavos) / 100;
+}
 
 // Where the payment stands, straight from PayMongo (never from the customer's browser).
 export async function getIntentState(intentId: string): Promise<IntentState> {
@@ -73,12 +80,18 @@ export async function getIntentState(intentId: string): Promise<IntentState> {
   const status = String(intent.attributes.status);
   const payments = (intent.attributes.payments as PaymongoResource[] | undefined) ?? [];
   const paid = payments.find((payment) => payment.attributes.status === "paid");
-  if (status === "succeeded" || paid) return { status: "succeeded", paymentId: paid?.id ?? payments[0]?.id ?? null, failure: null, redirectUrl: null };
+  if (status === "succeeded" || paid) return { status: "succeeded", paymentId: paid?.id ?? payments[0]?.id ?? null, failure: null, redirectUrl: null, fee: feeInPesos((paid ?? payments[0])?.attributes.fee) };
   const lastError = intent.attributes.last_payment_error as { failed_message?: string; failed_code?: string } | null;
   // A failed or cancelled GCash authorization sends the intent back to waiting for a method.
-  if (status === "awaiting_payment_method" && lastError) return { status: "failed", paymentId: null, failure: lastError.failed_message || lastError.failed_code || "The GCash payment did not go through.", redirectUrl: null };
+  if (status === "awaiting_payment_method" && lastError) return { status: "failed", paymentId: null, failure: lastError.failed_message || lastError.failed_code || "The GCash payment did not go through.", redirectUrl: null, fee: null };
   const nextAction = intent.attributes.next_action as { redirect?: { url?: string } } | null;
-  return { status: "pending", paymentId: null, failure: null, redirectUrl: nextAction?.redirect?.url ?? null };
+  return { status: "pending", paymentId: null, failure: null, redirectUrl: nextAction?.redirect?.url ?? null, fee: null };
+}
+
+// The fee PayMongo kept on a payment, in pesos (for orders whose fee was not read when paid).
+export async function getPaymentFee(paymentId: string): Promise<number | null> {
+  const payment = await call("GET", `/payments/${paymentId}`);
+  return payment.attributes.status === "paid" ? feeInPesos(payment.attributes.fee) : null;
 }
 
 export async function refundPayment(paymentId: string, amount: number, notes: string) {

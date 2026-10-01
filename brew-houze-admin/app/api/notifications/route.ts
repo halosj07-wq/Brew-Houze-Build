@@ -15,13 +15,14 @@ import { getSession } from "@/lib/sessions";
 //   delivery  a delivery that failed and is not voided yet, a rider's cash on delivery not handed
 //             in 30 minutes after delivering, an order on the way for over an hour, and a packed
 //             order no rider picked up for 20 minutes
+//   waste     waste reports from the staff app waiting for an admin to approve or reject
 
 const TZ = "Asia/Manila";
 const isoTz = (column: string) => `TO_CHAR(${column} AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
 // Columns stored without a time zone hold UTC.
 const isoUtc = (column: string) => `TO_CHAR(${column} AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
 
-type Notification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount" | "delivery"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: "discounts" | "inventory" | "shift" | "finance" | "customers" | "delivery" };
+type Notification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount" | "delivery" | "waste"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: "discounts" | "inventory" | "shift" | "finance" | "customers" | "delivery" };
 
 const peso = (value: unknown) => `₱${Number(value).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -30,7 +31,7 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const reversedOrder = "LOWER(so.status) IN ('void', 'voided', 'refund', 'refunded')";
-    const [stock, payments, reversals, cash, customers, idNames, idOften, deliveries] = await Promise.all([
+    const [stock, payments, reversals, cash, customers, idNames, idOften, deliveries, waste] = await Promise.all([
       // Portions made from another item (bound items) follow their source, which alerts instead.
       pool.query(`
         SELECT inventory_id, item_name, quantity, low_stock_threshold, unit_of_measure, ${isoUtc("COALESCE(updated_at, created_at)")} AS at
@@ -99,7 +100,16 @@ export async function GET() {
           OR (d.status = 'ready' AND so.status = 'completed' AND d.ready_at < CURRENT_TIMESTAMP - INTERVAL '20 minutes')
         ORDER BY d.delivery_id DESC LIMIT 30
       `),
+      pool.query(`
+        SELECT r.request_id, r.label, r.quantity, r.reason, i.unit_of_measure, requester.full_name AS requested_by, ${isoTz("r.created_at")} AS at
+        FROM write_off_requests r
+        LEFT JOIN inventory i ON i.inventory_id = r.inventory_id
+        LEFT JOIN admin_users requester ON requester.admin_id = r.requested_by
+        WHERE r.status = 'pending'
+        ORDER BY r.created_at DESC LIMIT 20
+      `),
     ]);
+    const wasteReasons: Record<string, string> = { expired: "expired or spoiled", damaged: "damaged", wasted: "spilled or wasted", in_house: "used in-house", other: "written off" };
 
     const items: Notification[] = [
       ...stock.rows.map((row): Notification => {
@@ -123,6 +133,7 @@ export async function GET() {
         if (row.problem === "late") return { key: `dlv-late-${row.delivery_id}`, kind: "delivery", tone: "warning", title: `${order} has been on the way for over an hour`, detail: `${row.zone_name} · ${rider}. Check with the rider or call the customer.`, at: String(row.at), page: "delivery" };
         return { key: `dlv-wait-${row.delivery_id}`, kind: "delivery", tone: "info", title: `${order} is packed and waiting for a rider`, detail: `${row.zone_name} · packed over 20 minutes ago. Is a rider on duty?`, at: String(row.at), page: "delivery" };
       }),
+      ...waste.rows.map((row): Notification => ({ key: `waste-${row.request_id}`, kind: "waste", tone: "warning", title: `Waste report: ${Number(row.quantity).toLocaleString("en-PH", { maximumFractionDigits: 3 })}${row.unit_of_measure ? ` ${row.unit_of_measure}` : " ×"} ${row.label}`, detail: `${wasteReasons[String(row.reason)] ?? "written off"}${row.requested_by ? ` · reported by ${row.requested_by}` : ""}. Approve or reject it in Inventory.`, at: String(row.at), page: "inventory" })),
       ...customers.rows.map((row): Notification => ({ key: `cust-${row.customer_id}`, kind: "customer", tone: "info", title: `${row.full_name} made an account`, detail: `@${row.username ?? ""} signed up on the mobile menu.`, at: String(row.at), page: "customers" })),
     ].sort((a, b) => b.at.localeCompare(a.at));
 

@@ -5,7 +5,7 @@ import Image from "next/image";
 import * as XLSX from "xlsx";
 import { MoneyField, PhoneField } from "@/lib/input-format";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -68,6 +68,11 @@ type InventoryLogEntry = {
   packaging_name?: string | null;
   packs_added?: number | null;
   pack_price?: number | null;
+  // Written off (see stock-write-off-migration.sql): why, what it was worth, and the waste report.
+  write_off_reason?: string | null;
+  write_off_cost?: number | string | null;
+  write_off_request_id?: number | null;
+  note?: string | null;
   admin_name: string | null;
   created_at: string;
 };
@@ -302,6 +307,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "inventory", label: "Inventory", short: "Inventory", Icon: IconBox },
   { id: "products", label: "Menu", short: "Menu", Icon: IconCoffee },
   { id: "finance", label: "Finance", short: "Finance", Icon: IconDollar },
+  { id: "treasury", label: "Treasury", short: "Treasury", Icon: IconSafe },
   { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
   { id: "loyalty", label: "Loyalty", short: "Loyalty", Icon: IconStar },
   { id: "discounts", label: "Discounts", short: "Discounts", Icon: IconTag },
@@ -313,7 +319,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "customers", "loyalty", "discounts", "delivery", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "treasury", "customers", "loyalty", "discounts", "delivery", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -483,7 +489,7 @@ function Sidebar({ current, collapsed, user, onChange, onToggle, onAccount }: { 
 // refunds, drawer short or over, delivery problems, new customer sign-ups). Which ones were seen is remembered per
 // device in the browser; keys of alerts that are gone are dropped, so an item that runs low
 // again after a restock shows up as new.
-type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount" | "delivery"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
+type AdminNotification = { key: string; kind: "stock" | "payment" | "reversal" | "cash" | "customer" | "discount" | "delivery" | "waste"; tone: "danger" | "warning" | "info"; title: string; detail: string; at: string; page: Page };
 const SEEN_NOTIFICATIONS_KEY = "brew-houze-admin-seen-notifications";
 const NOTIFICATION_REFRESH_MS = 60_000;
 
@@ -570,7 +576,7 @@ function NotificationBell({ onNavigate }: { onNavigate: (page: Page) => void }) 
   const list = items ?? [];
   const unread = list.filter((item) => !seen.has(item.key));
   const urgent = unread.some((item) => item.tone === "danger");
-  const kindIcon = (kind: AdminNotification["kind"]) => kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "discount" ? <IconTag size={15} /> : kind === "delivery" ? <IconTruck size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
+  const kindIcon = (kind: AdminNotification["kind"]) => kind === "waste" ? <IconTrash size={14} /> : kind === "stock" ? <IconBox size={15} /> : kind === "customer" ? <IconHeart size={15} /> : kind === "discount" ? <IconTag size={15} /> : kind === "delivery" ? <IconTruck size={15} /> : kind === "reversal" ? <IconX size={13} /> : <IconDollar size={15} />;
 
   return <div className="notif" ref={wrapRef}>
     <button type="button" className={`notif-bell${open ? " is-open" : ""}`} onClick={() => { setOpen((value) => !value); setNow(Date.now()); }} aria-label={unread.length ? `Notifications, ${unread.length} new` : "Notifications"} aria-expanded={open} title="Notifications">
@@ -977,10 +983,32 @@ function darkCashDifference(difference: number | null): { text: string; color: s
 }
 
 // Opening and closing the store from the admin app (Dashboard shift card).
+// The safe as the open and close dialogs need it: whether it is in use, its balance, and the cash
+// the last closing left in the drawer (see treasury-migration.sql).
+type SafeSummary = { safe: { balance: number; live: boolean }; lastFloat: number };
+function useSafeSummary(onLoaded?: (summary: SafeSummary) => void) {
+  const [summary, setSummary] = useState<SafeSummary | null>(null);
+  const loadedRef = useRef(onLoaded);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/treasury?view=summary", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (!active || !payload?.data) return;
+      setSummary(payload.data);
+      loadedRef.current?.(payload.data);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  return summary;
+}
+
 function AdminOpenShiftDialog({ onClose, onOpened }: { onClose: () => void; onOpened: () => void }) {
   const [startingCash, setStartingCash] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // Starts from what the last closing left in the drawer.
+  const safe = useSafeSummary((summary) => setStartingCash((typed) => typed === "" && summary.lastFloat > 0 ? summary.lastFloat.toFixed(2) : typed));
+  const typedAmount = startingCash.trim() === "" ? null : Number(startingCash);
+  const fromSafe = safe?.safe.live && typedAmount !== null && Number.isFinite(typedAmount) ? Math.round((typedAmount - safe.lastFloat) * 100) / 100 : null;
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1008,6 +1036,10 @@ function AdminOpenShiftDialog({ onClose, onOpened }: { onClose: () => void; onOp
       <label className="acc-money">
         <span>Starting cash in the drawer</span>
         <span className="acc-money-field"><b>₱</b><MoneyField data-autofocus value={startingCash} onChange={(typed) => setStartingCash(typed)} placeholder="0.00" /></span>
+        {safe?.safe.live && <em style={{ color: fromSafe !== null && fromSafe > safe.safe.balance + 0.004 ? "#B91C1C" : "#6B4C3B" }}>
+          {peso(safe.lastFloat)} was left in the drawer at the last closing.{" "}
+          {fromSafe === null || Math.abs(fromSafe) < 0.005 ? "Nothing moves from the safe." : fromSafe > 0 ? `${peso(fromSafe)} comes from the safe (it has ${peso(safe.safe.balance)}).` : `${peso(-fromSafe)} goes back to the safe.`}
+        </em>}
       </label>
       {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
       <div className="ui-confirm-actions">
@@ -1020,6 +1052,9 @@ function AdminOpenShiftDialog({ onClose, onOpened }: { onClose: () => void; onOp
 
 function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardShift; onClose: () => void; onClosed: () => void }) {
   const [counted, setCounted] = useState("");
+  // Cash left in the drawer for the next shift; it starts as this shift's own starting cash.
+  const [kept, setKept] = useState(shift.startingCash > 0 ? shift.startingCash.toFixed(2) : "0");
+  const safe = useSafeSummary();
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1030,10 +1065,12 @@ function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardS
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (countedAmount === null || !Number.isFinite(countedAmount) || countedAmount < 0) { setError("Count the cash in the drawer and enter the amount."); return; }
+    const keptAmount = kept.trim() === "" ? 0 : Number(kept);
+    if (!Number.isFinite(keptAmount) || keptAmount < 0 || keptAmount > countedAmount) { setError("The cash left in the drawer can be ₱0 up to the counted cash."); return; }
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/shifts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shift.shiftId, counted_cash: countedAmount, notes }) });
+      const response = await fetch("/api/shifts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shift.shiftId, counted_cash: countedAmount, float_kept: keptAmount, notes }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not close the shift.");
       onClosed();
@@ -1060,6 +1097,16 @@ function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardS
         {difference !== null && <em style={{ color: differenceLabel.color }}>{differenceLabel.text}</em>}
       </label>
       <label className="acc-money">
+        <span>Leave in the drawer for the next shift</span>
+        <span className="acc-money-field"><b>₱</b><MoneyField value={kept} onChange={(typed) => setKept(typed)} placeholder="0.00" /></span>
+        {countedAmount !== null && Number.isFinite(countedAmount) && (() => {
+          const keptAmount = kept.trim() === "" ? 0 : Number(kept);
+          if (!Number.isFinite(keptAmount) || keptAmount > countedAmount) return <em style={{ color: "#B91C1C" }}>Can be ₱0 up to the counted cash.</em>;
+          const toSafe = countedAmount - keptAmount;
+          return <em style={{ color: "#6B4C3B" }}>{safe?.safe.live ? `${peso(toSafe)} goes to the safe (it will have ${peso(safe.safe.balance + toSafe)}).` : `${peso(toSafe)} is taken out of the drawer. Start the safe in Treasury to keep track of it.`}</em>;
+        })()}
+      </label>
+      <label className="acc-money">
         <span>Notes <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
         <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={500} rows={2} placeholder="e.g. short because of a wrong change" style={{ ...packagingInput, resize: "vertical" }} />
       </label>
@@ -1073,10 +1120,11 @@ function AdminCloseShiftDialog({ shift, onClose, onClosed }: { shift: DashboardS
 }
 
 // Records cash put into or taken out of the drawer from the admin app, for the open shift.
+// Once the safe is in use, a cash in is taken from it and a cash drop goes into it.
 const adminDrawerReasons: Record<DrawerKind, string[]> = {
-  cash_in: ["Change fund", "Owner added cash"],
-  cash_out: ["Supplies", "Ice", "Delivery", "Staff meal"],
-  cash_drop: ["Moved to the safe", "Bank deposit"],
+  cash_in: ["Change fund", "More change from the safe"],
+  cash_out: ["Supplies", "Ice", "Delivery", "Staff meals", "Repairs & maintenance"],
+  cash_drop: ["Moved to the safe"],
 };
 
 function AdminCashDrawerDialog({ expectedCash, onClose, onSaved }: { expectedCash: number; onClose: () => void; onSaved: () => void }) {
@@ -1115,7 +1163,7 @@ function AdminCashDrawerDialog({ expectedCash, onClose, onSaved }: { expectedCas
   return <Modal onClose={onClose} closeDisabled={saving} label="Cash in or out">
     <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
       <h2>Cash in / cash out</h2>
-      <div className="ui-confirm-message">Money added to or taken out of the drawer for reasons other than a sale. The drawer should have <b>{peso(expectedCash)}</b> right now. Entries cannot be deleted; fix a mistake with the opposite entry.</div>
+      <div className="ui-confirm-message">Money added to or taken out of the drawer for reasons other than a sale. The drawer should have <b>{peso(expectedCash)}</b> right now. A cash in is taken from the safe and a cash drop goes into it; a cash out leaves the business. Entries cannot be deleted; fix a mistake with the opposite entry.</div>
       <div className="inv-range" role="group" aria-label="Kind" style={{ marginTop: 14, display: "flex" }}>
         {(Object.keys(adminDrawerReasons) as DrawerKind[]).map((key) => <button key={key} type="button" aria-pressed={kind === key} onClick={() => { setKind(key); setReason(adminDrawerReasons[key][0]); setError(""); }} style={{ flex: 1 }}>{drawerKindLabels[key]}</button>)}
       </div>
@@ -1123,7 +1171,7 @@ function AdminCashDrawerDialog({ expectedCash, onClose, onSaved }: { expectedCas
         <span>Amount</span>
         <span className="acc-money-field"><b>₱</b><MoneyField data-autofocus value={amount} onChange={(typed) => { setAmount(typed); setError(""); }} placeholder="0.00" /></span>
       </label>
-      <div className="menu-chips" role="group" aria-label="Reason" style={{ marginTop: 12 }}>
+      <div className="menu-chips" role="group" aria-label="Reason" style={{ marginTop: 12, flexWrap: "wrap" }}>
         {[...adminDrawerReasons[kind], "__other__"].map((option) => <button key={option} type="button" aria-pressed={reason === option} onClick={() => { setReason(option); setError(""); }}>{option === "__other__" ? "Other…" : option}</button>)}
       </div>
       {reason === "__other__" && <input value={otherReason} onChange={(event) => setOtherReason(event.target.value)} maxLength={60} placeholder="Type the reason" aria-label="Reason" style={{ ...packagingInput, marginTop: 8 }} />}
@@ -2148,6 +2196,7 @@ type StockGroupActions = {
   onEditPortion: (item: InventoryItem) => void;
   onArchive: (item: InventoryItem) => void;
   onHistory: (group: StockGroup) => void;
+  onWriteOff: (item: InventoryItem) => void;
 };
 
 function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGroup; expanded: boolean; onToggle: () => void; actions: StockGroupActions }) {
@@ -2223,6 +2272,7 @@ function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGr
             <div className="inv-node-actions">
               <button type="button" className="inv-mini" onClick={() => actions.onEdit(item)}><IconPencil size={12} />Edit</button>
               <button type="button" className="inv-mini" onClick={() => actions.onHistory(group)}>History</button>
+              <button type="button" className="inv-mini" onClick={() => actions.onWriteOff(item)} disabled={Number(item.quantity) <= 0} title="Expired, damaged, spilled or used in-house">Write off</button>
               {!item.is_permanent && <button type="button" className="inv-mini is-danger" onClick={() => actions.onArchive(item)}><IconTrash size={12} />Archive</button>}
             </div>
           </header>
@@ -2258,6 +2308,7 @@ function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGr
                   </div>
                   <div className="inv-node-actions">
                     <button type="button" className="inv-mini" onClick={() => actions.onEditPortion(portion)}><IconPencil size={12} />Edit</button>
+                    <button type="button" className="inv-mini" onClick={() => actions.onWriteOff(portion)} disabled={Number(portion.derived_from_available_quantity ?? 0) <= 0} title="Write off portions (they come off the source)">Write off</button>
                     {!portion.is_permanent && <button type="button" className="inv-mini is-danger" onClick={() => actions.onArchive(portion)} title="Archive portion"><IconTrash size={12} /></button>}
                   </div>
                 </li>;
@@ -2286,11 +2337,11 @@ function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGr
 const inventoryChangeLabels: Record<string, string> = {
   created: "Item added", restocked: "Restocked", manual_edit: "Stock corrected", order_deduction: "Used by order",
   void_restore: "Void returned", refund_restore: "Refund returned", deleted: "Item deleted", archived: "Archived",
-  restored: "Restored", purged: "Deleted for good", cost_updated: "Cost changed",
+  restored: "Restored", purged: "Deleted for good", cost_updated: "Cost changed", written_off: "Written off",
 };
 const inventoryChangeTone: Record<string, string> = {
   created: "item", restocked: "restock", manual_edit: "manual", order_deduction: "order", void_restore: "return", refund_restore: "return",
-  deleted: "item", archived: "item", restored: "item", purged: "item", cost_updated: "cost",
+  deleted: "item", archived: "item", restored: "item", purged: "item", cost_updated: "cost", written_off: "writeoff",
 };
 const historyTypeFilters: { id: string; label: string; types: string[] | null }[] = [
   { id: "all", label: "All changes", types: null },
@@ -2298,6 +2349,7 @@ const historyTypeFilters: { id: string; label: string; types: string[] | null }[
   { id: "orders", label: "Used by orders", types: ["order_deduction"] },
   { id: "returns", label: "Void & refund returns", types: ["void_restore", "refund_restore"] },
   { id: "manual", label: "Stock corrections", types: ["manual_edit"] },
+  { id: "writeoff", label: "Written off", types: ["written_off"] },
   { id: "cost", label: "Cost changes", types: ["cost_updated"] },
   { id: "items", label: "Added & archived", types: ["created", "archived", "restored", "purged", "deleted"] },
 ];
@@ -2309,6 +2361,10 @@ function describeInventoryLog(log: InventoryLogEntry): string {
   const costAfter = toOptionalNumber(log.unit_cost_after);
   const costChange = costAfter !== null && costBefore !== costAfter ? ` · cost ${costBefore === null ? "not set" : formatPeso(costBefore)} → ${formatPeso(costAfter)} per ${singularUnit(unit)}` : "";
   switch (log.change_type) {
+    case "written_off": {
+      const cost = toOptionalNumber(log.write_off_cost);
+      return `${writeOffReasonLabel(log.write_off_reason)}${cost !== null ? ` · ${formatPeso(cost)}` : " · no cost"}${log.note ? ` · ${log.note}` : ""}`;
+    }
     case "restocked":
       return log.packaging_name
         ? `${log.packs_added ?? "?"} × ${log.packaging_name}${toOptionalNumber(log.pack_price) !== null ? ` at ${peso(Number(log.pack_price))} each` : ""}${costChange}`
@@ -2356,6 +2412,8 @@ function exportInventoryLogs(logs: InventoryLogEntry[], rangeLabel: string, file
       { header: "Package", value: (log) => log.packaging_name ?? "" },
       { header: "Packs", value: (log) => log.packs_added === null || log.packs_added === undefined ? null : Number(log.packs_added), kind: "count" },
       { header: "Price per pack", value: (log) => toOptionalNumber(log.pack_price), kind: "money" },
+      { header: "Written off as", value: (log) => log.change_type === "written_off" ? writeOffReasonLabel(log.write_off_reason) : "" },
+      { header: "Written off cost", value: (log) => log.change_type === "written_off" ? toOptionalNumber(log.write_off_cost) : null, kind: "money" },
       { header: "Unit cost before", value: (log) => showsCost(log) ? toOptionalNumber(log.unit_cost_before) : null, kind: "cost" },
       { header: "Unit cost after", value: (log) => showsCost(log) ? toOptionalNumber(log.unit_cost_after) : null, kind: "cost" },
       { header: "Order #", value: (log) => log.order_id ?? null },
@@ -2559,6 +2617,205 @@ function InventoryHistory({ focus, onClearFocus }: { focus: { ids: number[]; lab
   </div>;
 }
 
+// ─── Write-offs: stock that leaves without being sold ─────────────────────────
+// Expired or spoiled, damaged, spilled or wasted, or used in-house (see lib/write-offs.ts). Only
+// admins write stock off: here directly, or by approving a waste report from the staff app. The
+// cost of what is written off counts in Finance as stock written off.
+const writeOffReasons: { id: string; label: string; hint: string }[] = [
+  { id: "expired", label: "Expired or spoiled", hint: "Past its date, gone bad" },
+  { id: "wasted", label: "Spilled or wasted", hint: "Dropped, spilled, made wrong" },
+  { id: "damaged", label: "Damaged", hint: "Broken or torn packaging" },
+  { id: "in_house", label: "Used in-house", hint: "Staff drinks, tasting, testing a recipe" },
+  { id: "other", label: "Other", hint: "Say what happened in the note" },
+];
+const writeOffReasonLabel = (id: string | null | undefined) => id === "made_order" ? "Made, then voided or refunded" : writeOffReasons.find((reason) => reason.id === id)?.label ?? "Written off";
+
+function WriteOffDialog({ item, onClose, onSaved }: { item: InventoryItem; onClose: () => void; onSaved: (message: string) => void }) {
+  const unit = item.unit_of_measure;
+  const portion = Boolean(item.derived_from_inventory_id);
+  const available = portion ? Number(item.derived_from_available_quantity ?? 0) : Number(item.quantity);
+  const unitCost = toOptionalNumber(item.effective_unit_cost ?? item.unit_cost);
+  const [quantity, setQuantity] = useState("");
+  const [reason, setReason] = useState("expired");
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const value = Number(quantity);
+  const cost = unitCost !== null && value > 0 ? Math.round(value * unitCost * 100) / 100 : null;
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!(value > 0) || (item.is_whole_unit && !Number.isInteger(value))) { setError(item.is_whole_unit ? "Enter how many (whole pieces)." : "Enter how much."); return; }
+    if (value > available + 0.0005) { setError(`Only ${formatStock(available, unit)} is in stock.`); return; }
+    if (reason === "other" && !note.trim()) { setError("Say what happened."); return; }
+    if (!password) { setError("Enter your password to confirm."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/write-offs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "write_off", inventory_id: item.inventory_id, quantity: value, reason, note, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not write the stock off.");
+      const total = payload?.data?.cost;
+      onSaved(`Written off: ${formatStock(value, unit)} of ${item.item_name}${typeof total === "number" ? ` (${peso(total)})` : ""}. It counts in Finance as stock written off.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not write the stock off.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Write off stock">
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 470px)", textAlign: "left" }}>
+      <h2>Write off {item.item_name}</h2>
+      <div className="ui-confirm-message">Stock that leaves without being sold. It comes off now, and what it was worth counts in Finance as <b>stock written off</b>. To fix a miscount instead, use Edit.{portion ? <> A portion comes off its source, {item.derived_from_item_name}.</> : null}</div>
+      <p className="tre-fixing">{formatStock(available, unit)} in stock{unitCost !== null ? ` · ${formatPeso(unitCost)} per ${singularUnit(unit)}` : " · no cost set, so it counts as ₱0"}</p>
+      <label className="acc-money">
+        <span>How much ({unit})</span>
+        <input data-autofocus type="number" min={0} step={item.is_whole_unit ? 1 : "any"} inputMode={item.is_whole_unit ? "numeric" : "decimal"} value={quantity} onChange={(event) => { setQuantity(event.target.value); setError(""); }} style={packagingInput} />
+        {cost !== null && <em style={{ color: "#B91C1C" }}>{formatStock(value, unit)} × {formatPeso(unitCost ?? 0)} = {peso(cost)}</em>}
+      </label>
+      <p className="exp-label">What happened</p>
+      <div className="menu-chips" role="group" aria-label="What happened" style={{ flexWrap: "wrap" }}>
+        {writeOffReasons.map((option) => <button key={option.id} type="button" aria-pressed={reason === option.id} title={option.hint} onClick={() => { setReason(option.id); setError(""); }}>{option.label}</button>)}
+      </div>
+      <label className="acc-money">
+        <span>Note {reason !== "other" && <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span>}</span>
+        <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={200} placeholder={reason === "expired" ? "e.g. best before Sep 30" : "e.g. what happened"} style={packagingInput} />
+      </label>
+      <label className="acc-money">
+        <span>Your password</span>
+        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} />
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="ui-button ui-button-danger" disabled={saving}>{saving ? "Writing off…" : `Write off${value > 0 ? ` ${formatStock(value, unit)}` : ""}`}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+type WasteReportAdmin = {
+  id: number; kind: "product" | "item"; quantity: number; unit: string | null; label: string; reason: string; note: string | null; shiftId: number | null; status: string;
+  decisionNote: string | null; approvedCost: number | null; requestedBy: string | null; decidedBy: string | null; createdAt: string; decidedAt: string | null;
+  plan: { lines: { inventoryId: number; itemName: string; unit: string; quantity: number; available: number; unitCost: number | null; cost: number | null }[]; cost: number | null } | null;
+  planError?: string;
+};
+const wasteStatusTone: Record<string, string> = { pending: "warning", approved: "ok", rejected: "danger", cancelled: "muted" };
+
+function WasteReports({ onChanged, onCount }: { onChanged: () => void; onCount: (count: number) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const [reports, setReports] = useState<WasteReportAdmin[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [deciding, setDeciding] = useState<{ report: WasteReportAdmin; approve: boolean } | null>(null);
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/write-offs?status=${showAll ? "all" : "pending"}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the waste reports.");
+        if (active) { setReports(payload.data.requests); onCount(payload.data.pending); setError(""); }
+      } catch (loadError) {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the waste reports.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [showAll, reloadKey, onCount]);
+
+  async function decide(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!deciding) return;
+    if (!deciding.approve && !note.trim()) { setError("Say why it is rejected."); return; }
+    if (!password) { setError("Enter your password to confirm."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/write-offs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: deciding.approve ? "approve" : "reject", request_id: deciding.report.id, note, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not save the decision.");
+      setNotice(deciding.approve ? `Approved: ${deciding.report.label} written off${typeof payload?.data?.cost === "number" ? ` (${peso(payload.data.cost)})` : ""}.` : `Rejected: ${deciding.report.label}.`);
+      setDeciding(null);
+      setNote("");
+      setPassword("");
+      setReloadKey((key) => key + 1);
+      if (deciding.approve) onChanged();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the decision.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const amount = (report: WasteReportAdmin) => `${Number(report.quantity).toLocaleString("en-PH", { maximumFractionDigits: 3 })}${report.unit ? ` ${report.unit}` : " ×"} ${report.label}`;
+  return <div className="flex flex-col gap-3">
+    <div className="inv-head">
+      <p className="inv-hint" style={{ maxWidth: 640 }}>Waste reported from the staff app: a spilled drink, expired milk, a staff drink. Nothing comes off stock until you approve it; then it is written off at its cost now and counts in Finance as stock written off.</p>
+      <label className="inv-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><input type="checkbox" checked={showAll} onChange={(event) => setShowAll(event.target.checked)} />Show decided ones (60 days)</label>
+    </div>
+    {notice && <div className="acc-notice" role="status">{notice}</div>}
+    {error && !deciding && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+    {loading && reports.length === 0 ? <div className="inv-empty">Loading waste reports…</div>
+      : reports.length === 0 ? <div className="inv-empty">{showAll ? "No waste reports in the last 60 days." : "No waste reports waiting. Staff report waste from the staff app (the Waste button by the shift)."}</div>
+        : <ul className="wst-list">
+          {reports.map((report) => <li key={report.id} className={`is-${wasteStatusTone[report.status] ?? "muted"}`}>
+            <div className="wst-main">
+              <strong>{amount(report)}</strong>
+              <span>{writeOffReasonLabel(report.reason)} · {report.requestedBy ?? "—"} · {shiftTime(report.createdAt)}{report.shiftId ? ` · shift #${report.shiftId}` : ""}{report.note ? ` · “${report.note}”` : ""}</span>
+              {report.plan && <ul className="wst-lines">{report.plan.lines.map((line) => <li key={line.inventoryId} className={line.quantity > line.available + 0.0005 ? "is-short" : undefined}>
+                <span>{line.itemName}</span><span>−{formatStock(line.quantity, line.unit)}{line.quantity > line.available + 0.0005 ? ` (only ${formatStock(line.available, line.unit)} in stock)` : ""}</span><span>{line.cost === null ? "no cost" : peso(line.cost)}</span>
+              </li>)}</ul>}
+              {report.planError && <span style={{ color: "#B91C1C" }}>{report.planError}</span>}
+              {report.status !== "pending" && <span className="wst-decision">{report.status === "approved" ? `Approved${report.approvedCost !== null ? `, ${peso(report.approvedCost)}` : ""}` : report.status === "rejected" ? "Rejected" : "Taken back by staff"}{report.decidedBy && report.status !== "cancelled" ? ` by ${report.decidedBy}` : ""}{report.decidedAt ? ` · ${shiftTime(report.decidedAt)}` : ""}{report.decisionNote && report.status !== "cancelled" ? ` · “${report.decisionNote}”` : ""}</span>}
+            </div>
+            <div className="wst-side">
+              {report.status === "pending" ? <>
+                <strong>{report.plan?.cost === null || report.plan?.cost === undefined ? "—" : peso(report.plan.cost)}</strong>
+                <div className="flex gap-2">
+                  <button type="button" className="inv-mini" onClick={() => { setError(""); setNote(""); setPassword(""); setDeciding({ report, approve: false }); }}>Reject</button>
+                  <button type="button" className="inv-mini is-primary" disabled={!report.plan} onClick={() => { setError(""); setNote(""); setPassword(""); setDeciding({ report, approve: true }); }}>Approve</button>
+                </div>
+              </> : <span className={`wst-pill is-${report.status}`}>{report.status === "cancelled" ? "Taken back" : report.status.charAt(0).toUpperCase() + report.status.slice(1)}</span>}
+            </div>
+          </li>)}
+        </ul>}
+    {deciding && <Modal onClose={() => setDeciding(null)} closeDisabled={saving} label={deciding.approve ? "Approve the waste report" : "Reject the waste report"}>
+      <form onSubmit={decide} className="ui-confirm" style={{ width: "min(100%, 440px)" }}>
+        <h2>{deciding.approve ? "Approve and write off?" : "Reject this report?"}</h2>
+        <div className="ui-confirm-message">{deciding.approve
+          ? <><b>{amount(deciding.report)}</b> comes off stock now{deciding.report.plan?.cost !== null && deciding.report.plan?.cost !== undefined ? <>, worth <b>{peso(deciding.report.plan.cost)}</b></> : null}, as {writeOffReasonLabel(deciding.report.reason).toLowerCase()}.</>
+          : <>Nothing comes off stock. {deciding.report.requestedBy ?? "The staff member"} sees that it was rejected, with your reason.</>}</div>
+        <label className="acc-money">
+          <span>{deciding.approve ? <>Note <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></> : "Why"}</span>
+          <input data-autofocus value={note} onChange={(event) => { setNote(event.target.value); setError(""); }} maxLength={200} placeholder={deciding.approve ? "" : "e.g. It was found, not spilled"} style={packagingInput} />
+        </label>
+        <label className="acc-money">
+          <span>Your password</span>
+          <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} />
+        </label>
+        {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+        <div className="ui-confirm-actions">
+          <button type="button" className="ui-button ui-button-secondary" onClick={() => setDeciding(null)} disabled={saving}>Cancel</button>
+          <button type="submit" className={`ui-button ${deciding.approve ? "ui-button-primary" : "ui-button-danger"}`} disabled={saving}>{saving ? "Saving…" : deciding.approve ? "Approve and write off" : "Reject"}</button>
+        </div>
+      </form>
+    </Modal>}
+  </div>;
+}
+
 // ─── Inventory page ───────────────────────────────────────────────────────────
 function Inventory({
   items: initialItems,
@@ -2571,7 +2828,10 @@ function Inventory({
 }) {
   const confirmAction = useConfirm();
   const [items, setItems] = useState<InventoryItem[]>(initialItems);
-  const [tab, setTab] = useState<"stock" | "history">("stock");
+  const [tab, setTab] = useState<"stock" | "history" | "waste">("stock");
+  const [writeOffItem, setWriteOffItem] = useState<InventoryItem | null>(null);
+  const [wasteCount, setWasteCount] = useState(0);
+  const [stockNotice, setStockNotice] = useState("");
   const [filters, setFilters] = useState<InventoryFilters>(defaultInventoryFilters);
   const [showFilters, setShowFilters] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set());
@@ -2809,6 +3069,7 @@ function Inventory({
     onEditPortion: startBindEdit,
     onArchive: (item) => void archiveItem(item),
     onHistory: (group) => { setHistoryFocus({ ids: [group.item.inventory_id, ...group.portions.map((portion) => portion.inventory_id)], label: group.item.item_name }); setTab("history"); },
+    onWriteOff: (item) => { setActionError(""); setStockNotice(""); setWriteOffItem(item); },
   };
 
   const sections: { label: string | null; groups: StockGroup[] }[] = filters.sort === "category"
@@ -2834,6 +3095,7 @@ function Inventory({
         <div className="inv-tabs" role="tablist" aria-label="Inventory views">
           <button type="button" role="tab" aria-selected={tab === "stock"} onClick={() => setTab("stock")}><IconBox size={15} />Stock</button>
           <button type="button" role="tab" aria-selected={tab === "history"} onClick={() => setTab("history")}><IconRotateCcw size={14} />History</button>
+          <button type="button" role="tab" aria-selected={tab === "waste"} onClick={() => setTab("waste")}><IconTrash size={13} />Waste reports{wasteCount > 0 && <span className="menu-tab-count">{wasteCount}</span>}</button>
         </div>
         {tab === "stock" && <div className="flex items-center gap-2">
           <button type="button" className="inv-secondary" onClick={() => exportStockList(items)} disabled={items.length === 0}><IconDownload size={14} />Export stock list</button>
@@ -2846,7 +3108,8 @@ function Inventory({
         <button type="button" onClick={() => setActionError("")} title="Dismiss"><IconX size={14} /></button>
       </div>}
 
-      {tab === "history" ? <InventoryHistory focus={historyFocus} onClearFocus={() => setHistoryFocus(null)} /> : loading ? <div className="inv-empty">Loading inventory…</div>
+      {stockNotice && tab === "stock" && <div className="acc-notice" role="status">{stockNotice}</div>}
+      {tab === "waste" ? <WasteReports onChanged={() => void reload()} onCount={setWasteCount} /> : tab === "history" ? <InventoryHistory focus={historyFocus} onClearFocus={() => setHistoryFocus(null)} /> : loading ? <div className="inv-empty">Loading inventory…</div>
         : error ? <div className="inv-empty is-error">Unable to load inventory: {error}</div>
           : <>
             <div className="inv-summary">
@@ -2894,6 +3157,7 @@ function Inventory({
 
     {addPreset && <InventoryAddDialog items={items} categories={categories} preset={addPreset} onClose={() => setAddPreset(null)} onCreated={refreshAll} />}
     {editItem && <InventoryItemDialog item={editItem} categories={categories} unitLockReason={unitLockReason(editItem)} onClose={() => setEditItem(null)} onSaved={(updated) => { replaceItem(updated); setEditItem(null); void reload(); }} />}
+    {writeOffItem && <WriteOffDialog item={writeOffItem} onClose={() => setWriteOffItem(null)} onSaved={(message) => { setWriteOffItem(null); setStockNotice(message); void reload(); }} />}
     {stockItem && <RestockDialog item={stockItem} onClose={() => setStockItem(null)} onRestocked={(updated) => { replaceItem(updated); setStockItem(null); void reload(); }} onManagePackaging={() => { setPackagingItem(stockItem); setStockItem(null); }} />}
     {packagingItem && <PackagingDialog item={packagingItem} onClose={() => setPackagingItem(null)} onChanged={(updated) => { replaceItem(updated); setPackagingItem(updated); }} />}
     {costItem && (
@@ -4830,6 +5094,10 @@ type ShiftReport = {
   closingNotes: string | null;
   hoursOpen: number;
   startingCash: number;
+  // Cash the last closing left in the drawer (the rest of the starting cash came from the safe),
+  // and cash this closing left for the next shift (the rest went to the safe). Null before the safe.
+  carriedFloat?: number | null;
+  floatKept?: number | null;
   countedCash: number | null;
   expectedCash: number;
   cashDifference: number | null;
@@ -4849,6 +5117,10 @@ type ShiftReport = {
   netSales: number;
   costOfGoods: number;
   uncostedItems: number;
+  // Fees PayMongo kept on the shift's GCash orders.
+  paymentFees?: number;
+  // Stock written off in the shift (made orders voided or refunded in it included).
+  writtenOff?: number;
   // Discounts in the shift's sales, already taken off the sales figures above.
   discounts?: ShiftDiscounts;
   // Delivery orders sold in the shift. codReceived: riders' cash handed in during the shift
@@ -4895,7 +5167,8 @@ const drawerKindLabels: Record<string, string> = { cash_in: "Cash in", cash_out:
 const drawerSigned = (entry: DrawerMovement) => entry.kind === "cash_in" ? entry.amount : -entry.amount;
 type ShiftOrder = { orderId: number; queueNumber: number | null; status: string; total: number; discountLabel?: string | null; discountTotal?: number; paymentMethod: string; orderSource: string; serviceType?: string | null; soldInShift: boolean; reversedInShift: boolean; createdAt: string; reversedAt: string | null; punchedBy: string; items: string };
 type ShiftAttendance = { id: number; name: string; role: string; timeIn: string; timeOut: string | null };
-type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[]; movements?: DrawerMovement[]; deliveries?: ShiftDelivery[] };
+type SafeMove = { id: number; kind: string; amount: number; balanceAfter: number; reason: string; by: string | null; createdAt: string };
+type ShiftDetail = { summary: ShiftReport; orders: ShiftOrder[]; attendance: ShiftAttendance[]; movements?: DrawerMovement[]; deliveries?: ShiftDelivery[]; safeMoves?: SafeMove[] };
 
 const LONG_OPEN_SHIFT_HOURS = 16;
 
@@ -4953,6 +5226,8 @@ function shiftListColumns(): ExcelColumn<ShiftReport>[] {
     { header: "Expected in drawer", value: (shift) => shift.isHistorical ? null : shift.expectedCash, kind: "money" },
     { header: "Counted", value: (shift) => shift.countedCash, kind: "money" },
     { header: "Difference", value: (shift) => shift.cashDifference, kind: "money" },
+    { header: "Left in drawer", value: (shift) => shift.floatKept ?? null, kind: "money" },
+    { header: "Taken out at closing", value: (shift) => shift.floatKept === null || shift.floatKept === undefined || shift.countedCash === null ? null : shift.countedCash - shift.floatKept, kind: "money" },
     { header: "Drawer", value: shiftDrawerState },
     { header: "Closing notes", value: (shift) => shift.closingNotes ?? "" },
   ];
@@ -5004,6 +5279,9 @@ function exportShiftReport(shift: ShiftDetail) {
       ["Cost of goods", summary.costOfGoods],
       ["Items sold without a cost", summary.uncostedItems],
       ["Gross profit", summary.uncostedItems > 0 ? "Incomplete: some items have no cost" : summary.netSales - summary.costOfGoods],
+      ["PayMongo fees (GCash)", summary.paymentFees ?? 0],
+      ["Stock written off", summary.writtenOff ?? 0],
+      ["Profit after PayMongo fees", summary.uncostedItems > 0 ? "Incomplete: some items have no cost" : summary.netSales - summary.costOfGoods - (summary.paymentFees ?? 0)],
       [],
       ["Cash drawer"],
       ...(summary.isHistorical ? [["Not tracked for this day"] as ExcelInfoRow] : [
@@ -5017,6 +5295,7 @@ function exportShiftReport(shift: ShiftDetail) {
         ["Expected in drawer", summary.expectedCash] as ExcelInfoRow,
         ["Counted", summary.countedCash ?? "Not counted"] as ExcelInfoRow,
         ["Difference", summary.cashDifference ?? "Not counted"] as ExcelInfoRow,
+        ...(summary.floatKept !== null && summary.floatKept !== undefined && summary.countedCash !== null ? [["Left in the drawer for the next shift", summary.floatKept] as ExcelInfoRow, ["Taken out at closing", summary.countedCash - summary.floatKept] as ExcelInfoRow] : []),
       ]),
       ["GCash and online", summary.onlineSales],
       ["Closing notes", summary.closingNotes ?? ""],
@@ -5204,6 +5483,11 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
               </>}
               {row("Cost of goods", summary.uncostedItems > 0 ? `${peso(summary.costOfGoods)}*` : peso(summary.costOfGoods))}
               {row("Gross profit", summary.uncostedItems > 0 ? "Incomplete*" : peso(summary.netSales - summary.costOfGoods), true, "#2E7D32")}
+              {(summary.paymentFees ?? 0) > 0 && <>
+                {row("PayMongo fees (GCash)", `−${peso(summary.paymentFees ?? 0)}`, false, "#B45309")}
+                {row("Profit after PayMongo fees", summary.uncostedItems > 0 ? "Incomplete*" : peso(summary.netSales - summary.costOfGoods - (summary.paymentFees ?? 0)), true, "#2E7D32")}
+              </>}
+              {(summary.writtenOff ?? 0) > 0 && row("Stock written off", `−${peso(summary.writtenOff ?? 0)}`, false, "#B91C1C")}
               {summary.uncostedItems > 0 && <p style={{ margin: "4px 0 0", color: "#9C8278", fontSize: 11 }}>* {summary.uncostedItems} item{summary.uncostedItems === 1 ? "" : "s"} sold without a complete inventory cost.</p>}
             </div>
             <div>
@@ -5219,11 +5503,21 @@ function ShiftReports({ start, end }: { start: string; end: string }) {
                 <div style={{ borderTop: "1px solid #E8DDD5" }}>{row("Expected in drawer", peso(summary.expectedCash), true)}</div>
                 {row("Counted", summary.countedCash === null ? "Not counted yet" : peso(summary.countedCash))}
                 {row("Difference", summary.closedAt ? difference.text : "—", true, difference.color)}
+                {summary.closedAt && summary.floatKept !== null && summary.floatKept !== undefined && summary.countedCash !== null && <>
+                  {row("Left in the drawer for the next shift", peso(summary.floatKept))}
+                  {row("Taken out at closing", peso(summary.countedCash - summary.floatKept))}
+                </>}
                 {row("Paid online", peso(summary.onlineSales))}
                 {summary.closingNotes && <p style={{ margin: "8px 0 0", padding: "8px 10px", borderRadius: 8, background: "#F3EDE5", color: "#6B4C3B", fontSize: 12 }}>“{summary.closingNotes}”</p>}
               </>}
             </div>
           </div>
+          {(detail.safeMoves ?? []).length > 0 && <div style={{ padding: "0 22px 16px" }}>
+            <p style={{ margin: "0 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Safe ({(detail.safeMoves ?? []).length})</p>
+            <ul className="fin-simple-list">
+              {(detail.safeMoves ?? []).map((move) => <li key={move.id}><span><strong>{safeKindLabels[move.kind] ?? move.kind}</strong><em>{shiftTime(move.createdAt)}{move.by ? ` · ${move.by}` : ""} · {move.reason} · safe then {peso(move.balanceAfter)}</em></span><strong style={{ color: move.amount >= 0 ? "#15803D" : "#B91C1C" }}>{move.amount >= 0 ? "+" : "−"}{peso(Math.abs(move.amount))}</strong></li>)}
+            </ul>
+          </div>}
           <div style={{ padding: "0 22px 16px" }}>
             <p style={{ margin: "0 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase" }}>Orders ({detail.orders.length})</p>
             {detail.orders.length === 0 ? <p style={{ color: "#9C8278", fontSize: 12.5 }}>No orders in this shift.</p> : <div style={{ border: "1px solid #E8DDD5", borderRadius: 12, overflow: "hidden", maxHeight: 280, overflowY: "auto" }}>
@@ -5277,8 +5571,16 @@ type FinanceTotals = {
   orders: number; netSales: number; grossSales: number; voids: number; refunds: number; reversedAmount: number;
   cashSales: number; counterOnlineSales: number; mobileSales: number; mobileOrders: number; itemsSold: number;
   costOfGoods: number; costedRevenue: number; grossProfit: number; uncostedItems: number;
+  // Fees PayMongo kept on the period's GCash orders, and GCash orders whose fee is not known yet.
+  paymentFees?: number; unknownFees?: number;
+  // What the café spent to run (expenses), and gross profit minus PayMongo fees minus expenses.
+  expenses?: number; netProfit?: number;
+  // Stock written off (waste, in-house use, made orders voided or refunded) and those without a cost.
+  writtenOff?: number; uncostedWriteOffs?: number;
 };
 type FinanceOverviewData = {
+  // Stock written off in the range, by reason (made_order: made, then voided or refunded).
+  writeOffs?: { reason: string; entries: number; cost: number }[];
   range: { start: string; end: string; days: number };
   previousRange: { start: string; end: string };
   current: FinanceTotals;
@@ -5326,7 +5628,7 @@ type FinanceOrder = {
   // Split ticket: the part paid in cash (the rest was GCash).
   cashPortion?: number | null;
 } & ReturnDetails;
-type FinanceTab = "overview" | "shifts" | "orders";
+type FinanceTab = "overview" | "shifts" | "orders" | "expenses";
 type OrdersPreset = { status?: OrderStatusFilter; cashier?: string; category?: string; channel?: OrderChannelFilter; service?: "dine_in" | "take_out" | "delivery" };
 type OrderStatusFilter = "all" | "completed" | "voided" | "refunded" | "reversed";
 type OrderChannelFilter = "all" | "cash" | "online" | "split" | "mobile";
@@ -5388,7 +5690,7 @@ function FinanceKpi({ label, value, note, onClick, accent }: { label: string; va
   return onClick ? <button type="button" className="fin-kpi is-link" onClick={onClick}>{content}</button> : <div className="fin-kpi">{content}</div>;
 }
 
-function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewData; today: string; onOpenOrders: (preset: OrdersPreset) => void }) {
+function FinanceOverview({ data, today, onOpenOrders, onOpenExpenses }: { data: FinanceOverviewData; today: string; onOpenOrders: (preset: OrdersPreset) => void; onOpenExpenses: () => void }) {
   const [productSort, setProductSort] = useState<"revenue" | "quantity">("revenue");
   const [showAllProducts, setShowAllProducts] = useState(false);
   const { current, previous } = data;
@@ -5466,7 +5768,10 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       <FinanceKpi label="Average order" value={peso(average)} note={<><FinanceDelta current={average} previous={previousAverage} /><span className="fin-kpi-hint">Net sales ÷ orders</span></>} />
       <FinanceKpi label="Gross profit" value={margin === null ? "—" : peso(current.grossProfit)} accent={current.grossProfit < 0 ? "#B91C1C" : "#15803D"} note={margin === null
         ? <span className="fin-kpi-hint">{current.orders ? "Set item costs in Inventory to see profit" : "No sales yet"}</span>
-        : <><span className="fin-delta"><b>{margin.toFixed(0)}% margin</b> · cost {peso(current.costOfGoods)}</span>{current.uncostedItems > 0 && <span className="fin-kpi-hint is-warn">{current.uncostedItems} item{current.uncostedItems === 1 ? "" : "s"} without a cost not counted</span>}</>} />
+        : <><span className="fin-delta"><b>{margin.toFixed(0)}% margin</b> · cost {peso(current.costOfGoods)}</span>{(current.paymentFees ?? 0) > 0 && <span className="fin-kpi-hint">{peso(current.grossProfit - (current.paymentFees ?? 0))} after {peso(current.paymentFees ?? 0)} PayMongo fees</span>}{current.uncostedItems > 0 && <span className="fin-kpi-hint is-warn">{current.uncostedItems} item{current.uncostedItems === 1 ? "" : "s"} without a cost not counted</span>}</>} />
+      <FinanceKpi label="Net profit" value={margin === null ? "—" : peso(current.netProfit ?? current.grossProfit)} accent={(current.netProfit ?? 0) < 0 ? "#B91C1C" : "#15803D"} onClick={onOpenExpenses} note={margin === null
+        ? <span className="fin-kpi-hint">Needs item costs, like gross profit</span>
+        : <><FinanceDelta current={current.netProfit ?? 0} previous={previous.netProfit ?? 0} /><span className="fin-kpi-hint">Gross profit − {peso(current.paymentFees ?? 0)} PayMongo fees − {peso(current.expenses ?? 0)} expenses − {peso(current.writtenOff ?? 0)} written off</span></>} />
       <FinanceKpi label="Voids & refunds" value={reversedCount} accent={reversedCount ? "#B91C1C" : undefined} onClick={reversedCount ? () => onOpenOrders({ status: "reversed" }) : undefined} note={<><span className="fin-delta">{reversedCount ? <>−{peso(current.reversedAmount)} · {current.voids} void{current.voids === 1 ? "" : "s"}, {current.refunds} refund{current.refunds === 1 ? "" : "s"}</> : "None in this period"}</span>{reversedCount > 0 && <span className="fin-kpi-hint">Tap to see them</span>}</>} />
     </div>
 
@@ -5557,6 +5862,11 @@ function FinanceOverview({ data, today, onOpenOrders }: { data: FinanceOverviewD
       </ul>
     </DashCard>}
 
+    {(data.writeOffs ?? []).length > 0 && <DashCard title="Stock written off" sub={<>{peso(current.writtenOff ?? 0)} of stock that left without being sold, at its cost. Taken off net profit.{(current.uncostedWriteOffs ?? 0) > 0 ? ` ${current.uncostedWriteOffs} without a cost counted as ₱0.` : ""}</>}>
+      <ul className="fin-simple-list">
+        {(data.writeOffs ?? []).map((entry) => <li key={entry.reason}><span><strong>{writeOffReasonLabel(entry.reason)}</strong><em>{entry.entries} {entry.reason === "made_order" ? `order${entry.entries === 1 ? "" : "s"}` : `item${entry.entries === 1 ? "" : "s"} written off`}</em></span><strong style={{ color: "#B91C1C" }}>−{peso(entry.cost)}</strong></li>)}
+      </ul>
+    </DashCard>}
     {data.deliveries && (data.deliveries.orders > 0 || data.deliveries.failed > 0 || data.deliveries.cancelled > 0) && <FinanceDeliveriesCard deliveries={data.deliveries} onOpenOrders={onOpenOrders} />}
 
     {data.loyalty && (data.loyalty.memberOrders > 0 || data.loyalty.rewardsClaimed > 0 || data.loyalty.starsEarned !== 0 || (data.loyalty.discountTotal ?? 0) > 0) && <DashCard title="Loyalty" sub="Orders linked to customers, stars, and the rewards given away. Reward items are sold at ₱0, and their cost is already in the cost of goods above.">
@@ -6004,6 +6314,11 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
           summaryRow("Average order", current.orders ? current.netSales / current.orders : 0, previous.orders ? previous.netSales / previous.orders : 0),
           summaryRow("Cost of goods", current.costOfGoods, previous.costOfGoods),
           summaryRow("Gross profit", current.grossProfit, previous.grossProfit),
+          summaryRow("PayMongo fees (GCash)", current.paymentFees ?? 0, previous.paymentFees ?? 0),
+          summaryRow("Profit after PayMongo fees", current.grossProfit - (current.paymentFees ?? 0), previous.grossProfit - (previous.paymentFees ?? 0)),
+          summaryRow("Expenses", current.expenses ?? 0, previous.expenses ?? 0),
+          summaryRow("Stock written off", current.writtenOff ?? 0, previous.writtenOff ?? 0),
+          summaryRow("Net profit", current.netProfit ?? 0, previous.netProfit ?? 0),
           summaryRow("Items sold without a cost (not in profit)", current.uncostedItems, previous.uncostedItems),
           [],
           ["Payments", "This period", "Period before", "Change"],
@@ -6190,6 +6505,7 @@ function Finance() {
     { id: "overview", label: "Overview", Icon: IconGrid },
     { id: "shifts", label: "Shifts", Icon: IconRotateCcw },
     { id: "orders", label: "Orders", Icon: IconDollar },
+    { id: "expenses", label: "Expenses", Icon: IconTag },
   ];
 
   return <div className="inv-wrap">
@@ -6217,11 +6533,711 @@ function Finance() {
       {!rangeValid ? <div className="inv-empty is-error">The start date must be on or before the end date.</div>
         : tab === "overview" ? (loading && !overview ? <div className="inv-empty">Loading finance figures…</div>
           : loadError ? <div className="inv-empty is-error">{loadError} <button type="button" className="inv-link" onClick={() => setReloadKey((key) => key + 1)}>Try again</button></div>
-            : overview ? <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}><FinanceOverview data={overview} today={today} onOpenOrders={openOrders} /></div> : null)
+            : overview ? <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}><FinanceOverview data={overview} today={today} onOpenOrders={openOrders} onOpenExpenses={() => setTab("expenses")} /></div> : null)
           : tab === "shifts" ? <ShiftReports start={start} end={end} />
+          : tab === "expenses" ? <FinanceExpenses start={start} end={end} />
             : <FinanceOrders key={`${start}-${end}-${ordersKey}`} start={start} end={end} preset={ordersPreset} />}
     </div>
     {exportOpen && overview && <FinanceExportDialog data={overview} onClose={() => setExportOpen(false)} />}
+  </div>;
+}
+
+// ─── Expenses (Finance) ───────────────────────────────────────────────────────
+// What the café spends to run, apart from the ingredients it sells (see expenses-migration.sql).
+// Restocking is never an expense here: its cost is already in the cost of goods as stock sells.
+// Each expense says where the money came from: the safe, the drawer (a cash out in the open
+// shift) or the owner's own money. Mistakes are voided, never deleted.
+type Expense = {
+  id: number; spentOn: string; category: string; description: string; amount: number; paidFrom: string; shiftId: number | null;
+  reference: string | null; note: string | null; by: string | null; source: string; createdAt: string;
+  voidedAt: string | null; voidedBy: string | null; voidReason: string | null;
+};
+type ExpensesData = {
+  expenses: Expense[]; total: number; byCategory: { category: string; amount: number; count: number }[]; byPaidFrom: Record<string, number>;
+  categories: string[]; openShift: { shiftId: number; expectedCash: number; businessDate: string } | null; truncated: boolean;
+};
+const paidFromLabels: Record<string, string> = { safe: "From the safe", drawer: "From the drawer", owner: "Paid by the owner" };
+
+function exportExpenses(data: ExpensesData, rangeLabel: string, fileStamp: string) {
+  saveWorkbook([
+    ["Summary", excelInfo([
+      ["Brew Houze expenses"],
+      ["Showing", rangeLabel],
+      ["Generated", excelNow()],
+      [],
+      ["Total expenses", data.total],
+      ["From the safe", data.byPaidFrom.safe ?? 0],
+      ["From the drawer", data.byPaidFrom.drawer ?? 0],
+      ["Paid by the owner", data.byPaidFrom.owner ?? 0],
+      [],
+      ["Category", "Amount"],
+      ...data.byCategory.map((entry) => [entry.category, entry.amount] as ExcelInfoRow),
+    ])],
+    ["Expenses", excelTable([...data.expenses].reverse(), [
+      { header: "Date", value: (expense) => expense.spentOn },
+      { header: "Category", value: (expense) => expense.category },
+      { header: "What for", value: (expense) => expense.description },
+      { header: "Amount", value: (expense) => expense.voidedAt ? null : expense.amount, kind: "money" },
+      { header: "Paid from", value: (expense) => paidFromLabels[expense.paidFrom] ?? expense.paidFrom },
+      { header: "Shift", value: (expense) => expense.shiftId ? `#${expense.shiftId}` : "" },
+      { header: "Receipt or reference", value: (expense) => expense.reference ?? "" },
+      { header: "Note", value: (expense) => expense.note ?? "" },
+      { header: "Recorded by", value: (expense) => expense.by ?? "" },
+      { header: "Recorded", value: (expense) => excelDateTime(expense.createdAt) },
+      { header: "Voided", value: (expense) => expense.voidedAt ? `${excelDateTime(expense.voidedAt)}${expense.voidedBy ? ` by ${expense.voidedBy}` : ""}: ${expense.voidReason ?? ""}` : "" },
+      { header: "Voided amount", value: (expense) => expense.voidedAt ? expense.amount : null, kind: "money" },
+    ])],
+  ], `brew-houze-expenses-${fileStamp}.xlsx`);
+}
+
+function ExpenseDialog({ data, today, onClose, onSaved }: { data: ExpensesData; today: string; onClose: () => void; onSaved: (message: string) => void }) {
+  const [paidFrom, setPaidFrom] = useState<"safe" | "drawer" | "owner">("safe");
+  const [spentOn, setSpentOn] = useState(today);
+  const [category, setCategory] = useState(data.categories[0] ?? "Supplies");
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [reference, setReference] = useState("");
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const value = Number(amount);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!(value > 0)) { setError("Enter the amount."); return; }
+    if (!description.trim()) { setError("Say what it was for."); return; }
+    if (paidFrom === "drawer" && !data.openShift) { setError("No shift is open, so nothing can be paid from the drawer."); return; }
+    if (paidFrom === "drawer" && data.openShift && value > data.openShift.expectedCash + 0.004) { setError(`The drawer should only have ${peso(data.openShift.expectedCash)}.`); return; }
+    if (!password) { setError("Enter your password to confirm."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", spent_on: spentOn, category, description, amount: value, paid_from: paidFrom, reference, note, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not save the expense.");
+      onSaved(`Expense of ${peso(value)} recorded (${category}: ${description.trim()}).`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the expense.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const sources: { id: "safe" | "drawer" | "owner"; label: string; hint: string; disabled?: boolean }[] = [
+    { id: "safe", label: "From the safe", hint: "It comes off the safe in Treasury" },
+    { id: "drawer", label: "From the drawer", hint: data.openShift ? `A cash out in shift #${data.openShift.shiftId} (the drawer should have ${peso(data.openShift.expectedCash)})` : "Only while a shift is open", disabled: !data.openShift },
+    { id: "owner", label: "Paid by the owner", hint: "The owner’s own money. Nothing in Treasury moves" },
+  ];
+  return <Modal onClose={onClose} closeDisabled={saving} label="Add an expense">
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 500px)", textAlign: "left" }}>
+      <h2>Add an expense</h2>
+      <div className="ui-confirm-message">Money spent to run the café. Not for restocking ingredients: that is already in the cost of goods as the stock sells.</div>
+      <label className="acc-money">
+        <span>Amount</span>
+        <span className="acc-money-field"><b>₱</b><MoneyField data-autofocus value={amount} onChange={(typed) => { setAmount(typed); setError(""); }} placeholder="0.00" /></span>
+      </label>
+      <p className="exp-label">Category</p>
+      <div className="menu-chips" role="group" aria-label="Category" style={{ flexWrap: "wrap" }}>
+        {data.categories.map((option) => <button key={option} type="button" aria-pressed={category === option} onClick={() => setCategory(option)}>{option}</button>)}
+      </div>
+      <label className="acc-money">
+        <span>What it was for</span>
+        <input value={description} onChange={(event) => { setDescription(event.target.value); setError(""); }} maxLength={120} placeholder={category === "Wages" ? "e.g. Juan, week of Oct 1" : category === "Utilities" ? "e.g. Electricity, September" : "e.g. Cups and straws"} style={packagingInput} />
+      </label>
+      <p className="exp-label">Paid from</p>
+      <div className="exp-sources" role="radiogroup" aria-label="Paid from">
+        {sources.map((source) => <button key={source.id} type="button" role="radio" aria-checked={paidFrom === source.id} disabled={source.disabled} onClick={() => { setPaidFrom(source.id); setError(""); }}>
+          <strong>{source.label}</strong><span>{source.hint}</span>
+        </button>)}
+      </div>
+      {paidFrom !== "drawer" ? <label className="acc-money">
+        <span>Date</span>
+        <input type="date" value={spentOn} max={today} onChange={(event) => setSpentOn(event.target.value)} style={packagingInput} />
+      </label> : <p className="inv-hint" style={{ marginTop: 10 }}>Dated by the open shift ({data.openShift ? formatRange(data.openShift.businessDate, data.openShift.businessDate) : "—"}).</p>}
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
+        <label className="acc-money">
+          <span>Receipt or reference <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+          <input value={reference} onChange={(event) => setReference(event.target.value)} maxLength={80} placeholder="e.g. OR #1234" style={packagingInput} />
+        </label>
+        <label className="acc-money">
+          <span>Note <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+          <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} style={packagingInput} />
+        </label>
+      </div>
+      <label className="acc-money">
+        <span>Your password</span>
+        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} />
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="ui-button ui-button-primary" disabled={saving}>{saving ? "Saving…" : `Record${value > 0 ? ` ${peso(value)}` : ""}`}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function VoidExpenseDialog({ expense, onClose, onSaved }: { expense: Expense; onClose: () => void; onSaved: (message: string) => void }) {
+  const [reason, setReason] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reason.trim()) { setError("Say why it is voided."); return; }
+    if (!password) { setError("Enter your password to confirm."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/expenses", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "void", expense_id: expense.id, reason, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not void the expense.");
+      onSaved(`Voided: ${expense.category}, ${expense.description} (${peso(expense.amount)}).${expense.paidFrom === "safe" ? " The money went back into the safe." : ""}`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not void the expense.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Void an expense">
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 440px)" }}>
+      <div className="ui-confirm-icon" data-tone="danger" aria-hidden="true"><IconX size={18} /></div>
+      <h2>Void this expense?</h2>
+      <div className="ui-confirm-message">
+        <b>{expense.category}: {expense.description}</b>, {peso(expense.amount)} {paidFromLabels[expense.paidFrom]?.toLowerCase() ?? ""}. It stays in the list, crossed out, and no longer counts.{" "}
+        {expense.paidFrom === "safe" ? "The money goes back into the safe." : expense.paidFrom === "drawer" ? "The drawer is not changed: if the cash never left it, record a cash in for it." : ""}
+      </div>
+      <label className="acc-money">
+        <span>Why</span>
+        <input data-autofocus value={reason} onChange={(event) => { setReason(event.target.value); setError(""); }} maxLength={120} placeholder="e.g. Recorded twice" style={packagingInput} />
+      </label>
+      <label className="acc-money">
+        <span>Your password</span>
+        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} />
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="ui-button ui-button-danger" disabled={saving}>{saving ? "Voiding…" : "Void it"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function FinanceExpenses({ start, end }: { start: string; end: string }) {
+  const [today] = useState(() => getFinanceDateStamp());
+  const [data, setData] = useState<ExpensesData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [adding, setAdding] = useState(false);
+  const [voiding, setVoiding] = useState<Expense | null>(null);
+  const [category, setCategory] = useState("all");
+  const [paidFrom, setPaidFrom] = useState("all");
+  const [search, setSearch] = useState("");
+  const [showVoided, setShowVoided] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      try {
+        const response = await fetch(`/api/expenses?start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the expenses.");
+        if (active) { setData(payload.data); setLoadError(""); }
+      } catch (error) {
+        if (active) setLoadError(error instanceof Error ? error.message : "Could not load the expenses.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [start, end, reloadKey]);
+
+  function saved(message: string) {
+    setAdding(false);
+    setVoiding(null);
+    setNotice(message);
+    setReloadKey((key) => key + 1);
+  }
+
+  if (loading && !data) return <div className="inv-empty">Loading expenses…</div>;
+  if (loadError && !data) return <div className="inv-empty is-error">{loadError} <button type="button" className="inv-link" onClick={() => setReloadKey((key) => key + 1)}>Try again</button></div>;
+  if (!data) return null;
+
+  const query = search.trim().toLowerCase();
+  const shown = data.expenses.filter((expense) => (showVoided || !expense.voidedAt)
+    && (category === "all" || expense.category === category)
+    && (paidFrom === "all" || expense.paidFrom === paidFrom)
+    && (!query || [expense.description, expense.category, expense.reference ?? "", expense.note ?? "", expense.by ?? ""].some((text) => text.toLowerCase().includes(query))));
+  const voidedCount = data.expenses.filter((expense) => expense.voidedAt).length;
+  const categoriesShown = [...new Set([...data.categories, ...data.expenses.map((expense) => expense.category)])];
+  const top = Math.max(1, ...data.byCategory.map((entry) => entry.amount));
+  const rangeText = formatRange(start, end);
+
+  return <div className="flex flex-col gap-4" style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}>
+    <div className="inv-summary">
+      <div className="inv-stat is-static tre-balance"><span>Expenses</span><strong>{peso(data.total)}</strong><em>{rangeText}</em></div>
+      <button type="button" className="inv-stat" aria-pressed={paidFrom === "safe"} onClick={() => setPaidFrom(paidFrom === "safe" ? "all" : "safe")}><span>From the safe</span><strong>{peso(data.byPaidFrom.safe ?? 0)}</strong><em>taken from the safe</em></button>
+      <button type="button" className="inv-stat" aria-pressed={paidFrom === "drawer"} onClick={() => setPaidFrom(paidFrom === "drawer" ? "all" : "drawer")}><span>From the drawer</span><strong>{peso(data.byPaidFrom.drawer ?? 0)}</strong><em>cash outs in the shifts</em></button>
+      <button type="button" className="inv-stat" aria-pressed={paidFrom === "owner"} onClick={() => setPaidFrom(paidFrom === "owner" ? "all" : "owner")}><span>Paid by the owner</span><strong>{peso(data.byPaidFrom.owner ?? 0)}</strong><em>the owner’s own money</em></button>
+    </div>
+
+    <div className="inv-head">
+      <button type="button" className="inv-primary" onClick={() => { setNotice(""); setAdding(true); }}><IconPlus size={14} />Add an expense</button>
+      <button type="button" className="inv-secondary" onClick={() => exportExpenses(data, rangeText, start === end ? start : `${start}-to-${end}`)} disabled={data.expenses.length === 0}><IconDownload size={14} />Export</button>
+    </div>
+    {notice && <div className="acc-notice" role="status">{notice}</div>}
+
+    {data.byCategory.length > 0 && <DashCard title="By category" sub={`${peso(data.total)} in ${rangeText}`}>
+      <ul className="exp-cats">
+        {data.byCategory.map((entry) => <li key={entry.category}>
+          <button type="button" aria-pressed={category === entry.category} onClick={() => setCategory(category === entry.category ? "all" : entry.category)}>
+            <span className="exp-cat-name"><strong>{entry.category}</strong><em>{entry.count} expense{entry.count === 1 ? "" : "s"} · {((entry.amount / Math.max(data.total, 0.01)) * 100).toFixed(0)}%</em></span>
+            <span className="exp-cat-bar" aria-hidden="true"><i style={{ width: `${(entry.amount / top) * 100}%` }} /></span>
+            <strong>{peso(entry.amount)}</strong>
+          </button>
+        </li>)}
+      </ul>
+    </DashCard>}
+
+    <div className="inv-toolbar">
+      <div className="inv-search is-wide">
+        <IconSearch size={14} />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search what for, receipt, note or employee" />
+        {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+      </div>
+      <label className="inv-filter"><span>Category</span>
+        <select value={category} onChange={(event) => setCategory(event.target.value)} className={`inv-select${category !== "all" ? " is-active" : ""}`}>
+          <option value="all">All</option>{categoriesShown.map((option) => <option key={option} value={option}>{option}</option>)}
+        </select>
+      </label>
+      <label className="inv-filter"><span>Paid from</span>
+        <select value={paidFrom} onChange={(event) => setPaidFrom(event.target.value)} className={`inv-select${paidFrom !== "all" ? " is-active" : ""}`}>
+          <option value="all">Anywhere</option>{Object.entries(paidFromLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+        </select>
+      </label>
+      {voidedCount > 0 && <label className="inv-filter" style={{ flexDirection: "row", alignItems: "center", gap: 6 }}><input type="checkbox" checked={showVoided} onChange={(event) => setShowVoided(event.target.checked)} />Show {voidedCount} voided</label>}
+    </div>
+    <p className="inv-hint">Newest first, by business date. Cash outs recorded in the staff app show here by themselves. Restocking ingredients is not an expense: it is already in the cost of goods as the stock sells. Expenses cannot be edited or deleted; void a mistake and record it again.</p>
+    {loadError && <div className="inv-alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => setLoadError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+    {shown.length === 0 ? <div className="inv-empty">{data.expenses.length === 0 ? "No expenses in this period." : "Nothing matches these filters."}</div>
+      : <ul className="tre-list">
+        {shown.map((expense) => <li key={expense.id} className={expense.voidedAt ? "is-void" : "is-out"}>
+          <span className="tre-when"><strong>{formatRange(expense.spentOn, expense.spentOn)}</strong><em>{expense.shiftId ? `shift #${expense.shiftId}` : `#${expense.id}`}</em></span>
+          <span className="tre-what">
+            <strong>{expense.category}<span>{expense.description}</span></strong>
+            <em>{paidFromLabels[expense.paidFrom] ?? expense.paidFrom} · {expense.by ?? "—"}{expense.source === "cashier" ? " (staff app)" : ""}{expense.reference ? ` · ${expense.reference}` : ""}{expense.note ? ` · ${expense.note}` : ""}</em>
+            {expense.voidedAt && <i className="tre-tag is-void">Voided {shiftTime(expense.voidedAt)}{expense.voidedBy ? ` by ${expense.voidedBy}` : ""}: {expense.voidReason}</i>}
+          </span>
+          <span className="tre-amount"><strong>−{peso(expense.amount)}</strong></span>
+          <span className="tre-act">{!expense.voidedAt && <button type="button" className="inv-mini" onClick={() => { setNotice(""); setVoiding(expense); }}><IconX size={11} />Void</button>}</span>
+        </li>)}
+      </ul>}
+    {data.truncated && <p className="inv-hint">Showing the newest {data.expenses.length} expenses. Choose a shorter period to see older ones.</p>}
+    {adding && <ExpenseDialog data={data} today={today} onClose={() => setAdding(false)} onSaved={saved} />}
+    {voiding && <VoidExpenseDialog expense={voiding} onClose={() => setVoiding(null)} onSaved={saved} />}
+  </div>;
+}
+
+// ─── Treasury ─────────────────────────────────────────────────────────────────
+// The owner's logbook of where the business money is (see treasury-migration.sql and
+// treasury-paymongo-migration.sql). Two accounts, each with a history that reads like a ledger:
+//   Safe      the cash box. Shifts move cash in and out of it by themselves (the float, cash drops
+//             and cash ins, the closing deposit); the admin deposits, withdraws or counts it.
+//   PayMongo  the money PayMongo holds for the café. Each closing adds the shift's GCash and takes
+//             off PayMongo's fees; the admin records the weekly payouts or checks it against the
+//             PayMongo dashboard.
+// A hand-made entry with a wrong amount is fixed with a correction linked to it.
+type TreasuryKey = "safe" | "paymongo";
+type SafeInfo = { key: TreasuryKey; accountId: number; name: string; balance: number; live: boolean; openedAt: string | null };
+type SafeEntry = {
+  id: number; kind: string; amount: number; balanceAfter: number; shiftId: number | null; movementId: number | null; correctsEntryId: number | null;
+  correctedBy: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string;
+};
+type TreasuryData = {
+  safe: SafeInfo; paymongo: SafeInfo; lastFloat: number; account: TreasuryKey;
+  range: { opening: number; moneyIn: number; moneyOut: number; closing: number; fees: number; entries: number }; entries: SafeEntry[]; truncated: boolean;
+};
+type SafeAction = { type: "open" | "deposit" | "withdraw" | "payout" | "count" } | { type: "correct"; entry: SafeEntry };
+
+const safeKindLabels: Record<string, string> = {
+  opening_balance: "Opening balance", deposit: "Deposit", withdrawal: "Withdrawal", float_out: "Float to the drawer", float_return: "Float back from the drawer",
+  shift_deposit: "Shift closing", cash_drop: "Cash drop", cash_top_up: "Cash in to the drawer", correction: "Correction",
+  gcash_sales: "GCash sales", gateway_fee: "PayMongo fees", payout: "Payout", expense: "Expense",
+};
+const treasuryKindGroups: Record<TreasuryKey, { id: string; label: string; kinds: string[] }[]> = {
+  safe: [
+    { id: "owner", label: "Deposits & withdrawals", kinds: ["opening_balance", "deposit", "withdrawal"] },
+    { id: "expenses", label: "Expenses", kinds: ["expense"] },
+    { id: "shifts", label: "Shifts", kinds: ["float_out", "float_return", "shift_deposit", "cash_drop", "cash_top_up"] },
+    { id: "corrections", label: "Corrections", kinds: ["correction"] },
+  ],
+  paymongo: [
+    { id: "shifts", label: "GCash & fees", kinds: ["gcash_sales", "gateway_fee"] },
+    { id: "payouts", label: "Payouts", kinds: ["opening_balance", "payout"] },
+    { id: "corrections", label: "Corrections", kinds: ["correction"] },
+  ],
+};
+// Entries an admin made by hand, which a correction may fix.
+const treasuryCorrectable: Record<TreasuryKey, string[]> = { safe: ["opening_balance", "deposit", "withdrawal"], paymongo: ["opening_balance", "payout"] };
+const safeReasons: Record<"deposit" | "withdraw" | "payout" | "correct", string[]> = {
+  deposit: ["Owner added cash", "Change fund"],
+  withdraw: ["Owner took cash", "Paid a supplier", "Wages", "Rent or bills"],
+  payout: ["Weekly payout", "Payout on request"],
+  correct: ["Wrong amount typed", "Recorded twice", "Should not have been recorded"],
+};
+
+function IconSafe({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="15" rx="2" /><circle cx="12" cy="11.5" r="3.2" /><path d="M12 8.3v1M12 13.7v1M8.8 11.5h1M14.2 11.5h1M6 19v2M18 19v2" /></svg>;
+}
+
+function IconWallet({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3" /><rect x="3.5" y="7.5" width="17" height="12" rx="2.5" /><path d="M16 13.5h2" /></svg>;
+}
+
+function exportSafeEntries(data: TreasuryData, rangeLabel: string, fileStamp: string) {
+  const account = data.account === "safe" ? data.safe : data.paymongo;
+  const title = data.account === "safe" ? "safe" : "PayMongo";
+  saveWorkbook([
+    ["Summary", excelInfo([
+      [`Brew Houze ${title}`],
+      ["Showing", rangeLabel],
+      ["Generated", excelNow()],
+      [],
+      ["Balance at the start", data.range.opening],
+      ["Money in", data.range.moneyIn],
+      ["Money out", data.range.moneyOut],
+      ...(data.account === "paymongo" ? [["Of which PayMongo fees", data.range.fees] as ExcelInfoRow] : []),
+      ["Balance at the end", data.range.closing],
+      ["Balance now", account.balance],
+      ["Entries", data.range.entries],
+    ], ["Entries"])],
+    [`${data.account === "safe" ? "Safe" : "PayMongo"} history`, excelTable([...data.entries].reverse(), [
+      { header: "Date and time", value: (entry) => excelDateTime(entry.createdAt) },
+      { header: "Type", value: (entry) => safeKindLabels[entry.kind] ?? entry.kind },
+      { header: "Reason", value: (entry) => entry.reason },
+      { header: "In", value: (entry) => entry.amount > 0 ? entry.amount : null, kind: "money" },
+      { header: "Out", value: (entry) => entry.amount < 0 ? -entry.amount : null, kind: "money" },
+      { header: "Balance after", value: (entry) => entry.balanceAfter, kind: "money" },
+      { header: "Shift", value: (entry) => entry.shiftId ? `#${entry.shiftId}` : "" },
+      { header: "Corrects entry", value: (entry) => entry.correctsEntryId ? `#${entry.correctsEntryId}` : "" },
+      { header: "Note", value: (entry) => entry.note ?? "" },
+      { header: "By", value: (entry) => entry.by ?? "" },
+      { header: "From", value: (entry) => entry.source === "cashier" ? "Staff app" : "Admin app" },
+      { header: "Entry #", value: (entry) => entry.id },
+    ])],
+  ], `brew-houze-${data.account === "safe" ? "safe" : "paymongo"}-${fileStamp}.xlsx`);
+}
+
+function SafeActionDialog({ account, action, balance, onClose, onSaved }: { account: TreasuryKey; action: SafeAction; balance: number; onClose: () => void; onSaved: (message: string) => void }) {
+  const isSafe = account === "safe";
+  const place = isSafe ? "the safe" : "PayMongo";
+  const reasons = action.type === "deposit" || action.type === "withdraw" || action.type === "payout" || action.type === "correct" ? safeReasons[action.type] : [];
+  // A correction starts from what the entry is now (after any earlier corrections).
+  const current = action.type === "correct" ? Math.abs(action.entry.amount + action.entry.correctedBy) : null;
+  const [amount, setAmount] = useState(current === null ? "" : current.toFixed(2));
+  const [reason, setReason] = useState(reasons[0] ?? "");
+  const [otherReason, setOtherReason] = useState("");
+  const [note, setNote] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const value = amount.trim() === "" ? null : Number(amount);
+  const finalReason = reason === "__other__" ? otherReason.trim() : reason;
+
+  // What the balance becomes, shown before saving.
+  let change: number | null = null;
+  if (value !== null && Number.isFinite(value)) {
+    if (action.type === "deposit") change = value;
+    if (action.type === "withdraw" || action.type === "payout") change = -value;
+    if (action.type === "open") change = value;
+    if (action.type === "count") change = value - balance;
+    if (action.type === "correct") change = (action.entry.amount < 0 ? -value : value) - (action.entry.amount + action.entry.correctedBy);
+  }
+  const after = change === null ? null : (action.type === "open" ? change : balance + change);
+
+  const titles = {
+    open: isSafe ? "Count the safe to start" : "Start the PayMongo account", deposit: "Deposit to the safe", withdraw: "Withdraw from the safe",
+    payout: "Record a PayMongo payout", count: isSafe ? "Count the safe" : "Check against PayMongo", correct: "Correct an entry",
+  };
+  const messages = {
+    open: isSafe
+      ? <>Count the cash in the safe now and enter the total. From then on every shift takes its float from the safe and puts its closing cash back, and the history starts here. Include any cash left in the drawer from the last closing, as the next shift starts by taking its whole float from the safe.</>
+      : <>Open the PayMongo dashboard, go to <b>Payouts</b>, and enter the <b>Upcoming payout balance</b>. From then on every closing adds the shift’s GCash payments here and takes off PayMongo’s fees.</>,
+    deposit: <>Cash put into the safe from outside the shifts, for example the owner’s own money or extra change. The safe has <b>{peso(balance)}</b> now.</>,
+    withdraw: <>Cash taken out of the safe, for example the owner taking cash or paying a supplier. The safe has <b>{peso(balance)}</b> now and cannot go below ₱0.</>,
+    payout: <>The amount PayMongo paid out to the owner, as shown in the PayMongo dashboard’s payout history. PayMongo has <b>{peso(balance)}</b> recorded now.</>,
+    count: isSafe
+      ? <>Count the cash in the safe and enter the total. If it differs from the <b>{peso(balance)}</b> recorded, the difference is saved as a correction, so the safe matches what is really there.</>
+      : <>Enter the <b>Upcoming payout balance</b> from the PayMongo dashboard. If it differs from the <b>{peso(balance)}</b> recorded, the difference is saved as a correction (for example a fee that was not known at closing).</>,
+    correct: action.type === "correct" ? <>Enter what this {safeKindLabels[action.entry.kind]?.toLowerCase() ?? "entry"} should have been. It stays in the history as it was; the difference is saved as a correction linked to it.</> : null,
+  };
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (value === null || !Number.isFinite(value) || value < 0 || ((action.type === "deposit" || action.type === "withdraw" || action.type === "payout") && value === 0)) { setError(action.type === "open" || action.type === "count" ? "Enter the balance (0 or more)." : "Enter the amount."); return; }
+    if (reasons.length && !finalReason) { setError("Choose or type a reason."); return; }
+    if (after !== null && after < -0.004) { setError(`${isSafe ? "The safe" : "PayMongo"} only has ${peso(balance)} recorded. It cannot go below ₱0.`); return; }
+    if (!password) { setError("Enter your password to confirm."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const body = { account, action: action.type, amount: value, reason: finalReason, note, password, entry_id: action.type === "correct" ? action.entry.id : undefined };
+      const response = await fetch("/api/treasury", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not update the treasury.");
+      onSaved(payload?.data?.message ?? `${titles[action.type]}: saved. ${isSafe ? "The safe" : "PayMongo"} now has ${peso(Number(payload?.data?.balance ?? 0))}.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not update the treasury.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const outgoing = action.type === "withdraw" || action.type === "payout";
+  const amountLabel = action.type === "open" || action.type === "count" ? (isSafe ? "Cash counted in the safe" : "Upcoming payout balance") : action.type === "correct" ? "It should have been" : action.type === "payout" ? "Amount paid out" : "Amount";
+  return <Modal onClose={onClose} closeDisabled={saving} label={titles[action.type]}>
+    <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
+      <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: outgoing ? "#FEE2E2" : "#DCFCE7", color: outgoing ? "#B91C1C" : "#15803D" }}>{isSafe ? <IconSafe size={22} /> : <IconWallet size={22} />}</div>
+      <h2>{titles[action.type]}</h2>
+      <div className="ui-confirm-message">{messages[action.type]}</div>
+      {action.type === "correct" && <p className="tre-fixing">Entry #{action.entry.id} · {safeKindLabels[action.entry.kind]} · {action.entry.reason} · {shiftTime(action.entry.createdAt)} · now {peso(current ?? 0)}</p>}
+      <label className="acc-money">
+        <span>{amountLabel}</span>
+        <span className="acc-money-field"><b>₱</b><MoneyField data-autofocus value={amount} onChange={(typed) => { setAmount(typed); setError(""); }} placeholder="0.00" /></span>
+        {after !== null && change !== null && Math.abs(change) >= 0.005 && action.type !== "open" && <em style={{ color: after < 0 ? "#B91C1C" : "#6B4C3B" }}>{change > 0 ? "+" : "−"}{peso(Math.abs(change))} · {place} will have {peso(after)}</em>}
+        {action.type === "count" && change !== null && Math.abs(change) < 0.005 && <em style={{ color: "#15803D" }}>Matches the record</em>}
+      </label>
+      {reasons.length > 0 && <>
+        <div className="menu-chips" role="group" aria-label="Reason" style={{ marginTop: 12, flexWrap: "wrap" }}>
+          {[...reasons, "__other__"].map((option) => <button key={option} type="button" aria-pressed={reason === option} onClick={() => { setReason(option); setError(""); }}>{option === "__other__" ? "Other…" : option}</button>)}
+        </div>
+        {reason === "__other__" && <input value={otherReason} onChange={(event) => setOtherReason(event.target.value)} maxLength={80} placeholder="Type the reason" aria-label="Reason" style={{ ...packagingInput, marginTop: 8 }} />}
+      </>}
+      <label className="acc-money">
+        <span>Note <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+        <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={action.type === "payout" ? "e.g. the payout reference from PayMongo" : action.type === "withdraw" ? "e.g. what it was for" : "e.g. who counted it"} style={packagingInput} />
+      </label>
+      <label className="acc-money">
+        <span>Your password</span>
+        <input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} />
+      </label>
+      {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
+      <div className="ui-confirm-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className={`ui-button ${outgoing ? "ui-button-danger" : "ui-button-primary"}`} disabled={saving}>{saving ? "Saving…" : action.type === "open" ? (isSafe ? "Start the safe" : "Start PayMongo") : action.type === "count" ? (isSafe ? "Save the count" : "Save the check") : action.type === "correct" ? "Save the correction" : action.type === "deposit" ? "Deposit" : action.type === "payout" ? "Record payout" : "Withdraw"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function Treasury() {
+  const [today] = useState(() => getFinanceDateStamp());
+  const presets = useMemo(() => financePresets(today), [today]);
+  const [accountKey, setAccountKey] = useState<TreasuryKey>("safe");
+  const [presetId, setPresetId] = useState("30");
+  const [custom, setCustom] = useState({ start: addDays(today, -29), end: today });
+  const [data, setData] = useState<TreasuryData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [group, setGroup] = useState("all");
+  const [search, setSearch] = useState("");
+  const [action, setAction] = useState<SafeAction | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const preset = presets.find((entry) => entry.id === presetId);
+  const start = preset ? preset.start : custom.start;
+  const end = preset ? preset.end : custom.end;
+  const rangeValid = Boolean(start && end && start <= end);
+
+  useEffect(() => {
+    if (!rangeValid) return;
+    let active = true;
+    const load = async (quiet: boolean) => {
+      if (!quiet) { setLoading(true); setLoadError(""); }
+      try {
+        const response = await fetch(`/api/treasury?account=${accountKey}&start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the treasury.");
+        if (active) { setData(payload.data); setLoadError(""); }
+      } catch (error) {
+        if (active && !quiet) setLoadError(error instanceof Error ? error.message : "Could not load the treasury.");
+      } finally {
+        if (active && !quiet) setLoading(false);
+      }
+    };
+    const timer = window.setTimeout(() => void load(false), 0);
+    // Shifts move the accounts too, so keep them current while the page is open.
+    const interval = window.setInterval(() => { if (document.visibilityState === "visible") void load(true); }, 30_000);
+    return () => { active = false; window.clearTimeout(timer); window.clearInterval(interval); };
+  }, [accountKey, start, end, rangeValid, reloadKey]);
+
+  function chooseAccount(next: TreasuryKey) {
+    setAccountKey(next);
+    setGroup("all");
+    setNotice("");
+  }
+
+  function saved(message: string) {
+    setAction(null);
+    setNotice(message);
+    setReloadKey((key) => key + 1);
+  }
+
+  if (loading && !data) return <div className="inv-wrap"><div className="inv"><div className="inv-empty">Loading the treasury…</div></div></div>;
+  if (loadError && !data) return <div className="inv-wrap"><div className="inv"><div className="inv-empty is-error">{loadError} <button type="button" className="inv-link" onClick={() => setReloadKey((key) => key + 1)}>Try again</button></div></div></div>;
+  if (!data) return null;
+
+  const isSafe = accountKey === "safe";
+  // While switching, the data on screen may still be the other account's.
+  const current = data.account === accountKey;
+  const account = isSafe ? data.safe : data.paymongo;
+  const groups = treasuryKindGroups[accountKey];
+  const query = search.trim().toLowerCase();
+  const entries = current ? data.entries : [];
+  const kinds = groups.find((entry) => entry.id === group)?.kinds;
+  const shown = entries.filter((entry) => (!kinds || kinds.includes(entry.kind))
+    && (!query || [entry.reason, entry.note ?? "", entry.by ?? "", safeKindLabels[entry.kind] ?? "", entry.shiftId ? `#${entry.shiftId}` : "", `#${entry.id}`].some((text) => text.toLowerCase().includes(query))));
+  const counts = Object.fromEntries(groups.map((entry) => [entry.id, entries.filter((item) => groups.find((g) => g.id === entry.id)!.kinds.includes(item.kind)).length]));
+  const total = (data.safe.live ? data.safe.balance : 0) + (data.paymongo.live ? data.paymongo.balance : 0);
+  const rangeText = rangeValid ? formatRange(start, end) : "";
+
+  const accountTabs = <div className="tre-top">
+    <div className="inv-tabs" role="tablist" aria-label="Accounts">
+      <button type="button" role="tab" aria-selected={isSafe} onClick={() => chooseAccount("safe")}><IconSafe size={15} />Safe<span className="tre-tab-amount">{data.safe.live ? peso(data.safe.balance) : "not started"}</span></button>
+      <button type="button" role="tab" aria-selected={!isSafe} onClick={() => chooseAccount("paymongo")}><IconWallet size={15} />PayMongo<span className="tre-tab-amount">{data.paymongo.live ? peso(data.paymongo.balance) : "not started"}</span></button>
+    </div>
+    {(data.safe.live || data.paymongo.live) && <p className="tre-total"><span>Brew Houze has</span><strong>{peso(total)}</strong><em>{[data.safe.live && "safe", data.paymongo.live && "PayMongo"].filter(Boolean).join(" + ")}</em></p>}
+  </div>;
+
+  // Before go live: one step, counting the safe or reading the PayMongo dashboard.
+  if (!account.live) return <div className="inv-wrap"><div className="inv">
+    {accountTabs}
+    {notice && <div className="acc-notice" role="status">{notice}</div>}
+    {isSafe ? <section className="tre-start">
+      <span className="tre-start-icon"><IconSafe size={30} /></span>
+      <h2>Start the safe</h2>
+      <p>The safe is where Brew Houze’s cash lives between shifts. Once it is started, every opening takes its float from the safe, every closing puts its cash back (keeping what you leave in the drawer for the next shift), and cash drops go into it. Deposits and withdrawals are recorded here, so you always know how much the business has.</p>
+      <ol>
+        <li>Count all the cash in the safe, plus any left in the drawer from the last closing.</li>
+        <li>Enter the total. That is the safe’s opening balance; its history starts there.</li>
+      </ol>
+      <button type="button" className="inv-primary" onClick={() => setAction({ type: "open" })}><IconSafe size={16} />Count the safe</button>
+      <p className="inv-hint">Until then, shifts open and close as they do now and nothing moves in or out of the safe.</p>
+    </section> : <section className="tre-start">
+      <span className="tre-start-icon"><IconWallet size={30} /></span>
+      <h2>Start the PayMongo account</h2>
+      <p>GCash payments go through PayMongo, which keeps a fee on each one and pays the rest out to the owner once a week. This page keeps track of the money PayMongo is holding: every closing adds the shift’s GCash payments and takes off PayMongo’s fees, and you record each payout when it arrives.</p>
+      <ol>
+        <li>Open the PayMongo dashboard and go to Payouts.</li>
+        <li>Enter the Upcoming payout balance. That is this account’s opening balance; its history starts there.</li>
+      </ol>
+      <button type="button" className="inv-primary" onClick={() => setAction({ type: "open" })}><IconWallet size={16} />Start PayMongo</button>
+      <p className="inv-hint">Until then, GCash payments are recorded with their fees as usual, but nothing is added here.</p>
+    </section>}
+    {action && <SafeActionDialog account={accountKey} action={action} balance={account.balance} onClose={() => setAction(null)} onSaved={saved} />}
+  </div></div>;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      {accountTabs}
+      <div className="inv-summary">
+        <div className="inv-stat is-static tre-balance"><span>{isSafe ? "In the safe now" : "With PayMongo now"}</span><strong>{peso(account.balance)}</strong><em>since {account.openedAt ? shiftTime(account.openedAt) : "—"}</em></div>
+        {isSafe ? <>
+          <div className="inv-stat is-static"><span>Money in</span><strong style={{ color: "#15803D" }}>+{peso(current ? data.range.moneyIn : 0)}</strong><em>{rangeText}</em></div>
+          <div className="inv-stat is-static"><span>Money out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? data.range.moneyOut : 0)}</strong><em>{rangeText}</em></div>
+          <div className="inv-stat is-static"><span>Left in the drawer</span><strong>{peso(data.lastFloat)}</strong><em>by the last closing, for the next shift</em></div>
+        </> : <>
+          <div className="inv-stat is-static"><span>GCash in</span><strong style={{ color: "#15803D" }}>+{peso(current ? data.range.moneyIn : 0)}</strong><em>{rangeText}</em></div>
+          <div className="inv-stat is-static"><span>PayMongo fees</span><strong style={{ color: "#B45309" }}>−{peso(current ? data.range.fees : 0)}</strong><em>{current && data.range.moneyIn > 0 ? `${((data.range.fees / data.range.moneyIn) * 100).toFixed(1)}% of the GCash in` : rangeText}</em></div>
+          <div className="inv-stat is-static"><span>Paid out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? Math.max(0, data.range.moneyOut - data.range.fees) : 0)}</strong><em>to the owner, {rangeText}</em></div>
+        </>}
+      </div>
+
+      <div className="inv-head">
+        <div className="flex flex-wrap gap-2">
+          {isSafe ? <>
+            <button type="button" className="inv-primary" onClick={() => { setNotice(""); setAction({ type: "deposit" }); }}><IconPlus size={14} />Deposit</button>
+            <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "withdraw" }); }}>Withdraw</button>
+            <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "count" }); }}><IconSafe size={15} />Count the safe</button>
+          </> : <>
+            <button type="button" className="inv-primary" onClick={() => { setNotice(""); setAction({ type: "payout" }); }}>Record a payout</button>
+            <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "count" }); }}><IconWallet size={15} />Check against PayMongo</button>
+          </>}
+        </div>
+        <button type="button" className="inv-secondary" onClick={() => exportSafeEntries(data, rangeText, start === end ? start : `${start}-to-${end}`)} disabled={!current || data.entries.length === 0}><IconDownload size={14} />Export</button>
+      </div>
+
+      {notice && <div className="acc-notice" role="status">{notice}</div>}
+
+      <div className="fin-datebar">
+        <div className="menu-chips" role="group" aria-label="Period">
+          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => setPresetId(entry.id)}>{entry.label}</button>)}
+          <button type="button" aria-pressed={presetId === "custom"} onClick={() => { setCustom({ start, end }); setPresetId("custom"); }}>Custom</button>
+        </div>
+        {presetId === "custom" && <div className="inv-dates">
+          <input type="date" value={custom.start} max={custom.end || today} onChange={(event) => setCustom((value) => ({ ...value, start: event.target.value }))} aria-label="From" />
+          <span>to</span>
+          <input type="date" value={custom.end} min={custom.start} max={today} onChange={(event) => setCustom((value) => ({ ...value, end: event.target.value }))} aria-label="To" />
+        </div>}
+        {rangeValid && current && <p className="tre-flow">
+          <span>Start <b>{peso(data.range.opening)}</b></span><span className="is-in">+ in <b>{peso(data.range.moneyIn)}</b></span><span className="is-out">− out <b>{peso(data.range.moneyOut)}</b></span><span>= end <b>{peso(data.range.closing)}</b></span>
+        </p>}
+      </div>
+
+      <div className="menu-chips" role="group" aria-label="Kind of entry">
+        <button type="button" aria-pressed={group === "all"} onClick={() => setGroup("all")}>All<b>{entries.length}</b></button>
+        {groups.map((entry) => <button key={entry.id} type="button" aria-pressed={group === entry.id} onClick={() => setGroup(entry.id)}>{entry.label}<b>{counts[entry.id] ?? 0}</b></button>)}
+      </div>
+      <div className="inv-toolbar">
+        <div className="inv-search is-wide">
+          <IconSearch size={14} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search reason, note, employee or shift #" />
+          {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+        </div>
+      </div>
+      <p className="inv-hint">{isSafe
+        ? "Newest first. Shift moves are made by the shifts themselves: the float taken at opening, cash drops and cash ins, and the cash put back at closing. Nothing here can be edited or deleted; a deposit or withdrawal with a wrong amount is fixed with a correction, anything else by counting the safe."
+        : "Newest first. Each closing adds the GCash its customers paid through PayMongo and takes off the fees PayMongo kept, read from PayMongo itself. A voided or refunded GCash order stays in, because PayMongo still holds that payment (the money goes back to the customer by hand). Record each payout when it arrives, and check against the PayMongo dashboard now and then."}</p>
+      {loadError && <div className="inv-alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => setLoadError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+      {!rangeValid ? <div className="inv-empty is-error">The start date must be on or before the end date.</div>
+        : !current ? <div className="inv-empty">Loading…</div>
+          : shown.length === 0 ? <div className="inv-empty">{entries.length === 0 ? `No ${isSafe ? "safe" : "PayMongo"} moves in this period.` : "Nothing matches these filters."}</div>
+            : <ul className="tre-list" style={{ opacity: loading ? 0.6 : 1 }}>
+              {shown.map((entry) => {
+                const correctable = treasuryCorrectable[accountKey].includes(entry.kind);
+                return <li key={entry.id} className={entry.amount >= 0 ? "is-in" : "is-out"}>
+                  <span className="tre-when"><strong>{shiftTime(entry.createdAt)}</strong><em>#{entry.id}</em></span>
+                  <span className="tre-what">
+                    <strong>{safeKindLabels[entry.kind] ?? entry.kind}<span>{entry.reason}</span></strong>
+                    <em>
+                      {entry.by ? `${entry.by}${entry.source === "cashier" ? " (staff app)" : ""}` : "Recorded automatically"}
+                      {entry.shiftId && ` · shift #${entry.shiftId}`}
+                      {entry.correctsEntryId && ` · fixes #${entry.correctsEntryId}`}
+                      {entry.note && ` · ${entry.note}`}
+                    </em>
+                    {Math.abs(entry.correctedBy) >= 0.005 && <i className="tre-tag">Corrected to {peso(Math.abs(entry.amount + entry.correctedBy))}</i>}
+                  </span>
+                  <span className="tre-amount"><strong>{entry.amount >= 0 ? "+" : "−"}{peso(Math.abs(entry.amount))}</strong><em>balance {peso(entry.balanceAfter)}</em></span>
+                  <span className="tre-act">{correctable && <button type="button" className="inv-mini" onClick={() => { setNotice(""); setAction({ type: "correct", entry }); }}><IconPencil size={12} />Correct</button>}</span>
+                </li>;
+              })}
+            </ul>}
+      {current && data.truncated && <p className="inv-hint">Showing the newest {data.entries.length} entries. Choose a shorter period to see older ones.</p>}
+    </div>
+    {action && <SafeActionDialog account={accountKey} action={action} balance={account.balance} onClose={() => setAction(null)} onSaved={saved} />}
   </div>;
 }
 
@@ -9386,7 +10402,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -9407,6 +10423,7 @@ export default function App() {
         {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
         {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
         {page === "finance" && <Finance />}
+        {page === "treasury" && <Treasury />}
         {page === "customers" && <Customers />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
         {page === "discounts" && <Discounts />}

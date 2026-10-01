@@ -5,7 +5,8 @@ import type { IdDiscountInput } from "@/lib/discounts";
 import { claimCounterCart, completeCounterCart } from "@/lib/counter-carts";
 import { markVerificationUsed } from "@/lib/id-verifications";
 import type { DeliveryPlan } from "@/lib/delivery";
-import { createGcashPayment, getIntentState, PAYMONGO_MIN_AMOUNT, refundPayment } from "@/lib/paymongo";
+import { createGcashPayment, getIntentState, getPaymentFee, PAYMONGO_MIN_AMOUNT, refundPayment } from "@/lib/paymongo";
+import { recordLateFee } from "@/lib/treasury";
 
 // GCash checkouts: the order is only created once PayMongo reports the payment as paid, so an
 // abandoned payment never touches stock or the queue. brew-houze-cashier and brew-houze-mobile
@@ -19,6 +20,9 @@ import { createGcashPayment, getIntentState, PAYMONGO_MIN_AMOUNT, refundPayment 
 //
 // Split payments (counter only): the cashier collects cash_amount in cash first, and the
 // checkout charges the rest (amount) through GCash. The order records both parts.
+//
+// The order also keeps the fee PayMongo kept on the payment (sales_orders.payment_fee, see
+// treasury-paymongo-migration.sql), for Finance and the PayMongo page of the treasury.
 
 export type CheckoutStatus = "awaiting_payment" | "completed" | "failed" | "cancelled" | "refunded" | "needs_attention";
 export type CheckoutView = {
@@ -147,7 +151,7 @@ async function tryRefund(checkoutId: number) {
 
 // Creates the order for a paid checkout, exactly once, however many times it is called
 // (status checks and the webhook can arrive together). Refunds if the order cannot be made.
-async function finalizePaid(checkoutId: number, paymentId: string | null): Promise<void> {
+async function finalizePaid(checkoutId: number, paymentId: string | null, fee: number | null): Promise<void> {
   const client = await pool.connect();
   let refundNeeded = false;
   try {
@@ -196,6 +200,7 @@ async function finalizePaid(checkoutId: number, paymentId: string | null): Promi
       if (counterCartId !== null && counterCartToken !== null) await completeCounterCart(client, counterCartId, placed.orderId);
       // A mobile ID check is good for one order: used now, or the payment is refunded.
       if (row.id_verification_id !== null && row.id_verification_id !== undefined) await markVerificationUsed(client, Number(row.id_verification_id), placed.orderId);
+      if (fee !== null) await client.query("UPDATE sales_orders SET payment_fee = $2 WHERE order_id = $1", [placed.orderId, fee]);
       await client.query("UPDATE payment_checkouts SET status = 'completed', order_id = $2, payment_id = $3, paid_at = CURRENT_TIMESTAMP, error = NULL, updated_at = CURRENT_TIMESTAMP WHERE checkout_id = $1", [checkoutId, placed.orderId, paymentId]);
     } catch (orderError) {
       await client.query("ROLLBACK TO SAVEPOINT place_order");
@@ -220,7 +225,7 @@ export async function refreshCheckout(token: string): Promise<CheckoutView | nul
   if ((row.status === "awaiting_payment" || row.status === "cancelled") && row.intent_id) {
     const state = await getIntentState(row.intent_id);
     if (state.status === "succeeded") {
-      await finalizePaid(Number(row.checkout_id), state.paymentId);
+      await finalizePaid(Number(row.checkout_id), state.paymentId, state.fee);
       return toView((await loadByToken(token))!);
     }
     if (state.status === "failed" && row.status === "awaiting_payment") {
@@ -263,6 +268,30 @@ export async function reconcilePendingCheckouts() {
     UPDATE payment_checkouts SET status = 'failed', error = 'The payment was not completed in time.', updated_at = CURRENT_TIMESTAMP
     WHERE status = 'awaiting_payment' AND created_at < CURRENT_TIMESTAMP - INTERVAL '3 hours'
   `);
+  // GCash orders whose fee was not read when they were paid: ask PayMongo for it.
+  const unfeed = await pool.query(`
+    SELECT order_id, payment_reference FROM sales_orders
+    WHERE payment_provider = 'paymongo_gcash' AND payment_fee IS NULL AND payment_reference IS NOT NULL
+    ORDER BY order_id DESC
+    LIMIT 5
+  `);
+  for (const row of unfeed.rows) {
+    const client = await pool.connect();
+    try {
+      const fee = await getPaymentFee(String(row.payment_reference));
+      if (fee === null) continue;
+      await client.query("BEGIN");
+      const saved = await client.query("UPDATE sales_orders SET payment_fee = $2 WHERE order_id = $1 AND payment_fee IS NULL RETURNING shift_id", [row.order_id, fee]);
+      // A shift already closed has its GCash in the PayMongo account without this fee.
+      if (saved.rowCount) await recordLateFee(client, { orderId: Number(row.order_id), shiftId: saved.rows[0].shift_id === null ? null : Number(saved.rows[0].shift_id), fee });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      console.error(`Could not read the PayMongo fee of order ${row.order_id}:`, error);
+    } finally {
+      client.release();
+    }
+  }
 }
 
 // The counter payment a customer can pay right now from the printed GCash sign (/pay/counter):
@@ -288,11 +317,11 @@ export async function currentCounterCheckout(): Promise<{ token: string; amount:
 }
 
 // Called by the PayMongo webhook (payment.paid / payment.failed).
-export async function handlePaymentEvent(intentId: string, paid: boolean, paymentId: string | null, failure: string | null) {
+export async function handlePaymentEvent(intentId: string, paid: boolean, paymentId: string | null, failure: string | null, fee: number | null = null) {
   const result = await pool.query("SELECT checkout_id, status FROM payment_checkouts WHERE intent_id = $1", [intentId]);
   const row = result.rows[0];
   if (!row) return false;
-  if (paid) await finalizePaid(Number(row.checkout_id), paymentId);
+  if (paid) await finalizePaid(Number(row.checkout_id), paymentId, fee);
   else await pool.query("UPDATE payment_checkouts SET status = 'failed', error = $2, updated_at = CURRENT_TIMESTAMP WHERE checkout_id = $1 AND status = 'awaiting_payment'", [row.checkout_id, failure ?? "The GCash payment did not go through."]);
   return true;
 }

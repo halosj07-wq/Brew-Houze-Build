@@ -388,13 +388,13 @@ function CampaignPreview() {
   </div>;
 }
 
-function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onAccount: () => void; onRequestLogout: () => void }) {
+function TopBar({ page, user, shift, onOpenShift, onCloseShift, onCashDrawer, onReportWaste, onAccount, onRequestLogout }: { page: Page; user: Session; shift: CurrentShift | null | undefined; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onReportWaste: () => void; onAccount: () => void; onRequestLogout: () => void }) {
   const title = page === "pos" ? "Point of Sale" : page === "line" ? "Counter line" : page === "queue" ? "Queue" : page === "reversals" ? "Order history" : page === "deliveries" ? "Deliveries" : "My Account";
   const isAdmin = user.role.toLowerCase() === "admin";
   return <header className="app-topbar flex items-center justify-between gap-4 px-6 py-3 border-b" style={{ background: "#FDF9F5", borderColor: "#E8DDD5", flexShrink: 0 }}>
     <div className="flex items-center gap-4 min-w-0">
       <span className="topbar-title" style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 17, color: "#3D2B1F", whiteSpace: "nowrap" }}>{title}</span>
-      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} canCloseShift={Boolean(user.canCloseShift)} readOnly={isQueueOnlyRole(user.role)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} />
+      <ShiftChip shift={shift} canOpenShift={Boolean(user.canOpenShift)} canCloseShift={Boolean(user.canCloseShift)} readOnly={isQueueOnlyRole(user.role)} onOpenShift={onOpenShift} onCloseShift={onCloseShift} onCashDrawer={onCashDrawer} onReportWaste={onReportWaste} />
     </div>
     <div className="flex items-center gap-2.5">
       <CampaignPreview />
@@ -3439,6 +3439,9 @@ function ReversalsPage({ user }: { user: Session }) {
   const [gcashName, setGcashName] = useState("");
   const [gcashNumber, setGcashNumber] = useState("");
   const [gcashReference, setGcashReference] = useState("");
+  // Whether the order was already made: its stock is then gone (not returned) and counts as
+  // written off. Suggested from the bar and kitchen, the cashier confirms it.
+  const [made, setMade] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -3473,7 +3476,7 @@ function ReversalsPage({ user }: { user: Session }) {
       const response = await fetch("/api/order-actions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_id: order.order_id, action, password, return_method: returnMethod, gcash_name: gcashName, gcash_number: gcashNumber, reference: gcashReference }),
+        body: JSON.stringify({ order_id: order.order_id, action, password, return_method: returnMethod, gcash_name: gcashName, gcash_number: gcashNumber, reference: gcashReference, made }),
       });
       const payload = await response.json();
       if (payload?.code === "wrong_password") { setPassword(""); setWrongPassword(true); }
@@ -3481,7 +3484,7 @@ function ReversalsPage({ user }: { user: Session }) {
       setPendingAction(null);
       setPassword("");
       setError("");
-      setNotice(`Order #${order.queue_number} ${action === "void" ? "voided" : "refunded"}. ${returnMethod === "split" ? `Hand back ₱${Number(order.cash_portion ?? 0).toFixed(2)} in cash and send ₱${(Number(order.total_amount ?? 0) - Number(order.cash_portion ?? 0)).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : returnMethod === "gcash" ? `Send ₱${Number(order.total_amount ?? 0).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : `Hand back ₱${Number(order.total_amount ?? 0).toFixed(2)} in cash.`} Its ingredients and add-ons were returned to inventory.`);
+      setNotice(`Order #${order.queue_number} ${action === "void" ? "voided" : "refunded"}. ${returnMethod === "split" ? `Hand back ₱${Number(order.cash_portion ?? 0).toFixed(2)} in cash and send ₱${(Number(order.total_amount ?? 0) - Number(order.cash_portion ?? 0)).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : returnMethod === "gcash" ? `Send ₱${Number(order.total_amount ?? 0).toFixed(2)} through GCash to ${gcashName.trim()} (${formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0"))}).` : `Hand back ₱${Number(order.total_amount ?? 0).toFixed(2)} in cash.`} ${made ? "It was already made, so its ingredients are not returned to inventory (counted as wasted)." : "Its ingredients and add-ons were returned to inventory."}`);
       await loadOrders();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : `Unable to ${action} order.`);
@@ -3515,6 +3518,9 @@ function ReversalsPage({ user }: { user: Session }) {
     setError(""); setPassword(""); setWrongPassword(false);
     setReturnMethod(order.cod_unpaid ? "none" : order.payment_method === "split" ? "split" : order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
     setGcashName(""); setGcashNumber(""); setGcashReference("");
+    // Made if the bar or kitchen marked it ready or picked up, or it was refunded after the
+    // customer got it; otherwise not made yet.
+    setMade(action === "refund" || order.queue_status === "served" || (order.parts ?? []).some((part) => part.status !== "waiting"));
     setPendingAction({ order, action });
   };
   const closeAction = () => { setPendingAction(null); setPassword(""); setWrongPassword(false); setError(""); };
@@ -3523,7 +3529,7 @@ function ReversalsPage({ user }: { user: Session }) {
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
       <div>
         <h1 style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 26, color: "#3D2B1F", margin: 0 }}>Order history</h1>
-        <p style={{ color: "#9C8278", fontSize: 12.5, margin: "4px 0 0" }}>The orders of the current shift: reprint a receipt, or void or refund an order. Orders from earlier shifts can’t be voided or refunded. Reversing an order returns its ingredients and add-ons to inventory.</p>
+        <p style={{ color: "#9C8278", fontSize: 12.5, margin: "4px 0 0" }}>The orders of the current shift: reprint a receipt, or void or refund an order. Orders from earlier shifts can’t be voided or refunded. Reversing an order returns its ingredients to inventory, unless it was already made.</p>
       </div>
       <button type="button" onClick={() => { setLoading(true); void loadOrders(); }} style={{ border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#6B4C3B", borderRadius: 10, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Refresh</button>
     </div>
@@ -3608,7 +3614,18 @@ function ReversalsPage({ user }: { user: Session }) {
               {detail.additions.length > 0 && <div style={{ marginTop: 3, color: "#7E22CE", fontSize: 12 }}>+ {detail.additions.map((addition) => formatQueueAddition(addition, Number(detail.quantity))).join(", ")}</div>}
             </div>)}
           </div>
-          {returnMethod === "none" && <p style={{ margin: "14px 0 0", padding: "10px 12px", borderRadius: 10, background: "#F3EDE5", color: "#3D2B1F", fontSize: 13, lineHeight: 1.5 }}><strong>Nothing to return.</strong> This cash on delivery order was never paid. Voiding it puts the stock back.</p>}
+          <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Was it already made?</p>
+          <div role="radiogroup" aria-label="Was it already made" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            {([[false, "Not yet", "Stock goes back"], [true, "Already made", "Stock is not returned"]] as const).map(([value, label, hint]) => {
+              const active = made === value;
+              return <button key={label} type="button" role="radio" aria-checked={active} onClick={() => setMade(value)} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, padding: "9px 6px", borderRadius: 10, border: `1px solid ${active ? "#3D2B1F" : "#E8DDD5"}`, background: active ? "#3D2B1F" : "#FFFDF9", color: active ? "#FFFFFF" : "#3D2B1F", cursor: "pointer" }}>
+                <strong style={{ fontSize: 13.5 }}>{label}</strong>
+                <span style={{ fontSize: 11, opacity: 0.8 }}>{hint}</span>
+              </button>;
+            })}
+          </div>
+          <p style={{ margin: "6px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.45 }}>{made ? "The ingredients were used (poured away or handed over), so they stay out of inventory and their cost counts as wasted." : "Nothing was prepared yet, so every ingredient and add-on goes back to inventory."}</p>
+          {returnMethod === "none" && <p style={{ margin: "14px 0 0", padding: "10px 12px", borderRadius: 10, background: "#F3EDE5", color: "#3D2B1F", fontSize: 13, lineHeight: 1.5 }}><strong>Nothing to return.</strong> This cash on delivery order was never paid.</p>}
           {returnMethod !== "none" && <>
           <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>How is the money returned? <span style={{ fontWeight: 400, color: "#9C8278" }}>Paid with {pendingIsSplit ? `₱${pendingCashPart.toFixed(2)} cash + ₱${pendingGcashPart.toFixed(2)} GCash` : pendingIsGcash ? "GCash" : pendingIsOnline ? "online payment" : "cash"}</span></p>
           <div role="group" aria-label="Return method" style={{ display: "grid", gridTemplateColumns: pendingIsSplit ? "1fr 1fr 1fr" : "1fr 1fr", gap: 6 }}>
@@ -3650,7 +3667,7 @@ function ReversalsPage({ user }: { user: Session }) {
               <div style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 16, fontWeight: 700, letterSpacing: "0.04em" }}>{gcashNumber && isValidGcashNumber(gcashNumber) ? formatGcashNumber(gcashNumber.replace(/[\s-]/g, "").replace(/^\+?63/, "0")) : "—"}</div>
             </div>}
           </div>
-          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>{returnMethod === "gcash" ? "Send it from the café’s GCash by hand. The cash drawer is not affected." : returnMethod === "split" ? "The cash part comes out of the drawer. Send the GCash part from the café’s GCash by hand." : "Taken out of the expected cash in the drawer."} Stock is returned to inventory, the order leaves the queue, and it no longer counts as a sale. This cannot be undone.</p>
+          <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>{returnMethod === "gcash" ? "Send it from the café’s GCash by hand. The cash drawer is not affected." : returnMethod === "split" ? "The cash part comes out of the drawer. Send the GCash part from the café’s GCash by hand." : "Taken out of the expected cash in the drawer."} The order leaves the queue and no longer counts as a sale. This cannot be undone.</p>
           </>}
           <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={user.fullName} invalid={wrongPassword} />
           {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
@@ -3938,6 +3955,8 @@ type CurrentShift = {
   openedByName: string | null;
   closedByName: string | null;
   startingCash: number;
+  // Cash this closing left in the drawer for the next shift (the rest went to the safe).
+  floatKept?: number | null;
   countedCash: number | null;
   orderCount: number;
   mobileOrderCount: number;
@@ -3980,7 +3999,7 @@ function formatClock(value: string | null): string {
   return new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
 }
 
-function ShiftChip({ shift, canOpenShift, canCloseShift = false, readOnly = false, onOpenShift, onCloseShift, onCashDrawer }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; canCloseShift?: boolean; readOnly?: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void }) {
+function ShiftChip({ shift, canOpenShift, canCloseShift = false, readOnly = false, onOpenShift, onCloseShift, onCashDrawer, onReportWaste }: { shift: CurrentShift | null | undefined; canOpenShift: boolean; canCloseShift?: boolean; readOnly?: boolean; onOpenShift: () => void; onCloseShift: () => void; onCashDrawer: () => void; onReportWaste: () => void }) {
   if (shift === undefined) return null;
   const chipButton: React.CSSProperties = { border: "none", borderRadius: 8, padding: "6px 11px", fontSize: 12, fontWeight: 800, cursor: "pointer" };
   if (shift === null) {
@@ -3995,6 +4014,7 @@ function ShiftChip({ shift, canOpenShift, canCloseShift = false, readOnly = fals
     <span style={{ width: 8, height: 8, borderRadius: "50%", background: longShift ? "#F59E0B" : "#22C55E" }} />
     <span className="shift-chip-text">Shift open since {formatClock(shift.openedAt)} · {formatShiftDuration(shift.hoursOpen)}{longShift ? " · close it?" : ""}</span>
     {!readOnly && <button type="button" onClick={onCashDrawer} title="Cash in, cash out or cash drop" style={{ ...chipButton, background: "#FFFFFF", color: "#3D2B1F", border: "1px solid #E8DDD5" }}>Drawer</button>}
+    {!readOnly && <button type="button" onClick={onReportWaste} title="Report a spilled drink, expired stock or a staff drink" style={{ ...chipButton, background: "#FFFFFF", color: "#B45309", border: "1px solid #FCD34D" }}>Waste</button>}
     {!readOnly && canCloseShift && <button type="button" onClick={onCloseShift} style={{ ...chipButton, background: "#3D2B1F", color: "#FDF9F5" }}>Close shift</button>}
   </div>;
 }
@@ -4025,12 +4045,31 @@ function WaitingForShiftPanel({ userName, queueOnly = false, onCheckAgain, onSwi
   </main>;
 }
 
+// The safe as the staff app sees it (see treasury-migration.sql): whether it is in use, and the
+// cash the last closing left in the drawer. Its balance is only shown in the admin app.
+type ShiftTreasury = { live: boolean; lastFloat: number };
+
 function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: string; onOpened: (shift: CurrentShift) => void; onSwitchCashier: () => void }) {
   const [startingCash, setStartingCash] = useState("");
   const [password, setPassword] = useState("");
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState("");
   const [wrongPassword, setWrongPassword] = useState(false);
+  const [treasury, setTreasury] = useState<ShiftTreasury | null>(null);
+
+  // Starts from what the last closing left in the drawer.
+  useEffect(() => {
+    let active = true;
+    fetch("/api/shift", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+      const next = payload?.treasury as ShiftTreasury | undefined;
+      if (!active || !next) return;
+      setTreasury(next);
+      if (next.lastFloat > 0) setStartingCash((typed) => typed === "" ? next.lastFloat.toFixed(2) : typed);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  const typedAmount = startingCash.trim() === "" ? null : Number(startingCash);
+  const fromSafe = treasury?.live && typedAmount !== null && Number.isFinite(typedAmount) ? Math.round((typedAmount - treasury.lastFloat) * 100) / 100 : null;
 
   async function openShift(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -4069,6 +4108,10 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
           <MoneyInput label="Starting cash in the drawer" autoFocus value={startingCash} onChange={setStartingCash} style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "13px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 22, fontWeight: 800, color: "#3D2B1F" }} />
         </span>
       </label>
+      {treasury?.live && <p style={{ margin: "8px 0 0", color: "#6B4C3B", fontSize: 12.5, lineHeight: 1.5 }}>
+        {formatPeso(treasury.lastFloat)} was left in the drawer at the last closing.{" "}
+        {fromSafe === null || Math.abs(fromSafe) < 0.005 ? "Nothing is taken from the safe." : fromSafe > 0 ? <>Take <strong>{formatPeso(fromSafe)}</strong> more from the safe.</> : <>Put <strong>{formatPeso(-fromSafe)}</strong> back in the safe.</>}
+      </p>}
       <ConfirmPasswordField value={password} onChange={(value) => { setPassword(value); setWrongPassword(false); }} userName={userName} invalid={wrongPassword} />
       {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
       <button type="submit" disabled={opening} style={{ width: "100%", height: 50, marginTop: 18, border: "none", borderRadius: 12, background: opening ? "#C9B8AF" : "#D97706", color: "#FFFFFF", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 16, cursor: opening ? "default" : "pointer", boxShadow: opening ? "none" : "0 8px 18px rgba(217,119,6,0.28)" }}>{opening ? "Opening…" : "Open shift"}</button>
@@ -4084,8 +4127,8 @@ function OpenShiftPanel({ userName, onOpened, onSwitchCashier }: { userName: str
 type DrawerKind = "cash_in" | "cash_out" | "cash_drop";
 type DrawerMovement = { id: number; kind: DrawerKind; amount: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string };
 const drawerKinds: Record<DrawerKind, { label: string; hint: string; reasons: string[]; tone: string; sign: "+" | "−" }> = {
-  cash_in: { label: "Cash in", hint: "Money added to the drawer", reasons: ["Change fund", "Owner added cash"], tone: "#15803D", sign: "+" },
-  cash_out: { label: "Cash out", hint: "Something paid for from the drawer", reasons: ["Supplies", "Ice", "Delivery", "Staff meal"], tone: "#B91C1C", sign: "−" },
+  cash_in: { label: "Cash in", hint: "Money added from the safe", reasons: ["Change fund", "More change from the safe"], tone: "#15803D", sign: "+" },
+  cash_out: { label: "Cash out", hint: "Something paid for from the drawer (an expense)", reasons: ["Supplies", "Ice", "Delivery", "Staff meals", "Repairs & maintenance"], tone: "#B91C1C", sign: "−" },
   cash_drop: { label: "Cash drop", hint: "Large bills moved to the safe", reasons: ["Moved to the safe"], tone: "#1D4ED8", sign: "−" },
 };
 
@@ -4219,7 +4262,162 @@ function CashDrawerDialog({ userName, onClose }: { userName: string; onClose: ()
             <strong style={{ color: drawerKinds[entry.kind]?.tone ?? "#3D2B1F" }}>{drawerKinds[entry.kind]?.sign ?? ""}{formatPeso(entry.amount)}</strong>
           </li>)}
         </ul>}
-        <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>Entries cannot be deleted. To fix a mistake, record the opposite entry (for example, a cash in for money taken out by mistake).</p>
+        <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 11.5, lineHeight: 1.5 }}>A cash in is taken from the safe and a cash drop goes into it; a cash out is money spent. Entries cannot be deleted. To fix a mistake, record the opposite entry (for example, a cash in for money taken out by mistake).</p>
+      </div>
+    </section>
+  </Modal>;
+}
+
+// ─── Waste reports ───────────────────────────────────────────────────────────
+// Stock that left without being sold (a dropped drink, milk past its date) is reported here, and an
+// admin approves or rejects it in the admin app. Nothing comes off stock until it is approved.
+type WasteOption = { key: string; label: string; category: string; unit: string | null; whole: boolean; body: { product_variant_id?: number; inventory_id?: number } };
+type WasteReport = { id: number; label: string; quantity: number; unit: string | null; reason: string; note: string | null; status: string; decisionNote: string | null; mine: boolean; by: string | null; decidedBy: string | null; createdAt: string };
+const wasteReasons: { id: string; label: string; hint: string }[] = [
+  { id: "wasted", label: "Spilled or wasted", hint: "Dropped, spilled, made wrong" },
+  { id: "expired", label: "Expired or spoiled", hint: "Past its date, gone bad" },
+  { id: "damaged", label: "Damaged", hint: "Broken or torn packaging" },
+  { id: "in_house", label: "Used in-house", hint: "Staff drink, tasting" },
+  { id: "other", label: "Other", hint: "Say what happened" },
+];
+const wasteStatus: Record<string, { label: string; color: string; background: string }> = {
+  pending: { label: "Waiting for an admin", color: "#B45309", background: "#FEF3C7" },
+  approved: { label: "Approved", color: "#15803D", background: "#DCFCE7" },
+  rejected: { label: "Rejected", color: "#B91C1C", background: "#FEE2E2" },
+  cancelled: { label: "Taken back", color: "#6B4C3B", background: "#F3EDE5" },
+};
+
+function WasteReportDialog({ onClose }: { onClose: () => void }) {
+  const [options, setOptions] = useState<{ products: WasteOption[]; items: WasteOption[] } | null>(null);
+  const [reports, setReports] = useState<WasteReport[]>([]);
+  const [kind, setKind] = useState<"products" | "items">("products");
+  const [search, setSearch] = useState("");
+  const [chosen, setChosen] = useState<WasteOption | null>(null);
+  const [quantity, setQuantity] = useState("1");
+  const [reason, setReason] = useState("wasted");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/write-off-requests", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the waste reports.");
+      const data = payload.data as { products: { productVariantId: number; label: string; category: string }[]; items: { inventoryId: number; label: string; unit: string; whole: boolean; category: string }[]; reports: WasteReport[] };
+      setOptions({
+        products: data.products.map((product) => ({ key: `p${product.productVariantId}`, label: product.label, category: product.category, unit: null, whole: true, body: { product_variant_id: product.productVariantId } })),
+        items: data.items.map((item) => ({ key: `i${item.inventoryId}`, label: item.label, category: item.category, unit: item.unit, whole: item.whole, body: { inventory_id: item.inventoryId } })),
+      });
+      setReports(data.reports);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the waste reports.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    return () => window.clearTimeout(timer);
+  }, [load]);
+
+  const query = search.trim().toLowerCase();
+  const list = (options?.[kind] ?? []).filter((option) => !query || option.label.toLowerCase().includes(query) || option.category.toLowerCase().includes(query)).slice(0, 60);
+  const value = Number(quantity);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!chosen) { setError("Choose what was wasted."); return; }
+    if (!(value > 0) || (chosen.whole && !Number.isInteger(value))) { setError(chosen.whole ? "Enter how many (whole pieces)." : "Enter how much."); return; }
+    if (reason === "other" && !note.trim()) { setError("Say what happened."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/write-off-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "report", ...chosen.body, quantity: value, reason, note }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the report.");
+      setNotice(`Reported: ${value}${chosen.unit ? ` ${chosen.unit}` : " ×"} ${chosen.label}. An admin approves it in the admin app.`);
+      setChosen(null);
+      setQuantity("1");
+      setNote("");
+      setSearch("");
+      await load();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the report.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function cancel(report: WasteReport) {
+    setError("");
+    const response = await fetch("/api/write-off-requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel", request_id: report.id }) });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) setError(payload?.error || "Could not take the report back.");
+    await load();
+  }
+
+  const sectionLabel: React.CSSProperties = { margin: "16px 0 6px", color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".08em", textTransform: "uppercase" };
+  return <Modal onClose={onClose} closeDisabled={saving} labelledBy="waste-title" zIndex={70}>
+    <section onClick={(event) => event.stopPropagation()} style={{ width: "min(100%, 540px)", maxHeight: "92vh", overflowY: "auto", background: "#FDF9F5", border: "1px solid #E8DDD5", borderRadius: 18, boxShadow: "0 18px 50px rgba(61,43,31,.25)" }}>
+      <div className="flex items-start justify-between gap-3" style={{ padding: "18px 22px", background: "#F3EDE5", borderBottom: "1px solid #E8DDD5" }}>
+        <div>
+          <p style={{ margin: 0, color: "#D97706", fontFamily: "JetBrains Mono, monospace", fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase" }}>This shift</p>
+          <h2 id="waste-title" style={{ margin: "5px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 24, fontWeight: 800, color: "#3D2B1F" }}>Report waste</h2>
+          <p style={{ margin: "3px 0 0", color: "#9C8278", fontSize: 12 }}>A drink spilled, milk expired, a staff drink. An admin approves it before the stock comes off.</p>
+        </div>
+        <button type="button" onClick={onClose} disabled={saving} aria-label="Close waste reports" style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 26, lineHeight: 1, cursor: saving ? "default" : "pointer" }}>×</button>
+      </div>
+      <form onSubmit={submit} style={{ padding: "4px 22px 0" }}>
+        <p style={sectionLabel}>What was wasted</p>
+        <div className="drawer-kinds" role="group" aria-label="Menu item or ingredient">
+          {([["products", "A menu item", "e.g. 1 Cafe Latte 16 oz"], ["items", "An ingredient", "e.g. 1 liter of milk"]] as const).map(([id, label, hint]) => <button key={id} type="button" aria-pressed={kind === id} onClick={() => { setKind(id); setChosen(null); setQuantity("1"); }} style={kind === id ? { borderColor: "#3D2B1F", background: "#3D2B1F", color: "#FFFFFF" } : { color: "#3D2B1F" }}><strong>{label}</strong><span>{hint}</span></button>)}
+        </div>
+        {chosen ? <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 10, padding: "10px 12px", borderRadius: 12, border: "1px solid #3D2B1F", background: "#FFFFFF" }}>
+          <span><strong style={{ color: "#3D2B1F" }}>{chosen.label}</strong><span style={{ color: "#9C8278", fontSize: 12 }}> · {chosen.category}</span></span>
+          <button type="button" onClick={() => setChosen(null)} style={{ border: "none", background: "transparent", color: "#D97706", fontWeight: 700, cursor: "pointer" }}>Change</button>
+        </div> : <>
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === "products" ? "Search the menu" : "Search ingredients"} aria-label="Search" style={{ width: "100%", marginTop: 10, border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 14, color: "#3D2B1F", outline: "none" }} />
+          <div className="drawer-reasons" role="list" style={{ marginTop: 8, maxHeight: 180, overflowY: "auto" }}>
+            {!options ? <span style={{ color: "#9C8278", fontSize: 12.5 }}>Loading…</span> : list.length === 0 ? <span style={{ color: "#9C8278", fontSize: 12.5 }}>Nothing matches.</span>
+              : list.map((option) => <button key={option.key} type="button" onClick={() => { setChosen(option); setQuantity("1"); setError(""); }}>{option.label}</button>)}
+          </div>
+        </>}
+        {chosen && <>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
+            {chosen.unit ? `How much (${chosen.unit})` : "How many"}
+            <input type="number" min={chosen.whole ? 1 : 0} step={chosen.whole ? 1 : "any"} inputMode={chosen.whole ? "numeric" : "decimal"} value={quantity} onChange={(event) => { setQuantity(event.target.value); setError(""); }} style={{ border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 16, fontWeight: 700, color: "#3D2B1F", outline: "none" }} />
+          </label>
+          <p style={{ margin: "12px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>What happened</p>
+          <div className="drawer-reasons" role="group" aria-label="What happened">
+            {wasteReasons.map((option) => <button key={option.id} type="button" aria-pressed={reason === option.id} onClick={() => { setReason(option.id); setError(""); }} title={option.hint}>{option.label}</button>)}
+          </div>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
+            <span>Note {reason !== "other" && <span style={{ fontWeight: 400, color: "#9C8278" }}>(optional)</span>}</span>
+            <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={200} placeholder="e.g. Customer bumped the cup" style={{ border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "10px 12px", fontSize: 14, color: "#3D2B1F", outline: "none" }} />
+          </label>
+        </>}
+        {error && <p style={{ margin: "10px 0 0", color: "#B91C1C", fontSize: 12.5 }}>{error}</p>}
+        {notice && <p role="status" style={{ margin: "10px 0 0", color: "#15803D", fontSize: 12.5, fontWeight: 700 }}>{notice}</p>}
+        <button type="submit" disabled={saving || !chosen} className="drawer-save" style={{ background: saving || !chosen ? "#C9B8AF" : "#B45309" }}>{saving ? "Sending…" : chosen ? `Report ${Number(quantity) > 0 ? quantity : ""}${chosen.unit ? ` ${chosen.unit}` : " ×"} ${chosen.label}` : "Choose what was wasted"}</button>
+      </form>
+      <div style={{ padding: "0 22px 22px" }}>
+        <p style={sectionLabel}>Reports this shift ({reports.length})</p>
+        {reports.length === 0 ? <p style={{ margin: 0, color: "#9C8278", fontSize: 12.5 }}>None yet.</p> : <ul className="drawer-list">
+          {reports.map((report) => {
+            const status = wasteStatus[report.status] ?? wasteStatus.pending;
+            return <li key={report.id}>
+              <span className="drawer-list-main">
+                <strong>{report.quantity}{report.unit ? ` ${report.unit}` : " ×"} {report.label}</strong>
+                <em>{wasteReasons.find((option) => option.id === report.reason)?.label ?? report.reason} · {formatClock(report.createdAt)}{report.by ? ` · ${report.by}` : ""}{report.note ? ` · ${report.note}` : ""}{report.decisionNote && report.status === "rejected" ? ` · “${report.decisionNote}”` : ""}</em>
+              </span>
+              <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                <span style={{ padding: "2px 8px", borderRadius: 999, background: status.background, color: status.color, fontSize: 11, fontWeight: 800, whiteSpace: "nowrap" }}>{status.label}</span>
+                {report.mine && report.status === "pending" && <button type="button" onClick={() => void cancel(report)} style={{ border: "none", background: "transparent", color: "#9C8278", fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>Take back</button>}
+              </span>
+            </li>;
+          })}
+        </ul>}
       </div>
     </section>
   </Modal>;
@@ -4241,6 +4439,9 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
   const [summary, setSummary] = useState<CurrentShift | null>(null);
   const [closedSummary, setClosedSummary] = useState<CurrentShift | null>(null);
   const [countedCash, setCountedCash] = useState("");
+  // Cash left in the drawer for the next shift; it starts as this shift's own starting cash.
+  const [keptCash, setKeptCash] = useState("");
+  const [treasury, setTreasury] = useState<ShiftTreasury | null>(null);
   const [notes, setNotes] = useState("");
   const [password, setPassword] = useState("");
   const [wrongPassword, setWrongPassword] = useState(false);
@@ -4253,11 +4454,15 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
     (async () => {
       try {
         const response = await fetch("/api/shift", { cache: "no-store" });
-        const payload = await response.json() as { data?: CurrentShift | null; error?: string };
+        const payload = await response.json() as { data?: CurrentShift | null; treasury?: ShiftTreasury; error?: string };
         if (!response.ok) throw new Error(payload.error || "Unable to load the shift.");
         if (!active) return;
         if (!payload.data || payload.data.shiftId !== shiftId) setError("This shift is no longer open. Refresh to see the current shift.");
-        else setSummary(payload.data);
+        else {
+          setSummary(payload.data);
+          setTreasury(payload.treasury ?? null);
+          setKeptCash((typed) => typed === "" ? payload.data!.startingCash.toFixed(2) : typed);
+        }
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : "Unable to load the shift.");
       }
@@ -4272,12 +4477,14 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
       setError("Count the cash in the drawer and enter the total.");
       return;
     }
+    const kept = keptCash.trim() === "" ? 0 : Number(keptCash);
+    if (!Number.isFinite(kept) || kept < 0 || kept > amount) { setError("The cash left in the drawer can be ₱0 up to the counted cash."); return; }
     if (!password) { setError("Enter your password to close the shift."); setWrongPassword(true); return; }
     setClosing(true);
     setError("");
     setWrongPassword(false);
     try {
-      const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shiftId, counted_cash: amount, notes, password }) });
+      const response = await fetch("/api/shift", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "close", shift_id: shiftId, counted_cash: amount, float_kept: kept, notes, password }) });
       const payload = await response.json();
       if (payload?.code === "wrong_password") { setPassword(""); setWrongPassword(true); }
       if (!response.ok) throw new Error(payload?.error || "Unable to close the shift.");
@@ -4306,6 +4513,10 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
               <ShiftSummaryRow label="Expected cash" value={formatPeso(closedSummary.expectedCash)} />
               <ShiftSummaryRow label="Counted cash" value={formatPeso(closedSummary.countedCash ?? 0)} />
               <ShiftSummaryRow label="Difference" value={difference.label} strong tone={difference.tone} />
+              {closedSummary.floatKept !== null && closedSummary.floatKept !== undefined && closedSummary.countedCash !== null && <>
+                <ShiftSummaryRow label="Left in the drawer" value={formatPeso(closedSummary.floatKept)} />
+                <ShiftSummaryRow label={treasury?.live ? "Put in the safe" : "Taken out of the drawer"} value={formatPeso(closedSummary.countedCash - closedSummary.floatKept)} />
+              </>}
             </div>;
           })()}
           <p style={{ margin: "14px 0 0", color: "#9C8278", fontSize: 12 }}>Everyone signed in was clocked out. The full report is in Finance in the admin app.</p>
@@ -4359,6 +4570,18 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
             </label>
             {liveDifference && <p style={{ margin: "8px 0 0", color: liveDifference.tone, fontSize: 13, fontWeight: 800 }}>{liveDifference.label}</p>}
             <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
+              Leave in the drawer for the next shift
+              <span style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #E8DDD5", borderRadius: 12, background: "#FFFFFF", padding: "0 14px" }}>
+                <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#9C8278" }}>₱</span>
+                <MoneyInput label="Leave in the drawer for the next shift" value={keptCash} onChange={setKeptCash} style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "11px 0", fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, fontWeight: 800, color: "#3D2B1F" }} />
+              </span>
+            </label>
+            {countedCash.trim() !== "" && Number.isFinite(counted) && (() => {
+              const kept = keptCash.trim() === "" ? 0 : Number(keptCash);
+              if (!Number.isFinite(kept) || kept > counted) return <p style={{ margin: "8px 0 0", color: "#B91C1C", fontSize: 12.5 }}>Can be ₱0 up to the counted cash.</p>;
+              return <p style={{ margin: "8px 0 0", color: "#6B4C3B", fontSize: 12.5 }}>{treasury?.live ? <>Put <strong>{formatPeso(counted - kept)}</strong> in the safe.</> : <>Take <strong>{formatPeso(counted - kept)}</strong> out of the drawer.</>}</p>;
+            })()}
+            <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>
               Notes <span style={{ fontWeight: 400, color: "#9C8278" }}>(optional, e.g. why the drawer is short)</span>
               <textarea value={notes} maxLength={500} rows={2} onChange={(event) => setNotes(event.target.value)} style={{ border: "1px solid #E8DDD5", borderRadius: 10, background: "#FFFFFF", padding: "9px 11px", fontSize: 13, color: "#3D2B1F", outline: "none", resize: "vertical" }} />
             </label>
@@ -4410,6 +4633,7 @@ export default function App() {
   const [shift, setShift] = useState<CurrentShift | null | undefined>(undefined);
   const [closingShift, setClosingShift] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [wasteOpen, setWasteOpen] = useState(false);
   const [keypadEnabled, setKeypadEnabled] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(true);
   useEffect(() => {
@@ -4645,5 +4869,5 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <SoundContext.Provider value={soundSetting}><KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider></SoundContext.Provider>;
+  return <SoundContext.Provider value={soundSetting}><KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onReportWaste={() => setWasteOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{wasteOpen && shift && <WasteReportDialog onClose={() => setWasteOpen(false)} />}{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider></SoundContext.Provider>;
 }

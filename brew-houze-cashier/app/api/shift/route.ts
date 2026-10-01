@@ -4,6 +4,7 @@ import pool from "@/lib/db";
 import { reconcilePendingCheckouts } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
+import { lastFloatKept, pesoText, recordShiftDeposit, recordShiftFloat, recordShiftGcash, safeIsLive, SafeShortError } from "@/lib/treasury";
 
 // A shift is the café's business day, and it may run past midnight. Admins open it (or a cashier
 // an admin allowed to), and an admin or a cashier allowed to closes it at the end of the night. Totals come from the shift_summaries view (see shift-migration.sql).
@@ -22,6 +23,10 @@ function mapSummary(row: SummaryRow) {
     openedByName: row.opened_by_name ?? null,
     closedByName: row.closed_by_name ?? null,
     startingCash: toNumber(row.starting_cash),
+    // Cash the last closing left in the drawer (the rest of the starting cash came from the safe),
+    // and cash this closing left for the next shift (the rest went to the safe).
+    carriedFloat: row.carried_float === null || row.carried_float === undefined ? null : toNumber(row.carried_float),
+    floatKept: row.float_kept === null || row.float_kept === undefined ? null : toNumber(row.float_kept),
     countedCash: row.counted_cash === null || row.counted_cash === undefined ? null : toNumber(row.counted_cash),
     orderCount: toNumber(row.order_count),
     mobileOrderCount: toNumber(row.mobile_order_count),
@@ -50,11 +55,12 @@ function mapSummary(row: SummaryRow) {
 async function loadSummary(client: PoolClient | typeof pool, where: string, params: unknown[]) {
   const result = await client.query(`
     SELECT
-      ss.*, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
+      ss.*, sx.carried_float, sx.float_kept, disc_id.sc_pwd_discount, disc_id.sc_pwd_count, disc_id.other_id_discount, disc_so.vat_exempt, disc_so.reward_discount,
       EXTRACT(EPOCH FROM (COALESCE(ss.closed_at, CURRENT_TIMESTAMP) - ss.opened_at)) / 3600 AS hours_open,
       (SELECT COUNT(*) FROM sales_orders so WHERE so.queue_status = 'waiting' OR (so.queue_status = 'served' AND so.service_type IS DISTINCT FROM 'delivery'))::int AS open_queue_count,
       (SELECT COUNT(*) FROM employee_time_logs t WHERE t.time_out IS NULL)::int AS signed_in_count
     FROM shift_summaries ss
+    JOIN shifts sx ON sx.shift_id = ss.shift_id
     LEFT JOIN LATERAL (
       SELECT COALESCE(SUM(od.discount_amount) FILTER (WHERE od.type_code IN ('senior', 'pwd')), 0) AS sc_pwd_discount,
         COUNT(*) FILTER (WHERE od.type_code IN ('senior', 'pwd'))::int AS sc_pwd_count,
@@ -85,7 +91,10 @@ export async function GET() {
   // payment that was paid while nobody was watching (see reconcilePendingCheckouts).
   if (paymongoConfigured()) after(() => reconcilePendingCheckouts().catch((error) => console.error("GCash reconcile failed:", error)));
   try {
-    return NextResponse.json({ data: await loadSummary(pool, "ss.closed_at IS NULL", []) }, { headers: { "Cache-Control": "no-store" } });
+    // treasury: whether the safe is in use, and the cash the last closing left in the drawer (what
+    // the next opening suggests as its starting cash). The safe's balance is never sent here.
+    const [data, live, lastFloat] = await Promise.all([loadSummary(pool, "ss.closed_at IS NULL", []), safeIsLive(pool), lastFloatKept(pool)]);
+    return NextResponse.json({ data, treasury: { live, lastFloat } }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("GET /api/shift failed:", error);
     return NextResponse.json({ error: "Could not load the current shift." }, { status: 500 });
@@ -97,7 +106,7 @@ export async function POST(request: Request) {
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
 
-  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; shift_id?: unknown; notes?: unknown; password?: unknown };
+  let body: { action?: unknown; starting_cash?: unknown; counted_cash?: unknown; float_kept?: unknown; shift_id?: unknown; notes?: unknown; password?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -120,11 +129,14 @@ export async function POST(request: Request) {
       if (startingCash === null) return NextResponse.json({ error: "Enter the starting cash in the drawer (0 or more)." }, { status: 400 });
 
       await client.query("BEGIN");
+      const carried = await lastFloatKept(client);
       const inserted = await client.query(
-        "INSERT INTO shifts (opened_by, starting_cash) VALUES ($1, $2) RETURNING shift_id",
-        [session.adminId, startingCash]
+        "INSERT INTO shifts (opened_by, starting_cash, carried_float) VALUES ($1, $2, $3) RETURNING shift_id",
+        [session.adminId, startingCash, carried]
       );
       const shiftId = Number(inserted.rows[0].shift_id);
+      // More than the last closing left in the drawer comes from the safe; less goes back to it.
+      await recordShiftFloat(client, { shiftId, startingCash, carried, adminId: session.adminId, sourceApp: "cashier" });
       // Employees already signed in (e.g. the cashier opening the shift) now belong to it.
       await client.query("UPDATE employee_time_logs SET shift_id = $1 WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
       // The opener stayed signed in across the previous close (which clocked everyone out),
@@ -142,8 +154,11 @@ export async function POST(request: Request) {
       const shiftId = Number(body.shift_id);
       const countedCash = parseAmount(body.counted_cash);
       const notes = String(body.notes ?? "").trim().slice(0, 500);
+      // Cash left in the drawer for the next shift; the rest of the count goes to the safe.
+      const floatKept = body.float_kept === undefined ? 0 : parseAmount(body.float_kept);
       if (!Number.isInteger(shiftId) || shiftId <= 0) return NextResponse.json({ error: "A valid shift is required." }, { status: 400 });
       if (countedCash === null) return NextResponse.json({ error: "Count the cash in the drawer and enter the amount (0 or more)." }, { status: 400 });
+      if (floatKept === null || floatKept > countedCash) return NextResponse.json({ error: "The cash left in the drawer can be ₱0 up to the counted cash." }, { status: 400 });
 
       await client.query("BEGIN");
       // Waits for any checkout still running in this shift (they hold a share lock on it).
@@ -168,9 +183,11 @@ export async function POST(request: Request) {
       const expected = await client.query("SELECT expected_cash FROM shift_summaries WHERE shift_id = $1", [shiftId]);
       await client.query(`
         UPDATE shifts
-        SET closed_at = CURRENT_TIMESTAMP, closed_by = $2, counted_cash = $3, expected_cash = $4, closing_notes = NULLIF($5, '')
+        SET closed_at = CURRENT_TIMESTAMP, closed_by = $2, counted_cash = $3, expected_cash = $4, closing_notes = NULLIF($5, ''), float_kept = $6
         WHERE shift_id = $1
-      `, [shiftId, session.adminId, countedCash, Number(expected.rows[0].expected_cash), notes]);
+      `, [shiftId, session.adminId, countedCash, Number(expected.rows[0].expected_cash), notes, floatKept]);
+      await recordShiftDeposit(client, { shiftId, countedCash, floatKept, adminId: session.adminId, sourceApp: "cashier" });
+      await recordShiftGcash(client, { shiftId, adminId: session.adminId, sourceApp: "cashier" });
       // Everyone still signed in is clocked out at closing time, and signed out of the cashier
       // app, so the next shift must be opened by whoever signs in next (not a leftover session).
       await client.query("UPDATE employee_time_logs SET time_out = CURRENT_TIMESTAMP WHERE time_out IS NULL");
@@ -186,6 +203,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unknown shift action." }, { status: 400 });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    // The cashier never sees the safe's balance, only how much more it would need.
+    if (error instanceof SafeShortError) {
+      return NextResponse.json({ error: `The safe cannot cover the ${pesoText(error.needed)} more this starting cash needs. Start with less, or ask an admin to add cash to the safe first.` }, { status: 409 });
+    }
     if (error && typeof error === "object" && (error as { code?: string }).code === "23505") {
       return NextResponse.json({ error: "A shift is already open. Refresh to see it." }, { status: 409 });
     }

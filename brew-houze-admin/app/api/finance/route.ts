@@ -59,9 +59,23 @@ function daysBetween(start: string, end: string): number {
 
 const n = (value: unknown) => Number(value ?? 0);
 
+// Stock written off, one row per write-off: stock history entries (their shift's business day, or
+// the calendar day without one) and made orders that were voided or refunded (the business day of
+// the void or refund). reason is the write-off reason, or made_order for the orders.
+const writtenOffCte = `
+  written_off AS (
+    SELECT COALESCE((sh.opened_at AT TIME ZONE '${TZ}')::date, (il.created_at AT TIME ZONE '${TZ}')::date) AS bd, il.write_off_reason AS reason, il.write_off_cost
+    FROM inventory_log il LEFT JOIN shifts sh ON sh.shift_id = il.shift_id
+    WHERE il.change_type = 'written_off'
+    UNION ALL
+    SELECT COALESCE((rs.opened_at AT TIME ZONE '${TZ}')::date, (so.reversed_at AT TIME ZONE '${TZ}')::date), 'made_order', so.wasted_cost
+    FROM sales_orders so LEFT JOIN shifts rs ON rs.shift_id = so.reversed_shift_id
+    WHERE so.reversed_after_made = TRUE AND so.is_archived = FALSE
+  )`;
+
 async function totals(start: string, end: string) {
   const result = await pool.query(`
-    WITH ${ordersCte}, ${linesCte}
+    WITH ${ordersCte}, ${linesCte}, ${writtenOffCte}
     SELECT
       (SELECT COUNT(*) FILTER (WHERE NOT reversed) FROM o WHERE bd BETWEEN $1::date AND $2::date)::int AS orders,
       (SELECT COALESCE(SUM(total_amount) FILTER (WHERE NOT reversed), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS net_sales,
@@ -77,7 +91,17 @@ async function totals(start: string, end: string) {
       (SELECT COALESCE(SUM(quantity), 0) FROM lines)::int AS items_sold,
       (SELECT COALESCE(SUM(cost), 0) FROM lines) AS cost_of_goods,
       (SELECT COALESCE(SUM(base_revenue + addon_revenue) FILTER (WHERE cost IS NOT NULL), 0) FROM lines) AS costed_revenue,
-      (SELECT COALESCE(SUM(quantity) FILTER (WHERE cost IS NULL), 0) FROM lines)::int AS uncosted_items
+      (SELECT COALESCE(SUM(quantity) FILTER (WHERE cost IS NULL), 0) FROM lines)::int AS uncosted_items,
+      -- PayMongo fees on the GCash orders of the period, voided and refunded ones too (PayMongo
+      -- keeps its fee when the money goes back to the customer). See treasury-paymongo-migration.sql.
+      (SELECT COALESCE(SUM(payment_fee), 0) FROM o WHERE bd BETWEEN $1::date AND $2::date) AS payment_fees,
+      (SELECT COUNT(*) FILTER (WHERE payment_provider = 'paymongo_gcash' AND payment_fee IS NULL) FROM o WHERE bd BETWEEN $1::date AND $2::date)::int AS unknown_fees,
+      -- What the cafe spent to run in the period (see expenses-migration.sql), voided ones left out.
+      (SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE voided_at IS NULL AND spent_on BETWEEN $1::date AND $2::date) AS expenses,
+      -- Stock written off (see stock-write-off-migration.sql), and made orders voided or refunded
+      -- (their ingredients were used up), on the business day it happened.
+      (SELECT COALESCE(SUM(write_off_cost), 0) FROM written_off WHERE bd BETWEEN $1::date AND $2::date) AS written_off,
+      (SELECT COUNT(*) FILTER (WHERE write_off_cost IS NULL) FROM written_off WHERE bd BETWEEN $1::date AND $2::date)::int AS uncosted_write_offs
   `, [start, end]);
   const row = result.rows[0];
   const costOfGoods = n(row.cost_of_goods);
@@ -98,6 +122,13 @@ async function totals(start: string, end: string) {
     costedRevenue,
     grossProfit: costedRevenue - costOfGoods,
     uncostedItems: n(row.uncosted_items),
+    paymentFees: n(row.payment_fees),
+    unknownFees: n(row.unknown_fees),
+    expenses: n(row.expenses),
+    writtenOff: n(row.written_off),
+    uncostedWriteOffs: n(row.uncosted_write_offs),
+    // Gross profit, minus PayMongo fees, minus expenses, minus stock written off.
+    netProfit: costedRevenue - costOfGoods - n(row.payment_fees) - n(row.expenses) - n(row.written_off),
   };
 }
 
@@ -416,6 +447,14 @@ export async function GET(request: Request) {
       GROUP BY 1 ORDER BY 1
     `, [start, end]).then((result) => result.rows.map((row) => ({ type: String(row.service_type), orders: n(row.orders), sales: n(row.sales) }))).catch(() => []);
 
+    // Stock written off in the range, by reason.
+    const writeOffs = await pool.query(`
+      WITH ${writtenOffCte}
+      SELECT reason, COUNT(*)::int AS entries, COALESCE(SUM(write_off_cost), 0) AS cost
+      FROM written_off WHERE bd BETWEEN $1::date AND $2::date
+      GROUP BY reason ORDER BY cost DESC
+    `, [start, end]).then((result) => result.rows.map((row) => ({ reason: String(row.reason), entries: n(row.entries), cost: n(row.cost) }))).catch(() => []);
+
     const deliveries = await deliveryFigures(start, end).catch((deliveryError) => {
       console.error("GET /api/finance: delivery figures failed:", deliveryError);
       return null;
@@ -429,6 +468,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       data: {
         loyalty,
+        writeOffs,
         deliveries,
         serviceTypes,
         range: { start, end, days },

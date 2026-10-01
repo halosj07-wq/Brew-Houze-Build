@@ -44,6 +44,10 @@ export async function GET(request: Request) {
         il.packaging_name,
         il.packs_added,
         il.pack_price,
+        il.write_off_reason,
+        il.write_off_cost,
+        il.write_off_request_id,
+        il.note,
         au.full_name AS admin_name,
         -- created_at already carries its time zone (unlike sales_orders.created_at), so a
         -- single conversion gives Philippine time.

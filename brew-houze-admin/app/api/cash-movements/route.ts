@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
+import { pesoText, recordDrawerExpense, recordDrawerMovement, SafeShortError } from "@/lib/treasury";
 
 // Cash put into or taken out of the drawer during the open shift for reasons other than a sale:
 // change fund added (cash_in), something paid for from the drawer (cash_out), or large bills moved
 // to the safe (cash_drop). Entries are never edited or deleted; a mistake is corrected with an
 // opposite entry. Expected cash in the drawer counts them (see cash-movements-migration.sql).
+// Once the safe is in use (see treasury-migration.sql), a cash drop goes into it and a cash in
+// comes out of it.
 
 const KINDS = ["cash_in", "cash_out", "cash_drop"] as const;
 type Kind = (typeof KINDS)[number];
@@ -84,11 +87,15 @@ export async function POST(request: Request) {
       VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, 'admin')
       RETURNING movement_id
     `, [shiftId, kind, amount, reason, note, session.adminId]);
+    await recordDrawerMovement(client, { kind, amount, reason, shiftId, movementId: Number(inserted.rows[0].movement_id), adminId: session.adminId, sourceApp: "admin" });
+    // A cash out is money spent: it is an expense paid from the drawer (see expenses-migration.sql).
+    if (kind === "cash_out") await recordDrawerExpense(client, { movementId: Number(inserted.rows[0].movement_id), shiftId, reason, amount, note, adminId: session.adminId, sourceApp: "admin" });
     await client.query("COMMIT");
     const saved = await pool.query(`${listSql} WHERE cm.movement_id = $1`, [inserted.rows[0].movement_id]);
     return NextResponse.json({ data: mapMovement(saved.rows[0]) }, { status: 201 });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
+    if (error instanceof SafeShortError) return NextResponse.json({ error: `The safe only has ${pesoText(error.available)}, not enough for this cash in. Add cash to the safe in Treasury first.` }, { status: 409 });
     console.error("POST /api/cash-movements failed:", error);
     return NextResponse.json({ error: "Could not save the cash drawer entry." }, { status: 500 });
   } finally {
