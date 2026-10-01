@@ -4,6 +4,7 @@ import pool from "@/lib/db";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
 import { runningCampaign } from "@/lib/loyalty";
 import { getSession } from "@/lib/sessions";
+import { forgetTrustedDevices, twoFactorEnabled } from "@/lib/two-factor";
 
 // The customer directory (see customer-accounts-migration.sql): customers who made an account on
 // the mobile menu, and profiles the admin made for regulars without one. Purchases fill in from
@@ -247,12 +248,18 @@ export async function PATCH(request: Request) {
       const password = String(body.password ?? "");
       const problem = usernameProblem(username) ?? passwordProblem(password);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+      // Signing in emails a code (two-step sign-in), so a login needs an email first.
+      if (twoFactorEnabled()) {
+        const contact = await pool.query("SELECT email FROM customers WHERE customer_id = $1", [id]);
+        if (!contact.rows[0]?.email) return NextResponse.json({ error: "Add their email in Details first: signing in sends a code to it." }, { status: 400 });
+      }
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
         await client.query("UPDATE customers SET username = $2, password_hash = crypt($3, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [id, username, password]);
         await client.query("DELETE FROM customer_login_failures WHERE username_key = LOWER($1)", [username]);
         const ended = await endCustomerSessions(id, "password_reset", client);
+        await forgetTrustedDevices("customer", id, client);
         await client.query("COMMIT");
         return NextResponse.json({ data: { username, signedOutDevices: ended } });
       } catch (error) {

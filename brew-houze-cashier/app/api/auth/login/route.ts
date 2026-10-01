@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
 import pool from "@/lib/db";
-import { startSession } from "@/lib/sessions";
+import { finishStaffLogin, STAFF_PORTAL_ROLES } from "@/lib/login";
+import { isTrustedDevice, startChallenge, twoFactorEnabled } from "@/lib/two-factor";
 
+// Step one of signing in: the password. On a device this account has not verified in the last
+// 30 days, a code is emailed and the answer is { twoFactor: { challenge, email } }; the code is
+// then checked by /api/auth/verify-code. The shared counter tablet is trusted per account.
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -10,38 +13,22 @@ export async function POST(request: Request) {
     const password = String(body?.password ?? "");
     if (!email || !password) return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
     const result = await pool.query(`
-      SELECT admin_id, full_name, email, role,
-        COALESCE(can_void_orders, FALSE) AS can_void_orders,
-        COALESCE(can_refund_orders, FALSE) AS can_refund_orders,
-        COALESCE(can_open_shift, FALSE) AS can_open_shift,
-        COALESCE(can_close_shift, FALSE) AS can_close_shift
+      SELECT admin_id
       FROM admin_users
       WHERE LOWER(email) = $1
         AND password_hash = crypt($2, password_hash)
         AND is_active = TRUE
-        AND LOWER(role) IN ('cashier', 'barista', 'kitchen', 'rider', 'admin')
+        AND LOWER(role) = ANY($3::text[])
       LIMIT 1
-    `, [email, password]);
+    `, [email, password, STAFF_PORTAL_ROLES]);
     if (result.rowCount === 0) return NextResponse.json({ error: "Invalid cashier email or password." }, { status: 401 });
-    const admin = result.rows[0];
-    const isAdmin = String(admin.role).toLowerCase() === "admin";
-    const isBarista = ["barista", "kitchen", "rider"].includes(String(admin.role).toLowerCase());
-    const session = {
-      adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role,
-      canVoidOrders: isAdmin ? true : !isBarista && Boolean(admin.can_void_orders),
-      canRefundOrders: isAdmin ? true : !isBarista && Boolean(admin.can_refund_orders),
-      canOpenShift: isAdmin ? true : !isBarista && Boolean(admin.can_open_shift),
-      canCloseShift: isAdmin ? true : !isBarista && Boolean(admin.can_close_shift),
-    };
-    await pool.query(`
-      INSERT INTO employee_time_logs (admin_id)
-      VALUES ($1)
-      ON CONFLICT DO NOTHING
-    `, [admin.admin_id]);
-    const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
-    const response = NextResponse.json({ data: session });
-    response.cookies.set(SESSION_COOKIE, createSessionToken({ ...session, sid: sessionId }), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: SESSION_MAX_AGE, path: "/" });
-    return response;
+    const adminId = Number(result.rows[0].admin_id);
+    if (twoFactorEnabled() && !(await isTrustedDevice("staff", adminId))) {
+      const started = await startChallenge("staff", adminId, "staff");
+      if ("error" in started) return NextResponse.json({ error: started.error }, { status: started.status });
+      return NextResponse.json({ data: { twoFactor: started } });
+    }
+    return await finishStaffLogin(adminId, request);
   } catch (error) {
     console.error("POST /api/auth/login failed:", error);
     return NextResponse.json({ error: "Unable to sign in." }, { status: 500 });

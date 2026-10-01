@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
-import { isAllowedRole, startSession } from "@/lib/sessions";
+import { finishAdminLogin } from "@/lib/login";
+import { isAllowedRole } from "@/lib/sessions";
+import { isTrustedDevice, startChallenge, twoFactorEnabled } from "@/lib/two-factor";
 
+// Step one of signing in: the password. On a device this account has not verified in the last
+// 30 days, a code is emailed and the answer is { twoFactor: { challenge, email } }; the code is
+// then checked by /api/auth/verify-code.
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -14,7 +18,7 @@ export async function POST(request: Request) {
     }
 
     const result = await pool.query(`
-      SELECT admin_id, full_name, email, role
+      SELECT admin_id, role
       FROM admin_users
       WHERE LOWER(email) = $1
         AND password_hash = crypt($2, password_hash)
@@ -27,31 +31,18 @@ export async function POST(request: Request) {
     }
 
     const admin = result.rows[0];
-    // The admin portal manages finance, accounts and inventory, so only admin accounts may use it.
+    const adminId = Number(admin.admin_id);
+    // Refused before any code is sent: the admin portal is for admin accounts only.
     if (!isAllowedRole(admin.role)) {
       return NextResponse.json({ error: "This account does not have admin access. Use the staff portal instead." }, { status: 403 });
     }
 
-    const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
-    const response = NextResponse.json({
-      data: { adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role },
-    });
-
-    response.cookies.set(SESSION_COOKIE, createSessionToken({
-      adminId: Number(admin.admin_id),
-      email: admin.email,
-      fullName: admin.full_name,
-      role: admin.role,
-      sid: sessionId,
-    }), {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      maxAge: SESSION_MAX_AGE,
-      path: "/",
-    });
-
-    return response;
+    if (twoFactorEnabled() && !(await isTrustedDevice("staff", adminId))) {
+      const started = await startChallenge("staff", adminId, "admin");
+      if ("error" in started) return NextResponse.json({ error: started.error }, { status: started.status });
+      return NextResponse.json({ data: { twoFactor: started } });
+    }
+    return await finishAdminLogin(adminId, request);
   } catch (error) {
     console.error("POST /api/auth/login failed:", error);
     return NextResponse.json({ error: "Unable to sign in." }, { status: 500 });

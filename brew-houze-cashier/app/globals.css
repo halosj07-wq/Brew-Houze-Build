@@ -758,3 +758,6 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 
 /* A loaded mobile cart that is no longer waiting on the phone */
 .pos-sent-loaded.is-gone { border-color: #FCD34D; background: #FFFBEB; color: #92400E; }
+
+/* Sign in: the emailed 6-digit code */
+.login-field input.login-code-input { font-family: 'JetBrains Mono', monospace; font-size: 22px; letter-spacing: 0.4em; }

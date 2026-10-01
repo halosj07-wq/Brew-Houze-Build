@@ -1604,3 +1604,6 @@ strong.is-low { color: #B45309 !important; }
 .dash-ai-title { margin: 10px 0 0; font-family: 'Hanken Grotesk', sans-serif; font-weight: 800; font-size: 20px; line-height: 1.15; color: #3D2B1F; }
 .dash-ai-go { margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; color: #D97706; font-size: 12.5px; font-weight: 800; }
 @media (prefers-reduced-motion: reduce) { .dash-ai-shortcut, .dash-ai-shortcut:hover { transition: none; transform: none; } }
+
+/* Sign in: the emailed 6-digit code */
+.login-field input.login-code-input { font-family: 'JetBrains Mono', monospace; font-size: 22px; letter-spacing: 0.4em; }

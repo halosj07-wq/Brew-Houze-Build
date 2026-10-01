@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import type { PoolClient } from "pg";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
+import { forgetTrustedDevices } from "@/lib/two-factor";
 
 // Customer accounts for the mobile menu (see customer-accounts-migration.sql). An account is
 // optional: guests order exactly as before. Signed-in customers get their orders saved to their
@@ -289,6 +290,7 @@ export async function resetCustomerPassword(token: string, newPassword: string):
     }
     const customerId = Number(link.rows[0].customer_id);
     await client.query("UPDATE customers SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [customerId, newPassword]);
+    await forgetTrustedDevices("customer", customerId, client);
     await client.query("UPDATE customer_password_resets SET used_at = CURRENT_TIMESTAMP WHERE customer_id = $1 AND used_at IS NULL", [customerId]);
     await client.query("DELETE FROM customer_login_failures WHERE username_key IN (SELECT LOWER(username) FROM customers WHERE customer_id = $1)", [customerId]);
     // Whoever knew the old password is signed out everywhere.

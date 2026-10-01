@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
 import { endAllSessions } from "@/lib/sessions";
+import { forgetTrustedDevices } from "@/lib/two-factor";
 
 // "Forgot password?" for staff accounts. A single-use link is emailed to the account address.
 // Only a SHA-256 hash of the link token is stored, the link expires after 30 minutes, and using
@@ -152,6 +153,7 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
     await client.query("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE admin_id = $1 AND used_at IS NULL", [adminId]);
     // Whoever knew the old password is signed out of every device.
     await endAllSessions(Number(adminId), "password_reset", client);
+    await forgetTrustedDevices("staff", Number(adminId), client);
     await client.query("COMMIT");
     return { ok: true };
   } catch (error) {

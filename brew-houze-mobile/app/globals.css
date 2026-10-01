@@ -610,3 +610,6 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 /* Cart: payment choice locked by an ID discount (shown, not hidden) */
 .bh-cart-section.is-locked .cart-delivery-pay button { cursor: not-allowed; opacity: 0.5; }
 .bh-cart-section.is-locked .cart-delivery-pay button[aria-checked="true"] { opacity: 0.85; }
+
+/* Account: the emailed 6-digit sign-in code */
+.acct-code-input { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 22px !important; letter-spacing: 0.4em; text-align: center; }

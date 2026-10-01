@@ -107,7 +107,8 @@ export function useCustomerAccount() {
     return () => window.clearTimeout(timer);
   }, [refresh]);
 
-  const afterSignIn = async (result: Result) => { if (result.ok) await refresh(); return result; };
+  // Signed in only when no emailed code is still needed (see lib/two-factor.ts on the server).
+  const afterSignIn = async (result: Result & { data?: unknown }) => { if (result.ok && !(result.data as { twoFactor?: unknown } | undefined)?.twoFactor) await refresh(); return result; };
   return {
     account,
     loading,
@@ -115,6 +116,9 @@ export function useCustomerAccount() {
     refresh,
     signIn: async (login: string, password: string) => afterSignIn(await send("/api/account/login", "POST", { login, password })),
     register: async (form: { fullName: string; username: string; password: string; email: string; birthday: string; consent: boolean; phone: string }) => afterSignIn(await send("/api/account/register", "POST", form)),
+    // Two-step sign-in: the code emailed after the password (or a new account) on a new phone.
+    verifyCode: async (challenge: string, code: string) => afterSignIn(await send("/api/account/verify-code", "POST", { challenge, code })),
+    resendCode: async (challenge: string) => send("/api/account/verify-code", "POST", { challenge, action: "resend" }),
     signOut: async () => { const result = await send("/api/account/logout", "POST"); if (result.ok) setAccount(null); return result; },
     updateProfile: async (form: { fullName: string; email: string; birthday: string; phone: string }) => afterSignIn(await send("/api/account", "PATCH", { action: "update_profile", ...form })),
     // Delivery addresses.
@@ -167,7 +171,7 @@ export function CartAccountNote({ state, onOpen }: { state: CustomerAccountState
     : <p className="acct-cart-note">Have an account? <button type="button" onClick={onOpen}>Sign in</button> to save this order to it. You can also order as a guest.</p>;
 }
 
-type View = "signin" | "register" | "forgot" | "reset" | "edit" | "password" | "delete" | "claim" | "addresses";
+type View = "signin" | "register" | "code" | "forgot" | "reset" | "edit" | "password" | "delete" | "claim" | "addresses";
 // The forms the Account tab opens.
 export type AccountForm = "signin" | "register" | "edit" | "password" | "addresses" | "delete";
 
@@ -459,6 +463,33 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
   const [password2, setPassword2] = useState("");
   const [signup, setSignup] = useState({ fullName: "", username: "", email: "", birthday: "", consent: false, phone: "" });
   const [showPrivacy, setShowPrivacy] = useState(false);
+  // Two-step sign-in: the challenge from the server, where the code went, and what comes after.
+  const [twoFactor, setTwoFactor] = useState<{ challenge: string; email: string; welcome: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [resendWait, setResendWait] = useState(0);
+  useEffect(() => {
+    if (resendWait <= 0) return;
+    const timer = window.setTimeout(() => setResendWait((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendWait]);
+  // After the password or sign-up: either signed in, or the code step first.
+  const afterCredentials = (result: Result & { data?: unknown }, welcome: string) => {
+    const pending = (result.data as { twoFactor?: { challenge: string; email: string } } | undefined)?.twoFactor;
+    if (pending) {
+      setTwoFactor({ ...pending, welcome });
+      setCode("");
+      setResendWait(30);
+      setError("");
+      setNotice("");
+      setView("code");
+      return;
+    }
+    signedInDone(welcome);
+  };
+  const signedInDone = (welcome: string) => {
+    setTwoFactor(null);
+    if (startClaim) { setView("claim"); setNotice(welcome); } else finish(welcome);
+  };
   const [profile, setProfile] = useState({ fullName: state.account?.fullName ?? "", email: state.account?.email ?? "", birthday: state.account?.birthday ?? "", phone: state.account?.phone ?? "" });
   // Delivery addresses: the one being edited, and the café's delivery zones for the area list.
   const [addressDraft, setAddressDraft] = useState<AddressDraft | null>(() => (startAddresses || start === "addresses") && state.account && (state.account.addresses ?? []).length === 0
@@ -495,13 +526,13 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
 
   }
 
-  async function run(action: () => Promise<Result>, onSuccess: () => void) {
+  async function run(action: () => Promise<Result & { data?: unknown }>, onSuccess: (result: Result & { data?: unknown }) => void) {
     if (busy) return;
     setBusy(true);
     setError("");
     const result = await action();
     setBusy(false);
-    if (result.ok) onSuccess();
+    if (result.ok) onSuccess(result);
     else setError(result.error);
   }
 
@@ -509,6 +540,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
   const title: Record<View, [string, string]> = {
     signin: ["YOUR ACCOUNT", "Welcome back"],
     register: ["JOIN BREW HOUZE", "Make an account"],
+    code: ["TWO-STEP SIGN-IN", "Check your email"],
     forgot: ["YOUR ACCOUNT", "Forgot password"],
     reset: ["YOUR ACCOUNT", "Choose a new password"],
     edit: ["YOUR ACCOUNT", "Edit details"],
@@ -528,7 +560,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
       {error && <p className="error-message" role="alert">{error}</p>}
       {notice && <p className="acct-notice" role="status">{notice}</p>}
 
-      {view === "signin" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.signIn(login, password), () => { setPassword(""); if (startClaim) setView("claim"); else finish("You're signed in. Welcome back!"); }); }}>
+      {view === "signin" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.signIn(login, password), (result) => { setPassword(""); afterCredentials(result, "You're signed in. Welcome back!"); }); }}>
         <p className="acct-intro">Sign in to keep your orders in one place. Café rewards will show up here too.</p>
         <Field label="Username or email"><input value={login} onChange={(event) => setLogin(event.target.value)} autoComplete="username" autoCapitalize="none" autoFocus /></Field>
         <Field label="Password"><PasswordInput value={password} onChange={setPassword} autoComplete="current-password" /></Field>
@@ -540,21 +572,33 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
       {view === "register" && <form className="acct-form" onSubmit={(event) => {
         event.preventDefault();
         if (password !== password2) { setError("The two passwords do not match."); return; }
-        void run(() => state.register({ ...signup, password }), () => { setPassword(""); setPassword2(""); if (startClaim) { setView("claim"); setNotice("Welcome to Brew Houze! Your account is ready."); } else finish("Welcome to Brew Houze! Your account is ready."); });
+        void run(() => state.register({ ...signup, password }), (result) => { setPassword(""); setPassword2(""); afterCredentials(result, "Welcome to Brew Houze! Your account is ready."); });
       }}>
         <Field label="Full name"><input value={signup.fullName} onChange={(event) => setSignup((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} autoFocus /></Field>
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
         <Field label="Password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
         <Field label="Mobile number (optional)" hint="For delivery updates from the café, e.g. 0917 123 4567."><PhoneField value={signup.phone} onChange={(phone) => setSignup((current) => ({ ...current, phone }))} autoComplete="tel" maxLength={16} /></Field>
-        <Field label="Email (optional)" hint="Only used if you forget your password."><input type="email" value={signup.email} onChange={(event) => setSignup((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
+        <Field label="Email" hint="We send a sign-in code to it on a new phone, and a link if you forget your password."><input type="email" required value={signup.email} onChange={(event) => setSignup((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
         <Field label="Birthday (optional)" hint="For a birthday treat when the café has one."><input type="date" value={signup.birthday} max={today} onChange={(event) => setSignup((current) => ({ ...current, birthday: event.target.value }))} autoComplete="bday" /></Field>
         <div className="acct-consent">
           <label><input type="checkbox" checked={signup.consent} onChange={(event) => setSignup((current) => ({ ...current, consent: event.target.checked }))} /><span>I agree to the <button type="button" onClick={() => setShowPrivacy((current) => !current)}>privacy notice</button>.</span></label>
           {showPrivacy && <ul className="acct-privacy">{PRIVACY_POINTS.map((point) => <li key={point}>{point}</li>)}</ul>}
         </div>
-        <button type="submit" className="add-order-button" disabled={busy || !signup.fullName.trim() || !signup.username.trim() || !password || !password2 || !signup.consent}>{busy ? "Making your account..." : "Make my account"} <span>→</span></button>
+        <button type="submit" className="add-order-button" disabled={busy || !signup.fullName.trim() || !signup.username.trim() || !signup.email.trim() || !password || !password2 || !signup.consent}>{busy ? "Making your account..." : "Make my account"} <span>→</span></button>
         <p className="acct-switch">Already have one? <button type="button" onClick={() => go("signin")}>Sign in</button></p>
+      </form>}
+
+      {view === "code" && twoFactor && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.verifyCode(twoFactor.challenge, code), () => signedInDone(twoFactor.welcome)); }}>
+        <p className="acct-intro">We sent a 6-digit code to <strong>{twoFactor.email}</strong>. Type it below. This phone is then remembered for 30 days.</p>
+        <Field label="Sign-in code"><input className="acct-code-input" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" autoFocus placeholder="123456" maxLength={6} /></Field>
+        <button type="submit" className="add-order-button" disabled={busy || code.length !== 6}>{busy ? "Checking..." : "Verify and continue"} <span>→</span></button>
+        <p className="acct-switch">
+          <button type="button" disabled={busy || resendWait > 0} onClick={() => void run(() => state.resendCode(twoFactor.challenge), (result) => { setResendWait(30); setCode(""); setNotice(`A new code is on its way to ${(result.data as { email?: string } | undefined)?.email ?? twoFactor.email}. The old one no longer works.`); })}>{resendWait > 0 ? `Send a new code in ${resendWait}s` : "Send a new code"}</button>
+          {" · "}
+          <button type="button" onClick={() => { setTwoFactor(null); go("signin"); }}>Back to sign in</button>
+        </p>
+        <p className="acct-intro" style={{ fontSize: 12 }}>Not in your inbox? Check spam. The code works for 10 minutes.</p>
       </form>}
 
       {view === "forgot" && <form className="acct-form" onSubmit={(event) => { event.preventDefault(); void run(() => state.forgotPassword(login), () => setNotice("If that account has an email, a reset link is on its way. Check your inbox and spam folder.")); }}>

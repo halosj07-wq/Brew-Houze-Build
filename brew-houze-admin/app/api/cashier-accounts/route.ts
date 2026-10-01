@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
 import { endAllSessions, getSession } from "@/lib/sessions";
+import { forgetTrustedDevices } from "@/lib/two-factor";
 
 // Staff accounts (cashiers and baristas) for Accounts & Employees: who they are, what they may do, whether they are
 // on duty, how much they worked and sold, and their recent activity. Only admins reach this app.
@@ -223,6 +224,8 @@ export async function PATCH(request: Request) {
       const problem = passwordProblem(password);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       await pool.query("UPDATE admin_users SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE admin_id = $1", [id, password]);
+      // Every device signs in with a code again.
+      await forgetTrustedDevices("staff", id, pool);
       const ended = await endAllSessions(id, "password_reset");
       return NextResponse.json({ data: { signedOutDevices: ended } });
     }

@@ -3997,11 +3997,55 @@ function accountInitials(name: string, email: string): string {
 }
 
 function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => void; notice?: string }) {
-  const [mode, setMode] = useState<"login" | "forgot" | "sent">("login");
+  const [mode, setMode] = useState<"login" | "forgot" | "sent" | "code">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Two-step sign-in: after the password on a new device, the code emailed to the account.
+  const [twoFactor, setTwoFactor] = useState<{ challenge: string; email: string } | null>(null);
+  const [code, setCode] = useState("");
+  const [codeNotice, setCodeNotice] = useState("");
+  const [resendWait, setResendWait] = useState(0);
+  useEffect(() => {
+    if (resendWait <= 0) return;
+    const timer = window.setTimeout(() => setResendWait((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendWait]);
+
+  async function verifyCode(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!twoFactor) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/verify-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ challenge: twoFactor.challenge, code }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not check the code.");
+      rememberAccount(payload.data as Session);
+      onLoggedIn(payload.data);
+    } catch (codeError) {
+      setError(codeError instanceof Error ? codeError.message : "Could not check the code.");
+      setCode("");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function resendCode() {
+    if (!twoFactor || resendWait > 0) return;
+    setError("");
+    setCodeNotice("");
+    try {
+      const response = await fetch("/api/auth/verify-code", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ challenge: twoFactor.challenge, action: "resend" }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not send a new code.");
+      setCodeNotice(`A new code is on its way to ${payload.data.email}. The old one no longer works.`);
+      setResendWait(30);
+    } catch (resendError) {
+      setError(resendError instanceof Error ? resendError.message : "Could not send a new code.");
+    }
+  }
   // Saved accounts on this device: pick one, then only the password is typed.
   const [saved, setSaved] = useState<SavedAccount[]>([]);
   const [picking, setPicking] = useState(false);
@@ -4043,6 +4087,15 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Unable to sign in.");
+      // A new device: the code step comes next.
+      if (payload.data?.twoFactor) {
+        setTwoFactor(payload.data.twoFactor);
+        setCode("");
+        setCodeNotice("");
+        setResendWait(30);
+        setMode("code");
+        return;
+      }
       rememberAccount(payload.data as Session);
       onLoggedIn(payload.data);
     } catch (loginError) {
@@ -4069,6 +4122,7 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
   }
 
   function switchMode(next: "login" | "forgot") {
+    setCodeNotice("");
     setError("");
     setPassword("");
     setMode(next);
@@ -4127,6 +4181,27 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
       {error && <AuthAlert tone="error">{error}</AuthAlert>}
       <button type="submit" disabled={submitting} className="login-submit">{submitting ? "Sending…" : "Send reset link"}</button>
       <button type="button" onClick={() => switchMode("login")} style={{ ...authLinkButton, marginTop: 16, alignSelf: "center" }}>Back to sign in</button>
+    </form>}
+
+    {mode === "code" && twoFactor && <form onSubmit={verifyCode} className="login-card">
+      <p style={authEyebrow}>Two-step sign-in</p>
+      <h1 style={authTitle}>Check your email</h1>
+      <p style={authLead}>We sent a 6-digit code to <strong>{twoFactor.email}</strong>. Type it below. This device is then remembered for 30 days.</p>
+      <label className="flex flex-col gap-1.5" style={{ marginTop: 22 }}>
+        <span style={authFieldLabel}>Sign-in code</span>
+        <span className="login-field">
+          <span className="login-field-icon"><LoginFieldIcon kind="lock" /></span>
+          <input className="login-code-input" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" autoFocus placeholder="123456" aria-label="6-digit sign-in code" maxLength={6} />
+        </span>
+      </label>
+      {codeNotice && <AuthAlert tone="success">{codeNotice}</AuthAlert>}
+      {error && <AuthAlert tone="error">{error}</AuthAlert>}
+      <button type="submit" disabled={submitting || code.length !== 6} className="login-submit">{submitting ? "Checking…" : "Verify and sign in"}</button>
+      <div className="flex items-center justify-between" style={{ marginTop: 16, gap: 12 }}>
+        <button type="button" onClick={() => void resendCode()} disabled={resendWait > 0 || submitting} style={{ ...authLinkButton, opacity: resendWait > 0 ? 0.55 : 1 }}>{resendWait > 0 ? `Send a new code in ${resendWait}s` : "Send a new code"}</button>
+        <button type="button" onClick={() => { setTwoFactor(null); switchMode("login"); }} style={{ ...authLinkButton, color: "#9C8278" }}>Back</button>
+      </div>
+      <p style={{ ...authLead, marginTop: 14, fontSize: 12 }}>Not in your inbox? Check spam. The code works for 10 minutes.</p>
     </form>}
 
     {mode === "sent" && <div className="login-card">
