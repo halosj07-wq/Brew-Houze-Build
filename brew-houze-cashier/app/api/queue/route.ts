@@ -1,3 +1,4 @@
+import { customTextSql } from "@/lib/orders";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
@@ -74,6 +75,7 @@ export async function GET(request: Request) {
             'size_label', detail_variant.size_label,
             'temperature', detail_variant.temperature,
             'quantity', detail_item.quantity,
+            'custom', ${customTextSql("detail_item")},
             'station', COALESCE(detail_item.station, 'bar'),
             'additions', COALESCE((
               SELECT json_agg(json_build_object(
@@ -127,6 +129,7 @@ export async function GET(request: Request) {
             'size_label', detail_variant.size_label,
             'temperature', detail_variant.temperature,
             'quantity', detail_item.quantity,
+            'custom', ${customTextSql("detail_item")},
             'additions', COALESCE((
               SELECT json_agg(json_build_object(
                 'name', detail_addition.addition_name,

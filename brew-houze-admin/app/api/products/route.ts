@@ -241,7 +241,8 @@ function normalizeVariants(rawVariants: unknown, productType: ProductType): { va
   const normalized = variants.map((variant) => ({
     size: String(variant.size ?? "").trim() || (productType === "stock" ? "Regular" : ""),
     price: Number(variant.price),
-    temperature: productType === "stock" ? null : ["hot", "cold", "both"].includes(String(variant.temperature)) ? String(variant.temperature) : "both",
+    // Hot or cold; anything else (a stock item, or a plain option like With Rice) has none.
+    temperature: productType !== "stock" && ["hot", "cold"].includes(String(variant.temperature)) ? String(variant.temperature) : null,
     ingredients: (Array.isArray(variant.ingredients) ? variant.ingredients as IngredientInput[] : [])
       .map((ingredient) => ({ inventoryId: Number(ingredient.inventory_id), requiredQuantity: Number(ingredient.required_quantity) }))
       .filter((ingredient) => Number.isInteger(ingredient.inventoryId) && ingredient.inventoryId > 0 && Number.isFinite(ingredient.requiredQuantity) && ingredient.requiredQuantity > 0),

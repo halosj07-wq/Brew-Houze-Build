@@ -18,6 +18,19 @@ export async function GET() {
         p.product_category,
         p.image_url,
         p.product_type,
+        p.station,
+        -- Categories are listed in the order they were added (the printed menu order).
+        (SELECT pc.category_id FROM product_categories pc WHERE pc.category_name = p.product_category) AS category_order,
+        -- Units sold in the last 30 days, for the Popular tab.
+        COALESCE((
+          SELECT SUM(soi.quantity)
+          FROM sales_order_items soi
+          JOIN sales_orders so ON so.order_id = soi.order_id
+          WHERE soi.product_id = p.product_id
+            AND so.is_archived = FALSE
+            AND so.status NOT IN ('void', 'voided', 'refund', 'refunded')
+            AND so.created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'
+        ), 0)::int AS recent_sold,
         COALESCE(
           json_agg(
             json_build_object(
@@ -44,6 +57,9 @@ export async function GET() {
               'ingredients', COALESCE((
                 SELECT json_agg(json_build_object(
                   'inventory_id', vi_detail.inventory_id,
+                  'item_name', inv_detail.item_name,
+                  'customizable', inv_detail.is_customizable,
+                  'whole', inv_detail.is_whole_unit,
                   'required_quantity', vi_detail.required_quantity,
                   'available_quantity', CASE
                     WHEN inv_detail.derived_from_inventory_id IS NOT NULL THEN
@@ -95,6 +111,7 @@ export async function GET() {
         a.addition_name,
         a.quantity,
         a.price,
+        a.station,
         i.unit_of_measure,
         a.inventory_id,
         CASE
@@ -112,7 +129,13 @@ export async function GET() {
       ORDER BY a.addition_name
     `);
 
-    return NextResponse.json({ data: result.rows, additions: additionsResult.rows });
+    // Quick requests for the Customize window (Less ice, Spicy...), each for drinks or food.
+    // Without them (quick-requests-migration.sql not run yet) the menu still loads.
+    const requests = await pool.query("SELECT request_text, station FROM quick_requests ORDER BY request_id")
+      .then((requestsResult) => requestsResult.rows.map((row) => ({ text: String(row.request_text), station: row.station === "kitchen" ? "kitchen" : "bar" })))
+      .catch(() => []);
+
+    return NextResponse.json({ data: result.rows, additions: additionsResult.rows, requests });
   } catch (error) {
     console.error("GET /api/products failed:", error);
     return NextResponse.json({ error: "Unable to load products." }, { status: 500 });

@@ -22,7 +22,7 @@ function roleLabel(role: string): string {
   return value === "admin" ? "Admin" : value === "barista" ? "Barista" : value === "kitchen" ? "Kitchen" : value === "rider" ? "Rider" : "Cashier";
 }
 type IconProps = { size?: number };
-type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; station?: Station; additions: { name: string; quantity: number }[] };
+type QueueOrderDetail = { product_name: string; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; quantity: number; station?: Station; custom?: string | null; additions: { name: string; quantity: number }[] };
 // Where things are made. An order has one part per station it needs (see lib/stations.ts).
 type Station = "bar" | "kitchen";
 type StationPart = { station: Station; status: "waiting" | "ready" | "picked_up" };
@@ -660,6 +660,9 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
 
 
 const ADDONS_TAB = "__addons__";
+const POPULAR_TAB = "__popular__";
+// How many best sellers the Popular tab shows.
+const POPULAR_COUNT = 12;
 
 // ─── On-screen keypad ────────────────────────────────────────────────────────
 // Optional, per tablet (My Account → This tablet). When on, money boxes open this keypad instead
@@ -709,7 +712,7 @@ type ReceiptData = {
   // Delivery orders: the fee, and where it went.
   deliveryFee?: number; delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null; checkId?: boolean; notes?: string | null; codCollected?: number | null; deliveredAt?: string | null } | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
-  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; station?: Station; additions: { name: string; quantity: number; unitPrice: number }[] }[];
+  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; station?: Station; custom?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
 
 type ReceiptIdDiscount = { code: string; name: string; holderName: string; idNumber: string | null; groupSize: number | null; coveredAmount: number; vatExempt: number; discount: number };
@@ -923,6 +926,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
         {item.heading && <div className="receipt-station">{item.heading}</div>}
         {row(`${item.quantity} × ${item.name}`, receiptMoney(item.quantity * item.unitPrice))}
         {details && <div className="receipt-detail">{details}</div>}
+        {item.custom && <div className="receipt-detail">* {item.custom}</div>}
         {item.additions.map((addition) => row(<span className="receipt-detail">+ {addition.name}{addition.quantity !== 1 ? ` ×${addition.quantity}` : ""}</span>, receiptMoney(addition.quantity * addition.unitPrice)))}
       </div>;
     })}
@@ -1131,6 +1135,79 @@ function MoneyInput({ value, onChange, label, placeholder = "0.00", style, autoF
 
 function KeypadSummaryRow({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return <div className="keypad-summary-row"><span>{label}</span><strong style={tone ? { color: tone } : undefined}>{value}</strong></div>;
+}
+
+// ─── Customizations ──────────────────────────────────────────────────────────
+// A cart line can use less (half) or none of an ingredient the admin marked customizable in
+// Inventory, plus a short request that is not an inventory item. They go to the queue and receipt.
+type LineCustomization = { inventoryId: number; name: string; level: "less" | "none" };
+const ITEM_NOTE_MAX = 120;
+// The quick request buttons come from Admin, Menu, Requests (each for drinks or food).
+type QuickRequest = { text: string; station: Station };
+
+function lineCustomText(item: { customizations?: LineCustomization[]; note?: string }): string {
+  return [(item.customizations ?? []).map((entry) => `${entry.level === "none" ? "No" : "Less"} ${entry.name}`).join(", "), item.note ?? ""].filter(Boolean).join(" · ");
+}
+
+function CustomizeDialog({ requests, title, quantity, ingredients, customizations, note, onClose, onSave }: {
+  requests: string[]; title: string; quantity: number;
+  ingredients: { inventory_id: number; item_name?: string; customizable?: boolean; whole?: boolean }[];
+  customizations: LineCustomization[]; note: string;
+  onClose: () => void; onSave: (customizations: LineCustomization[], note: string, justOne: boolean) => void;
+}) {
+  const choices = ingredients.filter((ingredient) => ingredient.customizable);
+  const [levels, setLevels] = useState<Map<number, "less" | "none">>(() => new Map(customizations.map((entry) => [entry.inventoryId, entry.level])));
+  const [draftNote, setDraftNote] = useState(note);
+  const [justOne, setJustOne] = useState(false);
+  const setLevel = (inventoryId: number, level: "normal" | "less" | "none") => setLevels((current) => {
+    const next = new Map(current);
+    if (level === "normal") next.delete(inventoryId); else next.set(inventoryId, level);
+    return next;
+  });
+  const noteParts = draftNote.split(",").map((part) => part.trim()).filter(Boolean);
+  const toggleRequest = (request: string) => {
+    const has = noteParts.some((part) => part.toLowerCase() === request.toLowerCase());
+    setDraftNote((has ? noteParts.filter((part) => part.toLowerCase() !== request.toLowerCase()) : [...noteParts, request]).join(", ").slice(0, ITEM_NOTE_MAX));
+  };
+  const save = () => onSave(
+    choices.filter((ingredient) => levels.has(ingredient.inventory_id)).map((ingredient) => ({ inventoryId: ingredient.inventory_id, name: ingredient.item_name ?? "Item", level: levels.get(ingredient.inventory_id)! })),
+    draftNote.replace(/\s+/g, " ").trim().slice(0, ITEM_NOTE_MAX),
+    justOne,
+  );
+  return <Modal onClose={onClose} label={`Customize ${title}`}>
+    <form className="pos-customer-dialog pos-custom-dialog" onSubmit={(event) => { event.preventDefault(); save(); }}>
+      <div className="pos-customer-dialog-head"><div><p>Customize</p><h3>{title}</h3></div><button type="button" onClick={onClose} aria-label="Close">×</button></div>
+      <div className="pos-idd-scroll">
+        <p className="pos-custom-label">Ingredients</p>
+        {choices.length === 0
+          ? <p className="pos-custom-empty">Nothing in this item can be changed yet. An admin can allow it per item in Inventory (Customers can ask for less or none).</p>
+          : <ul className="pos-custom-list">
+            {choices.map((ingredient) => {
+              const level = levels.get(ingredient.inventory_id) ?? "normal";
+              return <li key={ingredient.inventory_id}>
+                <span>{ingredient.item_name ?? "Item"}</span>
+                <div className="pos-custom-levels" role="radiogroup" aria-label={ingredient.item_name ?? "Item"}>
+                  {(ingredient.whole ? ["normal", "none"] as const : ["normal", "less", "none"] as const).map((option) => <button key={option} type="button" role="radio" aria-checked={level === option} className={`is-${option}`} onClick={() => setLevel(ingredient.inventory_id, option)}>{option === "normal" ? "Normal" : option === "less" ? "Less" : "None"}</button>)}
+                </div>
+              </li>;
+            })}
+          </ul>}
+        <p className="pos-custom-label">Requests</p>
+        {requests.length > 0 && <div className="pos-custom-requests">
+          {requests.map((request) => <button key={request} type="button" aria-pressed={noteParts.some((part) => part.toLowerCase() === request.toLowerCase())} onClick={() => toggleRequest(request)}>{request}</button>)}
+        </div>}
+        <input className="pos-custom-note" value={draftNote} onChange={(event) => setDraftNote(event.target.value.slice(0, ITEM_NOTE_MAX))} placeholder="Other request, for example half sugar" aria-label="Request note" maxLength={ITEM_NOTE_MAX} />
+        {quantity > 1 && <div className="pos-custom-scope" role="radiogroup" aria-label="Which ones">
+          <button type="button" role="radio" aria-checked={!justOne} onClick={() => setJustOne(false)}>All {quantity}</button>
+          <button type="button" role="radio" aria-checked={justOne} onClick={() => setJustOne(true)}>Just 1 of them</button>
+        </div>}
+      </div>
+      <div className="pos-custom-actions">
+        <button type="button" onClick={() => { setLevels(new Map()); setDraftNote(""); }}>Clear all</button>
+        <button type="submit" className="is-primary" data-autofocus>Save</button>
+      </div>
+    </form>
+  </Modal>;
 }
 
 // ─── Windows ─────────────────────────────────────────────────────────────────
@@ -1780,15 +1857,15 @@ function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }
 
 // view: the menu and cart, or the counter line (the same component, so the order being made stays).
 function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { userName: string; view: "pos" | "line"; onView: (page: Page) => void; onLineChanged: () => void; onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
-  type Ingredient = { inventory_id: number; required_quantity: string | number; available_quantity: string | number };
-  type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
+  type Ingredient = { inventory_id: number; item_name?: string; customizable?: boolean; whole?: boolean; required_quantity: string | number; available_quantity: string | number };
+  type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; station?: Station; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
-  type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; product_type?: "recipe" | "stock"; image_url?: string | null; variants: Variant[] };
-  type ProductsResponse = { data?: Product[]; additions?: Addition[] };
+  type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; product_type?: "recipe" | "stock"; station?: Station; category_order?: number | null; recent_sold?: number; image_url?: string | null; variants: Variant[] };
+  type ProductsResponse = { data?: Product[]; additions?: Addition[]; requests?: QuickRequest[] };
   // "count" is how many of this add-on go on EACH cup of the line (Double Shot x2 per cup).
   type CartAddition = Addition & { count: number };
   // rewardId: a loyalty reward line (one item, free, paid with stars; its add-ons are still charged).
-  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
+  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean; customizations?: LineCustomization[]; note?: string };
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -1840,6 +1917,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   const [lineClock, setLineClock] = useState(() => Date.now());
   useEffect(() => { const timer = window.setInterval(() => setLineClock(Date.now()), 30_000); return () => window.clearInterval(timer); }, []);
   const [additions, setAdditions] = useState<Addition[]>([]);
+  const [quickRequests, setQuickRequests] = useState<QuickRequest[]>([]);
   // The cart line that add-ons tapped in the POS list attach to.
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // Category tab shown in the product area; ADDONS_TAB shows the add-on buttons.
@@ -1995,6 +2073,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
           const nextAdditions = payload.additions ?? [];
           setProducts((current) => JSON.stringify(current) === JSON.stringify(nextProducts) ? current : nextProducts);
           setAdditions((current) => JSON.stringify(current) === JSON.stringify(nextAdditions) ? current : nextAdditions);
+          const nextRequests = payload.requests ?? [];
+          setQuickRequests((current) => JSON.stringify(current) === JSON.stringify(nextRequests) ? current : nextRequests);
         }
       } catch (err) {
         console.error("POS: failed to load products", err);
@@ -2070,10 +2150,30 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   // most recently added recipe item still in the cart.
   const selectedLine = cart.find((item) => item.key === selectedKey && item.isRecipe) ?? [...cart].reverse().find((item) => item.isRecipe) ?? null;
 
+  // Add-ons belong to a station: drink add-ons for bar items, food add-ons for kitchen items.
+  const selectedStation: Station | null = selectedLine ? (products.find((product) => product.product_id === selectedLine.productId)?.station ?? "bar") : null;
+  const forSelected = (addition: Addition) => selectedStation === null || (addition.station ?? "bar") === selectedStation;
   function canAddAddition(addition: Addition): boolean {
-    if (!selectedLine) return false;
+    if (!selectedLine || !forSelected(addition)) return false;
     const used = getCartUsage(cart).get(addition.inventory_id) ?? 0;
     return used + Number(addition.quantity) <= (latestStock.get(addition.inventory_id) ?? Number(addition.available_quantity));
+  }
+
+  // Less or none of an ingredient, and a request note, on one cart line. With "just one", one cup is
+  // split off the line (the same way an add-on does) so the others stay as they are.
+  const [customizeKey, setCustomizeKey] = useState<string | null>(null);
+  function saveCustomization(key: string, customizations: LineCustomization[], note: string, justOne: boolean) {
+    const line = cart.find((item) => item.key === key);
+    if (!line) return;
+    if (justOne && line.qty > 1) {
+      cartLineId.current += 1;
+      const newKey = `${line.productId}:${line.variantId ?? "v"}:${cartLineId.current}`;
+      setCart((prev) => prev.flatMap((item) => item.key === key ? [{ ...item, qty: item.qty - 1 }, { ...item, key: newKey, qty: 1, customizations, note }] : [item]));
+      if (line.isRecipe) setSelectedKey(newKey);
+    } else {
+      setCart((prev) => prev.map((item) => item.key === key ? { ...item, customizations, note } : item));
+    }
+    setCustomizeKey(null);
   }
 
   function addToCart(product: Product, variant: Variant | null) {
@@ -2085,7 +2185,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     if (variant && getCartLimit(variant, cart, key) <= 0) return;
     // The same item again joins its plain line (one with no add-ons and not a reward), so two
     // taps are "2 ×", not two lines. Add-ons still split one cup off (see addAdditionToSelected).
-    const plain = [...cart].reverse().find((item) => item.variantId === variantId && item.productId === product.product_id && !item.rewardId && item.additions.length === 0);
+    const plain = [...cart].reverse().find((item) => item.variantId === variantId && item.productId === product.product_id && !item.rewardId && item.additions.length === 0 && !item.customizations?.length && !item.note);
     if (plain) {
       setCart((prev) => prev.map((item) => item.key === plain.key ? { ...item, qty: item.qty + 1 } : item));
       if (isRecipe) setSelectedKey(plain.key);
@@ -2400,6 +2500,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       const refreshedPayload = await refresh.json() as ProductsResponse;
       setProducts(refreshedPayload.data ?? []);
       setAdditions(refreshedPayload.additions ?? []);
+      setQuickRequests(refreshedPayload.requests ?? []);
     }
   }
 
@@ -2445,6 +2546,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       quantity: item.qty,
       addition_ids: item.additions.flatMap((addition) => Array.from({ length: addition.count }, () => addition.addition_id)),
       reward_id: item.rewardId ?? null,
+      customizations: (item.customizations ?? []).map((entry) => ({ inventory_id: entry.inventoryId, level: entry.level })),
+      note: item.note ?? "",
     }));
     if (paymentMethod === "split") {
       const cash = Number.parseFloat(cashPart);
@@ -2496,13 +2599,38 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   }
 
   const filtered = products.filter((p) => p.product_name.toLowerCase().includes(search.toLowerCase()) || (p.product_category ?? "").toLowerCase().includes(search.toLowerCase()));
-  const categories = Array.from(new Set(products.map((product) => product.product_category?.trim() || "Other")));
-  const currentCategory = activeCategory === ADDONS_TAB || categories.includes(activeCategory) ? activeCategory : categories[0] ?? ADDONS_TAB;
+  // The category rail: categories grouped by where they are made (a category belongs to the
+  // station most of its products use), each group in the order the categories were added, with
+  // categories of ready-made items only (bottled drinks, pastries) last.
+  const categoryOf = (product: Product) => product.product_category?.trim() || "Other";
+  const categoryInfo = new Map<string, { order: number; bar: number; kitchen: number; count: number; madeToOrder: boolean }>();
+  for (const product of products) {
+    const name = categoryOf(product);
+    const info = categoryInfo.get(name) ?? { order: Number.MAX_SAFE_INTEGER, bar: 0, kitchen: 0, count: 0, madeToOrder: false };
+    if (product.product_type !== "stock") info.madeToOrder = true;
+    info.order = Math.min(info.order, product.category_order ?? Number.MAX_SAFE_INTEGER);
+    info[product.station === "kitchen" ? "kitchen" : "bar"] += 1;
+    info.count += 1;
+    categoryInfo.set(name, info);
+  }
+  const categoryGroups = ([["bar", "☕", "Drinks"], ["kitchen", "🍳", "Food"]] as const).map(([station, icon, label]) => ({
+    station, icon, label,
+    categories: Array.from(categoryInfo.entries())
+      .filter(([, info]) => (info.kitchen > info.bar ? "kitchen" : "bar") === station)
+      .sort(([nameA, a], [nameB, b]) => Number(b.madeToOrder) - Number(a.madeToOrder) || a.order - b.order || nameA.localeCompare(nameB))
+      .map(([name, info]) => ({ name, count: info.count })),
+  })).filter((group) => group.categories.length > 0);
+  const categories = categoryGroups.flatMap((group) => group.categories.map((category) => category.name));
+  // Best sellers of the last 30 days, so most orders are punched without changing tabs.
+  const popular = products.filter((product) => (product.recent_sold ?? 0) > 0).sort((a, b) => (b.recent_sold ?? 0) - (a.recent_sold ?? 0) || a.product_name.localeCompare(b.product_name)).slice(0, POPULAR_COUNT);
+  const currentCategory = (activeCategory === POPULAR_TAB && popular.length > 0) || activeCategory === ADDONS_TAB || categories.includes(activeCategory) ? activeCategory : popular.length > 0 ? POPULAR_TAB : categories[0] ?? ADDONS_TAB;
   // Searching looks across every category and the add-ons; otherwise only the active tab is shown.
   const searching = search.trim() !== "";
-  const filteredAdditions = additions.filter((addition) => addition.addition_name.toLowerCase().includes(search.toLowerCase().trim()));
-  const visibleProducts = searching ? filtered : products.filter((product) => (product.product_category?.trim() || "Other") === currentCategory);
-  const visibleAdditions = searching ? filteredAdditions : currentCategory === ADDONS_TAB ? additions : [];
+  const filteredAdditions = additions.filter((addition) => forSelected(addition) && addition.addition_name.toLowerCase().includes(search.toLowerCase().trim()));
+  const visibleProducts = searching ? filtered : currentCategory === POPULAR_TAB ? popular : products.filter((product) => categoryOf(product) === currentCategory);
+  // The category tag on a card is only needed when the list mixes categories.
+  const mixedList = searching || currentCategory === POPULAR_TAB;
+  const visibleAdditions = searching ? filteredAdditions : currentCategory === ADDONS_TAB ? additions.filter(forSelected) : [];
   const itemsSubtotal = cart.reduce((sum, item) => sum + getLineTotal(item), 0);
   const discountPreview = previewDiscount(cart);
   const idPreview = resolveIdDiscounts(cart);
@@ -2595,10 +2723,19 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
         <div style={{ color: "#9C8278", fontSize: 12, whiteSpace: "nowrap", fontFamily: "JetBrains Mono, monospace" }}>{loading ? "LOADING..." : searching ? `${visibleProducts.length + visibleAdditions.length} RESULTS` : `${currentCategory === ADDONS_TAB ? visibleAdditions.length : visibleProducts.length} ITEMS`}</div>
       </div>
 
-      <div className="pos-product-area" style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+      <div className="pos-menu-body">
+      <nav className="pos-cat-rail" aria-label="Product categories">
+        {popular.length > 0 && <button type="button" className="pos-cat is-popular" aria-pressed={!searching && currentCategory === POPULAR_TAB} onClick={() => { setActiveCategory(POPULAR_TAB); setSearch(""); }}><span>⭐ Popular</span><em>{popular.length}</em></button>}
+        {categoryGroups.map((group) => <div key={group.station} className="pos-cat-group" role="group" aria-label={group.label}>
+          {categoryGroups.length > 1 && <p className="pos-cat-label">{group.icon} {group.label}</p>}
+          {group.categories.map((category) => <button key={category.name} type="button" className="pos-cat" aria-pressed={!searching && currentCategory === category.name} onClick={() => { setActiveCategory(category.name); setSearch(""); }}><span>{category.name}</span><em>{category.count}</em></button>)}
+        </div>)}
+        {additions.length > 0 && <button type="button" className="pos-cat is-addons" aria-pressed={!searching && currentCategory === ADDONS_TAB} onClick={() => { setActiveCategory(ADDONS_TAB); setSearch(""); }}><span>Add-ons</span><em>{additions.length}</em></button>}
+      </nav>
+      <div className="pos-product-area" style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
         {(currentCategory === ADDONS_TAB || searching) && visibleAdditions.length > 0 && (
           <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: selectedLine ? "#FFF7ED" : "#F3EDE5", border: `1px solid ${selectedLine ? "#FED7AA" : "#E8DDD5"}`, color: selectedLine ? "#C2410C" : "#9C8278", fontSize: 12, fontWeight: 600 }}>
-            {selectedLine ? `Add-ons go to: ${getLineLabel(selectedLine)}` : "Punch a drink first, then tap add-ons to attach them to it."}
+            {selectedLine ? `Add-ons go to: ${getLineLabel(selectedLine)} · ${selectedStation === "kitchen" ? "food" : "drink"} add-ons` : "Punch an item first, then tap add-ons to attach them to it."}
           </div>
         )}
         {visibleProducts.length > 0 && (
@@ -2628,16 +2765,17 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
               const samePrice = prices.every((price) => price === lowestPrice);
               const single = options.length === 1 ? options[0] : null;
               const headDisabled = soldOut || (single !== null && single.unavailable);
-              return <article key={product.product_id} className={`pos-card rounded-2xl${soldOut ? " is-sold-out" : ""}`} style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 200, color: "#3D2B1F" }}>
+              const badge = soldOut ? <span className="pos-badge is-out">Sold out</span> : lowStock ? <span className="pos-badge is-low">{mostLeft} left</span> : null;
+              return <article key={product.product_id} className={`pos-card rounded-2xl${soldOut ? " is-sold-out" : ""}${product.image_url ? "" : " is-plain"}`} style={{ background: "#FDF9F5", border: "1px solid #E8DDD5", overflow: "hidden", display: "flex", flexDirection: "column", minHeight: product.image_url ? 200 : 0, color: "#3D2B1F" }}>
                 <button type="button" className="pos-card-head" disabled={headDisabled} onClick={() => selectProduct(product)} aria-label={single ? `Add ${product.product_name}` : `Choose ${product.product_name}`}>
-                  <div className="pos-card-image" style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                    {product.image_url ? <Image src={product.image_url} alt={product.product_name} width={180} height={92} unoptimized style={{ maxHeight: 92, maxWidth: "82%", width: "auto", objectFit: "contain", position: "relative", zIndex: 1 }} /> : <div style={{ color: "#B9A398", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 15, padding: "0 10px", textAlign: "center" }}>{product.product_name}</div>}
-                    {soldOut ? <span className="pos-badge is-out">Sold out</span> : lowStock ? <span className="pos-badge is-low">{mostLeft} left</span> : null}
-                  </div>
+                  {product.image_url ? <div className="pos-card-image" style={{ height: 104, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Image src={product.image_url} alt={product.product_name} width={180} height={92} unoptimized style={{ maxHeight: 92, maxWidth: "82%", width: "auto", objectFit: "contain", position: "relative", zIndex: 1 }} />
+                    {badge}
+                  </div> : badge && <div className="pos-card-flags">{badge}</div>}
                   <div style={{ padding: "10px 12px 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 15, lineHeight: 1.15 }}>{product.product_name}</div>
-                      <span style={{ display: "inline-block", marginTop: 5, padding: "3px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 9, fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", letterSpacing: "0.03em" }}>{product.product_category ?? "Menu"}</span>
+                      {mixedList && <span style={{ display: "inline-block", marginTop: 5, padding: "3px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 9, fontFamily: "JetBrains Mono, monospace", textTransform: "uppercase", letterSpacing: "0.03em" }}>{product.product_category ?? "Menu"}</span>}
                     </div>
                     {priceLabel && <span style={{ flexShrink: 0, color: soldOut ? "#B9A398" : "#B45309", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 13.5, whiteSpace: "nowrap" }}>{priceLabel}</span>}
                   </div>
@@ -2683,7 +2821,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
                     <span style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 14, lineHeight: 1.15 }}>{addition.addition_name}</span>
                     <span style={{ fontWeight: 800, fontSize: 13, color: allowed ? "#D97706" : "#B9A398", whiteSpace: "nowrap" }}>+₱{Number(addition.price).toFixed(2)}</span>
                   </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: allowed ? "#7E22CE" : "#B9A398" }}>{!selectedLine ? "Select a drink in the cart" : allowed ? "Tap to add to selected drink" : "Insufficient stock"}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: allowed ? "#7E22CE" : "#B9A398" }}>{!selectedLine ? "Select an item in the cart" : allowed ? "Tap to add to selected item" : "Insufficient stock"}</span>
                 </button>;
             })}
           </div>
@@ -2693,18 +2831,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
         )}
       </div>
 
-      <nav className="pos-category-bar" aria-label="Product categories" onWheel={(event) => { if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY; }} style={{ display: "flex", gap: 10, overflowX: "auto", flexShrink: 0, paddingBottom: 8 }}>
-        {[...categories, ADDONS_TAB].map((category) => {
-          const isAddOns = category === ADDONS_TAB;
-          const active = !searching && currentCategory === category;
-          const count = isAddOns ? additions.length : products.filter((product) => (product.product_category?.trim() || "Other") === category).length;
-          if (isAddOns && count === 0) return null;
-          return <button key={category} type="button" aria-pressed={active} onClick={() => { setActiveCategory(category); setSearch(""); }} style={{ flexShrink: 0, minWidth: 140, height: 52, padding: "0 18px", borderRadius: 12, border: active ? "none" : `1px solid ${isAddOns ? "#E9D5FF" : "#E8DDD5"}`, background: active ? (isAddOns ? "#7E22CE" : "#3D2B1F") : (isAddOns ? "#FAF5FF" : "#FDF9F5"), color: active ? "#FDF9F5" : (isAddOns ? "#7E22CE" : "#3D2B1F"), fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 800, fontSize: 14, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: active ? "0 6px 16px rgba(61,43,31,0.18)" : "none" }}>
-            {isAddOns ? "Add-ons" : category}
-            <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, fontWeight: 500, opacity: 0.7 }}>{count}</span>
-          </button>;
-        })}
-      </nav>
+      </div>
     </section>
 
     {cart.length > 0 && !cartOpen && <button type="button" className="pos-cart-bar" onClick={() => setCartOpen(true)}>
@@ -2790,7 +2917,9 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
                     <button type="button" onClick={(event) => { event.stopPropagation(); removeAddition(item.key, addition.addition_id); }} aria-label={`Remove one ${addition.addition_name}`} style={{ width: 20, height: 20, borderRadius: 5, border: "1px solid #E9D5FF", background: "#fff", color: "#7E22CE", lineHeight: 1, cursor: "pointer" }}>−</button>
                   </div>)}
                 </div>}
-                {isSelected && <div style={{ marginTop: 5, fontSize: 10, fontWeight: 700, color: "#D97706", textTransform: "uppercase", letterSpacing: "0.04em" }}>Add-ons go to this drink</div>}
+                {lineCustomText(item) && <div className="pos-line-custom">✎ {lineCustomText(item)}{item.qty > 1 ? " (each)" : ""}</div>}
+                {item.isRecipe && <button type="button" className="pos-customize-link" onClick={(event) => { event.stopPropagation(); setCustomizeKey(item.key); }}>{lineCustomText(item) ? "Change requests" : "Customize"}</button>}
+                {isSelected && <div style={{ marginTop: 5, fontSize: 10, fontWeight: 700, color: "#D97706", textTransform: "uppercase", letterSpacing: "0.04em" }}>Add-ons go to this item</div>}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <button onClick={() => updateQty(item.key, -1)} style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E8DDD5", background: "#fff" }}>-</button>
@@ -2891,6 +3020,11 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     </aside>
     </>}
 
+    {customizeKey && (() => {
+      const line = cart.find((item) => item.key === customizeKey);
+      const lineStation = products.find((product) => product.product_id === line?.productId)?.station ?? "bar";
+      return line ? <CustomizeDialog key={line.key} requests={quickRequests.filter((request) => request.station === lineStation).map((request) => request.text)} title={getLineLabel(line)} quantity={line.qty} ingredients={line.ingredients} customizations={line.customizations ?? []} note={line.note ?? ""} onClose={() => setCustomizeKey(null)} onSave={(customizations, note, justOne) => saveCustomization(line.key, customizations, note, justOne)} /> : null;
+    })()}
     {claimAsk && <Modal onClose={() => setClaimAsk(null)} label="Is this their order?">
       <section className="pos-customer-dialog pos-claim-ask">
         <div className="pos-customer-dialog-head"><div><p>Stars sign · {claimAsk.fullName}</p><h3>Is this their order?</h3></div><button type="button" onClick={() => setClaimAsk(null)} aria-label="Close">×</button></div>
@@ -3314,6 +3448,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
                       {detail.temperature === "hot" && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#FFEDD5", color: "#C2410C", fontSize: 11.5, fontWeight: 800 }}>HOT</span>}
                       {detail.temperature === "cold" && <span style={{ padding: "1px 7px", borderRadius: 6, background: "#DBEAFE", color: "#1D4ED8", fontSize: 11.5, fontWeight: 800 }}>ICED</span>}
                     </span>}
+                    {detail.custom && <span className="queue-custom">✎ {detail.custom}</span>}
                     {detail.additions.length > 0 && <span style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
                       {detail.additions.map((addition) => <span key={addition.name} style={{ alignSelf: "flex-start", padding: "2px 8px", borderRadius: 6, background: "#F3E8FF", color: "#7E22CE", border: "1px solid #E9D5FF", fontSize: 12, fontWeight: 700 }}>+ {formatQueueAddition(addition, Number(detail.quantity))}</span>)}
                     </span>}
@@ -3579,6 +3714,7 @@ function ReversalsPage({ user }: { user: Session }) {
                 {order.order_details.map((detail, index) => <span key={`${order.order_id}-${index}`}>
                   <strong style={{ fontWeight: 700 }}>{describeOrderLine(detail)}</strong>
                   {detail.additions.length > 0 && <span style={{ color: reversible ? "#7E22CE" : "#B9A398", fontSize: 12 }}> + {detail.additions.map((addition) => formatQueueAddition(addition, Number(detail.quantity))).join(", ")}</span>}
+                  {detail.custom && <span style={{ color: reversible ? "#B45309" : "#B9A398", fontSize: 12 }}> · {detail.custom}</span>}
                 </span>)}
               </div>
             </div>
@@ -3612,6 +3748,7 @@ function ReversalsPage({ user }: { user: Session }) {
             {pendingAction.order.order_details.map((detail, index) => <div key={`${pendingAction.order.order_id}-${index}`} style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", color: "#3D2B1F", fontSize: 13 }}>
               <strong>{describeOrderLine(detail)}</strong>
               {detail.additions.length > 0 && <div style={{ marginTop: 3, color: "#7E22CE", fontSize: 12 }}>+ {detail.additions.map((addition) => formatQueueAddition(addition, Number(detail.quantity))).join(", ")}</div>}
+              {detail.custom && <div style={{ marginTop: 3, color: "#B45309", fontSize: 12 }}>✎ {detail.custom}</div>}
             </div>)}
           </div>
           <p style={{ margin: "14px 0 6px", color: "#6B4C3B", fontSize: 12, fontWeight: 700 }}>Was it already made?</p>

@@ -1543,3 +1543,40 @@ strong.is-low { color: #B45309 !important; }
 .ins-body { display: flex; flex-direction: column; gap: inherit; transition: opacity 160ms ease; }
 .ins-body.is-off { opacity: 0.45; pointer-events: none; user-select: none; filter: grayscale(0.6); }
 .ins-setup.is-off { border-color: #E8DDD5; background: #F3EDE5; color: #6B4C3B; }
+
+/* Menu editor: plain options (food). */
+.menu-options { display: flex; flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; border: 1px solid #E8DDD5; background: #F3EDE5; }
+.menu-option { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 10px; border: 1px solid #E8DDD5; background: #FDF9F5; cursor: pointer; }
+.menu-option.is-selected { border: 2px solid #3D2B1F; }
+.menu-option input { flex: 1; min-width: 0; border: none; background: transparent; color: #3D2B1F; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 700; outline: none; padding: 4px 2px; }
+.menu-option-meta { flex-shrink: 0; color: #9C8278; font-size: 11px; }
+.menu-option button { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid #E8DDD5; border-radius: 7px; background: #F3EDE5; color: #6B4C3B; cursor: pointer; }
+.menu-option button:disabled { color: #C9B8AF; cursor: default; }
+.menu-option-add { align-self: flex-start; display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px dashed #C9B8AF; border-radius: 9px; background: transparent; color: #6B4C3B; font-size: 12px; cursor: pointer; }
+
+/* Inventory: customers can ask for less or none of this item */
+.inv-custom-switch { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 10px 12px; border: 1px solid #E8DDD5; border-radius: 12px; background: #FDF9F5; cursor: pointer; }
+.inv-custom-switch.is-on { border-color: #FCD34D; background: #FFFBEB; }
+.inv-custom-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.inv-custom-track { position: relative; flex-shrink: 0; width: 40px; height: 22px; border-radius: 999px; background: #E8DDD5; transition: background 160ms ease; }
+.inv-custom-track span { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 3px rgba(61,43,31,0.3); transition: transform 160ms ease; }
+.inv-custom-switch.is-on .inv-custom-track { background: #D97706; }
+.inv-custom-switch.is-on .inv-custom-track span { transform: translateX(18px); }
+.inv-custom-switch input:focus-visible + .inv-custom-track { outline: 2px solid #D97706; outline-offset: 2px; }
+.inv-custom-text strong { display: block; color: #3D2B1F; font-size: 13px; }
+.inv-custom-text em { display: block; margin-top: 2px; color: #9C8278; font-size: 12px; font-style: normal; }
+.fin-item-custom { display: block; color: #B45309; font-size: 12px; font-weight: 700; }
+
+/* Add-on editor: drink or food add-on */
+.menu-addon-station { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.menu-addon-station button { padding: 9px 12px; border: 1px solid #E8DDD5; border-radius: 10px; background: #FDF9F5; color: #3D2B1F; text-align: left; cursor: pointer; font-family: 'Inter', sans-serif; }
+.menu-addon-station button[aria-checked="true"] { border: 2px solid #3D2B1F; background: #3D2B1F; color: #FDF9F5; }
+.menu-addon-station strong { display: block; font-size: 13px; }
+.menu-addon-station span { display: block; margin-top: 2px; font-size: 11px; opacity: 0.75; }
+.menu-addon-station button:focus-visible { outline: 2px solid #D97706; outline-offset: 2px; }
+
+/* Menu, Requests: drink and food requests side by side */
+.menu-req-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.menu-req-column { display: flex; flex-direction: column; gap: 10px; }
+.menu-req-column h3 { margin: 0; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; font-weight: 800; }
+.menu-req-column h3 span { margin-left: 4px; color: #9C8278; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; }

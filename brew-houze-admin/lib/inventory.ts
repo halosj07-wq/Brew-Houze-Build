@@ -21,6 +21,7 @@ export const inventorySelect = `
     END AS quantity,
     inventory.low_stock_threshold,
     inventory.is_whole_unit,
+    inventory.is_customizable,
     inventory.derived_from_inventory_id,
     inventory.derived_ratio,
     parent.item_name AS derived_from_item_name,

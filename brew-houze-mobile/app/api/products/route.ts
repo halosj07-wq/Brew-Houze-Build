@@ -40,7 +40,7 @@ export async function GET() {
           FROM additions a
           JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id AND i_addition.is_archived = FALSE
           LEFT JOIN inventory i_addition_parent ON i_addition_parent.inventory_id = i_addition.derived_from_inventory_id
-          WHERE a.is_active = TRUE AND p.product_type = 'recipe'
+          WHERE a.is_active = TRUE AND p.product_type = 'recipe' AND a.station = p.station
         ), '[]'::json) AS additions,
         COALESCE(
           json_agg(

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getCustomerSession } from "@/lib/customers";
+import { customTextSql } from "@/lib/orders";
 
 // The customer's copy of their receipt (the virtual receipt they can save on their phone), the
 // same content as the counter's printed slip. Only for the order's own customer: by the tracking
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
 
     const items = await pool.query(`
       SELECT p.product_name, pv.size_label, pv.temperature, soi.quantity, soi.unit_price, lr.name AS reward_name,
+        ${customTextSql("soi")} AS custom,
         COALESCE(json_agg(json_build_object('name', a.addition_name, 'quantity', soia.quantity, 'unitPrice', soia.unit_price) ORDER BY a.addition_name)
           FILTER (WHERE soia.order_item_id IS NOT NULL), '[]'::json) AS additions
       FROM sales_order_items soi
@@ -83,6 +85,7 @@ export async function GET(request: Request) {
         items: items.rows.map((row) => ({
           name: String(row.product_name), size: (row.size_label as string | null) ?? null, temperature: (row.temperature as string | null) ?? null,
           quantity: Number(row.quantity), unitPrice: Number(row.unit_price), rewardName: (row.reward_name as string | null) ?? null,
+          custom: (row.custom as string | null) ?? null,
           additions: (Array.isArray(row.additions) ? row.additions : []).map((addition: { name: string; quantity: number; unitPrice: number }) => ({ name: String(addition.name), quantity: Number(addition.quantity), unitPrice: Number(addition.unitPrice) })),
         })),
         subtotal: optional(order.subtotal_amount),

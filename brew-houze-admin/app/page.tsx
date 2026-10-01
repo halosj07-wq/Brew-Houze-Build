@@ -18,6 +18,8 @@ type InventoryItem = {
   low_stock_threshold: number;
   is_whole_unit: boolean;
   is_permanent: boolean;
+  // Customers may ask for less or none of it (the cashier sets it per cart line).
+  is_customizable?: boolean;
   derived_from_inventory_id?: number | null;
   derived_ratio?: number | null;
   derived_from_item_name?: string | null;
@@ -85,6 +87,8 @@ type AdditionItem = {
   unit_of_measure: string;
   quantity: number;
   price: number;
+  // Where the items it goes on are made: drink add-ons (bar) or food add-ons (kitchen).
+  station: Station;
 };
 
 type ProductCategory = { id: number; name: string };
@@ -2198,6 +2202,7 @@ type StockGroupActions = {
   onArchive: (item: InventoryItem) => void;
   onHistory: (group: StockGroup) => void;
   onWriteOff: (item: InventoryItem) => void;
+  onCustomizable: (item: InventoryItem, value: boolean) => void;
 };
 
 function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGroup; expanded: boolean; onToggle: () => void; actions: StockGroupActions }) {
@@ -2284,6 +2289,11 @@ function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGr
             <div><span>Stock value</span><strong>{unitCost === null ? "—" : peso(Math.max(0, Number(item.quantity)) * unitCost)}</strong><em>at current cost</em></div>
           </div>
           <div className="inv-used"><span>Used in</span><InventoryUsageChips item={item} /></div>
+          <label className={`inv-custom-switch${item.is_customizable ? " is-on" : ""}`}>
+            <input type="checkbox" role="switch" checked={Boolean(item.is_customizable)} onChange={(event) => actions.onCustomizable(item, event.target.checked)} />
+            <span className="inv-custom-track" aria-hidden="true"><span /></span>
+            <span className="inv-custom-text"><strong>Customers can ask for less or none</strong><em>{item.is_customizable ? (item.is_whole_unit ? "The cashier can leave it out of an order, for example no lid." : "The cashier can set Less (half) or None on an order line.") : "Off: it is always used as the recipe says."}</em></span>
+          </label>
         </section>
 
         <section className="inv-node">
@@ -3036,6 +3046,19 @@ function Inventory({
     }
   }
 
+  async function setCustomizable(target: InventoryItem, value: boolean) {
+    setItems((prev) => prev.map((item) => item.inventory_id === target.inventory_id ? { ...item, is_customizable: value } : item));
+    try {
+      setActionError("");
+      const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customizable_edit: true, inventory_id: target.inventory_id, is_customizable: value }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not change the setting.");
+    } catch (err) {
+      setItems((prev) => prev.map((item) => item.inventory_id === target.inventory_id ? { ...item, is_customizable: !value } : item));
+      setActionError(err instanceof Error ? err.message : "Could not change the setting.");
+    }
+  }
+
   async function archiveItem(target: InventoryItem) {
     const portionCount = items.filter((item) => item.derived_from_inventory_id === target.inventory_id).length;
     if (!(await confirmAction({
@@ -3071,6 +3094,7 @@ function Inventory({
     onArchive: (item) => void archiveItem(item),
     onHistory: (group) => { setHistoryFocus({ ids: [group.item.inventory_id, ...group.portions.map((portion) => portion.inventory_id)], label: group.item.item_name }); setTab("history"); },
     onWriteOff: (item) => { setActionError(""); setStockNotice(""); setWriteOffItem(item); },
+    onCustomizable: (item, value) => void setCustomizable(item, value),
   };
 
   const sections: { label: string | null; groups: StockGroup[] }[] = filters.sort === "category"
@@ -3220,7 +3244,10 @@ type Product = { id: number; name: string; description: string; category: string
 
 
 type DraftIngredient = { inventoryId: number; qty: string };
-type DraftVariant = { size: string; price: string; temperature: "hot" | "cold"; ingredients: DraftIngredient[]; active: boolean };
+// "none": a plain option with no hot or cold, such as Regular, With Rice or Ala Carte (food).
+type DraftVariant = { size: string; price: string; temperature: "hot" | "cold" | "none"; ingredients: DraftIngredient[]; active: boolean };
+// How a recipe product's choices are set up: the drink grid (sizes, hot and cold) or plain options.
+type VariantMode = "sizes" | "options";
 
 function areIngredientsAvailable(ingredients: ProductIngredient[], inventory: InventoryItem[]): boolean {
   return ingredients.length > 0 && ingredients.every((ingredient) => {
@@ -3235,15 +3262,15 @@ const standardTemperatures = ["hot", "cold"] as const;
 function buildFormVariants(product: Product | undefined): DraftVariant[] {
   const existing = product?.variants ?? [];
   const seeded: DraftVariant[] = standardVariantSizes.flatMap((size) => standardTemperatures.map((temperature) => {
-    const match = existing.find((variant) => variant.size.trim().toLowerCase() === size.toLowerCase() && (variant.temperature === temperature || variant.temperature === "both"));
+    const match = existing.find((variant) => variant.size.trim().toLowerCase() === size.toLowerCase() && variant.temperature === temperature);
     return match
       ? { size: match.size, price: String(match.price), temperature, ingredients: match.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true }
       : { size, price: "", temperature, ingredients: [], active: false };
   }));
 
-  for (const variant of existing.filter((item) => !standardVariantSizes.some((size) => size.toLowerCase() === item.size.trim().toLowerCase()))) {
+  for (const variant of existing.filter((item) => item.temperature === "both" || !standardVariantSizes.some((size) => size.toLowerCase() === item.size.trim().toLowerCase()))) {
     if (variant.temperature === "both") {
-      for (const temperature of standardTemperatures) seeded.push({ size: variant.size, price: String(variant.price), temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
+      seeded.push({ size: variant.size || "Regular", price: String(variant.price), temperature: "none", ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
     } else {
       seeded.push({ size: variant.size, price: String(variant.price), temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventoryId: ingredient.inventoryId, qty: String(ingredient.qty) })), active: true });
     }
@@ -3266,13 +3293,22 @@ function buildFormVariants(product: Product | undefined): DraftVariant[] {
   return Array.from(uniqueVariants.values());
 }
 
+// The station decides the layout: bar drinks get sizes, kitchen items get plain options. A bar
+// product already set up with plain options only (Affogato) keeps them.
+function variantModeFor(product: Product | undefined, station: Station): VariantMode {
+  if (station === "kitchen") return "options";
+  if (product && product.variants.length > 0) return product.variants.every((variant) => variant.temperature === "both") ? "options" : "sizes";
+  return "sizes";
+}
+const inVariantMode = (variant: DraftVariant, mode: VariantMode) => mode === "options" ? variant.temperature === "none" : variant.temperature !== "none";
+
 // ─── Menu: products, add-ons and categories on one page ──────────────────────
 // Availability and cost are worked out from current inventory, so the list shows at a glance
 // what can be sold right now, what is short, and how much each item earns.
 
 type VariantInsight = { key: string; label: string; short: string; price: number; cost: number | null; available: boolean; missing: string[] };
 type ProductInsight = { variants: VariantInsight[]; minPrice: number; maxPrice: number; status: "available" | "partial" | "soldout"; costKnown: boolean; costPartial: boolean; minCost: number | null; marginPct: number | null; shortItems: string[]; stockLeft: number | null };
-type MenuTab = "products" | "addons" | "categories";
+type MenuTab = "products" | "addons" | "categories" | "requests";
 
 function menuPrice(value: number): string {
   return `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
@@ -3507,7 +3543,7 @@ function addonInsight(addon: AdditionItem, inventory: InventoryItem[]) {
 }
 
 function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionItem | null; inventory: InventoryItem[]; onClose: () => void; onSaved: (saved: AdditionItem) => void }) {
-  const [draft, setDraft] = useState({ name: addon?.addition_name ?? "", inventoryId: addon ? String(addon.inventory_id) : "", quantity: addon ? String(addon.quantity) : "", price: addon ? String(addon.price) : "" });
+  const [draft, setDraft] = useState({ name: addon?.addition_name ?? "", inventoryId: addon ? String(addon.inventory_id) : "", quantity: addon ? String(addon.quantity) : "", price: addon ? String(addon.price) : "", station: addon?.station ?? "bar" as Station });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const item = inventory.find((entry) => String(entry.inventory_id) === draft.inventoryId);
@@ -3526,12 +3562,12 @@ function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionIt
       const response = await fetch("/api/additions", {
         method: addon ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addition_id: addon?.addition_id, addition_name: draft.name.trim(), inventory_id: Number(draft.inventoryId), quantity, price }),
+        body: JSON.stringify({ addition_id: addon?.addition_id, addition_name: draft.name.trim(), inventory_id: Number(draft.inventoryId), quantity, price, station: draft.station }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not save the add-on.");
       const row = payload.data;
-      onSaved({ addition_id: Number(row.addition_id), addition_name: row.addition_name, inventory_id: Number(row.inventory_id), item_name: row.item_name, unit_of_measure: row.unit_of_measure, quantity: Number(row.quantity), price: Number(row.price) });
+      onSaved({ addition_id: Number(row.addition_id), addition_name: row.addition_name, inventory_id: Number(row.inventory_id), item_name: row.item_name, unit_of_measure: row.unit_of_measure, quantity: Number(row.quantity), price: Number(row.price), station: row.station === "kitchen" ? "kitchen" : "bar" });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save the add-on.");
     } finally {
@@ -3541,10 +3577,13 @@ function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionIt
 
   return <Modal onClose={onClose} closeDisabled={saving} label={addon ? "Edit add-on" : "Add add-on"}>
     <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 540, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-      <DialogHeader title={addon ? "Edit add-on" : "Add an add-on"} sub="Punched on its own at the POS and attached to any drink in the cart." onClose={onClose} disabled={saving} />
+      <DialogHeader title={addon ? "Edit add-on" : "Add an add-on"} sub="Punched on its own at the POS and attached to an item in the cart made at the same station." onClose={onClose} disabled={saving} />
       <div className="flex flex-col gap-4 px-6 py-5">
+        <div className="menu-addon-station" role="radiogroup" aria-label="Goes on">
+          {([["bar", "☕ Drink add-on", "Goes on bar items, e.g. Extra Shot"], ["kitchen", "🍳 Food add-on", "Goes on kitchen items, e.g. Extra Rice"]] as const).map(([value, title, hint]) => <button key={value} type="button" role="radio" aria-checked={draft.station === value} onClick={() => setDraft((current) => ({ ...current, station: value }))} disabled={saving}><strong>{title}</strong><span>{hint}</span></button>)}
+        </div>
         <div className="inv-step-grid">
-          <WizardField label="Add-on name"><input data-autofocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Extra Shot, Oat Milk" style={packagingInput} /></WizardField>
+          <WizardField label="Add-on name"><input data-autofocus value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder={draft.station === "kitchen" ? "e.g. Extra Rice, Extra Egg" : "e.g. Extra Shot, Oat Milk"} style={packagingInput} /></WizardField>
           <WizardField label="Selling price (₱)"><MoneyField value={draft.price} onChange={(typed) => setDraft((current) => ({ ...current, price: typed }))} placeholder="e.g. 30" style={packagingInput} /></WizardField>
           <WizardField label="Uses inventory item">
             <select value={draft.inventoryId} onChange={(event) => setDraft((current) => ({ ...current, inventoryId: event.target.value }))} style={packagingInput}>
@@ -3579,6 +3618,7 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
   const [search, setSearch] = useState("");
   const [availability, setAvailability] = useState<"all" | "available" | "attention">("all");
   const [sort, setSort] = useState<"name" | "price" | "stock">("name");
+  const [stationFilter, setStationFilter] = useState<"all" | Station>("all");
   const [editing, setEditing] = useState<AdditionItem | null | "new">(null);
   const [actionError, setActionError] = useState("");
 
@@ -3587,6 +3627,7 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
     .filter(({ addon, insight }) => {
       const query = search.trim().toLowerCase();
       if (query && !addon.addition_name.toLowerCase().includes(query) && !addon.item_name.toLowerCase().includes(query)) return false;
+      if (stationFilter !== "all" && addon.station !== stationFilter) return false;
       if (availability === "available" && insight.status === "soldout") return false;
       if (availability === "attention" && insight.status === "available") return false;
       return true;
@@ -3620,6 +3661,11 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search add-on or inventory item" />
         {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
       </div>
+      <label className="inv-filter"><span>Goes on</span>
+        <select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)} className="inv-select">
+          <option value="all">Drinks and food</option><option value="bar">☕ Drinks</option><option value="kitchen">🍳 Food</option>
+        </select>
+      </label>
       <label className="inv-filter"><span>Sort</span>
         <select value={sort} onChange={(event) => setSort(event.target.value as typeof sort)} className="inv-select">
           <option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="stock">Least stock first</option>
@@ -3632,7 +3678,7 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
       : addons.length === 0 ? <div className="inv-onboard">
         <span className="inv-kind-icon is-portion" style={{ width: 52, height: 52 }}><IconSparkle size={22} /></span>
         <h2>No add-ons yet</h2>
-        <p>Add-ons like an <b>Extra Shot</b> or <b>Oat Milk</b> are punched at the POS and attached to any drink. Each one uses an inventory item, so stock stays accurate.</p>
+        <p>Add-ons like an <b>Extra Shot</b> or <b>Extra Rice</b> are punched at the POS and attached to a drink or a dish. Each one uses an inventory item, so stock stays accurate.</p>
         <button type="button" className="inv-primary" onClick={() => setEditing("new")} disabled={inventory.length === 0}><IconPlus size={15} />Add add-on</button>
       </div>
         : shown.length === 0 ? <div className="inv-empty">No add-ons match. <button type="button" className="inv-link" onClick={() => { setSearch(""); setAvailability("all"); }}>Clear filters</button></div>
@@ -3640,7 +3686,7 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
             {shown.map(({ addon, insight }) => <article key={addon.addition_id} className={`menu-addon is-${insight.status}`}>
               <div className="menu-addon-top">
                 <span className="menu-addon-icon"><IconSparkle size={16} /></span>
-                <div className="menu-addon-name"><strong>{addon.addition_name}</strong><span>{formatStock(Number(addon.quantity), addon.unit_of_measure)} of {addon.item_name}</span></div>
+                <div className="menu-addon-name"><strong>{addon.addition_name}</strong><span>{formatStock(Number(addon.quantity), addon.unit_of_measure)} of {addon.item_name} · <span className={`menu-station is-${addon.station}`}>{addon.station === "kitchen" ? "🍳 Food" : "☕ Drinks"}</span></span></div>
                 <span className="menu-addon-price">+{menuPrice(Number(addon.price))}</span>
               </div>
               <div className="menu-addon-facts">
@@ -3749,6 +3795,110 @@ function CategoriesPanel({ categories, products, onChange, onRenamed, onShowProd
   </div>;
 }
 
+// Quick requests: the buttons the cashier taps in the Customize window (Less ice, Spicy...), each
+// for drinks or food. Notes only, so a removed one is simply gone (orders keep the text).
+type QuickRequest = { id: number; text: string; station: Station };
+
+function RequestsPanel() {
+  const confirmAction = useConfirm();
+  const [requests, setRequests] = useState<QuickRequest[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<Station, string>>({ bar: "", kitchen: "" });
+  const [editing, setEditing] = useState<{ id: number; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/quick-requests", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the requests.");
+        if (active) setRequests(payload.data ?? []);
+      } catch (loadError) {
+        if (active) { setRequests([]); setError(loadError instanceof Error ? loadError.message : "Could not load the requests."); }
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, []);
+
+  async function send(method: "POST" | "PATCH" | "DELETE", body: Record<string, unknown>, fallback: string) {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/quick-requests", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || fallback);
+      return payload.data;
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : fallback);
+      return null;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function add(station: Station) {
+    const text = drafts[station].trim();
+    if (!text) return;
+    const created = await send("POST", { request_text: text, station }, "Could not add the request.");
+    if (created) { setRequests((current) => [...(current ?? []), created]); setDrafts((current) => ({ ...current, [station]: "" })); }
+  }
+
+  async function saveEdit(entry: QuickRequest) {
+    if (!editing || !editing.text.trim()) return;
+    const saved = await send("PATCH", { request_id: entry.id, request_text: editing.text.trim(), station: entry.station }, "Could not save the request.");
+    if (saved) { setRequests((current) => (current ?? []).map((item) => item.id === entry.id ? saved : item)); setEditing(null); }
+  }
+
+  async function remove(entry: QuickRequest) {
+    if (!(await confirmAction({ title: `Remove ${entry.text}?`, message: "It disappears from the Customize window. Orders that already have it keep it.", confirmLabel: "Remove request" }))) return;
+    const removed = await send("DELETE", { request_id: entry.id }, "Could not remove the request.");
+    if (removed) setRequests((current) => (current ?? []).filter((item) => item.id !== entry.id));
+  }
+
+  if (requests === null) return <div className="inv-empty">Loading requests…</div>;
+  return <div className="flex flex-col gap-4">
+    <p className="inv-hint">Quick buttons the cashier taps in the Customize window of a cart item. Drinks only show drink requests and dishes only food requests. They are notes for the bar and kitchen, so they never change stock or price. For less or none of an ingredient, use the switch on the item in Inventory.</p>
+    {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+    <div className="menu-req-columns">
+      {([["bar", "☕ Drinks", "e.g. Less ice, Extra hot"], ["kitchen", "🍳 Food", "e.g. Spicy, Well done"]] as const).map(([station, title, example]) => {
+        const list = requests.filter((entry) => entry.station === station);
+        return <section key={station} className="menu-req-column">
+          <h3>{title} <span>{list.length}</span></h3>
+          <form className="menu-cat-add" onSubmit={(event) => { event.preventDefault(); void add(station); }}>
+            <div className="inv-search is-wide" style={{ color: "#D97706" }}>
+              <IconPlus size={14} />
+              <input value={drafts[station]} maxLength={40} onChange={(event) => setDrafts((current) => ({ ...current, [station]: event.target.value }))} placeholder={`New request, ${example}`} aria-label={`New ${station === "kitchen" ? "food" : "drink"} request`} />
+            </div>
+            <button type="submit" className="inv-primary" disabled={saving || !drafts[station].trim()} style={{ opacity: saving || !drafts[station].trim() ? 0.55 : 1 }}>Add</button>
+          </form>
+          {list.length === 0 ? <div className="inv-empty">No {station === "kitchen" ? "food" : "drink"} requests yet.</div>
+            : <ul className="menu-cat-list">
+              {list.map((entry) => {
+                const isEditing = editing?.id === entry.id;
+                return <li key={entry.id}>
+                  {isEditing
+                    ? <input autoFocus value={editing.text} maxLength={40} onChange={(event) => setEditing({ id: entry.id, text: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void saveEdit(entry); } if (event.key === "Escape") setEditing(null); }} style={{ ...packagingInput, flex: 1 }} aria-label={`New text for ${entry.text}`} />
+                    : <div className="menu-cat-name"><strong>{entry.text}</strong></div>}
+                  <div className="inv-node-actions">
+                    {isEditing ? <>
+                      <button type="button" className="inv-mini" onClick={() => setEditing(null)} disabled={saving}>Cancel</button>
+                      <button type="button" className="inv-mini" style={{ background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void saveEdit(entry)} disabled={saving || !editing.text.trim()}>Save</button>
+                    </> : <>
+                      <button type="button" className="inv-mini" onClick={() => setEditing({ id: entry.id, text: entry.text })}><IconPencil size={12} />Rename</button>
+                      <button type="button" className="inv-mini is-danger" onClick={() => void remove(entry)} disabled={saving} title={`Remove ${entry.text}`} aria-label={`Remove ${entry.text}`}><IconTrash size={12} /></button>
+                    </>}
+                  </div>
+                </li>;
+              })}
+            </ul>}
+        </section>;
+      })}
+    </div>
+  </div>;
+}
+
 function MenuManagement({ products, inventory, categories, onCategoriesChange, onAdd, onEdit, onDelete, onRefreshProducts }: {
   products: Product[];
   inventory: InventoryItem[];
@@ -3772,7 +3922,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
         const response = await fetch("/api/additions", { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || "Could not load add-ons.");
-        if (active) setAddons((payload.data ?? []).map((row: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number }) => ({ addition_id: Number(row.id), addition_name: row.name, inventory_id: Number(row.inventoryId), item_name: row.itemName, unit_of_measure: row.unit, quantity: Number(row.quantity), price: Number(row.price) })));
+        if (active) setAddons((payload.data ?? []).map((row: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number; station?: string }) => ({ addition_id: Number(row.id), addition_name: row.name, inventory_id: Number(row.inventoryId), item_name: row.itemName, unit_of_measure: row.unit, quantity: Number(row.quantity), price: Number(row.price), station: row.station === "kitchen" ? "kitchen" : "bar" })));
       } catch (error) {
         if (active) setAddonsError(error instanceof Error ? error.message : "Could not load add-ons.");
       } finally {
@@ -3787,6 +3937,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
     { id: "products", label: "Products", count: productCount, Icon: IconCoffee },
     { id: "addons", label: "Add-ons", count: addonsLoading ? null : addons.length, Icon: IconSparkle },
     { id: "categories", label: "Categories", count: categories.length, Icon: IconTag },
+    { id: "requests", label: "Requests", count: null, Icon: IconPencil },
   ];
 
   return <div className="inv-wrap">
@@ -3798,6 +3949,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
       </div>
       {tab === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} onCategoryCreated={(category) => onCategoriesChange([...categories.filter((entry) => entry.id !== category.id), category].sort((a, b) => a.name.localeCompare(b.name)))} />}
       {tab === "addons" && <AddonsPanel addons={addons} loading={addonsLoading} error={addonsError} inventory={inventory} onChange={setAddons} />}
+      {tab === "requests" && <RequestsPanel />}
       {tab === "categories" && <CategoriesPanel categories={categories} products={products} onChange={onCategoriesChange} onRenamed={() => void onRefreshProducts()} onShowProducts={(category) => { setCategoryFilter(category); setTab("products"); }} />}
     </div>
   </div>;
@@ -3986,6 +4138,7 @@ function ProductManagement({
   ]);
   const [formType, setFormType] = useState<ProductType>("recipe");
   const [formStation, setFormStation] = useState<Station>("bar");
+  const [variantMode, setVariantMode] = useState<VariantMode>("sizes");
   const [stockInventoryId, setStockInventoryId] = useState(0);
   const [stockQuantity, setStockQuantity] = useState("1");
   const [stockPrice, setStockPrice] = useState("");
@@ -4013,7 +4166,9 @@ function ProductManagement({
     setFormImage(product?.imageUrl ?? "");
     setFormImageData(product?.imageData ?? "");
     const variants = buildFormVariants(product);
-    setSelectedVariantIndex(product ? variants.findIndex((variant) => variant.active) : -1);
+    const mode = variantModeFor(product, product?.station ?? "bar");
+    setVariantMode(mode);
+    setSelectedVariantIndex(product ? variants.findIndex((variant) => variant.active && inVariantMode(variant, mode)) : -1);
     setFormVariants(variants);
     setCopiedVariantIndices([]);
     setPendingVariantIndex(null);
@@ -4067,6 +4222,44 @@ function ProductManagement({
     ));
     setSelectedVariantIndex(index);
     setPendingVariantIndex(null);
+  }
+
+  // Switches between the drink grid and plain options when the station changes. Each keeps its
+  // own choices while the editor is open; only the current layout is saved.
+  function switchVariantMode(mode: VariantMode) {
+    setVariantMode(mode);
+    setCopiedVariantIndices([]);
+    let next = formVariants;
+    if (mode === "options" && !next.some((variant) => variant.temperature === "none")) {
+      next = [...next, { size: "Regular", price: "", temperature: "none", ingredients: [], active: true }];
+      setFormVariants(next);
+    }
+    setSelectedVariantIndex(next.findIndex((variant) => variant.active && inVariantMode(variant, mode)));
+  }
+
+  function changeStation(station: Station) {
+    setFormStation(station);
+    const mode = variantModeFor(editingProduct ?? undefined, station);
+    if (mode !== variantMode) switchVariantMode(mode);
+  }
+
+  function addOption() {
+    const taken = new Set(formVariants.filter((variant) => variant.temperature === "none").map((variant) => variant.size.trim().toLowerCase()));
+    let name = "New option";
+    for (let n = 2; taken.has(name.toLowerCase()); n += 1) name = `New option ${n}`;
+    setFormVariants((previous) => [...previous, { size: name, price: "", temperature: "none", ingredients: [], active: true }]);
+    setSelectedVariantIndex(formVariants.length);
+  }
+
+  function renameOption(index: number, size: string) {
+    setFormVariants((previous) => previous.map((variant, variantIndex) => variantIndex === index ? { ...variant, size } : variant));
+  }
+
+  function removeOption(index: number) {
+    const remaining = formVariants.filter((_, variantIndex) => variantIndex !== index);
+    setFormVariants(remaining);
+    setCopiedVariantIndices([]);
+    setSelectedVariantIndex(remaining.findIndex((variant) => variant.active && variant.temperature === "none"));
   }
 
   function selectVariant(index: number) {
@@ -4164,10 +4357,15 @@ function ProductManagement({
 
   async function submitProduct() {
     if (!formName.trim() || inventory.length === 0) return;
-    const variants = formType === "stock" ? buildStockVariants() : formVariants.filter((variant) => variant.active).map((variant) => ({
-      size: variant.size,
+    if (formType === "recipe" && variantMode === "options") {
+      const names = formVariants.filter((variant) => variant.active && variant.temperature === "none").map((variant) => variant.size.trim().toLowerCase());
+      if (names.some((name) => !name)) { setActionError("Give every option a name, such as Regular or With Rice."); return; }
+      if (new Set(names).size !== names.length) { setActionError("Two options have the same name. Give each option its own name."); return; }
+    }
+    const variants = formType === "stock" ? buildStockVariants() : formVariants.filter((variant) => variant.active && inVariantMode(variant, variantMode)).map((variant) => ({
+      size: variant.size.trim(),
       price: Number(variant.price),
-      temperature: variant.temperature,
+      temperature: (variant.temperature === "none" ? "both" : variant.temperature) as ProductTemperature,
       ingredients: variant.ingredients.filter((row) => row.qty !== "" && Number(row.qty) > 0 && row.inventoryId > 0).map((row) => {
         const inv = inventory.find((item) => item.inventory_id === row.inventoryId);
         const qty = inv?.is_whole_unit ? Math.round(Number(row.qty)) : Number(row.qty);
@@ -4250,7 +4448,7 @@ function ProductManagement({
     noCost: uniqueProducts.filter((product) => !insights.get(product.id)!.costKnown).length,
   };
   const filtersActive = filterCat !== "All" || typeFilter !== "all" || stationFilter !== "all" || availability !== "all" || query !== "";
-  const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
+  const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.active && inVariantMode(variant, variantMode) && variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
   const inputBase: React.CSSProperties = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", width: "100%" };
 
   return (
@@ -4374,7 +4572,7 @@ function ProductManagement({
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Made at</label>
                 <div className="grid grid-cols-2 gap-2">
                   {([["bar", "☕ Bar", "Drinks. Shows on the barista's queue."], ["kitchen", "🍳 Kitchen", "Food. Shows on the kitchen staff's queue."]] as const).map(([value, title, hint]) => (
-                    <button key={value} type="button" role="radio" aria-checked={formStation === value} onClick={() => setFormStation(value)} disabled={saving} style={{ border: formStation === value ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: formStation === value ? "#3D2B1F" : "#FDF9F5", color: formStation === value ? "#FDF9F5" : "#3D2B1F", textAlign: "left", cursor: saving ? "default" : "pointer", fontFamily: "Inter, sans-serif" }}>
+                    <button key={value} type="button" role="radio" aria-checked={formStation === value} onClick={() => changeStation(value)} disabled={saving} style={{ border: formStation === value ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: formStation === value ? "#3D2B1F" : "#FDF9F5", color: formStation === value ? "#FDF9F5" : "#3D2B1F", textAlign: "left", cursor: saving ? "default" : "pointer", fontFamily: "Inter, sans-serif" }}>
                       <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{title}</span>
                       <span style={{ display: "block", marginTop: 3, fontSize: 11, opacity: 0.75 }}>{hint}</span>
                     </button>
@@ -4394,7 +4592,7 @@ function ProductManagement({
               </div>
               <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5", position: "relative" }}><Image src={formImageData || formImage.trim()} alt="preview" fill unoptimized style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
               {formType === "recipe" ? (
-              <div className="flex flex-col gap-3"><div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><MoneyField value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(typed) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: typed } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div>{activeVariant && (() => { const cost = recipeCost(activeVariant.ingredients.filter((row) => row.inventoryId > 0), inventory); const price = Number(activeVariant.price); if (activeVariant.ingredients.length === 0) return <span className="menu-editor-cost">Add ingredients to see the cost</span>; if (cost === null) return <span className="menu-editor-cost is-muted">Cost unknown: an ingredient has no cost in Inventory</span>; return <span className={`menu-editor-cost${activeVariant.price !== "" && price > 0 && (price - cost) / price < 0.3 ? " is-low" : ""}`}>Cost {peso(cost)}{activeVariant.price !== "" && price > 0 ? ` · margin ${peso(price - cost)} (${Math.round(((price - cost) / price) * 100)}%)` : ""}</span>; })()}</div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => copyActiveVariantRecipe()} title="Copy selected recipe" aria-label="Copy selected recipe" disabled={!activeVariant} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant ? "pointer" : "default" }}><IconCopy size={12} /></button><button type="button" onClick={() => pasteToActiveVariantRecipe()} title="Paste copied recipe" aria-label="Paste copied recipe" disabled={!activeVariant || !variantClipboard} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant && variantClipboard ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant && variantClipboard ? "pointer" : "default" }}><IconPaste size={12} /></button><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
+              <div className="flex flex-col gap-3">{variantMode === "options" ? <div className="menu-options">{formVariants.map((variant, index) => variant.temperature !== "none" ? null : <div key={index} className={`menu-option${selectedVariantIndex === index ? " is-selected" : ""}`} onClick={() => setSelectedVariantIndex(index)}><input value={variant.size} onChange={(event) => renameOption(index, event.target.value)} onFocus={() => setSelectedVariantIndex(index)} placeholder="Option name" aria-label="Option name" maxLength={40} /><span className="menu-option-meta">{variant.price === "" ? "No price" : peso(Number(variant.price))} · {variant.ingredients.length} item{variant.ingredients.length === 1 ? "" : "s"}</span><button type="button" title="Remove option" aria-label={`Remove ${variant.size || "option"}`} disabled={formVariants.filter((entry) => entry.temperature === "none").length <= 1} onClick={(event) => { event.stopPropagation(); removeOption(index); }}><IconX size={12} /></button></div>)}<button type="button" className="menu-option-add" onClick={() => addOption()}><IconPlus size={11} /> Add option</button></div> : <div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div>}<div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><MoneyField value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(typed) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: typed } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div>{activeVariant && (() => { const cost = recipeCost(activeVariant.ingredients.filter((row) => row.inventoryId > 0), inventory); const price = Number(activeVariant.price); if (activeVariant.ingredients.length === 0) return <span className="menu-editor-cost">Add ingredients to see the cost</span>; if (cost === null) return <span className="menu-editor-cost is-muted">Cost unknown: an ingredient has no cost in Inventory</span>; return <span className={`menu-editor-cost${activeVariant.price !== "" && price > 0 && (price - cost) / price < 0.3 ? " is-low" : ""}`}>Cost {peso(cost)}{activeVariant.price !== "" && price > 0 ? ` · margin ${peso(price - cost)} (${Math.round(((price - cost) / price) * 100)}%)` : ""}</span>; })()}</div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? activeVariant.temperature === "none" ? `${activeVariant.size.trim() || "This option"} Ingredients` : `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : variantMode === "options" ? "Select an option to configure ingredients" : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => copyActiveVariantRecipe()} title="Copy selected recipe" aria-label="Copy selected recipe" disabled={!activeVariant} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant ? "pointer" : "default" }}><IconCopy size={12} /></button><button type="button" onClick={() => pasteToActiveVariantRecipe()} title="Paste copied recipe" aria-label="Paste copied recipe" disabled={!activeVariant || !variantClipboard} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant && variantClipboard ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant && variantClipboard ? "pointer" : "default" }}><IconPaste size={12} /></button><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
                 <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option><InventoryOptionGroups inventory={inventory} /></select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
               ) : (
@@ -5612,7 +5810,7 @@ type FinanceLoyalty = {
   discounts?: { source: string; orders: number; amount: number; vatExempt?: number }[]; discountTotal?: number; vatExemptTotal?: number;
 };
 // rewardName: a loyalty reward line (sold at ₱0); rewardValue: its normal price.
-type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; rewardValue?: number | null; additions: { name: string; quantity: number; unitPrice: number }[] };
+type FinanceOrderItem = { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; custom?: string | null; unitPrice: number; rewardName?: string | null; rewardValue?: number | null; additions: { name: string; quantity: number; unitPrice: number }[] };
 type FinanceOrder = {
   orderId: number; queueNumber: number | null; status: string; reversed: boolean; total: number; paymentMethod: string; orderSource: string;
   received: number | null; change: number | null; shiftId: number | null; reversedShiftId: number | null; reversalType: string | null;
@@ -5996,6 +6194,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
               <div>
                 <strong>{item.productName}{item.size && item.size !== "Regular" ? ` · ${item.size}` : ""}{item.temperature === "hot" ? " · Hot" : item.temperature === "cold" ? " · Cold" : ""}</strong>
                 <span>{item.rewardName ? `🎁 Reward: ${item.rewardName} · normally ${peso(item.rewardValue ?? 0)}` : `${item.quantity} × ${peso(item.unitPrice)}`} · {item.category}</span>
+                {item.custom && <span className="fin-item-custom">✎ {item.custom}</span>}
                 {item.additions.map((addition) => <span key={addition.name} className="fin-item-addon">+ {addition.name}{addition.quantity !== 1 ? ` ×${formatAmount(addition.quantity)}` : ""} · {peso(addition.quantity * addition.unitPrice)}</span>)}
               </div>
               <strong>{peso(item.quantity * item.unitPrice + addonTotal)}</strong>
@@ -6068,6 +6267,7 @@ function financeItemColumns(): ExcelColumn<FinanceOrderLine>[] {
     { header: "Reward", value: (line) => line.item.rewardName ?? "" },
     { header: "Normal price (rewards)", value: (line) => line.item.rewardName ? line.item.rewardValue ?? null : null, kind: "money" },
     { header: "Add-ons", value: (line) => line.item.additions.map((addition) => `${addition.name} x${formatAmount(addition.quantity)}`).join(", ") },
+    { header: "Requests", value: (line) => line.item.custom ?? "" },
     { header: "Add-ons total", value: addonsTotal, kind: "money" },
     { header: "Line total", value: (line) => line.item.quantity * line.item.unitPrice + addonsTotal(line), kind: "money" },
   ];

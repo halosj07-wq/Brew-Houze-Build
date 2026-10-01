@@ -308,6 +308,10 @@ export async function GET(request: Request) {
               'unitPrice', soi.unit_price,
               'rewardName', lr.name,
               'rewardValue', soi.reward_value,
+              'custom', NULLIF(CONCAT_WS(' · ',
+                (SELECT STRING_AGG(CASE WHEN custom->>'level' = 'none' THEN 'No ' ELSE 'Less ' END || (custom->>'name'), ', ')
+                  FROM jsonb_array_elements(COALESCE(soi.customizations, '[]'::jsonb)) custom),
+                NULLIF(soi.item_note, '')), ''),
               'additions', COALESCE((
                 SELECT json_agg(json_build_object('name', a.addition_name, 'quantity', soia.quantity, 'unitPrice', soia.unit_price) ORDER BY a.addition_name)
                 FROM sales_order_item_additions soia JOIN additions a ON a.addition_id = soia.addition_id
@@ -370,7 +374,7 @@ export async function GET(request: Request) {
           returnGcashNumber: row.return_gcash_number ?? null,
           returnReference: row.return_reference ?? null,
           cost: row.cost === null ? null : n(row.cost),
-          items: (row.items as { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName: string | null; rewardValue: number | null; additions: { name: string; quantity: number; unitPrice: number }[] }[]).map((item) => ({
+          items: (row.items as { productName: string; category: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName: string | null; rewardValue: number | null; custom: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[]).map((item) => ({
             ...item,
             quantity: n(item.quantity),
             unitPrice: n(item.unitPrice),

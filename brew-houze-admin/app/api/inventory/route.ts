@@ -193,6 +193,18 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json();
 
+    // --- Branch 00: whether customers may ask for less or none of this item (see
+    // order-customizations-migration.sql). Never changes stock, so it is allowed for any item. ---
+    if (body?.customizable_edit === true) {
+      const inventoryId = Number(body?.inventory_id);
+      if (!Number.isInteger(inventoryId) || inventoryId <= 0 || typeof body?.is_customizable !== "boolean") {
+        return NextResponse.json({ error: "Choose an item and whether it can be customized." }, { status: 400 });
+      }
+      const updated = await pool.query("UPDATE inventory SET is_customizable = $1, updated_at = CURRENT_TIMESTAMP WHERE inventory_id = $2 AND is_archived = FALSE RETURNING inventory_id", [body.is_customizable, inventoryId]);
+      if (updated.rowCount === 0) return NextResponse.json({ error: "Inventory item not found." }, { status: 404 });
+      return NextResponse.json({ data: await loadInventoryItem(inventoryId) });
+    }
+
     // --- Branch 0: cost update (allowed even for items used by products, since it never changes stock) ---
     if (body?.cost_edit === true) {
       const inventoryId = Number(body?.inventory_id);

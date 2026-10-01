@@ -12,7 +12,7 @@ export async function GET() {
   try {
     const result = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity, a.price
+             i.unit_of_measure, a.quantity, a.price, a.station
       FROM additions a
       JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.is_active = TRUE
@@ -27,6 +27,7 @@ export async function GET() {
         unit: row.unit_of_measure,
         quantity: Number(row.quantity),
         price: Number(row.price),
+        station: row.station === "kitchen" ? "kitchen" : "bar",
       })),
     });
   } catch (error) {
@@ -43,6 +44,7 @@ export async function POST(request: Request) {
     const inventoryId = Number(body?.inventory_id);
     const quantity = Number(body?.quantity);
     const price = Number(body?.price);
+    const station = body?.station === "kitchen" ? "kitchen" : "bar";
     if (!additionName || !Number.isInteger(inventoryId) || inventoryId <= 0 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) {
       return NextResponse.json({ error: "Addition name, inventory item, quantity, and a valid non-negative price are required." }, { status: 400 });
     }
@@ -59,13 +61,13 @@ export async function POST(request: Request) {
     }
 
     const result = await pool.query(`
-      INSERT INTO additions (addition_name, inventory_id, quantity, price)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO additions (addition_name, inventory_id, quantity, price, station)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING addition_id, addition_name, inventory_id, quantity, price
-    `, [additionName, inventoryId, quantity, price]);
+    `, [additionName, inventoryId, quantity, price, station]);
     const fullResult = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity, a.price
+             i.unit_of_measure, a.quantity, a.price, a.station
       FROM additions a JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.addition_id = $1
     `, [result.rows[0].addition_id]);
@@ -89,6 +91,7 @@ export async function PATCH(request: Request) {
     const inventoryId = Number(body?.inventory_id);
     const quantity = Number(body?.quantity);
     const price = Number(body?.price);
+    const station = body?.station === "kitchen" ? "kitchen" : "bar";
     if (!Number.isInteger(additionId) || additionId <= 0 || !additionName || !Number.isInteger(inventoryId) || inventoryId <= 0 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(price) || price < 0) {
       return NextResponse.json({ error: "Name, inventory item, amount, and a price of 0 or more are required." }, { status: 400 });
     }
@@ -98,14 +101,14 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "This item is counted in whole units, so the amount must be a whole number." }, { status: 400 });
     }
     const result = await pool.query(`
-      UPDATE additions SET addition_name = $2, inventory_id = $3, quantity = $4, price = $5
+      UPDATE additions SET addition_name = $2, inventory_id = $3, quantity = $4, price = $5, station = $6
       WHERE addition_id = $1 AND is_active = TRUE
       RETURNING addition_id
-    `, [additionId, additionName, inventoryId, quantity, price]);
+    `, [additionId, additionName, inventoryId, quantity, price, station]);
     if (result.rowCount === 0) return NextResponse.json({ error: "Add-on not found." }, { status: 404 });
     const fullResult = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity, a.price
+             i.unit_of_measure, a.quantity, a.price, a.station
       FROM additions a JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.addition_id = $1
     `, [additionId]);

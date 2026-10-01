@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 type Receipt = {
   orderId: number; queueNumber: number | null; status: string; createdAt: string; reversedAt: string | null;
   source: "mobile" | "counter"; cashierName: string | null; customerName: string | null; serviceType: string | null;
-  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
+  items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName: string | null; custom?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
   subtotal: number | null; discountAmount: number; discountLabel: string | null; vatExemptAmount: number; deliveryFee: number;
   idDiscounts: { name: string; holderName: string; idEnding: string | null; groupSize: number | null; coveredAmount: number; vatExempt: number; discount: number }[];
   total: number; paymentMethod: string; paidWithGcash: boolean; paymentReference: string | null; cashPortion: number | null; received: number | null; change: number | null;
@@ -50,6 +50,7 @@ function receiptLines(receipt: Receipt): Line[] {
     lines.push({ kind: "row", left: `${item.quantity} × ${item.name}`, right: money(item.quantity * item.unitPrice) });
     const details = [item.size && item.size !== "Regular" ? item.size : "", item.temperature === "hot" ? "Hot" : item.temperature === "cold" ? "Iced" : "", item.quantity > 1 ? `@ ${money(item.unitPrice)}` : "", item.rewardName ? `Reward: ${item.rewardName}` : ""].filter(Boolean).join(" · ");
     if (details) lines.push({ kind: "detail", text: details });
+    if (item.custom) lines.push({ kind: "detail", text: `* ${item.custom}` });
     for (const addition of item.additions) lines.push({ kind: "row", left: `+ ${addition.name}${addition.quantity !== 1 ? ` ×${addition.quantity}` : ""}`, right: money(addition.quantity * addition.unitPrice), sub: true });
   }
   lines.push({ kind: "rule" });

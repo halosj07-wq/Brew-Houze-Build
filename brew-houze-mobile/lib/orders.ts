@@ -9,7 +9,17 @@ import { deliveryFeeFor, type DeliveryPlan } from "@/lib/delivery";
 
 // rewardId: the line is a loyalty reward (one item, priced at 0, paid for with stars or a
 // birthday treat).
-export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null };
+// A customer asking for less (half is used) or none of an ingredient the admin marked customizable.
+export type CustomizationLevel = "less" | "none";
+export type ItemCustomization = { inventoryId: number; level: CustomizationLevel };
+export const ITEM_NOTE_MAX = 120;
+// SQL for a sales line's customizations and note as one line of text, for example
+// "No Lids, Less Caramel Sauce · less ice" (NULL when there are none).
+export const customTextSql = (alias: string) => `NULLIF(CONCAT_WS(' · ',
+  (SELECT STRING_AGG(CASE WHEN custom->>'level' = 'none' THEN 'No ' ELSE 'Less ' END || (custom->>'name'), ', ')
+    FROM jsonb_array_elements(COALESCE(${alias}.customizations, '[]'::jsonb)) custom),
+  NULLIF(${alias}.item_note, '')), '')`;
+export type OrderItemInput = { productVariantId: number; quantity: number; additionIds: number[]; rewardId?: number | null; customizations?: ItemCustomization[]; note?: string };
 export type OrderSource = "cashier" | "mobile";
 // Eaten at the café, taken away, or delivered (null: not recorded, for callers that do not ask).
 // Delivery orders come from the mobile menu or the counter (Messenger orders), with a delivery plan (see lib/delivery.ts).
@@ -70,13 +80,21 @@ export const isSoldOut = (error: unknown) => error instanceof SoldOutError;
 export function parseOrderItems(value: unknown): OrderItemInput[] {
   if (!Array.isArray(value)) return [];
   return value.map((raw) => {
-    const item = raw as { product_variant_id?: unknown; quantity?: unknown; addition_ids?: unknown; reward_id?: unknown };
+    const item = raw as { product_variant_id?: unknown; quantity?: unknown; addition_ids?: unknown; reward_id?: unknown; customizations?: unknown; note?: unknown };
     const rewardId = Number(item.reward_id);
+    // One level per ingredient; anything else is ignored.
+    const customizations = new Map<number, CustomizationLevel>();
+    for (const entry of Array.isArray(item.customizations) ? item.customizations as { inventory_id?: unknown; level?: unknown }[] : []) {
+      const inventoryId = Number(entry?.inventory_id);
+      if (Number.isInteger(inventoryId) && inventoryId > 0 && (entry.level === "less" || entry.level === "none")) customizations.set(inventoryId, entry.level);
+    }
     return {
       productVariantId: Number(item.product_variant_id),
       quantity: Number(item.quantity),
       additionIds: Array.isArray(item.addition_ids) ? item.addition_ids.map(Number).filter((id) => Number.isInteger(id) && id > 0) : [],
       rewardId: Number.isInteger(rewardId) && rewardId > 0 ? rewardId : null,
+      customizations: Array.from(customizations, ([inventoryId, level]) => ({ inventoryId, level })).sort((a, b) => a.inventoryId - b.inventoryId),
+      note: typeof item.note === "string" ? item.note.replace(/\s+/g, " ").trim().slice(0, ITEM_NOTE_MAX) : "",
     };
   }).filter((item) => Number.isInteger(item.productVariantId) && item.productVariantId > 0 && Number.isInteger(item.quantity) && item.quantity > 0 && item.quantity <= 500 && (!item.rewardId || item.quantity === 1));
 }
@@ -107,8 +125,9 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   if (input.items.length === 0) throw new Error("At least one valid cart item is required.");
 
   const quantities = new Map<number, number>();
-  // Lines with the same variant and the same add-on counts are merged into one sales line.
-  const groupedItems = new Map<string, { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number>; rewardId: number | null; additionAmount: number }>();
+  // Lines with the same variant, add-on counts, customizations and note are merged into one sales line.
+  type ItemGroup = { productVariantId: number; quantity: number; additionIds: number[]; additionCounts: Map<number, number>; rewardId: number | null; additionAmount: number; customizations: ItemCustomization[]; note: string; unitCost: number | null; customizationDetails: { inventory_id: number; name: string; level: CustomizationLevel }[] };
+  const groupedItems = new Map<string, ItemGroup>();
   // The sales line each input item went into (ID discounts point at input items).
   const itemGroupKeys: string[] = [];
   for (const item of input.items) {
@@ -117,12 +136,14 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     for (const additionId of item.additionIds) additionCounts.set(additionId, (additionCounts.get(additionId) ?? 0) + 1);
     const additionIds = Array.from(additionCounts.keys()).sort((a, b) => a - b);
     // A reward is always its own line (one item each), never merged with paid items.
-    const groupKey = item.rewardId ? `reward:${groupedItems.size}` : `${item.productVariantId}:${additionIds.map((id) => `${id}x${additionCounts.get(id)}`).join(",")}`;
+    const customizations = item.customizations ?? [];
+    const note = item.note ?? "";
+    const groupKey = item.rewardId ? `reward:${groupedItems.size}` : `${item.productVariantId}:${additionIds.map((id) => `${id}x${additionCounts.get(id)}`).join(",")}|${customizations.map((entry) => `${entry.inventoryId}${entry.level}`).join(",")}|${note.toLowerCase()}`;
     const current = groupedItems.get(groupKey);
     itemGroupKeys.push(groupKey);
     groupedItems.set(groupKey, current
       ? { ...current, quantity: current.quantity + item.quantity }
-      : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts, rewardId: item.rewardId ?? null, additionAmount: 0 });
+      : { productVariantId: item.productVariantId, quantity: item.quantity, additionIds, additionCounts, rewardId: item.rewardId ?? null, additionAmount: 0, customizations, note, unitCost: null, customizationDetails: [] });
   }
 
   // Sales belong to the open shift. The share lock keeps the shift from being closed while
@@ -162,45 +183,64 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     rewardPlan = await planRewards(client, input.customerId, rewardLines, discountRewardId);
   }
 
-  // Cost snapshot per variant: NULL when any component has no cost entered yet.
-  const variantCostResult = await client.query(`
-    SELECT vi.product_variant_id,
-      CASE WHEN bool_and((${effectiveUnitCostSql}) IS NOT NULL) THEN SUM(vi.required_quantity * (${effectiveUnitCostSql})) END AS unit_cost
+  // Each variant's recipe: what one unit uses, its cost, and whether a customer may ask for less or
+  // none of it.
+  const recipeResult = await client.query(`
+    SELECT vi.product_variant_id, vi.inventory_id, vi.required_quantity, i.item_name, i.is_customizable, i.is_whole_unit,
+      (${effectiveUnitCostSql}) AS unit_cost
     FROM variant_ingredients vi
     JOIN inventory i ON i.inventory_id = vi.inventory_id
     LEFT JOIN inventory src ON src.inventory_id = i.derived_from_inventory_id
     WHERE vi.product_variant_id = ANY($1::int[])
-    GROUP BY vi.product_variant_id
+    ORDER BY vi.inventory_id
   `, [variantIds]);
-  const variantCosts = new Map<number, number | null>(variantCostResult.rows.map((row) => [Number(row.product_variant_id), row.unit_cost === null ? null : Number(row.unit_cost)]));
+  const recipes = new Map<number, { inventoryId: number; quantity: number; name: string; customizable: boolean; wholeUnit: boolean; unitCost: number | null }[]>();
+  for (const row of recipeResult.rows) {
+    const variantId = Number(row.product_variant_id);
+    recipes.set(variantId, [...(recipes.get(variantId) ?? []), { inventoryId: Number(row.inventory_id), quantity: Number(row.required_quantity), name: String(row.item_name), customizable: Boolean(row.is_customizable), wholeUnit: Boolean(row.is_whole_unit), unitCost: row.unit_cost === null ? null : Number(row.unit_cost) }]);
+  }
+  // Less uses half, none uses nothing.
+  const usedShare = (level: CustomizationLevel | undefined) => level === "none" ? 0 : level === "less" ? 0.5 : 1;
 
   const deductions = new Map<number, number>();
   let additionTotal = 0;
-  for (const variant of variants.rows) {
-    const ingredientRows = await client.query("SELECT vi.inventory_id, vi.required_quantity FROM variant_ingredients vi WHERE vi.product_variant_id = $1", [variant.product_variant_id]);
-    if (ingredientRows.rowCount === 0) throw new Error(`${variant.product_name} has no configured ingredients.`);
-    const orderedQuantity = quantities.get(Number(variant.product_variant_id)) ?? 0;
-    for (const ingredient of ingredientRows.rows) {
-      const inventoryId = Number(ingredient.inventory_id);
-      deductions.set(inventoryId, (deductions.get(inventoryId) ?? 0) + Number(ingredient.required_quantity) * orderedQuantity);
+  for (const group of groupedItems.values()) {
+    const variant = variantById.get(group.productVariantId)!;
+    const recipe = recipes.get(group.productVariantId) ?? [];
+    if (recipe.length === 0) throw new Error(`${variant.product_name} has no configured ingredients.`);
+    const levels = new Map(group.customizations.map((entry) => [entry.inventoryId, entry.level]));
+    for (const [inventoryId, level] of levels) {
+      const line = recipe.find((entry) => entry.inventoryId === inventoryId);
+      if (!line || !line.customizable) throw new Error(`${line?.name ?? "That ingredient"} in ${variant.product_name} can't be changed. Remove the customization and try again.`);
+      if (level === "less" && line.wholeUnit) throw new Error(`${line.name} is counted whole, so it can only be left out, not reduced.`);
     }
-    for (const group of Array.from(groupedItems.values()).filter((item) => item.productVariantId === Number(variant.product_variant_id))) {
-      if (group.additionIds.length === 0) continue;
-      if (variant.product_type === "stock") throw new Error(`${variant.product_name} does not take additions.`);
-      const additionsResult = await client.query(`
-        SELECT a.addition_id, a.inventory_id, a.quantity, a.price
-        FROM additions a
-        WHERE a.is_active = TRUE AND a.addition_id = ANY($1::int[])
-        FOR SHARE OF a
-      `, [group.additionIds]);
-      if (additionsResult.rowCount !== group.additionIds.length) throw new Error(`${variant.product_name} has an invalid addition selection.`);
-      for (const addition of additionsResult.rows) {
-        const servings = (group.additionCounts.get(Number(addition.addition_id)) ?? 1) * group.quantity;
-        additionTotal += Number(addition.price) * servings;
-        group.additionAmount += Number(addition.price) * servings;
-        const inventoryId = Number(addition.inventory_id);
-        deductions.set(inventoryId, (deductions.get(inventoryId) ?? 0) + Number(addition.quantity) * servings);
-      }
+    // What one unit costs as made (NULL when any part has no cost entered yet).
+    let unitCost: number | null = 0;
+    for (const line of recipe) {
+      const used = line.quantity * usedShare(levels.get(line.inventoryId));
+      if (used > 0) deductions.set(line.inventoryId, (deductions.get(line.inventoryId) ?? 0) + used * group.quantity);
+      unitCost = unitCost === null || line.unitCost === null ? null : unitCost + used * line.unitCost;
+    }
+    group.unitCost = unitCost === null ? null : Math.round(unitCost * 10000) / 10000;
+    group.customizationDetails = recipe.filter((line) => levels.has(line.inventoryId)).map((line) => ({ inventory_id: line.inventoryId, name: line.name, level: levels.get(line.inventoryId)! }));
+    if (group.additionIds.length === 0) continue;
+    if (variant.product_type === "stock") throw new Error(`${variant.product_name} does not take additions.`);
+    const additionsResult = await client.query(`
+      SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity, a.price, a.station
+      FROM additions a
+      WHERE a.is_active = TRUE AND a.addition_id = ANY($1::int[])
+      FOR SHARE OF a
+    `, [group.additionIds]);
+    if (additionsResult.rowCount !== group.additionIds.length) throw new Error(`${variant.product_name} has an invalid addition selection.`);
+    // A bar add-on only goes on a bar item, a kitchen add-on on a kitchen item.
+    const mismatch = additionsResult.rows.find((addition) => stationOf(addition.station) !== stationOf(variant.station));
+    if (mismatch) throw new Error(`${mismatch.addition_name} is a ${stationOf(mismatch.station) === "kitchen" ? "food" : "drink"} add-on, so it can't go on ${variant.product_name}.`);
+    for (const addition of additionsResult.rows) {
+      const servings = (group.additionCounts.get(Number(addition.addition_id)) ?? 1) * group.quantity;
+      additionTotal += Number(addition.price) * servings;
+      group.additionAmount += Number(addition.price) * servings;
+      const inventoryId = Number(addition.inventory_id);
+      deductions.set(inventoryId, (deductions.get(inventoryId) ?? 0) + Number(addition.quantity) * servings);
     }
   }
 
@@ -303,10 +343,11 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   for (const variant of variants.rows) {
     for (const [groupKey, group] of Array.from(groupedItems.entries()).filter(([, item]) => item.productVariantId === Number(variant.product_variant_id))) {
       const itemResult = await client.query(`
-        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost, reward_id, reward_value, station)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO sales_order_items (order_id, product_id, product_variant_id, quantity, unit_price, unit_cost, reward_id, reward_value, station, customizations, item_note)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
         RETURNING order_item_id
-      `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, group.rewardId ? 0 : variant.price, variantCosts.get(Number(variant.product_variant_id)) ?? null, group.rewardId, group.rewardId ? variant.price : null, stationOf(variant.station)]);
+      `, [orderId, variant.product_id, variant.product_variant_id, group.quantity, group.rewardId ? 0 : variant.price, group.unitCost, group.rewardId, group.rewardId ? variant.price : null, stationOf(variant.station),
+        group.customizationDetails.length > 0 ? JSON.stringify(group.customizationDetails) : null, group.note || null]);
       orderItemIds.set(groupKey, Number(itemResult.rows[0].order_item_id));
       for (const additionId of group.additionIds) {
         await client.query(`
