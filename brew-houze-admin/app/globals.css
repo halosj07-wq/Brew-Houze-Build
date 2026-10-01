@@ -424,9 +424,6 @@ body {
 .dash-order-total strong.is-reversed { color: #9C8278; text-decoration: line-through; }
 
 /* AI Insights (placeholder until the AI service is connected) */
-.dash-ai { background: linear-gradient(160deg, #FDF9F5 0%, #F7EFE6 100%); }
-.dash-ai-icon { width: 36px; height: 36px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; border-radius: 11px; background: #FFF7ED; border: 1px solid #FED7AA; color: #D97706; }
-.dash-ai-empty { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 150px; padding: 20px; border: 1.5px dashed #E8DDD5; border-radius: 14px; color: #9C8278; font-size: 13px; line-height: 1.5; text-align: center; }
 
 /* Narrow content (portrait tablet, or the sidebar open on a small tablet): stack the rows */
 @container dash (max-width: 860px) {

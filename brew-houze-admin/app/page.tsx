@@ -1510,28 +1510,14 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
           </DashCard>
         </div>
 
-        <div className="dash-row">
-          <DashCard
-            title={data.shift ? "Sales by hour · this shift" : data.previousShift ? "Sales by hour · last shift" : "Sales by hour"}
-            sub={peakHour ? <>Busiest hour {hourLabel(peakHour.hour)}–{hourLabel((peakHour.hour + 1) % 24)} with {peso(peakHour.revenue)} from {peakHour.orders} order{peakHour.orders === 1 ? "" : "s"}</> : "Hourly sales show here once a shift has orders"}
-          >
-            {hourBars.length > 0
-              ? <DashBars bars={hourBars} emptyLabel="No orders in this shift yet." />
-              : <p className="dash-empty">No shifts yet.</p>}
-          </DashCard>
-          <section className="dash-card dash-ai">
-            <div className="dash-card-head">
-              <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
-                <span className="dash-ai-icon"><IconSparkle size={16} /></span>
-                <div>
-                  <h2 className="dash-card-title">AI Insights</h2>
-                  <p className="dash-card-sub">No AI data configured yet</p>
-                </div>
-              </div>
-            </div>
-            <div className="dash-ai-empty">AI insights will appear here once the AI service is connected.</div>
-          </section>
-        </div>
+        <DashCard
+          title={data.shift ? "Sales by hour · this shift" : data.previousShift ? "Sales by hour · last shift" : "Sales by hour"}
+          sub={peakHour ? <>Busiest hour {hourLabel(peakHour.hour)}–{hourLabel((peakHour.hour + 1) % 24)} with {peso(peakHour.revenue)} from {peakHour.orders} order{peakHour.orders === 1 ? "" : "s"}</> : "Hourly sales show here once a shift has orders"}
+        >
+          {hourBars.length > 0
+            ? <DashBars bars={hourBars} emptyLabel="No orders in this shift yet." />
+            : <p className="dash-empty">No shifts yet.</p>}
+        </DashCard>
       </>}
     </div>
   </div>;
