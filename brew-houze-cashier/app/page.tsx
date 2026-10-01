@@ -1993,6 +1993,24 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     const stopLive = onLive(["line", "queue"], () => void refreshIdChecks());
     return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
   }, [refreshIdChecks]);
+  // A Stars claim the customer cancelled (or that timed out) while "Is this their order?" was open.
+  useEffect(() => {
+    if (!claimAsk || loyalty.claims.some((claim) => claim.id === claimAsk.id)) return;
+    const timer = window.setTimeout(() => {
+      setClaimAsk(null);
+      setLineNotice(`${claimAsk.fullName.split(" ")[0]}'s Stars sign scan is no longer waiting: they cancelled it or it timed out.`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [claimAsk, loyalty.claims]);
+  // The customer cancelled (or it expired) while the cashier had it open: close it and say why.
+  useEffect(() => {
+    if (!idCheckOpen || idChecks.some((check) => check.id === idCheckOpen.id)) return;
+    const timer = window.setTimeout(() => {
+      setIdCheckOpen(null);
+      setIdCheckNotice(`${idCheckOpen.holderName}'s ID check is no longer waiting: the customer cancelled it or it expired.`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [idCheckOpen, idChecks]);
   useEffect(() => {
     if (!idCheckNotice) return;
     const timer = window.setTimeout(() => setIdCheckNotice(""), 12_000);
@@ -2912,7 +2930,9 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
         </div>
         <div className="pos-cart-scroll">
         {lineEntries.length > 0 && <button type="button" className="pos-line-link" onClick={() => onView("line")}><span className="pos-line-link-count">{lineEntries.length}</span><span><strong>{lineEntries.length === 1 ? "1 waiting" : `${lineEntries.length} waiting`} in the counter line</strong><em>{lineSummary}</em></span><span aria-hidden="true">›</span></button>}
-        {counterCartId !== null && <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu{counterCarts.find((sent) => sent.id === counterCartId)?.discountTypeId === null ? " (paying at the counter)" : ""}. The customer&apos;s phone follows this order once it is paid.</p>}
+        {counterCartId !== null && (counterCarts.some((sent) => sent.id === counterCartId)
+          ? <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu{counterCarts.find((sent) => sent.id === counterCartId)?.discountTypeId === null ? " (paying at the counter)" : ""}. The customer&apos;s phone follows this order once it is paid.</p>
+          : <p className="pos-sent-loaded is-gone">📱 This cart is no longer waiting on the customer&apos;s phone: they cancelled it or it timed out. You can still finish the order here; if they cancelled, their phone won&apos;t follow it.</p>)}
         <div className="pos-cart-lines">
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {
