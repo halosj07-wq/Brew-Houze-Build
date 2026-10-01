@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { parseOrderItems, parseServiceType, placeOrder } from "@/lib/orders";
 import { parseIdDiscounts } from "@/lib/discounts";
-import { claimCounterCart, completeCounterCart, parseCounterCartId } from "@/lib/counter-carts";
+import { claimCounterCart, completeCounterCart, counterCartProblem, parseCounterCartId } from "@/lib/counter-carts";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { authorizeCounterRewards, CUSTOMER_UNAVAILABLE, linkableCustomerId, markClaimUsed } from "@/lib/customers";
 import { planDelivery } from "@/lib/delivery";
@@ -35,6 +35,8 @@ export async function POST(request: Request) {
     const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
 
     const counterCartId = parseCounterCartId(body.counter_cart_id);
+    const cartProblem = await counterCartProblem(pool, counterCartId);
+    if (cartProblem) return NextResponse.json({ error: cartProblem, code: "COUNTER_CART_GONE" }, { status: 409 });
 
     await client.query("BEGIN");
     // Paid in cash now: the delivery goes out already paid ("gcash" on the delivery means prepaid).

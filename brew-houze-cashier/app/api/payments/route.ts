@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { parseOrderItems, parseServiceType } from "@/lib/orders";
 import { startCheckout } from "@/lib/payment-checkouts";
 import { parseIdDiscounts } from "@/lib/discounts";
-import { parseCounterCartId } from "@/lib/counter-carts";
+import { counterCartProblem, parseCounterCartId } from "@/lib/counter-carts";
 import { paymongoConfigured, paymongoTestMode, PAYMONGO_MIN_AMOUNT } from "@/lib/paymongo";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { authorizeCounterRewards, CUSTOMER_UNAVAILABLE, linkableCustomerId } from "@/lib/customers";
@@ -31,6 +31,8 @@ export async function POST(request: Request) {
     if (customerId === null) return NextResponse.json({ error: CUSTOMER_UNAVAILABLE }, { status: 400 });
     const rewards = await authorizeCounterRewards(items, customerId, session.adminId, body);
     if (!rewards.ok) return NextResponse.json({ error: rewards.error, code: rewards.code }, { status: rewards.status });
+    const cartProblem = await counterCartProblem(pool, parseCounterCartId(body.counter_cart_id));
+    if (cartProblem) return NextResponse.json({ error: cartProblem, code: "COUNTER_CART_GONE" }, { status: 409 });
     const rawDiscount = Number(body.discount_reward_id);
     const discountRewardId = Number.isInteger(rawDiscount) && rawDiscount > 0 ? rawDiscount : null;
     // After paying, the customer's phone lands on a public page of this app (no sign-in needed).

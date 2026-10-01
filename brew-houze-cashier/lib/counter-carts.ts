@@ -29,6 +29,18 @@ export async function completeCounterCart(client: PoolClient, counterCartId: num
   await client.query("UPDATE counter_carts SET status = 'ordered', order_id = $2, updated_at = CURRENT_TIMESTAMP WHERE counter_cart_id = $1 AND status IN ('waiting', 'expired')", [counterCartId, orderId]);
 }
 
+// Why a cart loaded in the POS can no longer be ordered: the customer cancelled it on their phone,
+// or it was already ordered. Null when it can still be ordered (waiting, or timed out after the
+// cashier loaded it). Checked before a counter checkout or GCash payment starts.
+export async function counterCartProblem(db: Pick<PoolClient, "query">, counterCartId: number | null): Promise<string | null> {
+  if (counterCartId === null) return null;
+  const row = (await db.query("SELECT status, short_code FROM counter_carts WHERE counter_cart_id = $1", [counterCartId])).rows[0];
+  if (!row) return "This cart from the mobile menu is no longer on file. Clear the order and punch it again.";
+  if (row.status === "cancelled") return `The customer cancelled cart ${row.short_code} on their phone. Clear the order, or punch it again if they still want it.`;
+  if (row.status === "ordered") return `Cart ${row.short_code} was already ordered. Clear this order so it is not charged twice.`;
+  return null;
+}
+
 // Carts nobody picked up in time.
 export async function expireCounterCarts(db: Pick<PoolClient, "query">): Promise<void> {
   await db.query("UPDATE counter_carts SET status = 'expired', updated_at = CURRENT_TIMESTAMP WHERE status = 'waiting' AND expires_at < CURRENT_TIMESTAMP");

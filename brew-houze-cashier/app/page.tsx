@@ -1972,6 +1972,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   // Carts sent from the mobile menu, and the one loaded into this order.
   const [counterCarts, setCounterCarts] = useState<CounterCart[]>([]);
   const [counterCartId, setCounterCartId] = useState<number | null>(null);
+  // Carts the customer cancelled on their phone lately (from the counter cart list).
+  const [cancelledCartIds, setCancelledCartIds] = useState<number[]>([]);
   // ID photos sent from the mobile menu, the one being checked, and the last decision made.
   const [idChecks, setIdChecks] = useState<PendingIdCheck[]>([]);
   const [idCheckOpen, setIdCheckOpen] = useState<PendingIdCheck | null>(null);
@@ -1993,6 +1995,17 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     const stopLive = onLive(["line", "queue"], () => void refreshIdChecks());
     return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
   }, [refreshIdChecks]);
+  // The customer cancelled the cart loaded in the POS on their phone: it comes out of the POS (with
+  // its ID discount window), since they no longer want it. Checkout refuses it on the server too.
+  useEffect(() => {
+    if (counterCartId === null || !cancelledCartIds.includes(counterCartId)) return;
+    const timer = window.setTimeout(() => {
+      resetOrder();
+      setIdDiscountDialogOpen(false);
+      setCheckoutError("The customer cancelled this cart on their phone, so it was taken out of the POS. Punch it again if they still want it.");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [counterCartId, cancelledCartIds]);
   // A Stars claim the customer cancelled (or that timed out) while "Is this their order?" was open.
   useEffect(() => {
     if (!claimAsk || loyalty.claims.some((claim) => claim.id === claimAsk.id)) return;
@@ -2020,8 +2033,9 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     try {
       const response = await fetch("/api/counter-carts", { cache: "no-store" });
       if (!response.ok) return;
-      const payload = await response.json() as { data?: CounterCart[] };
+      const payload = await response.json() as { data?: CounterCart[]; cancelledIds?: number[] };
       if (payload.data) setCounterCarts(payload.data);
+      if (payload.cancelledIds) setCancelledCartIds(payload.cancelledIds);
     } catch {
       // Offline for a moment: the next refresh catches up.
     }
@@ -2932,7 +2946,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
         {lineEntries.length > 0 && <button type="button" className="pos-line-link" onClick={() => onView("line")}><span className="pos-line-link-count">{lineEntries.length}</span><span><strong>{lineEntries.length === 1 ? "1 waiting" : `${lineEntries.length} waiting`} in the counter line</strong><em>{lineSummary}</em></span><span aria-hidden="true">›</span></button>}
         {counterCartId !== null && (counterCarts.some((sent) => sent.id === counterCartId)
           ? <p className="pos-sent-loaded">📱 Cart {counterCarts.find((sent) => sent.id === counterCartId)?.code ?? ""} from the mobile menu{counterCarts.find((sent) => sent.id === counterCartId)?.discountTypeId === null ? " (paying at the counter)" : ""}. The customer&apos;s phone follows this order once it is paid.</p>
-          : <p className="pos-sent-loaded is-gone">📱 This cart is no longer waiting on the customer&apos;s phone: they cancelled it or it timed out. You can still finish the order here; if they cancelled, their phone won&apos;t follow it.</p>)}
+          : <p className="pos-sent-loaded is-gone">📱 This cart timed out on the customer&apos;s phone. You can still finish the order here, but their phone may not follow it.</p>)}
         <div className="pos-cart-lines">
           {cart.length === 0 && <div style={{ color: "#9C8278" }}>Cart is empty</div>}
           {cart.map((item) => {

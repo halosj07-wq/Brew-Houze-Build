@@ -30,7 +30,10 @@ export async function GET() {
       ORDER BY cc.created_at
       LIMIT 20
     `);
+    // Carts cancelled on the phone in the last two hours: a POS that has one loaded takes it out.
+    const cancelled = await pool.query("SELECT counter_cart_id FROM counter_carts WHERE status = 'cancelled' AND updated_at > CURRENT_TIMESTAMP - INTERVAL '2 hours'");
     return NextResponse.json({
+      cancelledIds: cancelled.rows.map((row) => Number(row.counter_cart_id)),
       data: result.rows.map((row) => ({
         id: Number(row.counter_cart_id),
         code: String(row.short_code),
