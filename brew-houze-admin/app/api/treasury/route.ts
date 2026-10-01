@@ -111,6 +111,9 @@ export async function GET(request: Request) {
           COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0) AS money_out,
           COALESCE(SUM(amount) FILTER (WHERE kind = 'opening_balance'), 0) AS started_with,
           COALESCE(-SUM(amount) FILTER (WHERE kind = 'gateway_fee'), 0) AS fees,
+          -- PayMongo cards: sales and payouts on their own, so a correction is never counted as either.
+          COALESCE(SUM(amount) FILTER (WHERE kind = 'gcash_sales'), 0) AS gcash_sales,
+          COALESCE(-SUM(amount) FILTER (WHERE kind = 'payout'), 0) AS payouts,
           COUNT(*)::int AS entries
         FROM treasury_entries
         WHERE account_id = $1 AND (created_at AT TIME ZONE '${TZ}')::date BETWEEN $2::date AND $3::date
@@ -123,7 +126,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       data: {
         safe, paymongo, lastFloat, account: key,
-        range: { opening, moneyIn, moneyOut, closing: round(opening + moneyIn - moneyOut), fees: Number(row.fees), entries: Number(row.entries) },
+        range: { opening, moneyIn, moneyOut, closing: round(opening + moneyIn - moneyOut), fees: Number(row.fees), gcashSales: Number(row.gcash_sales), payouts: Number(row.payouts), entries: Number(row.entries) },
         entries: entries.rows.map(mapEntry),
         truncated: entries.rowCount === ENTRY_LIMIT,
       },

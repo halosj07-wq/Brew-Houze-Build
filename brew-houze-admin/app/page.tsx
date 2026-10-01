@@ -7234,7 +7234,7 @@ type SafeEntry = {
 };
 type TreasuryData = {
   safe: SafeInfo; paymongo: SafeInfo; lastFloat: number; account: TreasuryKey;
-  range: { opening: number; moneyIn: number; moneyOut: number; closing: number; fees: number; entries: number }; entries: SafeEntry[]; truncated: boolean;
+  range: { opening: number; moneyIn: number; moneyOut: number; closing: number; fees: number; gcashSales: number; payouts: number; entries: number }; entries: SafeEntry[]; truncated: boolean;
 };
 type SafeAction = { type: "open" | "deposit" | "withdraw" | "payout" | "count" } | { type: "correct"; entry: SafeEntry };
 
@@ -7528,9 +7528,9 @@ function Treasury() {
           <div className="inv-stat is-static"><span>Money out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? data.range.moneyOut : 0)}</strong><em>{rangeText}</em></div>
           <div className="inv-stat is-static"><span>Left in the drawer</span><strong>{peso(data.lastFloat)}</strong><em>by the last closing, for the next shift</em></div>
         </> : <>
-          <div className="inv-stat is-static"><span>GCash in</span><strong style={{ color: "#15803D" }}>+{peso(current ? data.range.moneyIn : 0)}</strong><em>{rangeText}</em></div>
-          <div className="inv-stat is-static"><span>PayMongo fees</span><strong style={{ color: "#B45309" }}>−{peso(current ? data.range.fees : 0)}</strong><em>{current && data.range.moneyIn > 0 ? `${((data.range.fees / data.range.moneyIn) * 100).toFixed(1)}% of the GCash in` : rangeText}</em></div>
-          <div className="inv-stat is-static"><span>Paid out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? Math.max(0, data.range.moneyOut - data.range.fees) : 0)}</strong><em>to the owner, {rangeText}</em></div>
+          <div className="inv-stat is-static"><span>GCash in</span><strong style={{ color: "#15803D" }}>+{peso(current ? data.range.gcashSales : 0)}</strong><em>{rangeText}</em></div>
+          <div className="inv-stat is-static"><span>PayMongo fees</span><strong style={{ color: "#B45309" }}>−{peso(current ? data.range.fees : 0)}</strong><em>{current && data.range.gcashSales > 0 ? `${((data.range.fees / data.range.gcashSales) * 100).toFixed(1)}% of the GCash in` : rangeText}</em></div>
+          <div className="inv-stat is-static"><span>Paid out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? data.range.payouts : 0)}</strong><em>to the owner, {rangeText}</em></div>
         </>}
       </div>
 
