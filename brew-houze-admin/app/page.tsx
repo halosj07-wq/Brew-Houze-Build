@@ -1406,12 +1406,12 @@ function Dashboard({ user, inventory, products, onNavigate, onRefreshStock }: { 
                 ? <span>{data.week.itemsSold > 0 ? "Add item costs in Inventory to see profit" : "No sales yet"}</span>
                 : <span>{margin.toFixed(0)}% margin{data.week.uncostedItems > 0 ? <> · <b className="dash-warn">{data.week.uncostedItems} without cost</b></> : null}</span>}
             />
-            <DashKpi
-              label="Queue now"
-              value={<>{data.queue.waiting}<small> preparing</small></>}
-              accent={data.queue.waiting > 0 ? "#B45309" : undefined}
-              note={<span>{data.queue.ready} ready for pickup</span>}
-            />
+            {/* A shortcut to the Insights page (nothing is asked from Claude here). */}
+            <button type="button" className="dash-card dash-kpi dash-ai-shortcut" onClick={() => onNavigate("insights")}>
+              <p className="dash-kpi-label"><IconSparkle size={12} /> AI insights</p>
+              <p className="dash-ai-title">Ask Claude for insights</p>
+              <span className="dash-ai-go">Open Insights <IconChevron size={13} /></span>
+            </button>
             <DashKpi
               label="Staff on duty"
               value={data.staffOnDuty.length}
@@ -8227,6 +8227,8 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "", phone: customer.phone ?? "" });
   const [notes, setNotes] = useState(customer.notes);
   const [login, setLogin] = useState({ username: "", password: "" });
+  // A new temporary password for an existing login: typed or generated, like an employee's.
+  const [tempPassword, setTempPassword] = useState("");
   const [working, setWorking] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -8259,9 +8261,10 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   }
 
   async function setTemporaryPassword() {
-    const password = generateTemporaryPassword();
+    const password = tempPassword.trim();
+    if (!password) return;
     if (!(await confirmAction({ title: `Set a temporary password for ${customer.fullName}?`, message: "Their old password stops working and they are signed out of every phone. Tell them the new one in person.", confirmLabel: "Set password", tone: "default" }))) return;
-    await act<{ username: string; signedOutDevices: number }>("password", { action: "set_login", password }, "Could not set the password.", (data) => { setNotice(`New temporary password for @${data.username}: ${password}`); void onReload(); });
+    await act<{ username: string; signedOutDevices: number }>("password", { action: "set_login", password }, "Could not set the password.", (data) => { setNotice(`New temporary password for @${data.username}: ${password}`); setTempPassword(""); void onReload(); });
   }
 
   async function erase() {
@@ -8331,9 +8334,13 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
           <section className="acc-block">
             <header className="acc-block-head"><div><h3>Mobile menu login</h3><p>{customer.hasLogin ? `@${customer.username} · ${customer.devices ? `signed in on ${customer.devices} phone${customer.devices === 1 ? "" : "s"}` : "not signed in anywhere"}` : "No login yet. Give them one so their mobile orders are saved to this profile."}</p></div></header>
             {customer.hasLogin
-              ? <div className="flex flex-wrap gap-2">
-                <button type="button" className="ui-button ui-button-secondary" disabled={working !== null || !customer.isActive} onClick={() => void setTemporaryPassword()}>{working === "password" ? "Setting…" : "Set a temporary password"}</button>
-                {customer.devices > 0 && <button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ signedOutDevices: number }>("signout", { action: "sign_out_everywhere" }, "Could not sign them out.", (data) => { setNotice(`Signed out of ${data.signedOutDevices} phone${data.signedOutDevices === 1 ? "" : "s"}.`); void onReload(); })}>Sign out everywhere</button>}
+              ? <div className="flex flex-col gap-3">
+                <div className="flex flex-wrap gap-2">
+                  <input type="text" value={tempPassword} onChange={(event) => setTempPassword(event.target.value)} placeholder="New temporary password" style={{ ...packagingInput, flex: "1 1 200px", width: "auto", fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" aria-label="New temporary password" disabled={!customer.isActive} />
+                  <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setTempPassword(generateTemporaryPassword())} disabled={!customer.isActive}>Generate</button>
+                  <button type="button" className="inv-mini" style={{ height: 42, background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void setTemporaryPassword()} disabled={working !== null || !customer.isActive || tempPassword.trim().length === 0}>{working === "password" ? "Saving…" : "Set password"}</button>
+                </div>
+                {customer.devices > 0 && <div><button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ signedOutDevices: number }>("signout", { action: "sign_out_everywhere" }, "Could not sign them out.", (data) => { setNotice(`Signed out of ${data.signedOutDevices} phone${data.signedOutDevices === 1 ? "" : "s"}.`); void onReload(); })}>Sign out everywhere</button></div>}
               </div>
               : <form className="inv-step-grid" onSubmit={(event) => { event.preventDefault(); const password = login.password || generateTemporaryPassword(); void act<{ username: string }>("login", { action: "set_login", username: login.username.trim(), password }, "Could not make the login.", (data) => { setNotice(`Login made. Username: ${data.username} · temporary password: ${password}`); setLogin({ username: "", password: "" }); void onReload(); }); }}>
                 <WizardField label="Username"><input value={login.username} onChange={(event) => setLogin((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} style={packagingInput} maxLength={30} autoComplete="off" /></WizardField>

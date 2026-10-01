@@ -4,6 +4,7 @@ import pool from "@/lib/db";
 import { parseOrderItems, parseServiceType, quoteOrderBreakdown, isSoldOut } from "@/lib/orders";
 import { cleanupIdVerifications, parseCoverage, PENDING_MINUTES } from "@/lib/id-verifications";
 import { getCustomerSession } from "@/lib/customers";
+import { signalChange } from "@/lib/realtime";
 
 // Sends an ID photo for the café to check (see lib/id-verifications.ts), with the order it is for:
 // the items, which of them are the holder's own (or a shared bill), and dine in or take out. The
@@ -16,6 +17,8 @@ const MAX_PENDING = 30;
 const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
 
 export async function POST(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const client = await pool.connect();
   try {
     const body = await request.json() as { items?: unknown; service_type?: unknown; discount_type_id?: unknown; holder_name?: unknown; id_number?: unknown; coverage?: unknown; remember?: unknown; consent?: unknown; photo?: unknown };

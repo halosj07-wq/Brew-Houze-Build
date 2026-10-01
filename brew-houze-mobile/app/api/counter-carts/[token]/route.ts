@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { signalChange } from "@/lib/realtime";
 
 // A cart sent to the counter, followed by the customer's phone: waiting (with its code), ordered
 // (the queue number of the order it became), cancelled or expired. PATCH { action: "cancel" }
@@ -39,6 +40,8 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ token: string }> }) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const { token } = await context.params;
   if (!isToken(token)) return NextResponse.json({ error: "Invalid code." }, { status: 400 });
   try {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { signalChange } from "@/lib/realtime";
 
 async function getAdminId(): Promise<number | null> {
   const session = await getSession();
@@ -285,6 +286,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
 
@@ -348,6 +351,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
 
@@ -458,6 +463,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   const client = await pool.connect();
   try {

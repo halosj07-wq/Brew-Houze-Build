@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { quoteOrderBreakdown } from "@/lib/orders";
 import { approvedVerification, cleanupIdVerifications } from "@/lib/id-verifications";
+import { signalChange } from "@/lib/realtime";
 
 // An ID check followed by the customer's phone (the token is only known to that phone):
 //   pending    waiting for the cashier
@@ -58,6 +59,8 @@ export async function GET(_request: Request, context: { params: Promise<{ token:
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ token: string }> }) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const { token } = await context.params;
   if (!isToken(token)) return NextResponse.json({ error: "Invalid ID check." }, { status: 400 });
   try {

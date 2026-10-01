@@ -606,3 +606,7 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .bh-track-parts span { padding: 4px 10px; border-radius: 999px; background: var(--cream); color: var(--muted); font-size: 12.5px; font-weight: 600; }
 .bh-track-parts span.is-ready { background: #E3F4EC; color: var(--teal); }
 .bh-track-parts span.is-picked_up { opacity: 0.6; }
+
+/* Cart: payment choice locked by an ID discount (shown, not hidden) */
+.bh-cart-section.is-locked .cart-delivery-pay button { cursor: not-allowed; opacity: 0.5; }
+.bh-cart-section.is-locked .cart-delivery-pay button[aria-checked="true"] { opacity: 0.85; }

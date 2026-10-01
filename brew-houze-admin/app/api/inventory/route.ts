@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 import { inventorySelect, loadInventoryItem, parsePackaging, weightedAverageUnitCost } from "@/lib/inventory";
+import { signalChange } from "@/lib/realtime";
 
 async function getAdminId(): Promise<number | null> {
   const session = await getSession();
@@ -72,6 +73,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("stock");
   const client = await pool.connect();
   try {
     const body = await request.json();
@@ -190,6 +193,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("stock");
   try {
     const body = await request.json();
 
@@ -590,6 +595,8 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("stock");
   try {
     const body = await request.json();
     const inventoryId = Number(body?.inventory_id);

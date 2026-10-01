@@ -6,6 +6,7 @@ import { AccountPage, AccountSheet, CartAccountNote, discountText, OrderHistory,
 import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, type IdDiscountRule, type VatSetting } from "./id-discount";
 import { PhoneField } from "@/lib/input-format";
 import { downloadReceipt, ReceiptSheet } from "./receipt";
+import { livePollGate, onLive } from "@/lib/live";
 
 type Product = {
   id: number;
@@ -488,8 +489,11 @@ export default function MenuPage() {
       }
     };
     void check();
-    const intervalId = window.setInterval(() => void check(), 3000);
-    return () => { active = false; window.clearInterval(intervalId); };
+    // The cashier's decision arrives as a live signal; the timer is the slow backup.
+    const due = livePollGate(10);
+    const intervalId = window.setInterval(() => { if (due()) void check(); }, 3000);
+    const stopLive = onLive(["line"], () => void check());
+    return () => { active = false; window.clearInterval(intervalId); stopLive(); };
   }, [checkingIdToken]);
 
   // Follows a cart sent to the counter until the cashier makes it an order (then it is tracked
@@ -525,8 +529,10 @@ export default function MenuPage() {
       }
     };
     void check();
-    const intervalId = window.setInterval(() => void check(), 4000);
-    return () => { active = false; window.clearInterval(intervalId); };
+    const due = livePollGate(8);
+    const intervalId = window.setInterval(() => { if (due()) void check(); }, 4000);
+    const stopLive = onLive(["line", "queue"], () => void check());
+    return () => { active = false; window.clearInterval(intervalId); stopLive(); };
   }, [sentToken, refreshAccount]);
 
   // The menu with its stock. Loaded when the page opens, again every minute while it is on screen,
@@ -1009,8 +1015,11 @@ export default function MenuPage() {
       }
     };
     void checkStatus();
-    const intervalId = window.setInterval(() => void checkStatus(), 10_000);
-    return () => { active = false; window.clearInterval(intervalId); };
+    // "Ready for pickup" arrives as a live signal; the timer is the slow backup.
+    const due = livePollGate(6);
+    const intervalId = window.setInterval(() => { if (due()) void checkStatus(); }, 10_000);
+    const stopLive = onLive(["queue"], () => void checkStatus());
+    return () => { active = false; window.clearInterval(intervalId); stopLive(); };
   }, [activeOrder, activeOrders]);
 
   const priceText = (product: Product) => { const prices = (product.variants ?? []).map((variant) => variant.price); const low = lowestPrice(product); return prices.length > 1 && prices.some((price) => price !== low) ? `from ₱${low.toFixed(2)}` : `₱${low.toFixed(2)}`; };
@@ -1420,12 +1429,15 @@ export default function MenuPage() {
               </div>
             </div>}
 
-            {counterPayOffered && <div className="bh-cart-section"><h3>How you&apos;ll pay</h3>
-              <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
-                <button type="button" role="radio" aria-checked={!payingAtCounter} onClick={() => setPayAtCounter(false)}><strong>GCash</strong><span>Pay now on this phone</span></button>
-                <button type="button" role="radio" aria-checked={payingAtCounter} disabled={rewardsInCart} onClick={() => setPayAtCounter(true)}><strong>At the counter</strong><span>{rewardsInCart ? "Not with star rewards" : "Cash or GCash with the cashier"}</span></button>
+            {/* With an ID discount the payment is set by how the ID is checked, so the choice stays in view
+                but locked, showing what happens next. */}
+            {(counterPayOffered || (claiming && !isDelivery && paymentConfig.method === "gcash" && orderTotal > 0)) && <div className={`bh-cart-section${claiming ? " is-locked" : ""}`}><h3>How you&apos;ll pay</h3>
+              <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay" aria-disabled={claiming || undefined}>
+                <button type="button" role="radio" aria-checked={claiming ? idMode !== "counter" : !payingAtCounter} disabled={claiming} onClick={() => setPayAtCounter(false)}><strong>GCash</strong><span>{claiming && idMode !== "counter" ? "Here, once the café approves your ID" : "Pay now on this phone"}</span></button>
+                <button type="button" role="radio" aria-checked={claiming ? idMode === "counter" : payingAtCounter} disabled={claiming || rewardsInCart} onClick={() => setPayAtCounter(true)}><strong>At the counter</strong><span>{claiming && idMode === "counter" ? "Show your ID, then pay the cashier" : rewardsInCart ? "Not with star rewards" : "Cash or GCash with the cashier"}</span></button>
               </div>
-              {rewardsInCart && payAtCounter && <p className="cart-delivery-note">To pay at the counter, remove your star rewards here and scan the Stars sign at the counter instead.</p>}
+              {claiming && <p className="cart-delivery-note">Set by your ID discount: {idMode === "counter" ? "the cashier checks your ID and takes off the discount, then you pay there (cash or GCash)." : "the café checks your ID first, then you pay the discounted total with GCash here."} To choose another way, uncheck “I have a discount ID”.</p>}
+              {!claiming && rewardsInCart && payAtCounter && <p className="cart-delivery-note">To pay at the counter, remove your star rewards here and scan the Stars sign at the counter instead.</p>}
             </div>}
 
             <div className="bh-cart-section bh-summary">

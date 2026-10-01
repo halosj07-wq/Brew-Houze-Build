@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
+import { livePollGate, onLive } from "@/lib/live";
 
 // line: the counter line, everything from the mobile menu waiting for the cashier (see CounterLine).
 type Page = "pos" | "line" | "queue" | "reversals" | "deliveries" | "accounts";
@@ -1987,8 +1988,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   }, []);
   useEffect(() => {
     const first = window.setTimeout(() => void refreshIdChecks(), 0);
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshIdChecks(); }, CLAIMS_REFRESH_MS);
-    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+    const due = livePollGate(12);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible" && due()) void refreshIdChecks(); }, CLAIMS_REFRESH_MS);
+    const stopLive = onLive(["line", "queue"], () => void refreshIdChecks());
+    return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
   }, [refreshIdChecks]);
   useEffect(() => {
     if (!idCheckNotice) return;
@@ -2007,8 +2010,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   }, []);
   useEffect(() => {
     const first = window.setTimeout(() => void refreshCounterCarts(), 0);
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshCounterCarts(); }, CLAIMS_REFRESH_MS);
-    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+    const due = livePollGate(12);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible" && due()) void refreshCounterCarts(); }, CLAIMS_REFRESH_MS);
+    const stopLive = onLive(["line", "queue"], () => void refreshCounterCarts());
+    return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
   }, [refreshCounterCarts]);
   const loadIdDiscountSetup = useCallback(async () => {
     try {
@@ -2037,8 +2042,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   }, []);
   useEffect(() => {
     const first = window.setTimeout(() => void refreshLoyalty(), 0);
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void refreshLoyalty(); }, CLAIMS_REFRESH_MS);
-    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+    const due = livePollGate(12);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible" && due()) void refreshLoyalty(); }, CLAIMS_REFRESH_MS);
+    const stopLive = onLive(["line", "queue"], () => void refreshLoyalty());
+    return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
   }, [refreshLoyalty]);
 
   useEffect(() => {
@@ -2088,13 +2095,17 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       if (document.visibilityState === "visible") void loadProducts(false);
     };
     void loadProducts();
+    // Stock changes with every sale, void and restock: reload on those signals, and slowly on a timer.
+    const due = livePollGate(4);
     const intervalId = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadProducts(false);
+      if (document.visibilityState === "visible" && due()) void loadProducts(false);
     }, 15_000);
+    const stopLive = onLive(["stock", "queue"], () => void loadProducts(false));
     document.addEventListener("visibilitychange", refreshWhenVisible);
 
     return () => {
       active = false;
+      stopLive();
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
@@ -3188,8 +3199,10 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
   }, []);
   useEffect(() => {
     const first = window.setTimeout(() => void load(), 0);
-    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 8000);
-    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+    const due = livePollGate(6);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible" && due()) void load(); }, 8000);
+    const stopLive = onLive(["queue"], () => void load());
+    return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
   }, [load]);
   useEffect(() => {
     if (!notice) return;
@@ -3381,8 +3394,11 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
       }
     };
     void refresh();
-    const intervalId = window.setInterval(() => void refresh(), 10_000);
-    return () => { active = false; window.clearInterval(intervalId); };
+    // New orders and ready calls arrive as live signals; the timer is the slow backup.
+    const due = livePollGate(6);
+    const intervalId = window.setInterval(() => { if (due()) void refresh(); }, 10_000);
+    const stopLive = onLive(["queue"], () => void refresh());
+    return () => { active = false; window.clearInterval(intervalId); stopLive(); };
   }, []);
 
   // Keeps the waiting timers current between queue refreshes.

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { signalChange } from "@/lib/realtime";
 
 // The delivery queue (see delivery-orders-migration.sql), for riders, cashiers and admins.
 //   GET    deliveries in progress, today's finished ones, and cash on delivery still with a rider
@@ -80,6 +81,8 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("queue");
   const auth = await staff();
   if (auth.error) return auth.error;
   const client = await pool.connect();

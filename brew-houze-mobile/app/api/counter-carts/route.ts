@@ -4,6 +4,7 @@ import pool from "@/lib/db";
 import { isSoldOut, parseOrderItems, parseServiceType, quoteOrder } from "@/lib/orders";
 import { COUNTER_CART_MINUTES, expireCounterCarts } from "@/lib/counter-carts";
 import { getCustomerSession } from "@/lib/customers";
+import { signalChange } from "@/lib/realtime";
 
 // Sends the cart to the counter, to pay there: to claim an ID discount (senior, PWD and others,
 // the ID has to be seen), or simply to pay at the counter (no discount_type_id). The cart is checked
@@ -13,6 +14,8 @@ import { getCustomerSession } from "@/lib/customers";
 const MAX_WAITING = 30;
 
 export async function POST(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const client = await pool.connect();
   try {
     const body = await request.json() as { items?: unknown; service_type?: unknown; discount_type_id?: unknown };

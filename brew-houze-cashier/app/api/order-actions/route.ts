@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { reverseOrderStarsSafely } from "@/lib/loyalty";
 import { confirmPassword, getSession, isQueueOnly, QUEUE_ONLY, WRONG_PASSWORD } from "@/lib/sessions";
+import { signalChange } from "@/lib/realtime";
 
 // Same redirection checkout uses: a bound item's quantity is moved onto its source item,
 // scaled by its ratio, since bound items never carry stock of their own.
@@ -32,6 +33,8 @@ function normalizeGcashNumber(value: unknown): string | null {
 }
 
 export async function POST(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("queue", "stock");
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });

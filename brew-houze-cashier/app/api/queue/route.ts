@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 import { canHandOff, handOver, markReady, parseStation, pickupMode, stationForRole, StationError } from "@/lib/stations";
+import { signalChange } from "@/lib/realtime";
 
 // An order's parts (bar, kitchen) and their progress; an order from before stations is one bar part.
 const PARTS_SQL = `COALESCE((SELECT json_agg(json_build_object('station', os.station, 'status', os.status) ORDER BY os.station) FROM order_stations os WHERE os.order_id = so.order_id),
@@ -199,6 +200,8 @@ export async function GET(request: Request) {
 // the order over (or one part, when drinks and food are picked up separately). The old "serve"
 // and "flush" still work.
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("queue");
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 

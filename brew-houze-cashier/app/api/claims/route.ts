@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { activeBirthdayCampaign, birthdayStatus, runningCampaign, runningRewards, starBalance } from "@/lib/loyalty";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
+import { signalChange } from "@/lib/realtime";
 
 // Claims from the printed Stars sign: a customer scanned it with their signed-in phone and
 // picked a reward (or just asked to be added to the order). The counter sees who is waiting,
@@ -66,6 +67,8 @@ export async function GET() {
 // { id, action: "accept" | "decline" }. Accepting gives the cashier the customer (to attach to
 // the order) and their reward; the claim then stays valid for 20 minutes to finish the order.
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });

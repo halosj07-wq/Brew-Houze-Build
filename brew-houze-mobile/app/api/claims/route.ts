@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getCustomerSession } from "@/lib/customers";
 import { customerLoyalty, runningCampaign } from "@/lib/loyalty";
+import { signalChange } from "@/lib/realtime";
 
 // The customer's side of the printed Stars sign. After scanning it (signed in), they pick a
 // reward or just ask to be added to their counter order. The claim waits for the cashier (staff
@@ -47,6 +48,8 @@ export async function GET() {
 
 // { rewardId } or { rewardId: null } to only be added to the order. Replaces any open claim.
 export async function POST(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const session = await getCustomerSession();
   if (!session) return NextResponse.json({ error: "Please sign in first." }, { status: 401 });
   let body: { rewardId?: unknown };
@@ -90,6 +93,8 @@ export async function POST(request: Request) {
 
 // Cancels the customer's open claim.
 export async function DELETE() {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const session = await getCustomerSession();
   if (!session) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
   try {

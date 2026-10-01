@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { APPROVED_MINUTES, cleanupIdVerifications } from "@/lib/id-verifications";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
+import { signalChange } from "@/lib/realtime";
 
 // ID photos sent from the mobile menu, waiting for the counter to check them (see
 // lib/id-verifications.ts). GET lists them (the photos themselves come from ./[id]/photo);
@@ -55,6 +56,8 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });

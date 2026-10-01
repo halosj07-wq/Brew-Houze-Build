@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { awardOrderStarsSafely, computeDiscount, discountText, planRewards, recordRewardUse, type RewardLine, type RewardPlan } from "@/lib/loyalty";
 import { idDiscountSummary, planIdDiscounts, type IdDiscountInput, type PlannedIdDiscount } from "@/lib/discounts";
 import { deliveryFeeFor, type DeliveryPlan } from "@/lib/delivery";
+import { signalChange } from "@/lib/realtime";
 
 // Creating a sales order, shared by the cashier checkout, the mobile menu and GCash payments
 // (brew-houze-cashier and brew-houze-mobile keep identical copies of this file). Everything runs
@@ -381,6 +382,8 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   const starsRedeemed = rewardPlan && input.customerId ? await recordRewardUse(client, orderId, input.customerId, rewardPlan) : 0;
   const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
+  // Live screens: the queue, the counter line (a served cart, a used ID check) and stock.
+  signalChange("queue", "line", "stock");
   return { orderId, queueNumber, shiftId, subtotal, discountAmount: orderDiscount, vatExemptAmount, deliveryFee, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
 }
 

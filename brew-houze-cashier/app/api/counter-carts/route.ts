@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { expireCounterCarts } from "@/lib/counter-carts";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
+import { signalChange } from "@/lib/realtime";
 
 // Carts customers sent from the mobile menu to claim an ID discount (see lib/counter-carts.ts).
 // GET lists the ones waiting, for the POS; PATCH { id, action: "dismiss" } clears one the
@@ -49,6 +50,8 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  // Live screens reload once this is saved (a failed request only causes an extra reload).
+  signalChange("line");
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
