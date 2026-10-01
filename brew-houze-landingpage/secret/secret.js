@@ -1,8 +1,9 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
-// dirtywork.css and armageddon.css; photos and sound in whiplash/, dirty-work/ and armageddon/).
+// dirtywork.css, armageddon.css, drama.css and richman.css; photos and sound in whiplash/,
+// dirty-work/, armageddon/, drama/ and richman/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
-// Armageddon or Drama, straight from any of them. Each
+// Armageddon, Drama or Rich Man, straight from any of them. Each
 // theme has the four members (plates that open photo cards), an intro that follows its own sound
 // clip, and music that loops while the theme is on. index.html sets the theme before the page
 // paints (so a reload keeps it without a flash) and provides showToast().
@@ -11,7 +12,7 @@
   const THEME_KEY = "brew-houze-theme"; // the theme that is on, or "cafe"
   const LAST_KEY = "brew-houze-theme-next"; // the theme last picked (loaded ahead in the café)
   const SOUND_KEY = "brew-houze-aespa-sound"; // "off" when the visitor muted the music
-  const ORDER = ["whiplash", "dirtywork", "armageddon", "drama"]; // the picker's order, after the café
+  const ORDER = ["whiplash", "dirtywork", "armageddon", "drama", "richman"]; // the picker's order, after the café
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
@@ -987,6 +988,213 @@
     },
   };
 
+  // Rich Man: electricity. The clip hums (0-7.7 s), swelling from 4.5 s, cuts to silence (7.75 s) and
+  // strikes twice (8.33 / 8.74 s) straight into track 1. In the hum the aespa guitar pick drops in on
+  // the first stab (0.15 s) and the four group photos are slapped up around it like posters, a beat
+  // apart (1.13 / 2.22 / 3.31 / 4.41 s), lightning stickers on them; from 5 s the air crackles, the
+  // hits (5.96 / 6.22 / 6.40 s) strike lightning across the screen and the chrome RICH MAN logo
+  // surges up, everything shaking; the silence blacks out to a single spark; the first strike floods
+  // the screen in the Energy purple with the logo in neon (I AM ENOUGH AS I AM. I AM A RICH MAN.),
+  // the second flips it to the Burst orange with the logo in black.
+  const richmanIntro = {
+    end: 8870,
+    cues: [
+      [0, "hum"], [150, "pick"],
+      [1130, "poster", 0], [2220, "poster", 1], [3310, "poster", 2], [4410, "poster", 3],
+      [5000, "charge"], [5960, "zap", 0], [6220, "zap", 1], [6400, "zap", 2], [6620, "surge"],
+      [7750, "blackout"], [8330, "energy"], [8740, "burst"],
+    ],
+    hits: new Set(["pick", "poster", "zap", "energy", "burst"]),
+    mount(box, photos, flashes) {
+      box.innerHTML = `
+        <i class="rm-hum"></i>
+        <p class="rm-label is-left">aespa · The 6th Mini Album</p><p class="rm-label is-right">Rich Man</p>
+        <div class="rm-posters"></div>
+        <i class="rm-pick"></i>
+        <div class="rm-sparks">${"<i></i>".repeat(10)}</div>
+        <div class="rm-zaps"><i></i><i></i><i></i></div>
+        <i class="rm-chrome"></i>
+        <i class="rm-spark"></i>
+        <div class="rm-final"><i class="rm-final-bolt"></i><i class="rm-final-logo"></i><p><b>I am enough as I am.</b> <span>I am a Rich Man.</span></p></div>
+        <i class="rm-flash"></i>`;
+      // The posters: the group photos, each with a lightning sticker, tilted.
+      const posters = box.querySelector(".rm-posters");
+      flashes.forEach((img, index) => {
+        const poster = document.createElement("figure");
+        poster.className = `rm-poster is-${index + 1}`;
+        poster.append(img);
+        poster.insertAdjacentHTML("beforeend", `<i class="rm-sticker is-${(index % 2) + 3}"></i>`);
+        posters.append(poster);
+      });
+      const all = [...posters.children];
+      return (step) => {
+        const [, scene, value] = this.cues[step];
+        // Posters stay up once slapped (until the blackout).
+        if (scene === "poster") all.forEach((poster, index) => poster.classList.toggle("is-up", index <= value));
+        const classes = ["rm-intro", `is-${scene}`];
+        if (scene === "zap") classes.push(`is-zap-${value}`);
+        if (["poster", "charge", "zap", "surge"].includes(scene)) classes.push("is-posters");
+        if (["charge", "zap", "surge"].includes(scene)) classes.push("is-charged");
+        box.className = classes.join(" ");
+        if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+    },
+  };
+
+  // Rich Man (110 BPM): a rock show. The MV is the show, the page is the stage:
+  //   open (0-2 s)        the MV strikes in full screen, lightning and a white flash
+  //   the members         from Karina's part on, the MV goes up on a stadium screen at the top and
+  //   (2-36 s)            the four plates are the stage below it; in each member's part (Karina 2-10,
+  //                       Giselle 11-18, Winter 19-28, Ningning 31-36) her plate lifts in her colour
+  //                       and plays her, lightning crackling round it on the bars, her name under the
+  //                       screen. Her plate plays the member cut (richman/members.mp4, silent, on the
+  //                       MV's own clock): only her shots, cropped to her, so when the MV cuts away
+  //                       she stays on her card until her part is done; then her card keeps her last
+  //                       frame, so by Ningning's part the whole line-up is live
+  //   chase (36 s)        the screen bursts back to full: speed lines, a rev meter filling on the
+  //                       beats and the speed racing up to 480 km/h
+  //   face (39.47 s)      Karina, the MV seen through the aespa guitar pick, rimmed in neon, the
+  //                       Energy purple and its logos behind, the pick swaying on the beat
+  //   flip / hit / wreck  pop art: the car flies (WHOA!) on comic lightning, the hits (KA- BOOM!)
+  //   (41-42.45 s)        burst in comic stars on halftone dots, white flash, the logo
+  //   sky / locker        the poster wall: the MV breaks into four sticker-framed shots slapped onto
+  //   (43.03-46 s)        the wall on the beats (LIVE, SOLD OUT, ENCORE, RICH MAN TOUR), the purple
+  //                       logo behind them
+  //   visor (46.03 s)     a neon HUD in the helmet's visor        static (47.23 s)  the chrome logo
+  //                       glitches in slices over the jumping picture
+  //   confetti (47.67 s)  confetti, and the members' photo cards rain down, flipping front to back
+  //   fireworks (48.95 s) flames on the bars; Ningning (50.13 s): her card flies in and flips to its
+  //                       back with a lightning strike, her sticker under it
+  //   flag (51.33 s)      stage lights sweep over the crowd, the screen headbangs, lightning on 1 and 3
+  //   board / blast       the chrome logo rises over the scoreboard (52.8 s) and blows apart with it
+  //   (52.8 / 53.4 s)     (BOOM!): an orange flash, flames, a quake
+  //   checker / end       checkered tape, then the RICH MAN logo slams in over the final pose
+  const RM_BEAT = 60 / 110;
+  const RM_BAR1 = 1.601; // a downbeat
+  const RM_PARTS = { karina: [2, 10], giselle: [11, 18], winter: [19, 28], ningning: [31, 36] };
+  const richmanScene = {
+    src: "richman/scene.mp4",
+    className: "rm-scene",
+    cues: [[0, "open"], [2, "karina"], [10, "between"], [11, "giselle"], [18, "between"], [19, "winter"], [28, "between"], [31, "ningning"],
+      [36, "chase"], [39.47, "face"], [41.0, "flip"], [42.1, "hit"], [42.45, "wreck"], [43.03, "sky"], [43.93, "locker"], [46.03, "visor"],
+      [47.23, "static"], [47.67, "confetti"], [48.95, "fireworks"], [50.13, "ningning2"], [51.33, "flag"], [52.8, "board"], [53.4, "blast"], [54.47, "checker"], [54.9, "end"]],
+    mount(box, video) {
+      box.innerHTML = `
+        <div class="rms-screen"><b class="rms-live"><i></i> Live</b></div>
+        <p class="rms-bar" aria-hidden="true"><small>Now on stage</small> <b class="rms-name"></b> <span class="rms-hangul"></span></p>
+        <i class="rms-wallbg"></i>
+        <div class="rms-wall">${["Live", "Sold out", "Encore", "Rich Man Tour"].map((caption, n) => `<figure class="rms-poster is-${n + 1}"><b>${caption}</b></figure>`).join("")}</div>
+        <i class="rms-pickglow"></i>
+        <i class="rms-speed"></i>
+        <div class="rms-rev"><div>${Array.from({ length: 16 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div><b><span class="rms-kmh">0</span> km/h</b></div>
+        <i class="rms-dots"></i>
+        <div class="rms-pow"><i></i><b></b></div>
+        <i class="rms-comic"></i>
+        <div class="rms-glitch"><i></i><i></i><i></i></div>
+        <div class="rms-rain">${["karina", "winter", "giselle", "ningning", "giselle", "karina", "ningning", "winter"].map((key, n) => `<div class="rms-card" style="--n: ${n}"><i style="background-image: url('richman/${key}.webp')"></i><i class="is-back" style="background-image: url('richman/${key}-back.webp')"></i></div>`).join("")}</div>
+        <div class="rms-card rms-ncard"><i style="background-image: url('richman/ningning.webp')"></i><i class="is-back" style="background-image: url('richman/ningning-back.webp')"></i></div>
+        <div class="rms-beams"><i></i><i></i><i></i><i></i></div>
+        <i class="rms-chrome"></i>
+        <i class="rms-letterbox"></i>
+        <div class="rms-hud"><i></i><b>Rich Man · 480 km/h</b></div>
+        <i class="rms-scan"></i>
+        <div class="rms-confetti">${Array.from({ length: 26 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div>
+        <div class="rms-flames">${"<i></i>".repeat(9)}</div>
+        <i class="rms-bolt"></i><i class="rms-bolt is-b"></i>
+        <i class="rms-checker"></i><i class="rms-checker is-b"></i>
+        <b class="rms-sticker" aria-hidden="true">Ningning <span>닝닝</span></b>
+        <i class="rms-logo"></i>
+        <p class="rms-tagline" aria-hidden="true"><b>I am enough as I am.</b> <span>I am a Rich Man.</span></p>
+        <i class="rms-flash"></i>
+        <p class="rms-badge"><i></i> aespa ‘Rich Man’ · <span class="rms-time">00:00</span></p>`;
+      box.querySelector(".rms-screen").prepend(video);
+      const time = box.querySelector(".rms-time");
+      const name = box.querySelector(".rms-name");
+      const hangul = box.querySelector(".rms-hangul");
+      const kmh = box.querySelector(".rms-kmh");
+      // The poster wall: four shots of the MV (mirrors), three tall ones across the frame, one wide.
+      const posters = [...box.querySelectorAll(".rms-poster")].map((figure, n) => {
+        const canvas = mirror("rms-shot");
+        figure.prepend(canvas);
+        return { canvas, crop: [[0.27, 0.04, 0.34, 0.92], [0.5, 0.04, 0.34, 0.92], [0.73, 0.04, 0.34, 0.92], [0.5, 0, 1, 1]][n] };
+      });
+      // The member cut, silent, kept on the MV's clock.
+      const cut = document.createElement("video");
+      cut.src = "richman/members.mp4";
+      cut.muted = true;
+      cut.preload = "auto";
+      cut.playsInline = true;
+      cut.setAttribute("playsinline", "");
+      void cut.play().catch(() => undefined);
+      // The stage: the plates, each with a mirror for her part and lightning round it.
+      const lineup = document.getElementById("ae-lineup");
+      const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => {
+        const canvas = mirror("rms-plate");
+        plate.querySelector(".ae-photo")?.after(canvas);
+        const zap = document.createElement("i");
+        zap.className = "rms-zap";
+        zap.setAttribute("aria-hidden", "true");
+        plate.append(zap);
+        return { plate, canvas, zap, key: plate.dataset.member };
+      });
+      // The screen's size: as big as fits above the plates (the plates below it, in view).
+      const fit = () => {
+        const phone = window.innerWidth < 640;
+        const room = window.innerHeight - lineup.getBoundingClientRect().height - 120;
+        const width = Math.max(170, Math.min(window.innerWidth * (phone ? 0.8 : 0.5), 600, (room - 44) * 16 / 9));
+        box.style.setProperty("--jw", `${Math.round(width)}px`);
+        return 12 + width * 9 / 16 + 44;
+      };
+      const onStage = () => {
+        const below = fit();
+        window.scrollTo({ top: Math.max(0, window.scrollY + lineup.getBoundingClientRect().top - below - 8), behavior: "smooth" });
+      };
+      fit();
+      window.addEventListener("resize", fit);
+      return {
+        show(cue, now) {
+          box.style.setProperty("--beat-lag", `${(-((((now - RM_BAR1) % RM_BEAT) + RM_BEAT) % RM_BEAT)).toFixed(3)}s`);
+          box.style.setProperty("--bar-lag", `${(-((((now - RM_BAR1) % (RM_BEAT * 4)) + RM_BEAT * 4) % (RM_BEAT * 4))).toFixed(3)}s`);
+          // (The plates' lightning is in the page, outside the scene: its bar lag is set on the page.)
+          root.style.setProperty("--rms-bar-lag", box.style.getPropertyValue("--bar-lag"));
+          const member = RM_PARTS[cue] ? MEMBERS[cue] : null;
+          box.dataset.mode = now >= 2 && now < 36 ? "stage" : cue === "sky" || cue === "locker" ? "wall" : "full";
+          // Each part starts with the stage in view, below the screen.
+          if (RM_PARTS[cue]) onStage();
+          name.textContent = member ? member.name : "aespa";
+          hangul.textContent = member ? member.hangul : "에스파";
+          box.dataset.member = member ? cue : "";
+        },
+        tick(now) {
+          time.textContent = `${String(Math.floor(now / 60)).padStart(2, "0")}:${String(Math.floor(now % 60)).padStart(2, "0")}`;
+          const cue = box.dataset.cue;
+          // The chase: the speed racing up to 480 km/h.
+          if (cue === "chase") kmh.textContent = String(Math.round(Math.min(1, Math.max(0, (now - 36) / 3.3)) ** 0.7 * 480));
+          if (box.dataset.mode === "wall") posters.forEach(({ canvas, crop }) => drawCrop(canvas, video, ...crop));
+          if (now < 36.2) {
+            if (cut.readyState >= 1 && Math.abs(cut.currentTime - now) > 0.15) cut.currentTime = now;
+            if (cut.paused && !video.paused) void cut.play().catch(() => undefined);
+          } else if (!cut.paused) cut.pause();
+          // Her plate plays her through her part; after it, it keeps her last frame.
+          plates.forEach(({ plate, canvas, key }) => {
+            const part = RM_PARTS[key];
+            if (!part || now < part[0]) return;
+            if (now < part[1]) { if (cut.readyState >= 2) { drawMirror(canvas, cut); plate.classList.add("rms-on"); } }
+            else plate.classList.add("rms-done");
+          });
+        },
+        unmount() {
+          window.removeEventListener("resize", fit);
+          root.style.removeProperty("--rms-bar-lag");
+          cut.pause();
+          cut.removeAttribute("src");
+          cut.load();
+          plates.forEach(({ plate, canvas, zap }) => { canvas.remove(); zap.remove(); plate.classList.remove("rms-on", "rms-done"); });
+        },
+      };
+    },
+  };
+
   // ── The themes ──
   const THEMES = {
     whiplash: {
@@ -1136,6 +1344,47 @@
       extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
       scene: dramaScene,
     },
+    // Rich Man: the intro runs straight into track 1 (the chorus, 8 bars at 110 BPM); tracks 1 and 2
+    // (verse 3 and the interlude, 9 bars) then take turns with no gap, each played for exactly its
+    // bars. The photo cards are the album's own, front and back, and every flip strikes lightning
+    // with thunder. The bridge (seconds into track 2): the stop-start riff (the chord chugging, cut
+    // dead on beat 4 at 1.64 / 3.82 s, a stab at 3.55 s and the pickup at 4.09 s), the drive (bars
+    // 3-7, 4.36 s), the stop (15.27 s) and the drum fill (15.82 s), the crash (17.45 s) into the held
+    // "I am a rich man" (17.73 s), and its last beat (19.09 s). Its effects are its own (fx, styled
+    // in richman.css): a rock show.
+    richman: {
+      era: "Rich Man", folder: "richman/", tag: "RICH MAN", back: "image",
+      title: "Brew Houze × aespa · Rich Man", toast: "Brew Houze × aespa · RICH MAN ⚡",
+      sub: "Rich Man · System portal", h1: "Every Brew Houze app. I am a Rich Man.", footer: "Brew Houze × aespa · Rich Man · café management system",
+      introClip: "richman/intro.mp3", loops: [{ src: "richman/track-1.mp3", length: 17.4545 }, { src: "richman/track-2.mp3", length: 19.6364 }], joined: true, intro: richmanIntro, introClass: "rm-intro",
+      stage: {
+        beat: 60 / 110, parts: [17.4545, 19.6364], grid: 17.4545,
+        lyrics: [
+        "I am a rich man",
+        "I'ma carry myself",
+        "Twenty four, 모두가 same shade",
+        "You already know what the tag say",
+        "Make it better on my own, my tag",
+        "I won't double back, 흉내 안 내",
+        "If you blame it, cameo",
+        "I carry the load, run the show",
+        "I'm like a diamond ring",
+        "Already got my thing",
+        "Cannot put a price on it",
+        "This is the real deal, yeah",
+        "I'm my own biggest fan",
+        "I'm high in demand",
+        "I am what I am",
+        "That's me, 나는 reckless",
+        "Don't care about what they say",
+        "I'm that one, 난 나로 가득해 by myself",
+      ],
+        fx: `<i class="rmx-dark"></i><div class="rmx-beams"><i></i><i></i><i></i><i></i></div><i class="rmx-strobe"></i><div class="rmx-flames">${"<i></i>".repeat(9)}</div><div class="rmx-amps"><i></i><i></i></div><i class="rmx-bolt"></i><i class="rmx-bolt is-b"></i><div class="rmx-strings">${"<i></i>".repeat(6)}</div><i class="rmx-pick"></i><i class="rmx-logo"></i><b class="rmx-live">Live · Rich Man</b><i class="rmx-flash"></i>`,
+        sections: [[0, "calm"], ...[[0, "riff"], [1.636, "mute"], [2.182, "riff"], [3.545, "stab"], [3.818, "mute"], [4.091, "pickup"], [4.364, "mosh"], [15.273, "stop"], [15.818, "fill"], [17.455, "crash"], [17.727, "ring"], [19.091, "rush"]].map(([at, name]) => [17.4545 + at, name])],
+      },
+      scene: richmanScene,
+      extras: ["logo-black.webp", "logo-chrome.webp", "logo-purple.webp", "logo-glow.webp", "pick.webp", "bolt-1.webp", "bolt-2.webp", "bolt-3.webp", "bolt-4.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-back.webp`)],
+    },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
   // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
@@ -1197,6 +1446,7 @@
     dirtywork: { kicker: "⚠ Dirty Worker Ver.", label: "Clock in for the dirty work" },
     armageddon: { kicker: "● Incoming", label: "Intercept the signal" },
     drama: { kicker: "Scene 00 · Take 01", label: "Action" },
+    richman: { kicker: "● Live · Rich Man", label: "Plug in. Play it loud." },
   };
   const cta = document.createElement("div");
   cta.className = "ae-cta";
@@ -1654,6 +1904,7 @@
     dirtywork: { logo: "dirty-work/logo-white.webp", tint: "#EE6A2A", mask: true },
     armageddon: { logo: "armageddon/logo-white.webp", tint: "#BFF4F1", mask: true },
     drama: { logo: "drama/logo.webp", tint: "#F30306", mask: false },
+    richman: { logo: "richman/logo-black.webp", tint: "#D9FF2E", mask: true },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -1873,7 +2124,10 @@
     back.classList.toggle("is-signature", t.back === "signature");
     back.classList.toggle("is-spec", t.back === "spec");
     back.classList.toggle("is-emblem", t.back === "emblem");
-    back.innerHTML = t.back === "emblem" ? `
+    back.classList.toggle("is-image", t.back === "image");
+    back.innerHTML = t.back === "image" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
+      <div class="rm-back-photo" role="img" aria-label="${escapeHtml(member.name)}, the back of her card" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>` : t.back === "emblem" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <div class="dr-back-photo" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
@@ -2000,6 +2254,66 @@
   // secret.css), so it never shows through on phones.
   function flipCard() {
     pcCard.classList.toggle("is-flipped");
+    if (current === "richman") { strike(); thunder(); }
+  }
+  // Rich Man: lightning over the card as it turns (the bolts in the album's colours), the card jolting.
+  function strike() {
+    if (!motionOK()) return;
+    pcModal.querySelector(".rm-storm")?.remove();
+    const storm = document.createElement("div");
+    storm.className = "rm-storm";
+    storm.setAttribute("aria-hidden", "true");
+    storm.innerHTML = `<i class="rm-storm-flash"></i>${[2, 1, 4, 3, 2, 1].map((n, i) => `<i class="rm-bolt is-${n} is-s${i}"></i>`).join("")}`;
+    pcModal.append(storm);
+    setTimeout(() => storm.remove(), 1700);
+    const stage = pcModal.querySelector(".ae-pc-stage");
+    stage.classList.remove("is-struck");
+    void stage.offsetWidth;
+    stage.classList.add("is-struck");
+  }
+  // And its thunder: a crack, then the rumble rolling off (made here, no sound file), when the
+  // visitor has the sound on.
+  let thunderCtx = null;
+  function thunder() {
+    if (!soundWanted()) return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    thunderCtx ??= new AudioContextClass();
+    const ctx = thunderCtx;
+    void ctx.resume();
+    const now = ctx.currentTime;
+    const noise = (seconds, brown) => {
+      const buffer = ctx.createBuffer(1, Math.round(ctx.sampleRate * seconds), ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      let last = 0;
+      for (let i = 0; i < data.length; i++) { const white = Math.random() * 2 - 1; last = brown ? (last + 0.02 * white) / 1.02 : white; data[i] = brown ? last * 3.5 : white; }
+      const source = ctx.createBufferSource();
+      source.buffer = buffer;
+      return source;
+    };
+    const out = ctx.createGain();
+    out.gain.value = 0.55;
+    out.connect(ctx.destination);
+    // The crack.
+    const crack = noise(0.4, false);
+    const high = ctx.createBiquadFilter(); high.type = "highpass"; high.frequency.value = 900;
+    const crackGain = ctx.createGain();
+    crackGain.gain.setValueAtTime(0.0001, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.7, now + 0.01);
+    crackGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    crack.connect(high).connect(crackGain).connect(out);
+    crack.start(now);
+    // The rumble, in two rolls.
+    const rumble = noise(3.2, true);
+    const low = ctx.createBiquadFilter(); low.type = "lowpass"; low.frequency.value = 320;
+    const rumbleGain = ctx.createGain();
+    rumbleGain.gain.setValueAtTime(0.0001, now);
+    rumbleGain.gain.exponentialRampToValueAtTime(1, now + 0.08);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.35, now + 0.7);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.8, now + 1.0);
+    rumbleGain.gain.exponentialRampToValueAtTime(0.0001, now + 3.1);
+    rumble.connect(low).connect(rumbleGain).connect(out);
+    rumble.start(now);
   }
   pcModal.addEventListener("dragstart", (event) => event.preventDefault());
 
