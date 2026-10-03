@@ -89,6 +89,8 @@ type AdditionItem = {
   price: number;
   // Where the items it goes on are made: drink add-ons (bar) or food add-ons (kitchen).
   station: Station;
+  // The categories it is limited to (empty: every item of its station).
+  categoryIds: number[];
 };
 
 type ProductCategory = { id: number; name: string };
@@ -3528,8 +3530,10 @@ function addonInsight(addon: AdditionItem, inventory: InventoryItem[]) {
   return { item, servings, cost, marginPct: cost !== null && price > 0 ? ((price - cost) / price) * 100 : null, status: servings === 0 ? "soldout" as const : item && isLowStock(item) ? "low" as const : "available" as const };
 }
 
-function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionItem | null; inventory: InventoryItem[]; onClose: () => void; onSaved: (saved: AdditionItem) => void }) {
-  const [draft, setDraft] = useState({ name: addon?.addition_name ?? "", inventoryId: addon ? String(addon.inventory_id) : "", quantity: addon ? String(addon.quantity) : "", price: addon ? String(addon.price) : "", station: addon?.station ?? "bar" as Station });
+function AddonDialog({ addon, inventory, categories, categoryStations, onClose, onSaved }: { addon: AdditionItem | null; inventory: InventoryItem[]; categories: ProductCategory[]; categoryStations: Map<string, Station>; onClose: () => void; onSaved: (saved: AdditionItem) => void }) {
+  const [draft, setDraft] = useState({ name: addon?.addition_name ?? "", inventoryId: addon ? String(addon.inventory_id) : "", quantity: addon ? String(addon.quantity) : "", price: addon ? String(addon.price) : "", station: addon?.station ?? "bar" as Station, categoryIds: addon?.categoryIds ?? [] as number[] });
+  // The categories of the chosen station (a category belongs to where most of its products are made).
+  const stationCategories = categories.filter((category) => (categoryStations.get(category.name) ?? "bar") === draft.station);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const item = inventory.find((entry) => String(entry.inventory_id) === draft.inventoryId);
@@ -3548,12 +3552,12 @@ function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionIt
       const response = await fetch("/api/additions", {
         method: addon ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ addition_id: addon?.addition_id, addition_name: draft.name.trim(), inventory_id: Number(draft.inventoryId), quantity, price, station: draft.station }),
+        body: JSON.stringify({ addition_id: addon?.addition_id, addition_name: draft.name.trim(), inventory_id: Number(draft.inventoryId), quantity, price, station: draft.station, category_ids: draft.categoryIds.filter((id) => stationCategories.some((category) => category.id === id)) }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not save the add-on.");
       const row = payload.data;
-      onSaved({ addition_id: Number(row.addition_id), addition_name: row.addition_name, inventory_id: Number(row.inventory_id), item_name: row.item_name, unit_of_measure: row.unit_of_measure, quantity: Number(row.quantity), price: Number(row.price), station: row.station === "kitchen" ? "kitchen" : "bar" });
+      onSaved({ addition_id: Number(row.addition_id), addition_name: row.addition_name, inventory_id: Number(row.inventory_id), item_name: row.item_name, unit_of_measure: row.unit_of_measure, quantity: Number(row.quantity), price: Number(row.price), station: row.station === "kitchen" ? "kitchen" : "bar", categoryIds: (row.category_ids ?? []).map(Number) });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save the add-on.");
     } finally {
@@ -3579,6 +3583,12 @@ function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionIt
           </WizardField>
           <WizardField label={`Amount per add-on${item ? ` (${item.unit_of_measure})` : ""}`}><input type="number" min={0} step={item?.is_whole_unit ? 1 : "any"} value={draft.quantity} onChange={(event) => setDraft((current) => ({ ...current, quantity: item?.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={item?.is_whole_unit ? "e.g. 1" : "e.g. 30"} style={packagingInput} /></WizardField>
         </div>
+        <WizardField label="Goes on">
+          <div className="menu-addon-cats" role="group" aria-label="Categories it goes on">
+            <button type="button" aria-pressed={draft.categoryIds.length === 0} onClick={() => setDraft((current) => ({ ...current, categoryIds: [] }))}>Every {draft.station === "kitchen" ? "food" : "drink"} item</button>
+            {stationCategories.map((category) => { const on = draft.categoryIds.includes(category.id); return <button key={category.id} type="button" aria-pressed={on} onClick={() => setDraft((current) => ({ ...current, categoryIds: on ? current.categoryIds.filter((id) => id !== category.id) : [...current.categoryIds, category.id] }))}>{on ? "✓ " : ""}{category.name}</button>; })}
+          </div>
+        </WizardField>
         {item && quantity > 0 && <div className="inv-preview">
           <p className="inv-preview-label">Preview</p>
           <div className="menu-preview-facts">
@@ -3599,7 +3609,7 @@ function AddonDialog({ addon, inventory, onClose, onSaved }: { addon: AdditionIt
   </Modal>;
 }
 
-function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: AdditionItem[]; loading: boolean; error: string; inventory: InventoryItem[]; onChange: (addons: AdditionItem[]) => void }) {
+function AddonsPanel({ addons, loading, error, inventory, categories, categoryStations, onChange }: { addons: AdditionItem[]; loading: boolean; error: string; inventory: InventoryItem[]; categories: ProductCategory[]; categoryStations: Map<string, Station>; onChange: (addons: AdditionItem[]) => void }) {
   const confirmAction = useConfirm();
   const [search, setSearch] = useState("");
   const [availability, setAvailability] = useState<"all" | "available" | "attention">("all");
@@ -3672,7 +3682,7 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
             {shown.map(({ addon, insight }) => <article key={addon.addition_id} className={`menu-addon is-${insight.status}`}>
               <div className="menu-addon-top">
                 <span className="menu-addon-icon"><IconSparkle size={16} /></span>
-                <div className="menu-addon-name"><strong>{addon.addition_name}</strong><span>{formatStock(Number(addon.quantity), addon.unit_of_measure)} of {addon.item_name} · <span className={`menu-station is-${addon.station}`}>{addon.station === "kitchen" ? "🍳 Food" : "☕ Drinks"}</span></span></div>
+                <div className="menu-addon-name"><strong>{addon.addition_name}</strong><span>{formatStock(Number(addon.quantity), addon.unit_of_measure)} of {addon.item_name} · <span className={`menu-station is-${addon.station}`}>{addon.station === "kitchen" ? "🍳 Food" : "☕ Drinks"}</span>{addon.categoryIds.length > 0 && <> · only {categories.filter((category) => addon.categoryIds.includes(category.id)).map((category) => category.name).join(", ")}</>}</span></div>
                 <span className="menu-addon-price">+{menuPrice(Number(addon.price))}</span>
               </div>
               <div className="menu-addon-facts">
@@ -3686,7 +3696,7 @@ function AddonsPanel({ addons, loading, error, inventory, onChange }: { addons: 
               </div>
             </article>)}
           </div>}
-    {editing !== null && <AddonDialog addon={editing === "new" ? null : editing} inventory={inventory} onClose={() => setEditing(null)} onSaved={(saved) => {
+    {editing !== null && <AddonDialog addon={editing === "new" ? null : editing} inventory={inventory} categories={categories} categoryStations={categoryStations} onClose={() => setEditing(null)} onSaved={(saved) => {
       onChange(editing === "new" ? [...addons, saved].sort((a, b) => a.addition_name.localeCompare(b.addition_name)) : addons.map((entry) => entry.addition_id === saved.addition_id ? saved : entry));
       setEditing(null);
     }} />}
@@ -3908,7 +3918,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
         const response = await fetch("/api/additions", { cache: "no-store" });
         const payload = await response.json();
         if (!response.ok) throw new Error(payload?.error || "Could not load add-ons.");
-        if (active) setAddons((payload.data ?? []).map((row: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number; station?: string }) => ({ addition_id: Number(row.id), addition_name: row.name, inventory_id: Number(row.inventoryId), item_name: row.itemName, unit_of_measure: row.unit, quantity: Number(row.quantity), price: Number(row.price), station: row.station === "kitchen" ? "kitchen" : "bar" })));
+        if (active) setAddons((payload.data ?? []).map((row: { id: number; name: string; inventoryId: number; itemName: string; unit: string; quantity: number; price: number; station?: string; categoryIds?: number[] }) => ({ addition_id: Number(row.id), addition_name: row.name, inventory_id: Number(row.inventoryId), item_name: row.itemName, unit_of_measure: row.unit, quantity: Number(row.quantity), price: Number(row.price), station: row.station === "kitchen" ? "kitchen" : "bar", categoryIds: (row.categoryIds ?? []).map(Number) })));
       } catch (error) {
         if (active) setAddonsError(error instanceof Error ? error.message : "Could not load add-ons.");
       } finally {
@@ -3919,6 +3929,16 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
   }, []);
 
   const productCount = new Set(products.map((product) => product.id)).size;
+  // Where each category's products are mostly made, for the add-on categories.
+  const categoryStations = useMemo(() => {
+    const counts = new Map<string, { bar: number; kitchen: number }>();
+    for (const product of products) {
+      const entry = counts.get(product.category) ?? { bar: 0, kitchen: 0 };
+      entry[product.station === "kitchen" ? "kitchen" : "bar"] += 1;
+      counts.set(product.category, entry);
+    }
+    return new Map(Array.from(counts, ([name, entry]) => [name, (entry.kitchen > entry.bar ? "kitchen" : "bar") as Station]));
+  }, [products]);
   const tabs: { id: MenuTab; label: string; count: number | null; Icon: React.FC<{ size?: number }> }[] = [
     { id: "products", label: "Products", count: productCount, Icon: IconCoffee },
     { id: "addons", label: "Add-ons", count: addonsLoading ? null : addons.length, Icon: IconSparkle },
@@ -3934,7 +3954,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
         </div>
       </div>
       {tab === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} onCategoryCreated={(category) => onCategoriesChange([...categories.filter((entry) => entry.id !== category.id), category].sort((a, b) => a.name.localeCompare(b.name)))} />}
-      {tab === "addons" && <AddonsPanel addons={addons} loading={addonsLoading} error={addonsError} inventory={inventory} onChange={setAddons} />}
+      {tab === "addons" && <AddonsPanel addons={addons} loading={addonsLoading} error={addonsError} inventory={inventory} categories={categories} categoryStations={categoryStations} onChange={setAddons} />}
       {tab === "requests" && <RequestsPanel />}
       {tab === "categories" && <CategoriesPanel categories={categories} products={products} onChange={onCategoriesChange} onRenamed={() => void onRefreshProducts()} onShowProducts={(category) => { setCategoryFilter(category); setTab("products"); }} />}
     </div>
@@ -7601,11 +7621,16 @@ type EmployeeTransaction = { id: number; amount: number; status: string; created
 type EmployeeReversal = { id: number; amount: number; status: string; reversedAt: string | null };
 type ArchivingLogEntry = { kind: string; name: string; archivedAt: string };
 type EmployeeStats = { hoursThisWeek: number; hours30d: number; shifts30d: number; orders30d: number; sales30d: number; reversals30d: number };
+// What baristas and kitchen staff made (they marked it ready), and riders' deliveries.
+type EmployeeMadeOrder = { id: number; station: "bar" | "kitchen"; queueNumber: number | null; shiftId: number | null; status: string; readyAt: string; minutes: number | null };
+type EmployeeDelivery = { id: number; orderId: number; queueNumber: number | null; status: string; zone: string | null; payment: string; codAmount: number | null; codCollected: number | null; failureReason: string | null; pickedUpAt: string | null; deliveredAt: string | null; failedAt: string | null; remittedAt: string | null };
+const deliveryStatusText: Record<string, string> = { preparing: "Preparing", ready: "Ready", out: "Out for delivery", delivered: "Delivered", failed: "Failed", cancelled: "Cancelled" };
 type CashierAccount = {
   id: number; fullName: string; email: string; role: string; isActive: boolean;
   canVoidOrders: boolean; canRefundOrders: boolean; canOpenShift: boolean; canCloseShift: boolean;
   createdAt?: string; onDutySince: string | null; lastSeenAt: string | null; stats: EmployeeStats;
   timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[]; sessions?: AccountDevice[];
+  madeOrders?: EmployeeMadeOrder[]; deliveries?: EmployeeDelivery[];
 };
 type MyActivity = { fullName: string; email: string; timeLogs: EmployeeTimeLog[]; transactions: EmployeeTransaction[]; reversals: EmployeeReversal[]; archives: ArchivingLogEntry[] };
 
@@ -7820,6 +7845,21 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
   const shownLogs = account.timeLogs.filter((log) => inPeriod(log.timeIn, attendancePeriod) && (attendanceShift === "all" || String(log.shiftId ?? "") === attendanceShift));
   const attendanceShifts = Array.from(new Set(account.timeLogs.map((log) => log.shiftId).filter((id): id is number => id !== null && id !== undefined))).sort((a, b) => b - a);
   const shownHours = shownLogs.reduce((sum, log) => sum + logDuration(log, now), 0);
+  // What the activity tab shows: sales for cashiers, orders made for baristas and kitchen staff,
+  // deliveries for riders.
+  const roleKind = staffRoleOf(account.role);
+  const workRole: "sales" | "maker" | "rider" = roleKind === "rider" ? "rider" : roleKind === "barista" || roleKind === "kitchen" ? "maker" : "sales";
+  const matchesOrder = (orderId: number, queueNumber: number | null) => !salesQuery || String(orderId) === salesQuery || String(queueNumber ?? "") === salesQuery;
+  const madeOrders = account.madeOrders ?? [];
+  const shownMade = madeOrders.filter((made) => inPeriod(made.readyAt, salesPeriod) && matchesOrder(made.id, made.queueNumber));
+  const made30 = madeOrders.filter((made) => inPeriod(made.readyAt, "30"));
+  const timed30 = made30.filter((made) => made.minutes !== null && made.minutes >= 0);
+  const averageMinutes = timed30.length ? timed30.reduce((sum, made) => sum + (made.minutes ?? 0), 0) / timed30.length : null;
+  const deliveries = account.deliveries ?? [];
+  const deliveryTime = (run: EmployeeDelivery) => run.deliveredAt ?? run.failedAt ?? run.pickedUpAt;
+  const shownDeliveries = deliveries.filter((run) => inPeriod(deliveryTime(run), salesPeriod) && matchesOrder(run.orderId, run.queueNumber));
+  const runs30 = deliveries.filter((run) => inPeriod(deliveryTime(run), "30"));
+  const notHandedIn = deliveries.filter((run) => run.codCollected !== null && run.remittedAt === null);
   const salesFiltered = salesPeriod !== "all" || salesStatus !== "all" || salesShift !== "all" || salesQuery !== "";
   const attendanceFiltered = attendancePeriod !== "all" || attendanceShift !== "all";
   const [profile, setProfile] = useState({ fullName: account.fullName, email: account.email });
@@ -7897,7 +7937,7 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
         </div>
       </header>
       <div className="acc-tabs" role="tablist" aria-label="Employee sections">
-        {([["access", "Access"], ["activity", "Sales activity"], ["attendance", "Attendance"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+        {([["access", "Access"], ["activity", workRole === "rider" ? "Deliveries" : workRole === "maker" ? "Orders made" : "Sales activity"], ["attendance", "Attendance"]] as const).map(([id, label]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </div>
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         {notice && <div className="acc-notice" role="status">{notice}</div>}
@@ -7952,7 +7992,59 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
           </section>
         </>}
 
-        {tab === "activity" && <>
+        {tab === "activity" && workRole === "maker" && <>
+          <div className="acc-stats">
+            <div><span>Made · 30 days</span><strong>{made30.length}</strong></div>
+            <div><span>Made today</span><strong>{madeOrders.filter((made) => inPeriod(made.readyAt, "today")).length}</strong></div>
+            <div><span>Average time to ready</span><strong>{averageMinutes === null ? "—" : `${Math.round(averageMinutes)} min`}</strong></div>
+            <div><span>Station</span><strong>{roleKind === "kitchen" ? "🍳 Kitchen" : "☕ Bar"}</strong></div>
+          </div>
+          <div className="acc-filters">
+            <EmployeePeriodPicker value={salesPeriod} onChange={setSalesPeriod} options={["today", "7", "30", "all"]} />
+            <div className="inv-search" style={{ flex: "1 1 160px" }}>
+              <IconSearch size={14} />
+              <input value={salesSearch} onChange={(event) => setSalesSearch(event.target.value)} placeholder="Order or queue #" aria-label="Find an order or queue number" inputMode="numeric" />
+              {salesSearch && <button type="button" onClick={() => setSalesSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+          </div>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Orders they made</h3><p>Orders this person marked ready in the {roleKind === "kitchen" ? "kitchen" : "bar"} queue, with the time from ordering to ready. {shownMade.length} shown.</p></div></header>
+            {shownMade.length === 0 ? <p className="inv-hint">{madeOrders.length === 0 ? "No orders made yet." : "None in this period."}</p> : <ul className="acc-list">
+              {shownMade.map((made) => <li key={`${made.id}-${made.station}`}>
+                <span><strong>Order {made.id}{made.queueNumber ? ` · #${made.queueNumber}` : ""}</strong><em>Ready {shiftTime(made.readyAt)}{made.shiftId ? ` · Shift #${made.shiftId}` : ""}</em></span>
+                <span className="acc-list-end">{isReversedStatus(made.status) && <span className="fin-status is-voided">{made.status.startsWith("void") ? "Voided" : "Refunded"}</span>}<strong>{made.minutes === null || made.minutes < 0 ? "—" : `${Math.round(made.minutes)} min`}</strong></span>
+              </li>)}
+            </ul>}
+          </section>
+        </>}
+
+        {tab === "activity" && workRole === "rider" && <>
+          <div className="acc-stats">
+            <div><span>Delivered · 30 days</span><strong>{runs30.filter((run) => run.status === "delivered").length}</strong></div>
+            <div><span>Failed · 30 days</span><strong className={runs30.some((run) => run.status === "failed") ? "dash-down" : ""}>{runs30.filter((run) => run.status === "failed").length}</strong></div>
+            <div><span>Cash collected · 30 days</span><strong>{peso(runs30.reduce((sum, run) => sum + (run.codCollected ?? 0), 0))}</strong></div>
+            <div><span>Not handed in yet</span><strong className={notHandedIn.length ? "dash-down" : ""}>{peso(notHandedIn.reduce((sum, run) => sum + (run.codCollected ?? 0), 0))}</strong></div>
+          </div>
+          <div className="acc-filters">
+            <EmployeePeriodPicker value={salesPeriod} onChange={setSalesPeriod} options={["today", "7", "30", "all"]} />
+            <div className="inv-search" style={{ flex: "1 1 160px" }}>
+              <IconSearch size={14} />
+              <input value={salesSearch} onChange={(event) => setSalesSearch(event.target.value)} placeholder="Order or queue #" aria-label="Find an order or queue number" inputMode="numeric" />
+              {salesSearch && <button type="button" onClick={() => setSalesSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+          </div>
+          <section className="acc-block">
+            <header className="acc-block-head"><div><h3>Deliveries they took</h3><p>Where each went, how it ended, and the cash on delivery collected and handed in. {shownDeliveries.length} shown.</p></div></header>
+            {shownDeliveries.length === 0 ? <p className="inv-hint">{deliveries.length === 0 ? "No deliveries yet." : "None in this period."}</p> : <ul className="acc-list">
+              {shownDeliveries.map((run) => <li key={run.id}>
+                <span><strong>Order {run.orderId}{run.queueNumber ? ` · #${run.queueNumber}` : ""}{run.zone ? ` · ${run.zone}` : ""}</strong><em>{deliveryTime(run) ? shiftTime(deliveryTime(run)!) : "Not picked up"}{run.payment === "cod" ? (run.codCollected === null ? " · cash on delivery, not collected" : ` · collected ${peso(run.codCollected)}${run.remittedAt ? ", handed in" : ", not handed in yet"}`) : " · paid ahead"}{run.status === "failed" && run.failureReason ? ` · ${run.failureReason}` : ""}</em></span>
+                <span className="acc-list-end"><span className={`fin-status${run.status === "delivered" ? " is-completed" : run.status === "failed" || run.status === "cancelled" ? " is-voided" : ""}`}>{deliveryStatusText[run.status] ?? run.status}</span></span>
+              </li>)}
+            </ul>}
+          </section>
+        </>}
+
+        {tab === "activity" && workRole === "sales" && <>
           <div className="acc-stats">
             <div><span>Orders · 30 days</span><strong>{account.stats.orders30d}</strong></div>
             <div><span>Sales · 30 days</span><strong>{peso(account.stats.sales30d)}</strong></div>
@@ -9841,6 +9933,7 @@ function Accounts() {
     setExportingAccountId(account.id);
     setError("");
     try {
+      const roleWork = staffRoleOf(account.role) === "rider" ? "rider" : staffRoleOf(account.role) === "barista" || staffRoleOf(account.role) === "kitchen" ? "maker" : "sales";
       const fileNameSafeName = account.fullName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
       saveWorkbook([
         ["Summary", excelInfo([
@@ -9860,10 +9953,31 @@ function Accounts() {
           ["Hours this week", account.stats.hoursThisWeek],
           ["Hours, last 30 days", account.stats.hours30d],
           ["Shifts, last 30 days", account.stats.shifts30d],
-          ["Orders, last 30 days", account.stats.orders30d],
-          ["Sales, last 30 days", account.stats.sales30d],
-          ["Voids and refunds done, last 30 days", account.stats.reversals30d],
-        ], ["Hours this week", "Hours, last 30 days", "Shifts, last 30 days", "Orders, last 30 days", "Voids and refunds done, last 30 days"])],
+          ...((roleWork === "maker"
+            ? [["Orders made, last 30 days", (account.madeOrders ?? []).filter((made) => manilaDay(made.readyAt) >= addDays(getFinanceDateStamp(), -29)).length]]
+            : roleWork === "rider"
+              ? [["Deliveries, last 30 days", (account.deliveries ?? []).filter((run) => { const at = run.deliveredAt ?? run.failedAt ?? run.pickedUpAt; return at !== null && manilaDay(at) >= addDays(getFinanceDateStamp(), -29); }).length]]
+              : [["Orders, last 30 days", account.stats.orders30d], ["Sales, last 30 days", account.stats.sales30d], ["Voids and refunds done, last 30 days", account.stats.reversals30d]]) as ExcelInfoRow[]),
+        ], ["Hours this week", "Hours, last 30 days", "Shifts, last 30 days", "Orders, last 30 days", "Voids and refunds done, last 30 days", "Orders made, last 30 days", "Deliveries, last 30 days"])],
+        ["Orders made", roleWork === "maker" && (account.madeOrders ?? []).length ? excelTable(account.madeOrders ?? [], [
+          { header: "Order #", value: (made) => made.id },
+          { header: "Queue #", value: (made) => made.queueNumber ?? null },
+          { header: "Shift", value: (made) => made.shiftId ? `#${made.shiftId}` : "" },
+          { header: "Ready at", value: (made) => excelDateTime(made.readyAt) },
+          { header: "Minutes to ready", value: (made) => made.minutes, kind: "number" },
+          { header: "Order status", value: (made) => excelStatus(made.status) },
+        ]) : null],
+        ["Deliveries", roleWork === "rider" && (account.deliveries ?? []).length ? excelTable(account.deliveries ?? [], [
+          { header: "Order #", value: (run) => run.orderId },
+          { header: "Area", value: (run) => run.zone ?? "" },
+          { header: "Status", value: (run) => deliveryStatusText[run.status] ?? run.status },
+          { header: "Picked up", value: (run) => excelDateTime(run.pickedUpAt) },
+          { header: "Delivered", value: (run) => excelDateTime(run.deliveredAt) },
+          { header: "Failed", value: (run) => excelDateTime(run.failedAt) },
+          { header: "Reason", value: (run) => run.failureReason ?? "" },
+          { header: "Cash collected", value: (run) => run.codCollected, kind: "money" },
+          { header: "Handed in", value: (run) => excelDateTime(run.remittedAt) },
+        ]) : null],
         ["Attendance", account.timeLogs.length ? excelTable(account.timeLogs, attendanceColumns()) : null],
         ["Orders", account.transactions.length ? excelTable(account.transactions, [
           { header: "Order #", value: (order) => order.id },

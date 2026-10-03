@@ -236,6 +236,18 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     // A bar add-on only goes on a bar item, a kitchen add-on on a kitchen item.
     const mismatch = additionsResult.rows.find((addition) => stationOf(addition.station) !== stationOf(variant.station));
     if (mismatch) throw new Error(`${mismatch.addition_name} is a ${stationOf(mismatch.station) === "kitchen" ? "food" : "drink"} add-on, so it can't go on ${variant.product_name}.`);
+    // An add-on limited to some categories only goes on items of those categories.
+    const outside = await client.query(`
+      SELECT a.addition_name FROM additions a
+      WHERE a.addition_id = ANY($1::int[])
+        AND EXISTS (SELECT 1 FROM addition_categories ac WHERE ac.addition_id = a.addition_id)
+        AND NOT EXISTS (
+          SELECT 1 FROM addition_categories ac JOIN product_categories pc ON pc.category_id = ac.category_id
+          WHERE ac.addition_id = a.addition_id AND LOWER(pc.category_name) = LOWER(COALESCE($2, ''))
+        )
+      LIMIT 1
+    `, [group.additionIds, variant.product_category ?? null]);
+    if (outside.rowCount) throw new Error(`${outside.rows[0].addition_name} doesn't go on ${variant.product_name}. Remove it from that item.`);
     for (const addition of additionsResult.rows) {
       const servings = (group.additionCounts.get(Number(addition.addition_id)) ?? 1) * group.quantity;
       additionTotal += Number(addition.price) * servings;

@@ -112,6 +112,8 @@ export async function GET() {
         a.quantity,
         a.price,
         a.station,
+        -- The categories it is limited to (empty: every item of its station).
+        COALESCE((SELECT array_agg(pc.category_name) FROM addition_categories ac JOIN product_categories pc ON pc.category_id = ac.category_id WHERE ac.addition_id = a.addition_id), '{}') AS categories,
         i.unit_of_measure,
         a.inventory_id,
         CASE

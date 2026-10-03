@@ -1859,7 +1859,7 @@ function CartCustomerSlot({ customer, onAdd, onRemove, onUseReward, rewardNote }
 // view: the menu and cart, or the counter line (the same component, so the order being made stays).
 function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { userName: string; view: "pos" | "line"; onView: (page: Page) => void; onLineChanged: () => void; onQueueAssigned: (queueNumber: number, shiftId: number) => void }) {
   type Ingredient = { inventory_id: number; item_name?: string; customizable?: boolean; whole?: boolean; required_quantity: string | number; available_quantity: string | number };
-  type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; station?: Station; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
+  type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; station?: Station; categories?: string[]; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
   type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; product_type?: "recipe" | "stock"; station?: Station; category_order?: number | null; recent_sold?: number; image_url?: string | null; variants: Variant[] };
   type ProductsResponse = { data?: Product[]; additions?: Addition[]; requests?: QuickRequest[] };
@@ -2194,8 +2194,11 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   const selectedLine = cart.find((item) => item.key === selectedKey && item.isRecipe) ?? [...cart].reverse().find((item) => item.isRecipe) ?? null;
 
   // Add-ons belong to a station: drink add-ons for bar items, food add-ons for kitchen items.
-  const selectedStation: Station | null = selectedLine ? (products.find((product) => product.product_id === selectedLine.productId)?.station ?? "bar") : null;
-  const forSelected = (addition: Addition) => selectedStation === null || (addition.station ?? "bar") === selectedStation;
+  const selectedProduct = selectedLine ? products.find((product) => product.product_id === selectedLine.productId) ?? null : null;
+  const selectedStation: Station | null = selectedLine ? (selectedProduct?.station ?? "bar") : null;
+  // Same station, and (for an add-on limited to some categories) one of its categories.
+  const forSelected = (addition: Addition) => selectedStation === null || ((addition.station ?? "bar") === selectedStation
+    && (!addition.categories?.length || addition.categories.some((name) => name.toLowerCase() === (selectedProduct?.product_category ?? "").trim().toLowerCase())));
   function canAddAddition(addition: Addition): boolean {
     if (!selectedLine || !forSelected(addition)) return false;
     const used = getCartUsage(cart).get(addition.inventory_id) ?? 0;

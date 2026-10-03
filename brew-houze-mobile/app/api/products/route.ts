@@ -51,6 +51,9 @@ export async function GET() {
           JOIN inventory i_addition ON i_addition.inventory_id = a.inventory_id AND i_addition.is_archived = FALSE
           LEFT JOIN inventory i_addition_parent ON i_addition_parent.inventory_id = i_addition.derived_from_inventory_id
           WHERE a.is_active = TRUE AND p.product_type = 'recipe' AND a.station = p.station
+            -- Limited to some categories: only on products of those categories.
+            AND (NOT EXISTS (SELECT 1 FROM addition_categories ac WHERE ac.addition_id = a.addition_id)
+              OR EXISTS (SELECT 1 FROM addition_categories ac JOIN product_categories pc ON pc.category_id = ac.category_id WHERE ac.addition_id = a.addition_id AND LOWER(pc.category_name) = LOWER(p.product_category)))
         ), '[]'::json) AS additions,
         COALESCE(
           json_agg(

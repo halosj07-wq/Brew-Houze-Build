@@ -44,7 +44,7 @@ export async function GET() {
     `);
     const ids = result.rows.map((account) => Number(account.admin_id));
 
-    const [logs, transactions, reversals, sessions] = await Promise.all([
+    const [logs, transactions, reversals, sessions, madeOrders, deliveryRuns] = await Promise.all([
       pool.query(`
         SELECT * FROM (
           SELECT t.time_log_id, t.admin_id, t.shift_id, ${iso("t.time_in")} AS time_in, ${iso("t.time_out")} AS time_out,
@@ -78,6 +78,27 @@ export async function GET() {
         WHERE admin_id = ANY($1::int[]) AND ended_at IS NULL AND expires_at > CURRENT_TIMESTAMP
         ORDER BY last_seen_at DESC
       `, [ids]),
+      // Baristas and kitchen staff: the orders they marked ready, and how long each took.
+      pool.query(`
+        SELECT * FROM (
+          SELECT os.ready_by, os.order_id, os.station, so.queue_number, so.shift_id, so.status,
+            ${iso("os.ready_at")} AS ready_at,
+            ROUND(EXTRACT(EPOCH FROM (os.ready_at - so.created_at)) / 60.0, 1) AS minutes,
+            ROW_NUMBER() OVER (PARTITION BY os.ready_by ORDER BY os.ready_at DESC) AS rank
+          FROM order_stations os JOIN sales_orders so ON so.order_id = os.order_id
+          WHERE os.ready_by = ANY($1::int[]) AND os.ready_at IS NOT NULL AND so.is_archived = FALSE
+        ) ranked WHERE rank <= 400 ORDER BY ready_at DESC
+      `, [ids]),
+      // Riders: the deliveries they took out, and the cash on delivery they collected.
+      pool.query(`
+        SELECT * FROM (
+          SELECT d.rider_admin_id, d.delivery_id, d.order_id, so.queue_number, d.status, d.zone_name, d.payment, d.cod_amount, d.cod_collected, d.failure_reason,
+            ${iso("d.picked_up_at")} AS picked_up_at, ${iso("d.delivered_at")} AS delivered_at, ${iso("d.failed_at")} AS failed_at, ${iso("d.cod_remitted_at")} AS remitted_at,
+            ROW_NUMBER() OVER (PARTITION BY d.rider_admin_id ORDER BY COALESCE(d.picked_up_at, d.created_at) DESC) AS rank
+          FROM deliveries d JOIN sales_orders so ON so.order_id = d.order_id
+          WHERE d.rider_admin_id = ANY($1::int[]) AND so.is_archived = FALSE
+        ) ranked WHERE rank <= 400 ORDER BY COALESCE(picked_up_at, delivered_at, failed_at) DESC NULLS LAST
+      `, [ids]),
     ]);
 
     const group = <T,>(rows: Record<string, unknown>[], key: string, map: (row: Record<string, unknown>) => T) => {
@@ -88,6 +109,8 @@ export async function GET() {
     const logsBy = group(logs.rows, "admin_id", (row) => ({ id: Number(row.time_log_id), timeIn: row.time_in as string, timeOut: (row.time_out as string | null) ?? null, shiftId: row.shift_id === null ? null : Number(row.shift_id) }));
     const transactionsBy = group(transactions.rows, "cashier_admin_id", (row) => ({ id: Number(row.order_id), amount: Number(row.total_amount), status: row.status as string, createdAt: row.created_at as string, reversalType: (row.reversal_type as string | null) ?? null, reversedAt: (row.reversed_at as string | null) ?? null, queueNumber: row.queue_number === null ? null : Number(row.queue_number), shiftId: row.shift_id === null ? null : Number(row.shift_id) }));
     const reversalsBy = group(reversals.rows, "reversed_by_admin_id", (row) => ({ id: Number(row.order_id), amount: Number(row.total_amount), status: row.status as string, reversedAt: (row.reversed_at as string | null) ?? null }));
+    const madeBy = group(madeOrders.rows, "ready_by", (row) => ({ id: Number(row.order_id), station: row.station === "kitchen" ? "kitchen" : "bar", queueNumber: row.queue_number === null ? null : Number(row.queue_number), shiftId: row.shift_id === null ? null : Number(row.shift_id), status: String(row.status), readyAt: String(row.ready_at), minutes: row.minutes === null ? null : Number(row.minutes) }));
+    const deliveriesBy = group(deliveryRuns.rows, "rider_admin_id", (row) => ({ id: Number(row.delivery_id), orderId: Number(row.order_id), queueNumber: row.queue_number === null ? null : Number(row.queue_number), status: String(row.status), zone: (row.zone_name as string | null) ?? null, payment: String(row.payment), codAmount: row.cod_amount === null ? null : Number(row.cod_amount), codCollected: row.cod_collected === null ? null : Number(row.cod_collected), failureReason: (row.failure_reason as string | null) ?? null, pickedUpAt: (row.picked_up_at as string | null) ?? null, deliveredAt: (row.delivered_at as string | null) ?? null, failedAt: (row.failed_at as string | null) ?? null, remittedAt: (row.remitted_at as string | null) ?? null }));
     const sessionsBy = group(sessions.rows, "admin_id", (row) => ({ id: Number(row.session_id), app: row.app as string, device: (row.device_label as string | null) ?? "Unknown device", signedInAt: row.signed_in_at as string, lastSeenAt: row.last_seen_at as string }));
 
     return NextResponse.json({
@@ -118,6 +141,8 @@ export async function GET() {
           transactions: transactionsBy.get(id) ?? [],
           reversals: reversalsBy.get(id) ?? [],
           sessions: sessionsBy.get(id) ?? [],
+          madeOrders: madeBy.get(id) ?? [],
+          deliveries: deliveriesBy.get(id) ?? [],
         };
       }),
     }, { headers: { "Cache-Control": "no-store" } });

@@ -8,12 +8,24 @@ async function getAdminId(): Promise<number | null> {
   return session?.adminId ?? null;
 }
 
+// The categories an add-on is limited to (none: every item of its station).
+function parseCategoryIds(value: unknown): number[] {
+  return Array.isArray(value) ? Array.from(new Set(value.map(Number).filter((id) => Number.isInteger(id) && id > 0))) : [];
+}
+async function saveCategories(additionId: number, categoryIds: number[]) {
+  await pool.query("DELETE FROM addition_categories WHERE addition_id = $1", [additionId]);
+  if (categoryIds.length) {
+    await pool.query("INSERT INTO addition_categories (addition_id, category_id) SELECT $1, category_id FROM product_categories WHERE category_id = ANY($2::int[]) AND is_active = TRUE ON CONFLICT DO NOTHING", [additionId, categoryIds]);
+  }
+}
+
 export async function GET() {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const result = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity, a.price, a.station
+             i.unit_of_measure, a.quantity, a.price, a.station,
+             COALESCE((SELECT array_agg(ac.category_id ORDER BY ac.category_id) FROM addition_categories ac WHERE ac.addition_id = a.addition_id), '{}') AS category_ids
       FROM additions a
       JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.is_active = TRUE
@@ -29,6 +41,7 @@ export async function GET() {
         quantity: Number(row.quantity),
         price: Number(row.price),
         station: row.station === "kitchen" ? "kitchen" : "bar",
+        categoryIds: (row.category_ids ?? []).map(Number),
       })),
     });
   } catch (error) {
@@ -68,9 +81,11 @@ export async function POST(request: Request) {
       VALUES ($1, $2, $3, $4, $5)
       RETURNING addition_id, addition_name, inventory_id, quantity, price
     `, [additionName, inventoryId, quantity, price, station]);
+    await saveCategories(Number(result.rows[0].addition_id), parseCategoryIds(body?.category_ids));
     const fullResult = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity, a.price, a.station
+             i.unit_of_measure, a.quantity, a.price, a.station,
+             COALESCE((SELECT array_agg(ac.category_id ORDER BY ac.category_id) FROM addition_categories ac WHERE ac.addition_id = a.addition_id), '{}') AS category_ids
       FROM additions a JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.addition_id = $1
     `, [result.rows[0].addition_id]);
@@ -111,9 +126,11 @@ export async function PATCH(request: Request) {
       RETURNING addition_id
     `, [additionId, additionName, inventoryId, quantity, price, station]);
     if (result.rowCount === 0) return NextResponse.json({ error: "Add-on not found." }, { status: 404 });
+    await saveCategories(additionId, parseCategoryIds(body?.category_ids));
     const fullResult = await pool.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, i.item_name,
-             i.unit_of_measure, a.quantity, a.price, a.station
+             i.unit_of_measure, a.quantity, a.price, a.station,
+             COALESCE((SELECT array_agg(ac.category_id ORDER BY ac.category_id) FROM addition_categories ac WHERE ac.addition_id = a.addition_id), '{}') AS category_ids
       FROM additions a JOIN inventory i ON i.inventory_id = a.inventory_id
       WHERE a.addition_id = $1
     `, [additionId]);
