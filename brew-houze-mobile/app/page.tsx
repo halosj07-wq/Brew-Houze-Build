@@ -15,6 +15,10 @@ type Product = {
   description: string;
   price: number;
   productType?: "recipe" | "stock";
+  // Made at the bar (drinks) or in the kitchen (food); the menu has a Drinks and a Food side.
+  station?: "bar" | "kitchen";
+  categoryOrder?: number | null;
+  recentSold?: number;
   image: string;
   additions?: Addition[];
   // Barista Featured Specials (Admin, Menu, Featured) and their badge.
@@ -57,6 +61,10 @@ type SentCart = { token: string; code: string; expiresAt: string; discountName: 
 const sentCartStorageKey = "brew-houze-sent-cart";
 // The Favorites chip (not a category name).
 const FAVORITES = "__favorites";
+// The Popular chip: best sellers of the last 30 days.
+const POPULAR = "__popular";
+const POPULAR_COUNT = 12;
+type MenuSide = "bar" | "kitchen";
 // An ID photo the café is checking (or approved), so a reload keeps following it.
 const idCheckStorageKey = "brew-houze-id-check";
 
@@ -170,6 +178,7 @@ export default function MenuPage() {
   const [error, setError] = useState("");
   // Chips: all (null), a category, or FAVORITES (what this customer orders most).
   const [category, setCategory] = useState<string | null>(null);
+  const [side, setSide] = useState<MenuSide>("bar");
   const [search, setSearch] = useState("");
   const [filterOpen, setFilterOpen] = useState(false);
   const [tempFilter, setTempFilter] = useState<"any" | "hot" | "cold">("any");
@@ -575,23 +584,47 @@ export default function MenuPage() {
     setCartOpen(true);
   }
 
-  const categories = useMemo(() => Array.from(new Set(products.map((product) => product.category).filter(Boolean))), [products]);
+  // Each category belongs to the side most of its products are made at, in the printed menu
+  // order, with ready-made only categories (bottled drinks, pastries) last.
+  const categoryInfo = useMemo(() => {
+    const info = new Map<string, { order: number; bar: number; kitchen: number; madeToOrder: boolean }>();
+    for (const product of products) {
+      const entry = info.get(product.category) ?? { order: Number.MAX_SAFE_INTEGER, bar: 0, kitchen: 0, madeToOrder: false };
+      entry.order = Math.min(entry.order, product.categoryOrder ?? Number.MAX_SAFE_INTEGER);
+      entry[product.station === "kitchen" ? "kitchen" : "bar"] += 1;
+      if (product.productType !== "stock") entry.madeToOrder = true;
+      info.set(product.category, entry);
+    }
+    const ordered = Array.from(info.entries()).sort(([nameA, a], [nameB, b]) => Number(b.madeToOrder) - Number(a.madeToOrder) || a.order - b.order || nameA.localeCompare(nameB));
+    return new Map(ordered.map(([name, entry], index) => [name, { side: (entry.kitchen > entry.bar ? "kitchen" : "bar") as MenuSide, rank: index }]));
+  }, [products]);
+  const sides = useMemo(() => (["bar", "kitchen"] as MenuSide[]).filter((value) => Array.from(categoryInfo.values()).some((entry) => entry.side === value)), [categoryInfo]);
+  const currentSide: MenuSide = sides.includes(side) ? side : sides[0] ?? "bar";
+  const categories = useMemo(() => Array.from(categoryInfo.entries()).filter(([, entry]) => entry.side === currentSide).sort(([, a], [, b]) => a.rank - b.rank).map(([name]) => name), [categoryInfo, currentSide]);
+  const popularIds = useMemo(() => products.filter((product) => (product.recentSold ?? 0) > 0).sort((a, b) => (b.recentSold ?? 0) - (a.recentSold ?? 0)).slice(0, POPULAR_COUNT).map((product) => product.id), [products]);
+  function chooseSide(next: MenuSide) {
+    setSide(next);
+    setCategory(null);
+  }
   const favoriteIds = useMemo(() => customer.account?.favorites ?? [], [customer.account]);
   const lowestPrice = (product: Product) => { const prices = (product.variants ?? []).map((variant) => variant.price); return prices.length ? Math.min(...prices) : product.price; };
   // What the list shows: the chip, the search, and the filter sheet (temperature, sort, available only).
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
     const list = products.filter((product) => {
-      if (category === FAVORITES ? !favoriteIds.includes(product.id) : category !== null && product.category !== category) return false;
+      if (category === FAVORITES ? !favoriteIds.includes(product.id) : category === POPULAR ? !popularIds.includes(product.id) : category !== null && product.category !== category) return false;
+      // All: the chosen side only. A search looks through the whole menu.
+      if (category === null && !query && categoryInfo.get(product.category)?.side !== currentSide) return false;
       if (query && !`${product.name} ${product.description} ${product.category}`.toLowerCase().includes(query)) return false;
       if (tempFilter !== "any" && !(product.variants ?? []).some((variant) => variant.temperature === tempFilter || variant.temperature === "both")) return false;
       if (availableOnly && product.variants?.length && !product.variants.some((variant) => variant.available)) return false;
       return true;
     });
     if (category === FAVORITES && sortBy === "menu") return list.sort((a, b) => favoriteIds.indexOf(a.id) - favoriteIds.indexOf(b.id));
+    if (category === POPULAR && sortBy === "menu") return list.sort((a, b) => popularIds.indexOf(a.id) - popularIds.indexOf(b.id));
     if (sortBy !== "menu") return list.sort((a, b) => (lowestPrice(a) - lowestPrice(b)) * (sortBy === "low" ? 1 : -1));
     return list;
-  }, [availableOnly, category, favoriteIds, products, search, sortBy, tempFilter]);
+  }, [availableOnly, category, categoryInfo, currentSide, favoriteIds, popularIds, products, search, sortBy, tempFilter]);
   // Grouped by category on "All" in menu order; one plain list otherwise.
   const groupedProducts = useMemo(() => {
     if (category !== null || sortBy !== "menu") return [["", visibleProducts]] as [string, Product[]][];
@@ -600,11 +633,13 @@ export default function MenuPage() {
       const group = product.category || "Other";
       groups.set(group, [...(groups.get(group) ?? []), product]);
     });
-    return Array.from(groups);
-  }, [category, sortBy, visibleProducts]);
+    // In menu order (drinks before food when a search spans both).
+    return Array.from(groups).sort(([a], [b]) => (categoryInfo.get(a)?.rank ?? 999) - (categoryInfo.get(b)?.rank ?? 999) + ((categoryInfo.get(a)?.side === "kitchen" ? 1000 : 0) - (categoryInfo.get(b)?.side === "kitchen" ? 1000 : 0)));
+  }, [category, categoryInfo, sortBy, visibleProducts]);
   const featuredProducts = useMemo(() => products.filter((product) => product.featured).sort((a, b) => (a.featuredOrder ?? 0) - (b.featuredOrder ?? 0)), [products]);
   const filtersOn = tempFilter !== "any" || sortBy !== "menu" || availableOnly;
-  const showFeatured = category === null && !search.trim() && !filtersOn && featuredProducts.length > 0;
+  const sideFeatured = featuredProducts.filter((product) => categoryInfo.get(product.category)?.side === currentSide);
+  const showFeatured = category === null && !search.trim() && !filtersOn && sideFeatured.length > 0;
   useEffect(() => {
     if (!addedNote) return;
     const timer = window.setTimeout(() => setAddedNote(""), 2600);
@@ -1032,19 +1067,19 @@ export default function MenuPage() {
   }, [cart]);
   // The same card everywhere (featured row and menu grid): tap it to open the item sheet; + adds at
   // once when there is nothing to choose, otherwise it opens the sheet too.
-  const productCard = (product: Product, where: "row" | "grid") => {
+  const productCard = (product: Product, where: "row" | "grid" | "list") => {
     const out = soldOut(product);
     const count = inCart.get(product.id) ?? 0;
-    return <article className={`bh-card${out ? " is-out" : ""}${where === "row" ? " is-row" : ""}`} key={`${where}-${product.id}`}>
+    return <article className={`bh-card${out ? " is-out" : ""}${where === "row" ? " is-row" : where === "list" ? " is-list" : ""}`} key={`${where}-${product.id}`}>
       <button type="button" className="bh-card-open" disabled={out} onClick={() => openProduct(product)} aria-label={`${product.name}, ${out ? "sold out" : priceText(product)}`}>
-        <span className="bh-card-photo">
+        {where !== "list" && <span className="bh-card-photo">
           {product.image ? <Image src={product.image} alt="" fill unoptimized sizes="(max-width: 560px) 50vw, 260px" style={{ objectFit: "cover" }} /> : <span className="bh-placeholder"><IconCoffee /></span>}
           {product.badge && <span className="bh-badge">★ {product.badge}</span>}
           {out && <span className="bh-soldout">Sold out</span>}
           {count > 0 && <span className="bh-incart">{count} in cart</span>}
-        </span>
+        </span>}
         <span className="bh-card-body">
-          <strong>{product.name}</strong>
+          <strong>{product.name}{where === "list" && product.badge ? <em className="bh-list-flag is-badge">★ {product.badge}</em> : null}{where === "list" && count > 0 ? <em className="bh-list-flag">{count} in cart</em> : null}</strong>
           {product.description && <small>{product.description}</small>}
           <b>{out ? "Sold out" : priceText(product)}</b>
         </span>
@@ -1207,8 +1242,12 @@ export default function MenuPage() {
       </div>
 
       <nav className="bh-chips" aria-label="Menu categories">
+        {sides.length > 1 && <div className="bh-side" role="radiogroup" aria-label="Drinks or food">
+          {sides.map((value) => <button key={value} type="button" role="radio" aria-checked={currentSide === value} onClick={() => chooseSide(value)}>{value === "kitchen" ? "🍳 Food" : "☕ Drinks"}</button>)}
+        </div>}
         <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}>All</button>
         {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}>★ Favorites</button>}
+        {popularIds.length > 0 && <button type="button" aria-pressed={category === POPULAR} onClick={() => setCategory(POPULAR)}>🔥 Popular</button>}
         {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}>{name}</button>)}
       </nav>
 
@@ -1218,12 +1257,15 @@ export default function MenuPage() {
         {!loading && !error && <>
           {showFeatured && <section className="bh-featured" aria-labelledby="featured-title">
             <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
-            <div className="bh-row">{featuredProducts.map((product) => productCard(product, "row"))}</div>
+            <div className="bh-row">{sideFeatured.map((product) => productCard(product, "row"))}</div>
           </section>}
           {category === FAVORITES && <p className="bh-note">What you order most, most first.</p>}
+          {category === POPULAR && <p className="bh-note">What the café sold most in the last 30 days.</p>}
           {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="bh-group" key={group || "all"}>
             {group && <h2 className="bh-group-title">{group}</h2>}
-            <div className="bh-grid">{groupProducts.map((product) => productCard(product, "grid"))}</div>
+            {groupProducts.every((product) => !product.image)
+              ? <div className="bh-list">{groupProducts.map((product) => productCard(product, "list"))}</div>
+              : <div className="bh-grid">{groupProducts.map((product) => productCard(product, "grid"))}</div>}
           </section>)}
           {visibleProducts.length === 0 && <div className="bh-empty">{category === FAVORITES ? "Your favorites appear here after you order." : "Nothing on the menu matches your search or filters."}</div>}
         </>}

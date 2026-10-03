@@ -16,6 +16,16 @@ export async function GET() {
         (p.image_data IS NOT NULL) AS has_image_data,
         p.xmin::text AS image_version,
         p.product_type,
+        p.station,
+        -- Categories in the order they were added (the printed menu order).
+        (SELECT pc.category_id FROM product_categories pc WHERE pc.category_name = p.product_category) AS category_order,
+        -- Units sold in the last 30 days, for the Popular chip.
+        COALESCE((
+          SELECT SUM(soi.quantity) FROM sales_order_items soi JOIN sales_orders so ON so.order_id = soi.order_id
+          WHERE soi.product_id = p.product_id AND so.is_archived = FALSE
+            AND so.status NOT IN ('void', 'voided', 'refund', 'refunded')
+            AND so.created_at >= (NOW() AT TIME ZONE 'UTC') - INTERVAL '30 days'
+        ), 0)::int AS recent_sold,
         -- Barista Featured Specials (see featured-products-migration.sql).
         p.is_featured, p.badge_label, p.featured_order,
         -- Any active addition can be attached to a recipe item. Direct-sale (stock) products
@@ -117,6 +127,9 @@ export async function GET() {
       category: row.product_category || "Menu",
       price: Number(row.price),
       productType: row.product_type === "stock" ? "stock" : "recipe",
+      station: row.station === "kitchen" ? "kitchen" : "bar",
+      categoryOrder: row.category_order === null ? null : Number(row.category_order),
+      recentSold: Number(row.recent_sold ?? 0),
       featured: Boolean(row.is_featured),
       featuredOrder: Number(row.featured_order ?? 0),
       badge: (row.badge_label as string | null) || undefined,

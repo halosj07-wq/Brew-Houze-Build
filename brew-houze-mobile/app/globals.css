@@ -613,3 +613,16 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 
 /* Account: the emailed 6-digit sign-in code */
 .acct-code-input { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 22px !important; letter-spacing: 0.4em; text-align: center; }
+
+/* Menu: Drinks or Food, and compact rows for items without photos */
+.bh-side { flex-shrink: 0; display: inline-flex; gap: 2px; padding: 3px; margin-right: 4px; background: var(--cream); border: 1px solid var(--line); border-radius: 999px; }
+.bh-chips .bh-side button { height: 30px; padding: 0 12px; border: 0; background: transparent; font-weight: 700; }
+.bh-chips .bh-side button[aria-checked="true"] { color: #FFFFFF; background: var(--brown); }
+.bh-list { display: flex; flex-direction: column; gap: 8px; }
+.bh-card.is-list .bh-card-body { min-height: 0; padding: 12px 58px 12px 14px; }
+.bh-card.is-list .bh-card-body small { -webkit-line-clamp: 2; }
+.bh-card.is-list .bh-plus { top: 50%; bottom: auto; transform: translateY(-50%); }
+.bh-card.is-list .bh-plus:active { transform: translateY(-50%) scale(0.9); }
+.bh-card.is-list.is-out .bh-card-body b { color: var(--muted); }
+.bh-list-flag { display: inline-block; margin-left: 6px; padding: 1px 7px; vertical-align: 2px; color: #FFFFFF; background: var(--brown); border-radius: 999px; font-size: 10.5px; font-style: normal; font-weight: 700; }
+.bh-list-flag.is-badge { color: #92400E; background: #FEF3C7; }
