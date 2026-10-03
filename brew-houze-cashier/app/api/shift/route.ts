@@ -138,7 +138,9 @@ export async function POST(request: Request) {
       // More than the last closing left in the drawer comes from the safe; less goes back to it.
       await recordShiftFloat(client, { shiftId, startingCash, carried, adminId: session.adminId, sourceApp: "cashier" });
       // Employees already signed in (e.g. the cashier opening the shift) now belong to it.
-      await client.query("UPDATE employee_time_logs SET shift_id = $1 WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
+      // Whoever is already signed in to the Staff Portal joins the shift. Their attendance for it
+      // starts now: time signed in before the shift opened does not count toward it.
+      await client.query("UPDATE employee_time_logs SET shift_id = $1, time_in = GREATEST(time_in, CURRENT_TIMESTAMP) WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
       // The opener stayed signed in across the previous close (which clocked everyone out),
       // so make sure their attendance for this shift starts now.
       await client.query(`

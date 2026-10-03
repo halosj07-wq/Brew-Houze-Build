@@ -299,7 +299,9 @@ export async function POST(request: Request) {
       const shiftId = Number(inserted.rows[0].shift_id);
       // More than the last closing left in the drawer comes from the safe; less goes back to it.
       await recordShiftFloat(client, { shiftId, startingCash, carried, adminId: session.adminId, sourceApp: "admin" });
-      await client.query("UPDATE employee_time_logs SET shift_id = $1 WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
+      // Whoever is already signed in to the Staff Portal joins the shift. Their attendance for it
+      // starts now: time signed in before the shift opened does not count toward it.
+      await client.query("UPDATE employee_time_logs SET shift_id = $1, time_in = GREATEST(time_in, CURRENT_TIMESTAMP) WHERE time_out IS NULL AND shift_id IS NULL", [shiftId]);
       await client.query("COMMIT");
       const summary = await pool.query(`${summarySelect} WHERE ss.shift_id = $1`, [shiftId]);
       return NextResponse.json({ data: mapSummary(summary.rows[0]) }, { status: 201 });
