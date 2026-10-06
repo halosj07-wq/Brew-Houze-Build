@@ -7059,14 +7059,16 @@ function FinanceExpenses({ start, end }: { start: string; end: string }) {
 // Short predictive warnings and advice written by Claude from the café's numbers (see
 // app/api/insights). Claude is asked only when an admin presses the button, and only while the
 // switch is on; every result is saved, so reading it again costs nothing.
-type InsightCard = { tone: "warning" | "good" | "tip"; title: string; message: string; page: "inventory" | "finance" | "treasury" | "products" | "shift" };
+type InsightCard = { tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: "inventory" | "finance" | "treasury" | "products" | "shift" };
 type InsightResult = { id: number; start: string; end: string; headline: string; cards: InsightCard[]; model: string; inputTokens: number | null; outputTokens: number | null; requestedBy: string | null; createdAt: string };
 type InsightsData = { enabled: boolean; configured: boolean; cooldownSeconds: number; model: string; insights: InsightResult[] };
 
-const insightTone: Record<InsightCard["tone"], { label: string; icon: string }> = {
-  warning: { label: "Heads up", icon: "⚠" },
-  good: { label: "Good news", icon: "✓" },
-  tip: { label: "Tip", icon: "💡" },
+// Most urgent first: alert (money being lost now), warning, good news, tip.
+const insightTone: Record<InsightCard["tone"], { label: string; icon: string; rank: number }> = {
+  alert: { label: "Act now", icon: "!", rank: 0 },
+  warning: { label: "Heads up", icon: "⚠", rank: 1 },
+  good: { label: "Good news", icon: "✓", rank: 2 },
+  tip: { label: "Tip", icon: "💡", rank: 3 },
 };
 const insightPageLabels: Record<InsightCard["page"], string> = { inventory: "Inventory", finance: "Finance", treasury: "Treasury", products: "Menu", shift: "Shift" };
 
@@ -7155,7 +7157,10 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   if (loading && !data) return <div className="inv-wrap"><div className="inv"><div className="inv-empty">Loading insights…</div></div></div>;
   if (!data) return <div className="inv-wrap"><div className="inv"><div className="inv-empty is-error">{error || "Could not load the insights."} <button type="button" className="inv-link" onClick={() => { setLoading(true); setError(""); setReloadKey((key) => key + 1); }}>Try again</button></div></div></div>;
 
-  const shown = data.insights.find((entry) => entry.id === selectedId) ?? data.insights[0] ?? null;
+  // The one picked from the earlier list, else the latest for the chosen period, else the latest.
+  const forPeriod = (entry: InsightResult) => Boolean(preset) && entry.start === preset.start && entry.end === preset.end;
+  const shown = data.insights.find((entry) => entry.id === selectedId) ?? data.insights.find(forPeriod) ?? data.insights[0] ?? null;
+  const cards = shown ? [...shown.cards].sort((a, b) => (insightTone[a.tone]?.rank ?? 9) - (insightTone[b.tone]?.rank ?? 9)) : [];
   const blocked = !data.enabled ? "Turn AI insights on to ask Claude." : !data.configured ? "Not set up yet: the ANTHROPIC_API_KEY setting is missing on the server." : cooldown > 0 ? `You can ask again in ${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}.` : null;
 
   return <div className="inv-wrap">
@@ -7181,7 +7186,7 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       <div className="fin-datebar">
         <div className="menu-chips" role="group" aria-label="Period">
-          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => setPresetId(entry.id)}>{entry.label}</button>)}
+          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
         </div>
         <div className="ins-ask">
           <button type="button" className="inv-primary" onClick={() => void ask()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is reading the numbers…" : "Ask Claude for insights"}</button>
@@ -7197,13 +7202,17 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
             <h3>{shown.headline || "Insights"}</h3>
             <p>{formatRange(shown.start, shown.end)} · asked {shiftTime(shown.createdAt)}{shown.requestedBy ? ` by ${shown.requestedBy}` : ""}{insightCost(shown) ? ` · ${insightCost(shown)}` : ""}</p>
           </div>
-          <ul className="ins-cards">
-            {shown.cards.map((card, index) => <li key={index} className={`is-${card.tone}`}>
+          {preset && !forPeriod(shown) && <div className="ins-stale">
+            <span>These are from an earlier run for {formatRange(shown.start, shown.end)}, not {formatRange(preset.start, preset.end)}.</span>
+            {blocked === null && <button type="button" className="inv-mini" onClick={() => void ask()} disabled={asking}>Ask for {preset.label.toLowerCase()}</button>}
+          </div>}
+          <ul className={`ins-cards is-n${Math.min(cards.length, 5)}`}>
+            {cards.map((card, index) => <li key={index} className={`is-${card.tone}`}>
               <span className="ins-card-icon" aria-hidden="true">{insightTone[card.tone]?.icon ?? "•"}</span>
-              <div>
+              <div className="ins-card-body">
                 <strong>{card.title}</strong>
                 <p>{card.message}</p>
-                {insightPageLabels[card.page] && <button type="button" className="inv-link" onClick={() => onNavigate(card.page)}>Open {insightPageLabels[card.page]} <IconChevron size={12} /></button>}
+                {insightPageLabels[card.page] && <button type="button" className="ins-card-go" onClick={() => onNavigate(card.page)}>Open {insightPageLabels[card.page]}<IconChevron size={12} /></button>}
               </div>
             </li>)}
           </ul>

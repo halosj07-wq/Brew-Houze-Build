@@ -33,7 +33,7 @@ const CARD_SCHEMA = {
       items: {
         type: "object",
         properties: {
-          tone: { type: "string", enum: ["warning", "good", "tip"] },
+          tone: { type: "string", enum: ["alert", "warning", "good", "tip"], description: "alert: money being lost now; warning: needs action soon; good: good news; tip: advice." },
           title: { type: "string", description: "2 to 5 words, like 'Heads up' or 'Beans run out Thursday'." },
           message: { type: "string", description: "One or two plain sentences with the specific numbers, dates and names from the facts." },
           page: { type: "string", enum: [...PAGES], description: "The admin page where the owner can act on it." },
@@ -51,14 +51,17 @@ const SYSTEM_PROMPT = `You write short insight cards for the owner of Brew Houze
 
 You receive facts the app already worked out from its own records, as JSON. Every number you use must come from those facts: never estimate, round differently, or invent numbers, dates, products or causes. If the facts do not support a point, leave it out.
 
-Write 3 to 5 cards, most urgent first:
-1. Warnings that need action soon: stock that runs out before it would usually be restocked, net profit falling against the period before, waste or written-off stock rising, drawer shortages, many voids or refunds.
-2. Good news worth knowing, such as a best seller or profit up.
-3. One practical tip, such as a slow seller to promote or stop making, or the busiest hours to staff.
+Write 3 to 5 cards, most urgent first, each with one tone:
+1. alert: money being lost now. A net loss for the period, cash drawer shortages, or stock written off that costs more than a tenth of net sales. Use alert only for these.
+2. warning: needs action soon. Stock that runs out before it would usually be restocked or is already at its low-stock alert, net profit falling against the period before, waste rising, many voids or refunds.
+3. good: good news worth knowing, such as a best seller, profit up, or a clean cash drawer.
+4. tip: one practical tip, such as a slow seller to promote or stop making, or the busiest hours to staff.
+
+Small numbers are not patterns. When a point rests on only a few orders (under 10, as with the busiest hours early on), say how many it is based on and present it as an early sign, not a trend.
 
 Write amounts with the peso sign and two decimals, for example ₱1,240.00. Say when something runs out the way the facts give it, for example "Thursday afternoon". Keep each message to one or two short sentences in plain words, no jargon and no exclamation marks. If the period has no sales yet, say so in one card and give one tip for getting started. Never mention staff by name and never blame anyone; describe what happened.`;
 
-type Card = { tone: "warning" | "good" | "tip"; title: string; message: string; page: (typeof PAGES)[number] };
+type Card = { tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: (typeof PAGES)[number] };
 
 function mapInsight(row: Record<string, unknown>) {
   return {

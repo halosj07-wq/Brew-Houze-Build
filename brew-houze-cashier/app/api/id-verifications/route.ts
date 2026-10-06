@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { idHistory } from "@/lib/id-history";
 import { APPROVED_MINUTES, cleanupIdVerifications } from "@/lib/id-verifications";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { signalChange } from "@/lib/realtime";
 
 // ID photos sent from the mobile menu, waiting for the counter to check them (see
-// lib/id-verifications.ts). GET lists them (the photos themselves come from ./[id]/photo);
+// lib/id-verifications.ts). GET lists them, each with its ID's history (was it used for this
+// discount before? see lib/id-history.ts); the photos themselves come from ./[id]/photo.
 // PATCH { id, action: "approve" | "reject", reason } decides. Either way the photo is deleted.
 // An approval the customer asked to remember is saved to their account (never the photo).
 
@@ -28,8 +30,9 @@ export async function GET() {
       ORDER BY v.created_at
       LIMIT 20
     `);
+    const histories = await Promise.all(result.rows.map((row) => idHistory(row.discount_type_id === null ? null : Number(row.discount_type_id), String(row.discount_code ?? "custom"), (row.id_number as string | null) ?? null)));
     return NextResponse.json({
-      data: result.rows.map((row) => ({
+      data: result.rows.map((row, index) => ({
         id: Number(row.verification_id),
         holderName: String(row.holder_name),
         idNumber: (row.id_number as string | null) ?? null,
@@ -47,6 +50,7 @@ export async function GET() {
         username: (row.username as string | null) ?? null,
         createdAt: String(row.created_at),
         expiresAt: String(row.expires_at),
+        history: histories[index],
       })),
     }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

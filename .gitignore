@@ -6,3 +6,6 @@ out/
 !.env.example
 *.log
 *.tsbuildinfo
+
+# The café database export (menu, photos): see deploy-tools/README.md
+deploy-tools/out/

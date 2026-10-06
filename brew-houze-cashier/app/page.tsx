@@ -1621,6 +1621,25 @@ function idDiscountRuleText(type: CounterDiscountType, vat: CounterVat): string 
 
 type IdDiscountLine = { key: string; label: string; qty: number; unit: number };
 
+// Was this ID used for the discount before (app/api/discounts/id-history)? names: the names it
+// was given under, most recent first.
+type IdHistory = { uses: number; usesToday: number; lastUsedAt: string | null; names: string[] };
+const sameName = (a: string, b: string) => a.trim().toLowerCase().replace(/\s+/g, " ") === b.trim().toLowerCase().replace(/\s+/g, " ");
+
+// The warning shown while confirming an ID that was used before: how often and when, and louder
+// when it was given under another name.
+function IdHistoryNote({ history, holderName }: { history: IdHistory | null; holderName: string }) {
+  if (!history || history.uses === 0) return null;
+  const others = holderName.trim().length >= 2 ? history.names.filter((name) => !sameName(name, holderName)) : [];
+  const last = history.lastUsedAt ? new Date(history.lastUsedAt).toLocaleString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : null;
+  return <div className={`pos-idd-history${others.length ? " is-other-name" : ""}`} role="status">
+    <strong>⚠ This ID was used before</strong>
+    <span>{history.uses === 1 ? "Once" : `${history.uses} times`}{history.usesToday > 0 ? `, ${history.usesToday === 1 ? "once" : `${history.usesToday} times`} today` : ""}{last ? ` · last ${last}` : ""}</span>
+    {others.length > 0 && <span>Under {others.length === 1 ? "another name" : "other names"}: <b>{others.join(", ")}</b>. One ID belongs to one person.</span>}
+    <em>The discount is only for the ID holder&apos;s own food and drinks. Make sure the person in front of you is the one on the ID.</em>
+  </div>;
+}
+
 // Adds one person's ID discount: the discount, their name and ID number, and what it covers
 // (their own items, or their share of a shared bill).
 function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSize, existing, initialTypeId = null, onAdd, onClose }: {
@@ -1642,6 +1661,23 @@ function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSiz
   const [groupSize, setGroupSize] = useState(String(lockedGroupSize ?? Math.max(2, existing + 1)));
   const [checked, setChecked] = useState(false);
   const type = types.find((entry) => entry.id === typeId) ?? types[0];
+  // The ID's history, looked up a moment after typing stops.
+  const [history, setHistory] = useState<{ key: string; data: IdHistory } | null>(null);
+  const historyKey = type && idNumber.trim().length >= 3 ? `${type.id}:${idNumber.trim().toLowerCase()}` : "";
+  useEffect(() => {
+    if (!historyKey || !type) return;
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch(`/api/discounts/id-history?type=${type.id}&code=${encodeURIComponent(type.code)}&number=${encodeURIComponent(idNumber.trim())}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (active && response.ok) setHistory({ key: historyKey, data: payload.data });
+      } catch {
+        // Only a warning: without it the form works as before.
+      }
+    }, 400);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [historyKey, type, idNumber]);
   const orderAmount = lines.reduce((sum, line) => sum + line.unit * line.qty, 0);
   const people = Number.parseInt(groupSize, 10);
   const covered = mode === "shared"
@@ -1676,6 +1712,7 @@ function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSiz
           <label><span>Full name</span><input autoFocus value={holderName} onChange={(event) => setHolderName(event.target.value)} maxLength={80} placeholder="As on the ID" autoComplete="off" /></label>
           {type && (type.requiresId || type.idLabel) && <label><span>{type.idLabel ?? "ID no."}{type.requiresId ? "" : " (optional)"}</span><input value={idNumber} onChange={(event) => setIdNumber(event.target.value)} maxLength={40} autoComplete="off" /></label>}
         </div>
+        <IdHistoryNote history={history && history.key === historyKey ? history.data : null} holderName={holderName} />
         <div className="pos-idd-mode" role="radiogroup" aria-label="What the discount covers">
           <button type="button" role="radio" aria-checked={mode === "items"} className={mode === "items" ? "is-on" : ""} disabled={lockedMode === "shared"} onClick={() => setMode("items")}><strong>Their own items</strong><em>Tick what they will eat or drink</em></button>
           <button type="button" role="radio" aria-checked={mode === "shared"} className={mode === "shared" ? "is-on" : ""} disabled={lockedMode === "items"} onClick={() => setMode("shared")}><strong>Shared bill</strong><em>Split evenly by the number of people</em></button>
@@ -1729,6 +1766,7 @@ type PendingIdCheck = {
   lines: { line: number; quantity: number }[] | null; groupSize: number | null; serviceType: "dine_in" | "take_out"; remember: boolean;
   discountTypeId: number | null; discountName: string; discountCode: string; idLabel: string | null; hasPhoto: boolean;
   customerName: string | null; username: string | null; createdAt: string; expiresAt: string;
+  history?: IdHistory;
 };
 const ID_REJECT_REASONS = ["The photo is blurry or cut off", "The ID has expired", "The name doesn't match", "This isn't a valid ID for this discount"];
 
@@ -1780,6 +1818,7 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
           <span><em>{check.idLabel ?? "ID no."}</em><strong>{check.idNumber ?? "—"}</strong></span>
           <span><em>Order</em><strong>{check.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"}{check.customerName ? ` · ${check.customerName}` : " · guest"}</strong></span>
         </div>
+        <IdHistoryNote history={check.history ?? null} holderName={check.holderName} />
         {check.remember && check.username && <p className="pos-idcheck-remember">They asked to remember this ID on their account (@{check.username}), so their next orders get the discount without a photo. Only the name and ID number are saved.</p>}
         <div className="pos-idd-lines">
           {lines.map((line, index) => <div key={index} className={`pos-idd-line${check.groupSize || line.covered > 0 ? " is-on" : ""}`}>
