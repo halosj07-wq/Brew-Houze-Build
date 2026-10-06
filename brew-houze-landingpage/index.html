@@ -281,14 +281,25 @@
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script>
     // ── Addresses of each app ──────────────────────────────────────────────────
-    // Edit these if an app moves (for example to a custom domain). Leave one empty ("") to show
-    // it as "not set up yet" instead of a broken link.
-    const APPS = {
+    // Two deployments share this page: Brew Houze Build (the thesis defense) and the café's own
+    // (Brew Houze Deployed). The page picks the café's apps when it is opened at one of
+    // CAFE_HOSTS, and the defense apps anywhere else (including on this computer). Edit these if an
+    // app moves (for example to a custom domain). Leave one empty ("") to show it as "not set up
+    // yet" instead of a broken link.
+    const BUILD_APPS = {
       admin: "https://brew-houze-build-admin.vercel.app",
       cashier: "https://brew-houze-build-cashier.vercel.app",
       mobile: "https://brew-houze-build.vercel.app",
       queue: "https://brew-houze-build-queuescreen.vercel.app",
     };
+    const CAFE_APPS = {
+      admin: "https://brew-houze-cafe-admin.vercel.app",
+      cashier: "https://brew-houze-cafe-staff.vercel.app",
+      mobile: "https://brew-houze-cafe-mobile.vercel.app",
+      queue: "https://brew-houze-cafe-queue.vercel.app",
+    };
+    const CAFE_HOSTS = ["brew-houze-cafe.vercel.app"];
+    const APPS = CAFE_HOSTS.includes(location.hostname) ? CAFE_APPS : BUILD_APPS;
 
     const icons = {
       admin: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>',
