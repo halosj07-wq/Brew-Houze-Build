@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { paymongoConfigured, paymongoTestMode, PAYMONGO_MIN_AMOUNT } from "@/lib/paymongo";
+import { gcashAccount, gcashMethod } from "@/lib/gcash";
 
 export async function GET() {
   try {
@@ -144,8 +145,13 @@ export async function GET() {
     // Customers can only order while a shift is open; otherwise the menu shows the café as closed.
     const shiftResult = await pool.query("SELECT EXISTS (SELECT 1 FROM shifts WHERE closed_at IS NULL) AS store_open");
 
-    // How customers pay: GCash through PayMongo when its keys are set on this server.
-    const payment = paymongoConfigured() ? { method: "gcash", testMode: paymongoTestMode(), minimumAmount: PAYMONGO_MIN_AMOUNT } : { method: "none" };
+    // How customers pay: GCash through PayMongo when its keys are set on this server, or (the café,
+    // GCASH_METHOD=direct_qr) straight to the café's GCash QR once an admin has set it.
+    let payment: Record<string, unknown> = { method: "none" };
+    if (gcashMethod() === "direct_qr") {
+      const account = await gcashAccount();
+      if (account.hasQr) payment = { method: "gcash", direct: true, accountName: account.name, accountNumber: account.number, qrVersion: account.version };
+    } else if (paymongoConfigured()) payment = { method: "gcash", testMode: paymongoTestMode(), minimumAmount: PAYMONGO_MIN_AMOUNT };
     return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open), payment }, {
       headers: {
         "Cache-Control": "public, max-age=5, stale-while-revalidate=30",

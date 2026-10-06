@@ -1,17 +1,19 @@
 import type { PoolClient } from "pg";
 import type pool from "@/lib/db";
 
-// The treasury (see treasury-migration.sql and treasury-paymongo-migration.sql): the owner's
-// logbook of where the business money is. Two accounts:
+// The treasury (see treasury-migration.sql, treasury-paymongo-migration.sql and
+// gcash-direct-migration.sql): the owner's logbook of where the business money is. Accounts:
 //   safe      the cash box: shifts take their float from it and put their closing cash back
 //   paymongo  the money PayMongo holds for the cafe: each closing adds the shift's GCash
 //             payments and takes off PayMongo's fees, and the admin records the weekly payouts
+//   gcash     the café's own GCash wallet (direct GCash, lib/gcash.ts): each closing adds the
+//             shift's GCash payments, with no fees
 // Every move in or out is an entry with the balance right after it, written in the same
 // transaction as the shift or drawer change behind it. Until an admin enters an account's
 // opening balance (go live), that account is not used.
 
 export type Safe = { accountId: number; balance: number; live: boolean };
-export type TreasuryAccountKey = "safe" | "paymongo";
+export type TreasuryAccountKey = "safe" | "paymongo" | "gcash";
 
 export type SafeEntryKind = "opening_balance" | "deposit" | "withdrawal" | "float_out" | "float_return" | "shift_deposit" | "cash_drop" | "cash_top_up" | "correction" | "gcash_sales" | "gateway_fee" | "payout" | "expense";
 
@@ -38,7 +40,7 @@ export async function recordDrawerExpense(client: PoolClient, input: { movementI
   `, [input.shiftId, input.category ?? expenseCategoryFor(input.reason), input.description ?? input.reason, input.amount, input.movementId, input.note ?? "", input.adminId, input.sourceApp]);
 }
 
-const ACCOUNT_WHERE: Record<TreasuryAccountKey, string> = { safe: "kind = 'safe'", paymongo: "kind = 'ewallet' AND LOWER(name) = 'paymongo'" };
+const ACCOUNT_WHERE: Record<TreasuryAccountKey, string> = { safe: "kind = 'safe'", paymongo: "kind = 'ewallet' AND LOWER(name) = 'paymongo'", gcash: "kind = 'ewallet' AND LOWER(name) = 'gcash'" };
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
@@ -114,7 +116,9 @@ export async function recordShiftDeposit(client: PoolClient, input: { shiftId: n
 // Closing a shift: the GCash its customers paid through PayMongo goes into the PayMongo account,
 // and the fees PayMongo kept come off it. Voided and refunded GCash orders count too: PayMongo
 // still holds their payment (the money goes back to the customer by hand, not through PayMongo).
+// GCash paid straight to the café's QR goes into the GCash account the same way, with no fees.
 export async function recordShiftGcash(client: PoolClient, input: { shiftId: number; adminId: number | null; sourceApp: "cashier" | "admin" }) {
+  await recordShiftDirectGcash(client, input);
   const totals = (await client.query(`
     SELECT COALESCE(SUM(CASE WHEN payment_method = 'split' THEN total_amount - COALESCE(cash_portion, 0) ELSE total_amount END), 0) AS gross,
       COALESCE(SUM(payment_fee), 0) AS fees,
@@ -135,6 +139,19 @@ export async function recordShiftGcash(client: PoolClient, input: { shiftId: num
   if (fees > 0) await addSafeEntry(client, account, { kind: "gateway_fee", amount: -fees, reason: `PayMongo fees of shift #${input.shiftId}`, note: later, shiftId: input.shiftId, adminId: input.adminId, sourceApp: input.sourceApp });
 }
 
+async function recordShiftDirectGcash(client: PoolClient, input: { shiftId: number; adminId: number | null; sourceApp: "cashier" | "admin" }) {
+  const totals = (await client.query(`
+    SELECT COALESCE(SUM(CASE WHEN payment_method = 'split' THEN total_amount - COALESCE(cash_portion, 0) ELSE total_amount END), 0) AS gross, COUNT(*)::int AS payments
+    FROM sales_orders WHERE shift_id = $1 AND payment_provider = 'gcash_direct'
+  `, [input.shiftId])).rows[0];
+  const gross = round(Number(totals.gross));
+  if (gross <= 0) return;
+  const account = await lockAccount(client, "gcash");
+  if (!account?.live) return;
+  const count = Number(totals.payments);
+  await addSafeEntry(client, account, { kind: "gcash_sales", amount: gross, reason: `GCash of shift #${input.shiftId} (${count} payment${count === 1 ? "" : "s"})`, shiftId: input.shiftId, adminId: input.adminId, sourceApp: input.sourceApp });
+}
+
 // A fee read from PayMongo after its shift was closed: the closing could not take it off, so it
 // comes off the PayMongo account now (only if that closing put the shift's GCash there).
 export async function recordLateFee(client: PoolClient, input: { orderId: number; shiftId: number | null; fee: number }) {
@@ -142,7 +159,7 @@ export async function recordLateFee(client: PoolClient, input: { orderId: number
   // Waits for a closing still running, so the fee is taken off exactly once: by that closing or here.
   const shift = await client.query("SELECT closed_at FROM shifts WHERE shift_id = $1 FOR SHARE", [input.shiftId]);
   if (!shift.rows[0]?.closed_at) return;
-  const credited = await client.query("SELECT 1 FROM treasury_entries WHERE kind = 'gcash_sales' AND shift_id = $1", [input.shiftId]);
+  const credited = await client.query("SELECT 1 FROM treasury_entries te JOIN treasury_accounts ta ON ta.account_id = te.account_id WHERE te.kind = 'gcash_sales' AND te.shift_id = $1 AND LOWER(ta.name) = 'paymongo'", [input.shiftId]);
   if (!credited.rowCount) return;
   const account = await lockAccount(client, "paymongo");
   if (!account?.live) return;

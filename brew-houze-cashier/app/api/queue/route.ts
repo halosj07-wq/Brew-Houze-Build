@@ -48,11 +48,13 @@ export async function GET(request: Request) {
         WHERE d.status IN ('ready', 'failed') OR (d.payment = 'cod' AND d.cod_collected IS NOT NULL AND d.cod_remitted_at IS NULL)
       `, [session.adminId]).then((result) => result.rows[0]).catch(() => null);
       // The counter line (the cashier's badge): carts sent to pay at the counter, ID photos to check,
-      // and Stars sign scans, still in time. Not for staff who only see a queue.
+      // Stars sign scans, still in time, and GCash payments sent to the café's QR to check (or to
+      // send back). Not for staff who only see a queue.
       const line = session.role && ["barista", "kitchen", "rider"].includes(String(session.role).toLowerCase()) ? null : await pool.query(`
         SELECT (SELECT COUNT(*) FROM counter_carts WHERE status = 'waiting' AND expires_at > CURRENT_TIMESTAMP)
           + (SELECT COUNT(*) FROM id_verifications WHERE status = 'pending' AND expires_at > CURRENT_TIMESTAMP)
-          + (SELECT COUNT(*) FROM loyalty_claims WHERE status = 'pending' AND expires_at > CURRENT_TIMESTAMP) AS n
+          + (SELECT COUNT(*) FROM loyalty_claims WHERE status = 'pending' AND expires_at > CURRENT_TIMESTAMP)
+          + (SELECT COUNT(*) FROM payment_checkouts WHERE provider = 'gcash_direct' AND status IN ('awaiting_confirmation', 'needs_attention')) AS n
       `).then((result) => Number(result.rows[0].n)).catch(() => null);
       return NextResponse.json({ signature: signatureResult.rows[0], deliveries, line }, { headers: { "Cache-Control": "no-store" } });
     }

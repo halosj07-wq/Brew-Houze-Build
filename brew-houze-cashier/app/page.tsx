@@ -1413,6 +1413,146 @@ function GcashPaymentDialog({ checkout, testMode, onPaid, onClose }: { checkout:
   </Modal>;
 }
 
+// ─── Direct GCash (the café's own QR, GCASH_METHOD=direct_qr) ───────────────────
+// At the counter there is no PayMongo: the customer pays the café's GCash QR, shows the receipt,
+// and the cashier types its 13-digit reference number once the payment shows in the café's GCash.
+// The order is placed right then (/api/checkout). Payments from the mobile menu come to the counter
+// line instead, for the cashier to check (DirectGcashCheckDialog).
+type GcashConfig = { gcash: boolean; direct?: boolean; accountName?: string; accountNumber?: string; qrVersion?: string | null; testMode: boolean; minimumAmount: number };
+// A counter payment waiting for the cashier to confirm: the GCash amount (what is left after a split
+// ticket's cash part) and the checkout request to send once confirmed.
+type DirectCounterPay = { amount: number; cashAmount: number; total: number; body: Record<string, unknown> };
+const formatGcashReference = (value: string) => value.replace(/\D/g, "").replace(/^(\d{4})(\d{0,3})(\d{0,6}).*$/, (_, a: string, b: string, c: string) => [a, b, c].filter(Boolean).join(" "));
+const formatAccountNumber = (value: string) => value.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1 $2 $3");
+
+function DirectGcashCounterDialog({ pay, config, onConfirm, onClose }: { pay: DirectCounterPay; config: GcashConfig; onConfirm: (reference: string) => Promise<string | null>; onClose: () => void }) {
+  const [reference, setReference] = useState("");
+  const [seen, setSeen] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const digits = reference.replace(/\D/g, "");
+  const ready = digits.length === 13 && seen;
+
+  async function confirm() {
+    if (!ready) return;
+    setWorking(true);
+    setError("");
+    const problem = await onConfirm(digits);
+    if (problem) { setError(problem); setWorking(false); }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={working} label="GCash payment">
+    <section className="gcash-dialog">
+      <header><span className="gcash-badge">GCash</span><span className="gcash-direct-tag">The café’s QR</span></header>
+      <p className="gcash-amount">₱{pay.amount.toFixed(2)}</p>
+      {pay.cashAmount > 0 && <p className="gcash-split">Split ticket · ₱{pay.cashAmount.toFixed(2)} paid in cash · total ₱{pay.total.toFixed(2)}</p>}
+      <div className="gcash-qr"><Image src={`/api/gcash-qr?v=${config.qrVersion ?? ""}`} alt="The café's GCash QR" width={240} height={240} unoptimized /></div>
+      <p className="gcash-account">{config.accountName} · {formatAccountNumber(config.accountNumber ?? "")}</p>
+      <ol className="gcash-steps">
+        <li>The customer scans this QR (or the printed one) in GCash and pays exactly ₱{pay.amount.toFixed(2)}.</li>
+        <li>Check that the payment arrived in the café’s GCash.</li>
+        <li>Type the reference number from their GCash receipt.</li>
+      </ol>
+      <label className="gcash-reference">
+        <span>Reference no. (13 digits)</span>
+        <input value={formatGcashReference(reference)} onChange={(event) => { setReference(event.target.value); setError(""); }} inputMode="numeric" autoComplete="off" placeholder="1234 567 890123" autoFocus />
+      </label>
+      <label className="pos-idd-check gcash-seen">
+        <input type="checkbox" checked={seen} onChange={(event) => setSeen(event.target.checked)} />
+        <span>I saw ₱{pay.amount.toFixed(2)} arrive in the café’s GCash.</span>
+      </label>
+      {error && <p className="pos-idd-problem">{error}</p>}
+      <div className="gcash-actions">
+        <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={working}>Cancel</button>
+        <button type="button" className="ui-button ui-button-primary" onClick={() => void confirm()} disabled={working || !ready}>{working ? "Placing the order…" : "Payment received"}</button>
+      </div>
+      {pay.cashAmount > 0 && <p className="gcash-notice">If they don’t pay, cancel and give back the ₱{pay.cashAmount.toFixed(2)} cash part.</p>}
+    </section>
+  </Modal>;
+}
+
+// A GCash payment sent from the mobile menu (the café's own QR), waiting for the cashier to check
+// in the café's GCash; or one confirmed whose order could not be made, to send back.
+type DirectGcashCheck = {
+  id: number; status: "awaiting_confirmation" | "needs_attention"; amount: number; reference: string | null; hasProof: boolean;
+  items: { productVariantId: number; quantity: number; additionIds: number[] }[]; serviceType: string | null; customerName: string | null;
+  idDiscount: boolean; delivery: boolean; submittedAt: string | null; error: string | null;
+};
+const GCASH_REJECT_REASONS = ["No payment with this reference number", "The amount paid is less than the order", "The screenshot doesn't match the payment"];
+
+function DirectGcashCheckDialog({ check, itemsText, onDecided, onClose }: { check: DirectGcashCheck; itemsText: string; onDecided: (message: string) => void; onClose: () => void }) {
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+  const sendBack = check.status === "needs_attention";
+
+  async function decide(action: "confirm" | "reject" | "refunded") {
+    setWorking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/gcash-payments", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: check.id, action, reason }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the decision.");
+      const data = payload.data as { status: string; queueNumber?: number | null; message?: string };
+      onDecided(action === "refunded" ? `Marked the ₱${check.amount.toFixed(2)} as sent back.`
+        : action === "reject" ? `Rejected the ₱${check.amount.toFixed(2)} GCash payment. The customer was told why.`
+          : data.status === "completed" ? `Confirmed ₱${check.amount.toFixed(2)}. Order #${data.queueNumber ?? "?"} is in the queue.`
+            : data.message ?? "The payment needs attention.");
+    } catch (decideError) {
+      setError(decideError instanceof Error ? decideError.message : "Could not save the decision.");
+      setWorking(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={working} label="Check a GCash payment">
+    <section className="pos-customer-dialog pos-idd pos-idcheck-dialog">
+      <div className="pos-customer-dialog-head"><div><p>{sendBack ? "Send back · GCash · mobile menu" : "Check payment · GCash · mobile menu"}</p><h3>₱{check.amount.toFixed(2)}{check.customerName ? ` · ${check.customerName}` : ""}</h3></div><button type="button" onClick={onClose} disabled={working} aria-label="Close">×</button></div>
+      <div className="pos-idd-scroll">
+        {check.hasProof && !photoFailed
+          ? <button type="button" className={`pos-idcheck-photo${zoomed ? " is-zoomed" : ""}`} onClick={() => setZoomed((value) => !value)} aria-label={zoomed ? "Make the screenshot smaller" : "Make the screenshot bigger"}>
+            <Image src={`/api/gcash-payments/${check.id}/proof`} alt="The customer's GCash receipt" width={640} height={900} unoptimized onError={() => setPhotoFailed(true)} />
+            <span>{zoomed ? "Tap to make smaller" : "Tap to zoom"}</span>
+          </button>
+          : <p className="pos-idd-problem">The screenshot is no longer available.</p>}
+        <div className="pos-idcheck-facts">
+          <span><em>Amount</em><strong>₱{check.amount.toFixed(2)}</strong></span>
+          <span><em>Reference no.</em><strong>{check.reference ? formatGcashReference(check.reference) : "—"}</strong></span>
+          <span><em>Order</em><strong>{check.delivery ? "Delivery" : check.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"}{check.idDiscount ? " · ID discount" : ""}</strong></span>
+        </div>
+        <p className="pos-idcheck-remember">{itemsText}</p>
+        {sendBack
+          ? <p className="pos-idd-problem">{check.error ? `Confirmed, but the order could not be made: ${check.error}.` : "Confirmed, but the order could not be made."} Send ₱{check.amount.toFixed(2)} back to the customer from the café’s GCash (to the number on their receipt), then mark it sent back.</p>
+          : rejecting ? <div className="pos-idcheck-reject">
+            <span>Why? The customer sees this.</span>
+            <div className="pos-idcheck-reasons">{GCASH_REJECT_REASONS.map((option) => <button key={option} type="button" className={reason === option ? "is-on" : ""} onClick={() => setReason(option)}>{option}</button>)}</div>
+            <input value={reason} onChange={(event) => setReason(event.target.value)} maxLength={160} placeholder="Or type a reason" />
+          </div> : <label className="pos-idd-check">
+            <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+            <span>I found a payment of ₱{check.amount.toFixed(2)} with this reference number in the café’s GCash.</span>
+          </label>}
+      </div>
+      {error && <p className="pos-idd-problem">{error}</p>}
+      {sendBack
+        ? <div className="pos-idcheck-actions">
+          <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={onClose}>Later</button>
+          <button type="button" className="pos-reward-button" disabled={working} onClick={() => void decide("refunded")}>{working ? "Saving…" : "I sent it back"}</button>
+        </div>
+        : rejecting ? <div className="pos-idcheck-actions">
+          <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={() => setRejecting(false)}>Back</button>
+          <button type="button" className="pos-reward-button pos-idcheck-reject-button" disabled={working || reason.trim().length < 3} onClick={() => void decide("reject")}>{working ? "Saving…" : "Reject payment"}</button>
+        </div>
+          : <div className="pos-idcheck-actions">
+            <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={() => setRejecting(true)}>Reject…</button>
+            <button type="button" className="pos-reward-button" disabled={working || !confirmed} onClick={() => void decide("confirm")}>{working ? "Placing the order…" : "Confirm payment"}</button>
+          </div>}
+    </section>
+  </Modal>;
+}
+
 // A product or size shows "N left" once this few can still be made; cards list up to this many
 // sizes (one row each, temperatures side by side) before falling back to the picker window.
 const POS_LOW_STOCK = 5;
@@ -1945,7 +2085,9 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     setLastPlaced((current) => current && current.orderId === orderId ? { ...current, note: problem ?? (receipts.settings.output === "pdf" ? "Receipt PDF downloaded" : "") } : current);
   }
   // GCash through PayMongo, when the server has PayMongo keys.
-  const [gcashConfig, setGcashConfig] = useState<{ gcash: boolean; testMode: boolean; minimumAmount: number } | null>(null);
+  const [gcashConfig, setGcashConfig] = useState<GcashConfig | null>(null);
+  // Direct GCash: the counter payment the cashier is confirming.
+  const [directPay, setDirectPay] = useState<DirectCounterPay | null>(null);
   const [gcashCheckout, setGcashCheckout] = useState<GcashCheckout | null>(null);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -2013,6 +2155,27 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   const [counterCartId, setCounterCartId] = useState<number | null>(null);
   // Carts the customer cancelled on their phone lately (from the counter cart list).
   const [cancelledCartIds, setCancelledCartIds] = useState<number[]>([]);
+  // Direct GCash payments sent from the mobile menu, waiting for the cashier to check (or to send back).
+  const [gcashChecks, setGcashChecks] = useState<DirectGcashCheck[]>([]);
+  const [gcashCheckOpen, setGcashCheckOpen] = useState<DirectGcashCheck | null>(null);
+  const refreshGcashChecks = useCallback(async () => {
+    try {
+      const response = await fetch("/api/gcash-payments", { cache: "no-store" });
+      if (!response.ok) return;
+      const payload = await response.json() as { data?: DirectGcashCheck[] };
+      if (payload.data) setGcashChecks(payload.data);
+    } catch {
+      // Offline for a moment: the next refresh catches up.
+    }
+  }, []);
+  useEffect(() => {
+    if (!gcashConfig?.direct) return;
+    const first = window.setTimeout(() => void refreshGcashChecks(), 0);
+    const due = livePollGate(12);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible" && due()) void refreshGcashChecks(); }, CLAIMS_REFRESH_MS);
+    const stopLive = onLive(["line", "queue"], () => void refreshGcashChecks());
+    return () => { window.clearTimeout(first); window.clearInterval(timer); stopLive(); };
+  }, [refreshGcashChecks, gcashConfig?.direct]);
   // ID photos sent from the mobile menu, the one being checked, and the last decision made.
   const [idChecks, setIdChecks] = useState<PendingIdCheck[]>([]);
   const [idCheckOpen, setIdCheckOpen] = useState<PendingIdCheck | null>(null);
@@ -2465,11 +2628,13 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   const lineEntries = [
     ...counterCarts.filter((sent) => sent.id !== counterCartId).map((sent) => ({ key: `cart-${sent.id}`, at: sent.createdAt, kind: "cart" as const, sent })),
     ...idChecks.map((check) => ({ key: `id-${check.id}`, at: check.createdAt, kind: "id" as const, check })),
+    ...gcashChecks.map((check) => ({ key: `gcash-${check.id}`, at: check.submittedAt ?? new Date().toISOString(), kind: "gcash" as const, check })),
     ...loyalty.claims.map((claim) => ({ key: `claim-${claim.id}`, at: claim.createdAt, kind: "claim" as const, claim })),
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   const lineSummary = [
     lineEntries.filter((entry) => entry.kind === "cart").length ? `${lineEntries.filter((entry) => entry.kind === "cart").length} to pay` : "",
     idChecks.length ? `${idChecks.length} ID${idChecks.length === 1 ? "" : "s"} to check` : "",
+    gcashChecks.length ? `${gcashChecks.length} GCash payment${gcashChecks.length === 1 ? "" : "s"} to check` : "",
     loyalty.claims.length ? `${loyalty.claims.length} Stars scan${loyalty.claims.length === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(" · ");
   // A sent cart's items as the menu knows them, and their total.
@@ -2561,6 +2726,23 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   }
 
   // Clears the cart and refreshes stock once an order is in the queue (cash or GCash).
+  // Direct GCash at the counter: the cashier saw the payment and typed its reference number. Returns
+  // what went wrong (shown in the dialog), or null once the order is placed.
+  async function confirmDirectPay(reference: string): Promise<string | null> {
+    if (!directPay) return null;
+    try {
+      const response = await fetch("/api/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...directPay.body, gcash_reference: reference }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") { setDirectPay(null); setRewardPasswordInvalid(true); setRewardPasswordOpen(true); return null; }
+      if (!response.ok) return payload?.error || "Unable to complete checkout.";
+      setDirectPay(null);
+      await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId), Number(payload.data.starsEarned ?? 0), Number(payload.data.starsRedeemed ?? 0));
+      return null;
+    } catch {
+      return "Could not reach the server. Check the connection and try again.";
+    }
+  }
+
   async function afterOrderPlaced(orderId: number, queueNumber: number, shiftId: number, starsEarned = 0, starsRedeemed = 0) {
     const starNotes = [starsRedeemed > 0 ? `${starsRedeemed} ★ used` : "", starsEarned > 0 ? `+${starsEarned} ★` : ""].filter(Boolean).join(", ");
     setLastPlaced({ orderId, queueNumber, note: "", stars: starNotes && customer ? `${starNotes} for ${customer.fullName.split(" ")[0]}` : undefined });
@@ -2641,6 +2823,16 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       if (!Number.isFinite(cash) || cash <= 0 || cash >= subtotalValue) { setCheckoutError("Enter a cash part between ₱0 and the subtotal."); return; }
       if (subtotalValue - cash < minimum) { setCheckoutError(`The GCash part must be at least ₱${minimum.toFixed(2)}.`); return; }
       if (!Number.isFinite(received) || received < cash) { setCheckoutError("The cash received must cover the cash part."); return; }
+    }
+    if ((paymentMethod === "gcash" || paymentMethod === "split") && gcashConfig?.direct) {
+      // The café's own QR: the customer pays, the cashier confirms with the reference number, and
+      // only then is the order placed (see DirectGcashCounterDialog).
+      const split = paymentMethod === "split" ? { cash_amount: Number.parseFloat(cashPart), received_amount: receivedAmount.trim() === "" ? Number.parseFloat(cashPart) : parsedReceivedAmount } : null;
+      const cashAmount = split ? Math.round(split.cash_amount * 100) / 100 : 0;
+      setDirectPay({ amount: Math.round((subtotalValue - cashAmount) * 100) / 100, cashAmount, total: subtotalValue, body: { items: cartItems, payment_method: "gcash", split, customer_id: customer?.id ?? null, ...rewardAuth } });
+      setRewardPasswordOpen(false);
+      setCheckingOut(false);
+      return;
     }
     if (paymentMethod === "gcash" || paymentMethod === "split") {
       const split = paymentMethod === "split" ? { cash_amount: Number.parseFloat(cashPart), received_amount: receivedAmount.trim() === "" ? Number.parseFloat(cashPart) : parsedReceivedAmount } : null;
@@ -2771,7 +2963,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     </div>
     {(lineNotice || idCheckNotice) && <p className="pos-line-notice" role="status">{lineNotice || idCheckNotice}</p>}
     {lineEntries.length === 0
-      ? <div className="pos-line-empty"><IconInbox size={30} /><strong>No one is waiting</strong><span>Carts sent to pay at the counter, ID photos to check and Stars sign scans from the mobile menu show up here.</span></div>
+      ? <div className="pos-line-empty"><IconInbox size={30} /><strong>No one is waiting</strong><span>Carts sent to pay at the counter, ID photos to check, Stars sign scans{gcashConfig?.direct ? " and GCash payments to check" : ""} from the mobile menu show up here.</span></div>
       : <ol className="pos-line-list">{lineEntries.map((entry, index) => {
         if (entry.kind === "cart") {
           const { sent } = entry;
@@ -2780,6 +2972,15 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
             <span className="pos-line-code">{sent.code}</span>
             <span className="pos-line-text"><b className="pos-line-kind">{sent.discountTypeId !== null ? `🪪 ${sent.discountName ?? "ID discount"} at the counter` : "💳 Pay at the counter"}</b><strong>{sent.customer?.fullName ?? "Guest"} · {formatPeso(items.total)}</strong><em>{items.text} · {sent.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"} · waiting {waited(sent.createdAt)}</em></span>
             <span className="pos-line-actions"><button type="button" className="pos-line-serve" onClick={() => serveCart(sent)}>Serve</button><button type="button" className="pos-claim-decline" onClick={() => { void dismissCounterCart(sent).then(onLineChanged); }} aria-label={`Dismiss cart ${sent.code}`} title="Dismiss (they never came)">×</button></span>
+          </li>;
+        }
+        if (entry.kind === "gcash") {
+          const { check } = entry;
+          const sendBack = check.status === "needs_attention";
+          return <li key={entry.key} className={`pos-line-item is-gcash${index === 0 ? " is-next" : ""}`}>
+            <span className="pos-line-code is-icon">₱</span>
+            <span className="pos-line-text"><b className="pos-line-kind">{sendBack ? "GCash to send back" : "GCash payment to check"}</b><strong>{formatPeso(check.amount)} · {check.customerName ?? "Guest"}</strong><em>{sendBack ? "Confirmed, but the order could not be made" : `Ref. ${check.reference ? formatGcashReference(check.reference) : "—"} · ${sentItems(check.items).text}`}{check.submittedAt ? ` · waiting ${waited(check.submittedAt)}` : ""}</em></span>
+            <span className="pos-line-actions"><button type="button" className="pos-line-serve" onClick={() => setGcashCheckOpen(check)}>{sendBack ? "Open" : "Check"}</button></span>
           </li>;
         }
         if (entry.kind === "id") {
@@ -3082,6 +3283,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
               {splitProblem && cashPart.trim() !== "" ? <p style={{ margin: 0, color: "#B91C1C", fontSize: 11.5, lineHeight: 1.4 }}>{splitProblem}</p>
                 : <p style={{ margin: 0, color: "#9C8278", fontSize: 11, lineHeight: 1.45 }}>Take the cash first. The customer pays the rest with GCash, and the order goes to the queue once GCash confirms.</p>}
             </> : paymentMethod === "cod" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>Cash on delivery: the rider collects <strong>₱{subtotal.toFixed(2)}</strong> at the door and hands it in when they get back.</p>
+            : paymentMethod === "gcash" && gcashConfig?.direct ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>{serviceType === "delivery" ? "Send the café’s GCash QR or number in Messenger. Once they pay, type the reference number from their receipt and the delivery goes to the queue." : "The café’s GCash QR appears for the customer to pay. Once you see the payment, type the reference number from their receipt and the order goes to the queue."}</p>
             : paymentMethod === "gcash" ? <p style={{ margin: 0, color: "#6B4C3B", fontSize: 11.5, lineHeight: 1.5 }}>{serviceType === "delivery" ? "Copy the payment link from the next screen and send it in Messenger. The delivery goes to the queue once the payment is confirmed." : "A QR code appears for the customer to scan and pay in GCash."} {serviceType === "delivery" ? "" : " The order goes to the queue once the payment is confirmed."}{gcashConfig && subtotal > 0 && subtotal < gcashConfig.minimumAmount ? <strong style={{ display: "block", color: "#B91C1C" }}>GCash needs at least ₱{gcashConfig.minimumAmount.toFixed(2)}.</strong> : null}</p>
             : null}
           </div>
@@ -3180,6 +3382,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       taken={Object.fromEntries(idPreview.used)} existing={idDiscounts.length} initialTypeId={idDiscounts.length === 0 ? idDiscountInitialType : null}
       lockedMode={idDiscounts.length === 0 ? null : idDiscounts[0].lines === null ? "shared" : "items"} lockedGroupSize={idDiscounts.length > 0 && idDiscounts[0].lines === null ? idDiscounts[0].groupSize : null}
       onAdd={(entry) => { setIdDiscounts((current) => [...current, entry]); setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); if (checkoutError) setCheckoutError(""); }} onClose={() => { setIdDiscountDialogOpen(false); setIdDiscountInitialType(null); }} />}
+    {directPay && gcashConfig?.direct && <DirectGcashCounterDialog pay={directPay} config={gcashConfig} onConfirm={confirmDirectPay}
+      onClose={() => { if (directPay.cashAmount > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${directPay.cashAmount.toFixed(2)} cash part.`); setDirectPay(null); }} />}
+    {gcashCheckOpen && <DirectGcashCheckDialog key={gcashCheckOpen.id} check={gcashCheckOpen} itemsText={sentItems(gcashCheckOpen.items).text}
+      onDecided={(message) => { setGcashCheckOpen(null); setLineNotice(message); void refreshGcashChecks(); onLineChanged(); }} onClose={() => { setGcashCheckOpen(null); void refreshGcashChecks(); }} />}
     {idCheckOpen && <IdCheckDialog key={idCheckOpen.id} check={idCheckOpen} lines={idCheckLines(idCheckOpen)} types={idDiscountSetup.types} vat={idDiscountSetup.vat}
       onDecided={(message) => { setIdCheckOpen(null); setIdCheckNotice(message); void refreshIdChecks(); }} onClose={() => { setIdCheckOpen(null); void refreshIdChecks(); }} />}
     {customerPickerOpen && <CustomerPickerDialog onClose={() => setCustomerPickerOpen(false)} onPick={(picked) => {
@@ -3736,14 +3942,14 @@ function ReversalsPage({ user }: { user: Session }) {
     && (!query || String(order.queue_number) === query || String(order.order_id) === query || order.items.toLowerCase().includes(query)));
   const pendingTotal = Number(pendingAction?.order.total_amount ?? 0);
   const pendingIsOnline = pendingAction?.order.payment_method === "online";
-  const pendingIsGcash = pendingAction?.order.payment_provider === "paymongo_gcash";
-  const paymentLabel = (order: QueueOrder) => order.payment_method === "split" ? `Cash ₱${Number(order.cash_portion ?? 0).toFixed(2)} + GCash` : order.payment_provider === "paymongo_gcash" ? "GCash" : order.payment_method === "online" ? "Online payment" : "Cash";
+  const pendingIsGcash = pendingAction?.order.payment_provider === "paymongo_gcash" || pendingAction?.order.payment_provider === "gcash_direct";
+  const paymentLabel = (order: QueueOrder) => order.payment_method === "split" ? `Cash ₱${Number(order.cash_portion ?? 0).toFixed(2)} + GCash` : order.payment_provider === "paymongo_gcash" || order.payment_provider === "gcash_direct" ? "GCash" : order.payment_method === "online" ? "Online payment" : "Cash";
   const pendingIsSplit = pendingAction?.order.payment_method === "split";
   const pendingCashPart = pendingIsSplit ? Number(pendingAction?.order.cash_portion ?? 0) : 0;
   const pendingGcashPart = Math.max(0, pendingTotal - pendingCashPart);
   const openAction = (order: QueueOrder, action: "void" | "refund") => {
     setError(""); setPassword(""); setWrongPassword(false);
-    setReturnMethod(order.cod_unpaid ? "none" : order.payment_method === "split" ? "split" : order.payment_provider === "paymongo_gcash" ? "gcash" : "cash");
+    setReturnMethod(order.cod_unpaid ? "none" : order.payment_method === "split" ? "split" : order.payment_provider === "paymongo_gcash" || order.payment_provider === "gcash_direct" ? "gcash" : "cash");
     setGcashName(""); setGcashNumber(""); setGcashReference("");
     // Made if the bar or kitchen marked it ready or picked up, or it was refunded after the
     // customer got it; otherwise not made yet.

@@ -336,6 +336,13 @@ export async function POST(request: Request) {
         const parts = [Number(openDeliveries.active) ? `${openDeliveries.active} delivery${Number(openDeliveries.active) === 1 ? " is" : " orders are"} still in progress` : "", Number(openDeliveries.failed) ? `${openDeliveries.failed} failed delivery order${Number(openDeliveries.failed) === 1 ? " needs" : "s need"} voiding` : "", Number(openDeliveries.cash) ? `${openDeliveries.cash} rider cash on delivery payment${Number(openDeliveries.cash) === 1 ? " is" : "s are"} not received yet` : ""].filter(Boolean);
         return NextResponse.json({ error: `Finish the deliveries before closing: ${parts.join(", ")}. See the Deliveries page.` }, { status: 409 });
       }
+      // GCash sent to the café's own QR from the mobile menu must be confirmed or rejected first:
+      // once the shift closes, a confirmed payment has no shift to become an order in.
+      const unchecked = Number((await client.query("SELECT COUNT(*)::int AS n FROM payment_checkouts WHERE provider = 'gcash_direct' AND status = 'awaiting_confirmation'")).rows[0].n);
+      if (unchecked > 0) {
+        await client.query("ROLLBACK");
+        return NextResponse.json({ error: `Check the GCash payment${unchecked === 1 ? "" : "s"} from the mobile menu before closing: ${unchecked} ${unchecked === 1 ? "is" : "are"} waiting in the Staff Portal's Counter line.` }, { status: 409 });
+      }
       const expected = await client.query("SELECT expected_cash FROM shift_summaries WHERE shift_id = $1", [shiftId]);
       await client.query(`
         UPDATE shifts

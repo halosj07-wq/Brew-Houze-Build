@@ -3,13 +3,14 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { parseOrderItems, parseServiceType, placeOrder, isSoldOut } from "@/lib/orders";
 import { paymongoConfigured } from "@/lib/paymongo";
+import { directGcashReady, gcashMethod } from "@/lib/gcash";
 import { getCustomerSession } from "@/lib/customers";
 import { mobileIdDiscount } from "@/lib/mobile-id-discount";
 import { markVerificationUsed } from "@/lib/id-verifications";
 import { planDelivery } from "@/lib/delivery";
 
-// Places a mobile order without an online payment: while GCash (PayMongo) is not set up on this
-// server, when rewards make the whole order free (₱0, nothing to pay), or a delivery order paid
+// Places a mobile order without an online payment: while GCash (PayMongo, or the café's own QR)
+// is not set up on this server, when rewards make the whole order free (₱0, nothing to pay), or a delivery order paid
 // with cash on delivery (delivery: { address_id, payment: "cod" }). With PayMongo keys
 // present, paid orders go through /api/payments and are only created once the payment is
 // confirmed, so an unpaid order cannot be sent from here.
@@ -34,7 +35,8 @@ export async function POST(request: Request) {
     const delivery = serviceType === "delivery" ? await planDelivery(client, customer?.customerId ?? null, body.delivery) : null;
     const paymentMethod = delivery?.payment === "cod" ? "cod" : "online";
     const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod, customerToken, customerId: idDiscount?.customerId ?? customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, idDiscounts: idDiscount?.idDiscounts ?? [], serviceType, delivery });
-    if (paymongoConfigured() && placed.total > 0 && paymentMethod !== "cod") {
+    const gcashReady = gcashMethod() === "direct_qr" ? await directGcashReady(client) : paymongoConfigured();
+    if (gcashReady && placed.total > 0 && paymentMethod !== "cod") {
       await client.query("ROLLBACK");
       return NextResponse.json({ error: "Please pay with GCash to place your order." }, { status: 409 });
     }

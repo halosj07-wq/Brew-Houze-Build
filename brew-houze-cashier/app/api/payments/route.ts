@@ -4,17 +4,24 @@ import { startCheckout } from "@/lib/payment-checkouts";
 import { parseIdDiscounts } from "@/lib/discounts";
 import { counterCartProblem, parseCounterCartId } from "@/lib/counter-carts";
 import { paymongoConfigured, paymongoTestMode, PAYMONGO_MIN_AMOUNT } from "@/lib/paymongo";
+import { gcashAccount, gcashMethod } from "@/lib/gcash";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { authorizeCounterRewards, CUSTOMER_UNAVAILABLE, linkableCustomerId } from "@/lib/customers";
 import { planDelivery } from "@/lib/delivery";
 import pool from "@/lib/db";
 
-// Whether GCash is available at the counter (PayMongo keys set on the server).
+// Whether GCash is available at the counter, and how: through PayMongo (its keys set on the
+// server), or straight to the café's GCash QR (GCASH_METHOD=direct_qr, see lib/gcash.ts), where the
+// cashier confirms each payment and the order goes through /api/checkout.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
-  return NextResponse.json({ data: { gcash: paymongoConfigured(), testMode: paymongoTestMode(), minimumAmount: PAYMONGO_MIN_AMOUNT } }, { headers: { "Cache-Control": "no-store" } });
+  if (gcashMethod() === "direct_qr") {
+    const account = await gcashAccount();
+    return NextResponse.json({ data: { gcash: account.hasQr, direct: true, accountName: account.name, accountNumber: account.number, qrVersion: account.version, testMode: false, minimumAmount: 0 } }, { headers: { "Cache-Control": "no-store" } });
+  }
+  return NextResponse.json({ data: { gcash: paymongoConfigured(), direct: false, testMode: paymongoTestMode(), minimumAmount: PAYMONGO_MIN_AMOUNT } }, { headers: { "Cache-Control": "no-store" } });
 }
 
 // Starts a GCash payment for the cart. The order is created only once PayMongo confirms it.
@@ -22,6 +29,7 @@ export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
+  if (gcashMethod() === "direct_qr") return NextResponse.json({ error: "GCash is paid to the café's QR here: confirm the payment and its reference number instead." }, { status: 409 });
   if (!paymongoConfigured()) return NextResponse.json({ error: "GCash is not set up on this server." }, { status: 503 });
   try {
     const body = await request.json() as { items?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; id_discounts?: unknown; counter_cart_id?: unknown; delivery?: unknown };

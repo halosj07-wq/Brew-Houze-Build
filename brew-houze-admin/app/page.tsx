@@ -5112,7 +5112,7 @@ function ShiftMonitor({ onNavigate }: { onNavigate: (page: Page) => void }) {
         {counted && !shift.isOpen && shift.countedCash === null && !shift.isHistorical && <p className="dash-shift-warning shiftm-wide">The cash in the drawer was not counted when this shift closed.</p>}
       </section>}
 
-      {paymentsNeedingAttention.length > 0 && <div className="dash-error" role="alert"><span>{paymentsNeedingAttention.length} GCash payment{paymentsNeedingAttention.length === 1 ? " was" : "s were"} paid but could not become an order. Check the PayMongo dashboard and refund the customer if needed.</span></div>}
+      {paymentsNeedingAttention.length > 0 && <div className="dash-error" role="alert"><span>{paymentsNeedingAttention.length} GCash payment{paymentsNeedingAttention.length === 1 ? " was" : "s were"} paid but could not become an order. Refund the customer if needed: through PayMongo, or, for payments to the café’s own GCash QR, by GCash from the café (the Staff Portal’s Counter line lists them).</span></div>}
 
       {shift && <section className="dash-card shiftm-details">
         <div className="shiftm-tabs-row">
@@ -7240,6 +7240,10 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 //   PayMongo  the money PayMongo holds for the café. Each closing adds the shift's GCash and takes
 //             off PayMongo's fees; the admin records the weekly payouts or checks it against the
 //             PayMongo dashboard.
+//   GCash     instead of PayMongo under direct GCash (the café's own QR, see lib/gcash.ts): the
+//             café's GCash wallet. Each closing adds the shift's GCash, with no fees; the admin
+//             records what is cashed out or checks it against the GCash app. The API still calls
+//             this account "paymongo"; data.wallet says which it is.
 // A hand-made entry with a wrong amount is fixed with a correction linked to it.
 type TreasuryKey = "safe" | "paymongo";
 type SafeInfo = { key: TreasuryKey; accountId: number; name: string; balance: number; live: boolean; openedAt: string | null };
@@ -7247,8 +7251,9 @@ type SafeEntry = {
   id: number; kind: string; amount: number; balanceAfter: number; shiftId: number | null; movementId: number | null; correctsEntryId: number | null;
   correctedBy: number; reason: string; note: string | null; by: string | null; source: string; createdAt: string;
 };
+type TreasuryWallet = { name: string; direct: boolean };
 type TreasuryData = {
-  safe: SafeInfo; paymongo: SafeInfo; lastFloat: number; account: TreasuryKey;
+  safe: SafeInfo; paymongo: SafeInfo; wallet?: TreasuryWallet; lastFloat: number; account: TreasuryKey;
   range: { opening: number; moneyIn: number; moneyOut: number; closing: number; fees: number; gcashSales: number; payouts: number; entries: number }; entries: SafeEntry[]; truncated: boolean;
 };
 type SafeAction = { type: "open" | "deposit" | "withdraw" | "payout" | "count" } | { type: "correct"; entry: SafeEntry };
@@ -7273,10 +7278,11 @@ const treasuryKindGroups: Record<TreasuryKey, { id: string; label: string; kinds
 };
 // Entries an admin made by hand, which a correction may fix.
 const treasuryCorrectable: Record<TreasuryKey, string[]> = { safe: ["opening_balance", "deposit", "withdrawal"], paymongo: ["opening_balance", "payout"] };
-const safeReasons: Record<"deposit" | "withdraw" | "payout" | "correct", string[]> = {
+const safeReasons: Record<"deposit" | "withdraw" | "payout" | "cashOut" | "correct", string[]> = {
   deposit: ["Owner added cash", "Change fund"],
   withdraw: ["Owner took cash", "Paid a supplier", "Wages", "Rent or bills"],
   payout: ["Weekly payout", "Payout on request"],
+  cashOut: ["Transferred to the bank", "Owner cashed out"],
   correct: ["Wrong amount typed", "Recorded twice", "Should not have been recorded"],
 };
 
@@ -7290,7 +7296,8 @@ function IconWallet({ size = 20 }: { size?: number }) {
 
 function exportSafeEntries(data: TreasuryData, rangeLabel: string, fileStamp: string) {
   const account = data.account === "safe" ? data.safe : data.paymongo;
-  const title = data.account === "safe" ? "safe" : "PayMongo";
+  const walletName = data.wallet?.name ?? "PayMongo";
+  const title = data.account === "safe" ? "safe" : walletName;
   saveWorkbook([
     ["Summary", excelInfo([
       [`Brew Houze ${title}`],
@@ -7300,12 +7307,12 @@ function exportSafeEntries(data: TreasuryData, rangeLabel: string, fileStamp: st
       ["Balance at the start", data.range.opening],
       ["Money in", data.range.moneyIn],
       ["Money out", data.range.moneyOut],
-      ...(data.account === "paymongo" ? [["Of which PayMongo fees", data.range.fees] as ExcelInfoRow] : []),
+      ...(data.account === "paymongo" && !data.wallet?.direct ? [["Of which PayMongo fees", data.range.fees] as ExcelInfoRow] : []),
       ["Balance at the end", data.range.closing],
       ["Balance now", account.balance],
       ["Entries", data.range.entries],
     ], ["Entries"])],
-    [`${data.account === "safe" ? "Safe" : "PayMongo"} history`, excelTable([...data.entries].reverse(), [
+    [`${data.account === "safe" ? "Safe" : walletName} history`, excelTable([...data.entries].reverse(), [
       { header: "Date and time", value: (entry) => excelDateTime(entry.createdAt) },
       { header: "Type", value: (entry) => safeKindLabels[entry.kind] ?? entry.kind },
       { header: "Reason", value: (entry) => entry.reason },
@@ -7319,13 +7326,15 @@ function exportSafeEntries(data: TreasuryData, rangeLabel: string, fileStamp: st
       { header: "From", value: (entry) => entry.source === "cashier" ? "Staff app" : "Admin app" },
       { header: "Entry #", value: (entry) => entry.id },
     ])],
-  ], `brew-houze-${data.account === "safe" ? "safe" : "paymongo"}-${fileStamp}.xlsx`);
+  ], `brew-houze-${data.account === "safe" ? "safe" : walletName.toLowerCase()}-${fileStamp}.xlsx`);
 }
 
-function SafeActionDialog({ account, action, balance, onClose, onSaved }: { account: TreasuryKey; action: SafeAction; balance: number; onClose: () => void; onSaved: (message: string) => void }) {
+function SafeActionDialog({ account, wallet, action, balance, onClose, onSaved }: { account: TreasuryKey; wallet: TreasuryWallet; action: SafeAction; balance: number; onClose: () => void; onSaved: (message: string) => void }) {
   const isSafe = account === "safe";
-  const place = isSafe ? "the safe" : "PayMongo";
-  const reasons = action.type === "deposit" || action.type === "withdraw" || action.type === "payout" || action.type === "correct" ? safeReasons[action.type] : [];
+  // Direct GCash: the café's own GCash wallet instead of PayMongo (cash outs instead of payouts).
+  const direct = !isSafe && wallet.direct;
+  const place = isSafe ? "the safe" : wallet.name;
+  const reasons = action.type === "payout" && direct ? safeReasons.cashOut : action.type === "deposit" || action.type === "withdraw" || action.type === "payout" || action.type === "correct" ? safeReasons[action.type] : [];
   // A correction starts from what the entry is now (after any earlier corrections).
   const current = action.type === "correct" ? Math.abs(action.entry.amount + action.entry.correctedBy) : null;
   const [amount, setAmount] = useState(current === null ? "" : current.toFixed(2));
@@ -7350,19 +7359,23 @@ function SafeActionDialog({ account, action, balance, onClose, onSaved }: { acco
   const after = change === null ? null : (action.type === "open" ? change : balance + change);
 
   const titles = {
-    open: isSafe ? "Count the safe to start" : "Start the PayMongo account", deposit: "Deposit to the safe", withdraw: "Withdraw from the safe",
-    payout: "Record a PayMongo payout", count: isSafe ? "Count the safe" : "Check against PayMongo", correct: "Correct an entry",
+    open: isSafe ? "Count the safe to start" : `Start the ${wallet.name} account`, deposit: "Deposit to the safe", withdraw: "Withdraw from the safe",
+    payout: direct ? "Record a cash out" : "Record a PayMongo payout", count: isSafe ? "Count the safe" : `Check against ${wallet.name}`, correct: "Correct an entry",
   };
   const messages = {
     open: isSafe
       ? <>Count the cash in the safe now and enter the total. From then on every shift takes its float from the safe and puts its closing cash back, and the history starts here. Include any cash left in the drawer from the last closing, as the next shift starts by taking its whole float from the safe.</>
-      : <>Open the PayMongo dashboard, go to <b>Payouts</b>, and enter the <b>Upcoming payout balance</b>. From then on every closing adds the shift’s GCash payments here and takes off PayMongo’s fees.</>,
+      : direct ? <>Open the café’s GCash app and enter the balance it shows. From then on every closing adds the shift’s GCash payments here.</>
+        : <>Open the PayMongo dashboard, go to <b>Payouts</b>, and enter the <b>Upcoming payout balance</b>. From then on every closing adds the shift’s GCash payments here and takes off PayMongo’s fees.</>,
     deposit: <>Cash put into the safe from outside the shifts, for example the owner’s own money or extra change. The safe has <b>{peso(balance)}</b> now.</>,
     withdraw: <>Cash taken out of the safe, for example the owner taking cash or paying a supplier. The safe has <b>{peso(balance)}</b> now and cannot go below ₱0.</>,
-    payout: <>The amount PayMongo paid out to the owner, as shown in the PayMongo dashboard’s payout history. PayMongo has <b>{peso(balance)}</b> recorded now.</>,
+    payout: direct
+      ? <>Money taken out of the café’s GCash, for example transferred to the bank or cashed out by the owner. GCash has <b>{peso(balance)}</b> recorded now.</>
+      : <>The amount PayMongo paid out to the owner, as shown in the PayMongo dashboard’s payout history. PayMongo has <b>{peso(balance)}</b> recorded now.</>,
     count: isSafe
       ? <>Count the cash in the safe and enter the total. If it differs from the <b>{peso(balance)}</b> recorded, the difference is saved as a correction, so the safe matches what is really there.</>
-      : <>Enter the <b>Upcoming payout balance</b> from the PayMongo dashboard. If it differs from the <b>{peso(balance)}</b> recorded, the difference is saved as a correction (for example a fee that was not known at closing).</>,
+      : direct ? <>Enter the balance the café’s GCash app shows. If it differs from the <b>{peso(balance)}</b> recorded, the difference is saved as a correction.</>
+        : <>Enter the <b>Upcoming payout balance</b> from the PayMongo dashboard. If it differs from the <b>{peso(balance)}</b> recorded, the difference is saved as a correction (for example a fee that was not known at closing).</>,
     correct: action.type === "correct" ? <>Enter what this {safeKindLabels[action.entry.kind]?.toLowerCase() ?? "entry"} should have been. It stays in the history as it was; the difference is saved as a correction linked to it.</> : null,
   };
 
@@ -7370,7 +7383,7 @@ function SafeActionDialog({ account, action, balance, onClose, onSaved }: { acco
     event.preventDefault();
     if (value === null || !Number.isFinite(value) || value < 0 || ((action.type === "deposit" || action.type === "withdraw" || action.type === "payout") && value === 0)) { setError(action.type === "open" || action.type === "count" ? "Enter the balance (0 or more)." : "Enter the amount."); return; }
     if (reasons.length && !finalReason) { setError("Choose or type a reason."); return; }
-    if (after !== null && after < -0.004) { setError(`${isSafe ? "The safe" : "PayMongo"} only has ${peso(balance)} recorded. It cannot go below ₱0.`); return; }
+    if (after !== null && after < -0.004) { setError(`${isSafe ? "The safe" : wallet.name} only has ${peso(balance)} recorded. It cannot go below ₱0.`); return; }
     if (!password) { setError("Enter your password to confirm."); return; }
     setSaving(true);
     setError("");
@@ -7380,7 +7393,7 @@ function SafeActionDialog({ account, action, balance, onClose, onSaved }: { acco
       const payload = await response.json();
       if (payload?.code === "wrong_password") setPassword("");
       if (!response.ok) throw new Error(payload?.error || "Could not update the treasury.");
-      onSaved(payload?.data?.message ?? `${titles[action.type]}: saved. ${isSafe ? "The safe" : "PayMongo"} now has ${peso(Number(payload?.data?.balance ?? 0))}.`);
+      onSaved(payload?.data?.message ?? `${titles[action.type]}: saved. ${isSafe ? "The safe" : wallet.name} now has ${peso(Number(payload?.data?.balance ?? 0))}.`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not update the treasury.");
     } finally {
@@ -7389,7 +7402,7 @@ function SafeActionDialog({ account, action, balance, onClose, onSaved }: { acco
   }
 
   const outgoing = action.type === "withdraw" || action.type === "payout";
-  const amountLabel = action.type === "open" || action.type === "count" ? (isSafe ? "Cash counted in the safe" : "Upcoming payout balance") : action.type === "correct" ? "It should have been" : action.type === "payout" ? "Amount paid out" : "Amount";
+  const amountLabel = action.type === "open" || action.type === "count" ? (isSafe ? "Cash counted in the safe" : direct ? "Balance in the GCash app" : "Upcoming payout balance") : action.type === "correct" ? "It should have been" : action.type === "payout" ? (direct ? "Amount cashed out" : "Amount paid out") : "Amount";
   return <Modal onClose={onClose} closeDisabled={saving} label={titles[action.type]}>
     <form onSubmit={submit} className="ui-confirm" style={{ width: "min(100%, 460px)" }}>
       <div className="ui-confirm-icon" data-tone="default" aria-hidden="true" style={{ background: outgoing ? "#FEE2E2" : "#DCFCE7", color: outgoing ? "#B91C1C" : "#15803D" }}>{isSafe ? <IconSafe size={22} /> : <IconWallet size={22} />}</div>
@@ -7410,7 +7423,7 @@ function SafeActionDialog({ account, action, balance, onClose, onSaved }: { acco
       </>}
       <label className="acc-money">
         <span>Note <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
-        <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={action.type === "payout" ? "e.g. the payout reference from PayMongo" : action.type === "withdraw" ? "e.g. what it was for" : "e.g. who counted it"} style={packagingInput} />
+        <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={300} placeholder={action.type === "payout" ? (direct ? "e.g. where it went" : "e.g. the payout reference from PayMongo") : action.type === "withdraw" ? "e.g. what it was for" : "e.g. who counted it"} style={packagingInput} />
       </label>
       <label className="acc-money">
         <span>Your password</span>
@@ -7419,10 +7432,127 @@ function SafeActionDialog({ account, action, balance, onClose, onSaved }: { acco
       {error && <p role="alert" className="acc-error" style={{ marginTop: 10 }}>{error}</p>}
       <div className="ui-confirm-actions">
         <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-        <button type="submit" className={`ui-button ${outgoing ? "ui-button-danger" : "ui-button-primary"}`} disabled={saving}>{saving ? "Saving…" : action.type === "open" ? (isSafe ? "Start the safe" : "Start PayMongo") : action.type === "count" ? (isSafe ? "Save the count" : "Save the check") : action.type === "correct" ? "Save the correction" : action.type === "deposit" ? "Deposit" : action.type === "payout" ? "Record payout" : "Withdraw"}</button>
+        <button type="submit" className={`ui-button ${outgoing ? "ui-button-danger" : "ui-button-primary"}`} disabled={saving}>{saving ? "Saving…" : action.type === "open" ? (isSafe ? "Start the safe" : `Start ${wallet.name}`) : action.type === "count" ? (isSafe ? "Save the count" : "Save the check") : action.type === "correct" ? "Save the correction" : action.type === "deposit" ? "Deposit" : action.type === "payout" ? (direct ? "Record cash out" : "Record payout") : "Withdraw"}</button>
       </div>
     </form>
   </Modal>;
+}
+
+// Direct GCash: the café's GCash QR that customers pay (at the counter and on the mobile menu), and
+// the account name and number shown under it (app/api/gcash). Changing it needs the password.
+type GcashAccountInfo = { name: string; number: string; hasQr: boolean; version: string | null };
+
+// A QR picture as a PNG data URL, at most 1000 px (kept sharp: no JPEG blur on the squares).
+async function qrImageDataUrl(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new window.Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error("That picture could not be opened. Choose the QR saved from the GCash app."));
+      element.src = url;
+    });
+    const scale = Math.min(1, 1000 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("That picture could not be opened.");
+    context.fillStyle = "#FFFFFF";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/png");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function GcashQrCard() {
+  const [account, setAccount] = useState<GcashAccountInfo | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [image, setImage] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [number, setNumber] = useState("");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/gcash", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => {
+      if (!active || !payload?.data) return;
+      setAccount(payload.data.account);
+      if (!payload.data.account.hasQr) setEditing(true);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  function startEditing() {
+    setName(account?.name ?? "");
+    setNumber(account?.number ?? "");
+    setImage(null);
+    setPassword("");
+    setError("");
+    setNotice("");
+    setEditing(true);
+  }
+
+  async function chooseImage(file: File | undefined) {
+    if (!file) return;
+    setError("");
+    try {
+      setImage(await qrImageDataUrl(file));
+    } catch (imageError) {
+      setError(imageError instanceof Error ? imageError.message : "That picture could not be opened.");
+    }
+  }
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!image && !account?.hasQr) { setError("Choose the QR image first."); return; }
+    if (!password) { setError("Enter your password to confirm."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/gcash", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: image ?? undefined, name, number, password }) });
+      const payload = await response.json();
+      if (payload?.code === "wrong_password") setPassword("");
+      if (!response.ok) throw new Error(payload?.error || "Could not save the GCash account.");
+      setAccount(payload.data.account);
+      setEditing(false);
+      setNotice("Saved. Customers now pay this QR, at the counter and on the mobile menu.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the GCash account.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!account) return null;
+  const preview = image ?? (account.hasQr ? `/api/gcash?image=1&v=${account.version ?? ""}` : null);
+  return <section className="gq-card">
+    <div className="gq-preview">{preview ? <Image src={preview} alt="The café's GCash QR" width={168} height={168} unoptimized /> : <span>No QR yet</span>}</div>
+    {editing ? <form className="gq-form" onSubmit={save}>
+      <h3>{account.hasQr ? "Change the GCash QR" : "Add the café’s GCash QR"}</h3>
+      <p>Customers pay this QR at the counter and on the mobile menu, and the cashier checks each payment in this GCash account. In the GCash app, open <b>QR</b>, then <b>Generate QR</b> (or <b>Receive</b>), and save the picture.</p>
+      <label className="acc-money"><span>QR picture{account.hasQr ? " (leave it to keep the current one)" : ""}</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => void chooseImage(event.target.files?.[0])} /></label>
+      <label className="acc-money"><span>Account name, as GCash shows it</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={80} placeholder="e.g. BREW HOUZE or J*** D." style={packagingInput} /></label>
+      <label className="acc-money"><span>GCash number</span><input value={number} onChange={(event) => setNumber(event.target.value)} inputMode="tel" maxLength={16} placeholder="0917 123 4567" style={packagingInput} /></label>
+      <label className="acc-money"><span>Your password</span><input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} style={packagingInput} /></label>
+      {error && <p role="alert" className="acc-error">{error}</p>}
+      <div className="flex flex-wrap gap-2">
+        <button type="submit" className="inv-primary" disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+        {account.hasQr && <button type="button" className="inv-secondary" onClick={() => setEditing(false)} disabled={saving}>Cancel</button>}
+      </div>
+    </form> : <div className="gq-form">
+      <h3>The café’s GCash QR</h3>
+      <p><b>{account.name}</b> · {account.number.replace(/^(\d{4})(\d{3})(\d{4})$/, "$1 $2 $3")}</p>
+      <p>Customers pay this QR, at the counter and on the mobile menu. Each payment comes straight into this GCash account, with no fees; the cashier confirms it before the order is made.</p>
+      {notice && <p className="gq-notice" role="status">{notice}</p>}
+      <div className="flex flex-wrap gap-2"><button type="button" className="inv-secondary" onClick={startEditing}>Change the QR</button></div>
+    </div>}
+  </section>;
 }
 
 function Treasury() {
@@ -7484,10 +7614,16 @@ function Treasury() {
   if (!data) return null;
 
   const isSafe = accountKey === "safe";
+  // The e-wallet: PayMongo, or (direct GCash) the café's own GCash.
+  const wallet: TreasuryWallet = data.wallet ?? { name: "PayMongo", direct: false };
+  const direct = wallet.direct;
   // While switching, the data on screen may still be the other account's.
   const current = data.account === accountKey;
   const account = isSafe ? data.safe : data.paymongo;
-  const groups = treasuryKindGroups[accountKey];
+  const groups = !isSafe && direct
+    ? [{ id: "shifts", label: "GCash", kinds: ["gcash_sales"] }, { id: "payouts", label: "Cash outs", kinds: ["opening_balance", "payout"] }, { id: "corrections", label: "Corrections", kinds: ["correction"] }]
+    : treasuryKindGroups[accountKey];
+  const kindLabel = (kind: string) => !isSafe && direct && kind === "payout" ? "Cash out" : safeKindLabels[kind] ?? kind;
   const query = search.trim().toLowerCase();
   const entries = current ? data.entries : [];
   const kinds = groups.find((entry) => entry.id === group)?.kinds;
@@ -7500,14 +7636,15 @@ function Treasury() {
   const accountTabs = <div className="tre-top">
     <div className="inv-tabs" role="tablist" aria-label="Accounts">
       <button type="button" role="tab" aria-selected={isSafe} onClick={() => chooseAccount("safe")}><IconSafe size={15} />Safe<span className="tre-tab-amount">{data.safe.live ? peso(data.safe.balance) : "not started"}</span></button>
-      <button type="button" role="tab" aria-selected={!isSafe} onClick={() => chooseAccount("paymongo")}><IconWallet size={15} />PayMongo<span className="tre-tab-amount">{data.paymongo.live ? peso(data.paymongo.balance) : "not started"}</span></button>
+      <button type="button" role="tab" aria-selected={!isSafe} onClick={() => chooseAccount("paymongo")}><IconWallet size={15} />{wallet.name}<span className="tre-tab-amount">{data.paymongo.live ? peso(data.paymongo.balance) : "not started"}</span></button>
     </div>
-    {(data.safe.live || data.paymongo.live) && <p className="tre-total"><span>Brew Houze has</span><strong>{peso(total)}</strong><em>{[data.safe.live && "safe", data.paymongo.live && "PayMongo"].filter(Boolean).join(" + ")}</em></p>}
+    {(data.safe.live || data.paymongo.live) && <p className="tre-total"><span>Brew Houze has</span><strong>{peso(total)}</strong><em>{[data.safe.live && "safe", data.paymongo.live && wallet.name].filter(Boolean).join(" + ")}</em></p>}
   </div>;
 
   // Before go live: one step, counting the safe or reading the PayMongo dashboard.
   if (!account.live) return <div className="inv-wrap"><div className="inv">
     {accountTabs}
+    {!isSafe && direct && <GcashQrCard />}
     {notice && <div className="acc-notice" role="status">{notice}</div>}
     {isSafe ? <section className="tre-start">
       <span className="tre-start-icon"><IconSafe size={30} /></span>
@@ -7519,6 +7656,16 @@ function Treasury() {
       </ol>
       <button type="button" className="inv-primary" onClick={() => setAction({ type: "open" })}><IconSafe size={16} />Count the safe</button>
       <p className="inv-hint">Until then, shifts open and close as they do now and nothing moves in or out of the safe.</p>
+    </section> : direct ? <section className="tre-start">
+      <span className="tre-start-icon"><IconWallet size={30} /></span>
+      <h2>Start the GCash account</h2>
+      <p>Customers pay the café’s own GCash QR, so GCash payments go straight into the café’s GCash, with no fees. This page keeps track of that money: every closing adds the shift’s GCash payments, and you record what is cashed out or transferred.</p>
+      <ol>
+        <li>Open the café’s GCash app.</li>
+        <li>Enter the balance it shows. That is this account’s opening balance; its history starts there.</li>
+      </ol>
+      <button type="button" className="inv-primary" onClick={() => setAction({ type: "open" })}><IconWallet size={16} />Start GCash</button>
+      <p className="inv-hint">Until then, GCash payments are recorded on their orders as usual, but nothing is added here.</p>
     </section> : <section className="tre-start">
       <span className="tre-start-icon"><IconWallet size={30} /></span>
       <h2>Start the PayMongo account</h2>
@@ -7530,22 +7677,23 @@ function Treasury() {
       <button type="button" className="inv-primary" onClick={() => setAction({ type: "open" })}><IconWallet size={16} />Start PayMongo</button>
       <p className="inv-hint">Until then, GCash payments are recorded with their fees as usual, but nothing is added here.</p>
     </section>}
-    {action && <SafeActionDialog account={accountKey} action={action} balance={account.balance} onClose={() => setAction(null)} onSaved={saved} />}
+    {action && <SafeActionDialog account={accountKey} wallet={wallet} action={action} balance={account.balance} onClose={() => setAction(null)} onSaved={saved} />}
   </div></div>;
 
   return <div className="inv-wrap">
     <div className="inv">
       {accountTabs}
+      {!isSafe && direct && <GcashQrCard />}
       <div className="inv-summary">
-        <div className="inv-stat is-static tre-balance"><span>{isSafe ? "In the safe now" : "With PayMongo now"}</span><strong>{peso(account.balance)}</strong><em>since {account.openedAt ? shiftTime(account.openedAt) : "—"}</em></div>
+        <div className="inv-stat is-static tre-balance"><span>{isSafe ? "In the safe now" : direct ? "In GCash now" : "With PayMongo now"}</span><strong>{peso(account.balance)}</strong><em>since {account.openedAt ? shiftTime(account.openedAt) : "—"}</em></div>
         {isSafe ? <>
           <div className="inv-stat is-static"><span>Money in</span><strong style={{ color: "#15803D" }}>+{peso(current ? data.range.moneyIn : 0)}</strong><em>{rangeText}</em></div>
           <div className="inv-stat is-static"><span>Money out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? data.range.moneyOut : 0)}</strong><em>{rangeText}</em></div>
           <div className="inv-stat is-static"><span>Left in the drawer</span><strong>{peso(data.lastFloat)}</strong><em>by the last closing, for the next shift</em></div>
         </> : <>
           <div className="inv-stat is-static"><span>GCash in</span><strong style={{ color: "#15803D" }}>+{peso(current ? data.range.gcashSales : 0)}</strong><em>{rangeText}</em></div>
-          <div className="inv-stat is-static"><span>PayMongo fees</span><strong style={{ color: "#B45309" }}>−{peso(current ? data.range.fees : 0)}</strong><em>{current && data.range.gcashSales > 0 ? `${((data.range.fees / data.range.gcashSales) * 100).toFixed(1)}% of the GCash in` : rangeText}</em></div>
-          <div className="inv-stat is-static"><span>Paid out</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? data.range.payouts : 0)}</strong><em>to the owner, {rangeText}</em></div>
+          {!direct && <div className="inv-stat is-static"><span>PayMongo fees</span><strong style={{ color: "#B45309" }}>−{peso(current ? data.range.fees : 0)}</strong><em>{current && data.range.gcashSales > 0 ? `${((data.range.fees / data.range.gcashSales) * 100).toFixed(1)}% of the GCash in` : rangeText}</em></div>}
+          <div className="inv-stat is-static"><span>{direct ? "Cashed out" : "Paid out"}</span><strong style={{ color: "#B91C1C" }}>−{peso(current ? data.range.payouts : 0)}</strong><em>{direct ? "transferred or cashed out" : "to the owner"}, {rangeText}</em></div>
         </>}
       </div>
 
@@ -7556,8 +7704,8 @@ function Treasury() {
             <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "withdraw" }); }}>Withdraw</button>
             <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "count" }); }}><IconSafe size={15} />Count the safe</button>
           </> : <>
-            <button type="button" className="inv-primary" onClick={() => { setNotice(""); setAction({ type: "payout" }); }}>Record a payout</button>
-            <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "count" }); }}><IconWallet size={15} />Check against PayMongo</button>
+            <button type="button" className="inv-primary" onClick={() => { setNotice(""); setAction({ type: "payout" }); }}>{direct ? "Record a cash out" : "Record a payout"}</button>
+            <button type="button" className="inv-secondary" onClick={() => { setNotice(""); setAction({ type: "count" }); }}><IconWallet size={15} />Check against {wallet.name}</button>
           </>}
         </div>
         <button type="button" className="inv-secondary" onClick={() => exportSafeEntries(data, rangeText, start === end ? start : `${start}-to-${end}`)} disabled={!current || data.entries.length === 0}><IconDownload size={14} />Export</button>
@@ -7593,19 +7741,20 @@ function Treasury() {
       </div>
       <p className="inv-hint">{isSafe
         ? "Newest first. Shift moves are made by the shifts themselves: the float taken at opening, cash drops and cash ins, and the cash put back at closing. Nothing here can be edited or deleted; a deposit or withdrawal with a wrong amount is fixed with a correction, anything else by counting the safe."
+        : direct ? "Newest first. Each closing adds the GCash its customers paid to the café’s QR (no fees). A voided or refunded GCash order stays in, because the money came into the café’s GCash (it goes back to the customer by hand). Record what is cashed out or transferred, and check against the GCash app now and then."
         : "Newest first. Each closing adds the GCash its customers paid through PayMongo and takes off the fees PayMongo kept, read from PayMongo itself. A voided or refunded GCash order stays in, because PayMongo still holds that payment (the money goes back to the customer by hand). Record each payout when it arrives, and check against the PayMongo dashboard now and then."}</p>
       {loadError && <div className="inv-alert" role="alert"><span>{loadError}</span><button type="button" onClick={() => setLoadError("")} title="Dismiss"><IconX size={14} /></button></div>}
 
       {!rangeValid ? <div className="inv-empty is-error">The start date must be on or before the end date.</div>
         : !current ? <div className="inv-empty">Loading…</div>
-          : shown.length === 0 ? <div className="inv-empty">{entries.length === 0 ? `No ${isSafe ? "safe" : "PayMongo"} moves in this period.` : "Nothing matches these filters."}</div>
+          : shown.length === 0 ? <div className="inv-empty">{entries.length === 0 ? `No ${isSafe ? "safe" : wallet.name} moves in this period.` : "Nothing matches these filters."}</div>
             : <ul className="tre-list" style={{ opacity: loading ? 0.6 : 1 }}>
               {shown.map((entry) => {
                 const correctable = treasuryCorrectable[accountKey].includes(entry.kind);
                 return <li key={entry.id} className={entry.amount >= 0 ? "is-in" : "is-out"}>
                   <span className="tre-when"><strong>{shiftTime(entry.createdAt)}</strong><em>#{entry.id}</em></span>
                   <span className="tre-what">
-                    <strong>{safeKindLabels[entry.kind] ?? entry.kind}<span>{entry.reason}</span></strong>
+                    <strong>{kindLabel(entry.kind)}<span>{entry.reason}</span></strong>
                     <em>
                       {entry.by ? `${entry.by}${entry.source === "cashier" ? " (staff app)" : ""}` : "Recorded automatically"}
                       {entry.shiftId && ` · shift #${entry.shiftId}`}
@@ -7621,7 +7770,7 @@ function Treasury() {
             </ul>}
       {current && data.truncated && <p className="inv-hint">Showing the newest {data.entries.length} entries. Choose a shorter period to see older ones.</p>}
     </div>
-    {action && <SafeActionDialog account={accountKey} action={action} balance={account.balance} onClose={() => setAction(null)} onSaved={saved} />}
+    {action && <SafeActionDialog account={accountKey} wallet={wallet} action={action} balance={account.balance} onClose={() => setAction(null)} onSaved={saved} />}
   </div>;
 }
 

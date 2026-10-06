@@ -2,15 +2,18 @@ import { NextResponse } from "next/server";
 import { parseOrderItems, parseServiceType, isSoldOut } from "@/lib/orders";
 import { startCheckout } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
+import { directGcashReady, gcashMethod } from "@/lib/gcash";
 import { getCustomerSession } from "@/lib/customers";
 import { mobileIdDiscount } from "@/lib/mobile-id-discount";
 import { planDelivery } from "@/lib/delivery";
 import pool from "@/lib/db";
 
-// Starts a GCash payment for a mobile order and returns the GCash page to open. The order is
-// only created once PayMongo confirms the payment (see /api/payments/[token]).
+// Starts a GCash payment for a mobile order and returns the GCash page to open (PayMongo), or just
+// the amount to pay the café's GCash QR (direct GCash, see lib/gcash.ts). The order is only
+// created once the payment is confirmed (see /api/payments/[token]).
 export async function POST(request: Request) {
-  if (!paymongoConfigured()) return NextResponse.json({ error: "Online payment is not available right now." }, { status: 503 });
+  const ready = gcashMethod() === "direct_qr" ? await directGcashReady() : paymongoConfigured();
+  if (!ready) return NextResponse.json({ error: "Online payment is not available right now." }, { status: 503 });
   try {
     const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown; verification_token?: unknown; saved_id?: unknown; delivery?: unknown };
     const signedIn = await getCustomerSession();

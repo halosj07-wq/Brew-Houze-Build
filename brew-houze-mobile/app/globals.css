@@ -626,3 +626,27 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .bh-card.is-list.is-out .bh-card-body b { color: var(--muted); }
 .bh-list-flag { display: inline-block; margin-left: 6px; padding: 1px 7px; vertical-align: 2px; color: #FFFFFF; background: var(--brown); border-radius: 999px; font-size: 10.5px; font-style: normal; font-weight: 700; }
 .bh-list-flag.is-badge { color: #92400E; background: #FEF3C7; }
+
+/* Direct GCash (the café's own QR): pay, then send the reference number and a screenshot. */
+.gcash-pay { max-height: calc(100dvh - 32px); overflow-y: auto; text-align: left; padding: 24px 20px 20px; }
+.gcash-pay-kicker { margin: 0; text-align: center; color: #0057E4; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.gcash-pay-amount { margin: 4px 0 0; text-align: center; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 34px; font-weight: 800; }
+.gcash-pay-time { margin: 2px 0 0; text-align: center; color: #9C8278; font-size: 12.5px; }
+.gcash-pay-time b { color: #B45309; }
+.gcash-pay-steps { margin: 16px 0 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 16px; color: #3D2B1F; }
+.gcash-pay-steps li { display: flex; flex-direction: column; gap: 8px; }
+.gcash-pay-steps strong { font-size: 14px; }
+.gcash-pay-steps em { color: #6B4C3B; font-size: 12.5px; font-style: normal; line-height: 1.5; }
+.gcash-pay-qr { align-self: center; width: 236px; height: 236px; display: grid; place-items: center; padding: 8px; border-radius: 16px; border: 1px solid #DBEAFE; background: #FFFFFF; }
+.gcash-pay-qr img { width: 220px; height: 220px; object-fit: contain; }
+.gcash-pay-account { align-self: center; color: #1E40AF; font-size: 13px; font-weight: 800; }
+.gcash-pay-links { display: flex; gap: 8px; }
+.gcash-pay-links .add-order-button { flex: 1; justify-content: center; margin-top: 0; padding: 11px 10px; font-size: 13px; text-decoration: none; }
+.gcash-pay-reference { padding: 12px 14px; border: 1px solid #BFDBFE; border-radius: 12px; background: #FFFFFF; color: #3D2B1F; font-family: 'JetBrains Mono', monospace; font-size: 18px; letter-spacing: 0.06em; outline: none; }
+.gcash-pay-reference:focus { border-color: #0057E4; box-shadow: 0 0 0 3px rgba(0,87,228,0.15); }
+.gcash-pay-proof { position: relative; display: grid; place-items: center; width: 120px; min-height: 90px; border: 1px dashed #93C5FD; border-radius: 12px; background: #F5F9FF; color: #1E40AF; font-size: 13px; font-weight: 700; overflow: hidden; cursor: pointer; }
+.gcash-pay-proof img { width: 120px; height: auto; display: block; }
+.gcash-pay-proof input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.gcash-pay-error { margin: 14px 0 0; color: #B91C1C; font-size: 13px; }
+.gcash-pay .add-order-button { justify-content: center; text-align: center; }
+.gcash-pay-note { margin: 12px 0 0; text-align: center; color: #9C8278; font-size: 12px; line-height: 1.5; }

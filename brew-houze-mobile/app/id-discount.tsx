@@ -34,8 +34,9 @@ export function idDiscountAmounts(rule: IdDiscountRule, coveredAmount: number, v
   return { vatExempt, discount: round2(Math.min(Math.max(0, discount), base)) };
 }
 
-// Phone photos are large: shrink to at most 1400 px and re-save as JPEG before sending.
-async function shrinkPhoto(file: File): Promise<string> {
+// Phone photos are large: shrink to at most 1400 px and re-save as JPEG before sending (the GCash
+// receipt screenshot too, see gcash-pay.tsx).
+export async function shrinkPhoto(file: File): Promise<string> {
   const url = URL.createObjectURL(file);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {

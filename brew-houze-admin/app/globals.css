@@ -1629,3 +1629,12 @@ strong.is-low { color: #B45309 !important; }
 .menu-addon-cats button { min-height: 34px; padding: 0 12px; border: 1px solid #E8DDD5; border-radius: 999px; background: #FFFFFF; color: #6B4C3B; font-size: 12.5px; font-weight: 700; cursor: pointer; }
 .menu-addon-cats button[aria-pressed="true"] { border-color: #3D2B1F; background: #3D2B1F; color: #FDF9F5; }
 .menu-addon-cats button:focus-visible { outline: 2px solid #D97706; outline-offset: 2px; }
+
+/* Treasury, GCash tab (direct GCash): the café's GCash QR that customers pay. */
+.gq-card { display: flex; gap: 18px; flex-wrap: wrap; padding: 18px 20px; border: 1px solid #BFDBFE; border-radius: 18px; background: #F5F9FF; }
+.gq-preview { flex-shrink: 0; display: grid; place-items: center; width: 168px; height: 168px; border-radius: 14px; border: 1px solid #DBEAFE; background: #FFFFFF; overflow: hidden; color: #9C8278; font-size: 12px; }
+.gq-preview img { width: 100%; height: 100%; object-fit: contain; }
+.gq-form { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 8px; }
+.gq-form h3 { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; font-weight: 800; color: #3D2B1F; }
+.gq-form p { margin: 0; color: #6B4C3B; font-size: 13px; line-height: 1.55; }
+.gq-notice { color: #15803D !important; font-weight: 700; }

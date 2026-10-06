@@ -4,19 +4,49 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 
 // Printable GCash sign for the counter. Its QR code never changes: it opens /pay/counter on this
-// deployment, which shows whatever GCash payment the cashier has just started.
+// deployment, which shows whatever GCash payment the cashier has just started. Under direct GCash
+// (the café's own QR, see lib/gcash.ts) the sign is the café's GCash QR itself, with its account.
+type DirectInfo = { direct: boolean; ready?: boolean; accountName?: string; accountNumber?: string; qrVersion?: string | null };
+
 export default function CounterSign() {
   const [qr, setQr] = useState("");
   const [address, setAddress] = useState("");
+  const [direct, setDirect] = useState<DirectInfo | null>(null);
 
   useEffect(() => {
     let active = true;
-    const target = `${window.location.origin}/pay/counter`;
-    void import("qrcode")
-      .then((QRCode) => QRCode.toDataURL(target, { margin: 1, width: 720, errorCorrectionLevel: "M", color: { dark: "#1F140D", light: "#FFFFFF" } }))
-      .then((url) => { if (active) { setQr(url); setAddress(target); } });
+    void fetch("/api/gcash-qr?info=1", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then(async (payload: { data?: DirectInfo } | null) => {
+      if (!active) return;
+      if (payload?.data?.direct) { setDirect(payload.data); return; }
+      setDirect({ direct: false });
+      const target = `${window.location.origin}/pay/counter`;
+      const QRCode = await import("qrcode");
+      const url = await QRCode.toDataURL(target, { margin: 1, width: 720, errorCorrectionLevel: "M", color: { dark: "#1F140D", light: "#FFFFFF" } });
+      if (active) { setQr(url); setAddress(target); }
+    }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+
+  if (direct?.direct) return <main className="sign-page">
+    <div className="sign-toolbar">
+      <p>{direct.ready ? "Print this on A5 or A4 and place it where customers can scan it: the café’s own GCash QR." : "Add the café’s GCash QR in Admin → Treasury first."}</p>
+      <button type="button" onClick={() => window.print()} disabled={!direct.ready}>Print sign</button>
+    </div>
+    <section className="sign-card">
+      <span className="sign-badge">GCash</span>
+      <h1>Scan to pay</h1>
+      <p className="sign-sub">Tell the cashier you’re paying with GCash, then scan this in your GCash app.</p>
+      <div className="sign-qr">{direct.ready ? <Image src={`/api/gcash-qr?v=${direct.qrVersion ?? ""}`} alt="The café's GCash QR" width={360} height={360} unoptimized /> : <span>No QR yet</span>}</div>
+      {direct.ready && <p className="sign-account">{direct.accountName} · {String(direct.accountNumber ?? "").replace(/^(\d{4})(\d{3})(\d{4})$/, "$1 $2 $3")}</p>}
+      <ol>
+        <li>Pay the exact total the cashier tells you.</li>
+        <li>Show the cashier your GCash receipt.</li>
+        <li>Your queue number shows on the cashier’s screen.</li>
+      </ol>
+      <p className="sign-brand">Brew Houze</p>
+    </section>
+    <style>{signStyles}</style>
+  </main>;
 
   return <main className="sign-page">
     <div className="sign-toolbar">
@@ -36,7 +66,11 @@ export default function CounterSign() {
       <p className="sign-brand">Brew Houze</p>
       {address && <p className="sign-address">{address.replace(/^https?:\/\//, "")}</p>}
     </section>
-    <style>{`
+    <style>{signStyles}</style>
+  </main>;
+}
+
+const signStyles = `
       .sign-page { min-height: 100dvh; padding: 24px 16px 40px; background: #F3EDE5; font-family: Inter, sans-serif; }
       .sign-toolbar { max-width: 520px; margin: 0 auto 16px; display: flex; align-items: center; gap: 14px; color: #6B4C3B; font-size: 13px; line-height: 1.5; }
       .sign-toolbar p { margin: 0; flex: 1; }
@@ -51,12 +85,11 @@ export default function CounterSign() {
       .sign-card ol { margin: 22px auto 0; max-width: 340px; padding-left: 22px; list-style: decimal; text-align: left; color: #3D2B1F; font-size: 15px; line-height: 1.7; }
       .sign-brand { margin: 22px 0 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 22px; font-weight: 800; color: #D97706; }
       .sign-address { margin: 4px 0 0; color: #9C8278; font-size: 11px; font-family: 'JetBrains Mono', monospace; overflow-wrap: anywhere; }
+      .sign-account { margin: 10px 0 0; color: #1E40AF; font-size: 16px; font-weight: 800; }
       @media print {
         @page { margin: 12mm; }
         .sign-page { padding: 0; background: #FFFFFF; }
         .sign-toolbar { display: none; }
         .sign-card { border: 2px solid #3D2B1F; max-width: none; }
       }
-    `}</style>
-  </main>;
-}
+`;

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 import { addSafeEntry, lastFloatKept, lockAccount, pesoText, SafeShortError, type TreasuryAccountKey } from "@/lib/treasury";
+import { gcashMethod } from "@/lib/gcash";
 
 // The treasury (see treasury-migration.sql, treasury-paymongo-migration.sql and lib/treasury.ts):
 // each account's balance and its history, like a ledger.
@@ -9,6 +10,11 @@ import { addSafeEntry, lastFloatKept, lockAccount, pesoText, SafeShortError, typ
 //             closing). The admin starts it, deposits, withdraws, corrects, or counts it.
 //   paymongo  each closing adds the shift's GCash and takes off PayMongo's fees. The admin starts
 //             it, records the payouts, corrects, or checks it against the PayMongo dashboard.
+//   gcash     (direct GCash, the café: GCASH_METHOD=direct_qr) the café's own GCash wallet. Each
+//             closing adds the shift's GCash (no fees); the admin records what is cashed out, or
+//             checks it against the GCash app.
+// The page shows two accounts: the safe and the e-wallet, which the API calls "paymongo" (the
+// PayMongo account, or the GCash one under direct GCash; `wallet` says which).
 //
 //   GET  /api/treasury?view=summary                    -> both accounts, last float kept
 //   GET  /api/treasury?account=safe|paymongo&start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -25,17 +31,20 @@ import { addSafeEntry, lastFloatKept, lockAccount, pesoText, SafeShortError, typ
 const TZ = "Asia/Manila";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const ENTRY_LIMIT = 3000;
-const ACCOUNTS: TreasuryAccountKey[] = ["safe", "paymongo"];
-const ACCOUNT_WHERE: Record<TreasuryAccountKey, string> = { safe: "kind = 'safe'", paymongo: "kind = 'ewallet' AND LOWER(name) = 'paymongo'" };
+// The e-wallet account in use on this deployment.
+const WALLET: TreasuryAccountKey = gcashMethod() === "direct_qr" ? "gcash" : "paymongo";
+const WALLET_INFO = WALLET === "gcash" ? { name: "GCash", direct: true } : { name: "PayMongo", direct: false };
+const ACCOUNT_WHERE: Record<TreasuryAccountKey, string> = { safe: "kind = 'safe'", paymongo: "kind = 'ewallet' AND LOWER(name) = 'paymongo'", gcash: "kind = 'ewallet' AND LOWER(name) = 'gcash'" };
 // What each account allows by hand, and which entries a correction may fix. Shift moves follow
 // from the shift's own records; anything else is fixed by counting or checking the account.
-const ACTIONS: Record<TreasuryAccountKey, string[]> = { safe: ["open", "deposit", "withdraw", "correct", "count"], paymongo: ["open", "payout", "correct", "count"] };
-const CORRECTABLE: Record<TreasuryAccountKey, string[]> = { safe: ["opening_balance", "deposit", "withdrawal"], paymongo: ["opening_balance", "payout"] };
+const ACTIONS: Record<TreasuryAccountKey, string[]> = { safe: ["open", "deposit", "withdraw", "correct", "count"], paymongo: ["open", "payout", "correct", "count"], gcash: ["open", "payout", "correct", "count"] };
+const CORRECTABLE: Record<TreasuryAccountKey, string[]> = { safe: ["opening_balance", "deposit", "withdrawal"], paymongo: ["opening_balance", "payout"], gcash: ["opening_balance", "payout"] };
 const COUNT_REASONS: Record<TreasuryAccountKey, [more: string, less: string]> = {
   safe: ["Safe count: more than recorded", "Safe count: less than recorded"],
   paymongo: ["PayMongo check: more than recorded", "PayMongo check: less than recorded"],
+  gcash: ["GCash check: more than recorded", "GCash check: less than recorded"],
 };
-const ACCOUNT_LABEL: Record<TreasuryAccountKey, string> = { safe: "safe", paymongo: "PayMongo account" };
+const ACCOUNT_LABEL: Record<TreasuryAccountKey, string> = { safe: "safe", paymongo: "PayMongo account", gcash: "GCash account" };
 
 const round = (value: number) => Math.round(value * 100) / 100;
 
@@ -83,18 +92,19 @@ async function loadAccount(key: TreasuryAccountKey) {
   return { key, accountId: Number(row.account_id), name: String(row.name), balance: Number(row.balance), live: row.opened_at !== null, openedAt: (row.opened_at as string | null) ?? null };
 }
 
-const accountParam = (value: unknown): TreasuryAccountKey | null => ACCOUNTS.includes(String(value ?? "safe") as TreasuryAccountKey) ? String(value ?? "safe") as TreasuryAccountKey : null;
+// "safe", or "paymongo" for the e-wallet account in use (PayMongo, or GCash under direct GCash).
+const accountParam = (value: unknown): TreasuryAccountKey | null => { const key = String(value ?? "safe"); return key === "safe" ? "safe" : key === "paymongo" ? WALLET : null; };
 
 export async function GET(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const params = new URL(request.url).searchParams;
-    const [safe, paymongo, lastFloat] = await Promise.all([loadAccount("safe"), loadAccount("paymongo"), lastFloatKept(pool)]);
-    if (!safe || !paymongo) return NextResponse.json({ error: "A treasury account is missing. Run treasury-migration.sql and treasury-paymongo-migration.sql first." }, { status: 500 });
-    if (params.get("view") === "summary") return NextResponse.json({ data: { safe, paymongo, lastFloat } }, { headers: { "Cache-Control": "no-store" } });
+    const [safe, paymongo, lastFloat] = await Promise.all([loadAccount("safe"), loadAccount(WALLET), lastFloatKept(pool)]);
+    if (!safe || !paymongo) return NextResponse.json({ error: `A treasury account is missing. Run treasury-migration.sql and ${WALLET === "gcash" ? "gcash-direct-migration.sql" : "treasury-paymongo-migration.sql"} first.` }, { status: 500 });
+    if (params.get("view") === "summary") return NextResponse.json({ data: { safe, paymongo, wallet: WALLET_INFO, lastFloat } }, { headers: { "Cache-Control": "no-store" } });
 
     const key = accountParam(params.get("account"));
-    if (!key) return NextResponse.json({ error: "Choose the safe or PayMongo." }, { status: 400 });
+    if (!key) return NextResponse.json({ error: `Choose the safe or ${WALLET_INFO.name}.` }, { status: 400 });
     const account = key === "safe" ? safe : paymongo;
     const start = params.get("start") ?? "";
     const end = params.get("end") ?? "";
@@ -125,7 +135,7 @@ export async function GET(request: Request) {
     const moneyOut = Number(row.money_out);
     return NextResponse.json({
       data: {
-        safe, paymongo, lastFloat, account: key,
+        safe, paymongo, wallet: WALLET_INFO, lastFloat, account: key === "safe" ? "safe" : "paymongo",
         range: { opening, moneyIn, moneyOut, closing: round(opening + moneyIn - moneyOut), fees: Number(row.fees), gcashSales: Number(row.gcash_sales), payouts: Number(row.payouts), entries: Number(row.entries) },
         entries: entries.rows.map(mapEntry),
         truncated: entries.rowCount === ENTRY_LIMIT,
@@ -148,7 +158,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A valid treasury action is required." }, { status: 400 });
   }
   const key = accountParam(body.account);
-  if (!key) return NextResponse.json({ error: "Choose the safe or PayMongo." }, { status: 400 });
+  if (!key) return NextResponse.json({ error: `Choose the safe or ${WALLET_INFO.name}.` }, { status: 400 });
   const action = String(body.action ?? "");
   if (!ACTIONS[key].includes(action)) return NextResponse.json({ error: "That action is not available for this account." }, { status: 400 });
   const amount = parseAmount(body.amount, action === "open" || action === "count" || action === "correct");
@@ -177,14 +187,14 @@ export async function POST(request: Request) {
     if (action === "open") {
       if (account.live) {
         await client.query("ROLLBACK");
-        return NextResponse.json({ error: `The ${ACCOUNT_LABEL[key]} already has its opening balance. Use ${key === "safe" ? "Count the safe" : "Check against PayMongo"} to fix it.` }, { status: 409 });
+        return NextResponse.json({ error: `The ${ACCOUNT_LABEL[key]} already has its opening balance. Use ${key === "safe" ? "Count the safe" : `Check against ${WALLET_INFO.name}`} to fix it.` }, { status: 409 });
       }
-      entryId = await addSafeEntry(client, account, { ...base, kind: "opening_balance", amount, reason: key === "safe" ? "Opening balance (safe counted)" : "Opening balance (from the PayMongo dashboard)" });
+      entryId = await addSafeEntry(client, account, { ...base, kind: "opening_balance", amount, reason: key === "safe" ? "Opening balance (safe counted)" : key === "gcash" ? "Opening balance (from the GCash app)" : "Opening balance (from the PayMongo dashboard)" });
       await client.query("UPDATE treasury_accounts SET opened_at = CURRENT_TIMESTAMP WHERE account_id = $1", [account.accountId]);
     }
     if (action === "deposit") entryId = await addSafeEntry(client, account, { ...base, kind: "deposit", amount, reason });
     if (action === "withdraw") entryId = await addSafeEntry(client, account, { ...base, kind: "withdrawal", amount: -amount, reason });
-    if (action === "payout") entryId = await addSafeEntry(client, account, { ...base, kind: "payout", amount: -amount, reason: reason || "Weekly payout" });
+    if (action === "payout") entryId = await addSafeEntry(client, account, { ...base, kind: "payout", amount: -amount, reason: reason || (key === "gcash" ? "Cashed out" : "Weekly payout") });
 
     if (action === "correct") {
       // amount is what the entry should have been (as a positive number); the correction is the
@@ -196,7 +206,7 @@ export async function POST(request: Request) {
       `, [entryIdToFix, account.accountId])).rows[0] : undefined;
       if (!target || !CORRECTABLE[key].includes(String(target.kind))) {
         await client.query("ROLLBACK");
-        return NextResponse.json({ error: key === "safe" ? "Only an opening balance, deposit or withdrawal can be corrected. For anything else, count the safe." : "Only an opening balance or payout can be corrected. For anything else, check against PayMongo." }, { status: 400 });
+        return NextResponse.json({ error: key === "safe" ? "Only an opening balance, deposit or withdrawal can be corrected. For anything else, count the safe." : `Only an opening balance or ${key === "gcash" ? "cash out" : "payout"} can be corrected. For anything else, check against ${WALLET_INFO.name}.` }, { status: 400 });
       }
       const sign = Number(target.amount) < 0 ? -1 : 1;
       const now = round(Number(target.amount) + Number(target.corrected_by));

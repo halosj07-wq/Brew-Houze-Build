@@ -7,6 +7,7 @@ import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, typ
 import { PhoneField } from "@/lib/input-format";
 import { downloadReceipt, ReceiptSheet } from "./receipt";
 import { livePollGate, onLive } from "@/lib/live";
+import { DirectGcashPay } from "./gcash-pay";
 
 type Product = {
   id: number;
@@ -51,8 +52,11 @@ const pendingPaymentStorageKey = "brew-houze-pending-payment";
 const guestAddressStorageKey = "brew-houze-guest-address";
 type GuestAddress = { recipientName: string; phone: string; zoneId: string; street: string; landmark: string; riderNotes: string };
 const emptyGuestAddress: GuestAddress = { recipientName: "", phone: "", zoneId: "", street: "", landmark: "", riderNotes: "" };
-type PaymentConfig = { method: "gcash" | "none"; testMode?: boolean; minimumAmount?: number };
-type PaymentCheck = { token: string; state: "checking" | "slow" | "failed"; message?: string; cart: CartItem[] };
+// direct: GCash to the café's own QR (the cashier confirms each payment), with its account details.
+type PaymentConfig = { method: "gcash" | "none"; testMode?: boolean; minimumAmount?: number; direct?: boolean; accountName?: string; accountNumber?: string; qrVersion?: string | null };
+// Direct GCash adds two states: "pay" (paying the café's QR and sending the reference number) and
+// "sent" (waiting for the cashier to confirm it).
+type PaymentCheck = { token: string; state: "checking" | "slow" | "failed" | "pay" | "sent"; message?: string; cart: CartItem[]; amount?: number; payBy?: string | null };
 // ID discounts (senior, PWD and others) are checked at the counter: the customer sends their cart
 // there with a 4-digit code and pays the cashier. Kept in storage so a reload keeps the code.
 type IdDiscountOption = IdDiscountRule;
@@ -389,7 +393,7 @@ export default function MenuPage() {
       inFlight = true;
       try {
         const response = await fetch(`/api/payments/${checkingToken}`, { cache: "no-store" });
-        const payload = await response.json() as { data?: { status: string; queueNumber: number | null; message: string | null; trackingToken: string }; error?: string };
+        const payload = await response.json() as { data?: { status: string; provider?: string; payBy?: string | null; amount?: number; queueNumber: number | null; message: string | null; trackingToken: string }; error?: string };
         if (!active) return;
         const result = payload.data;
         if (response.status === 404) {
@@ -407,6 +411,15 @@ export default function MenuPage() {
           setPaymentCheck(null);
           showOrders();
           void refreshAccount();
+          return;
+        }
+        // Direct GCash: paying the café's QR, then waiting for the cashier.
+        if (result.status === "awaiting_confirmation") {
+          setPaymentCheck((current) => current && current.state !== "sent" ? { ...current, state: "sent" } : current);
+          return;
+        }
+        if (result.status === "awaiting_payment" && result.provider === "gcash_direct") {
+          setPaymentCheck((current) => current && (current.state !== "pay" || current.payBy !== result.payBy) ? { ...current, state: "pay", amount: result.amount ?? current.amount, payBy: result.payBy ?? null } : current);
           return;
         }
         if (result.status !== "awaiting_payment") {
@@ -438,6 +451,13 @@ export default function MenuPage() {
   function openAccount(form: AccountForm) {
     setAccountForm(form);
     setAccountOpen(true);
+  }
+
+  // Direct GCash: the customer did not pay after all.
+  async function cancelDirectPayment() {
+    const token = paymentCheck?.token;
+    if (token) await fetch(`/api/payments/${token}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancel" }) }).catch(() => undefined);
+    returnToOrder();
   }
 
   function returnToOrder() {
@@ -840,10 +860,11 @@ export default function MenuPage() {
     const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, delivery: deliveryBody, ...extra });
     if (paymentConfig.method === "gcash" && !payCod) {
       const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-      const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string; code?: string };
+      const payload = await response.json() as { data?: { token: string; redirectUrl: string | null; direct?: boolean; amount: number }; error?: string; code?: string };
       if (payload.code === "sold_out") void loadMenu(true);
       if (!response.ok || !payload.data) throw new Error(payload.code === "sold_out" ? SOLD_OUT_MESSAGE : payload.error || "Could not start the GCash payment.");
       try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
+      if (payload.data.direct || !payload.data.redirectUrl) { setIdSheet(null); setPaymentCheck({ token: payload.data.token, state: "pay", cart, amount: payload.data.amount, payBy: null }); return; }
       window.location.assign(payload.data.redirectUrl);
       return;
     }
@@ -963,10 +984,17 @@ export default function MenuPage() {
     if (paymentConfig.method === "gcash" && orderTotal > 0 && !payCod) {
       try {
         const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }) });
-        const payload = await response.json() as { data?: { token: string; redirectUrl: string }; error?: string; code?: string };
+        const payload = await response.json() as { data?: { token: string; redirectUrl: string | null; direct?: boolean; amount: number }; error?: string; code?: string };
         if (payload.code === "sold_out") { await handleSoldOut(); setPlacingOrder(false); return; }
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
         try { window.localStorage.setItem(pendingPaymentStorageKey, JSON.stringify({ token: payload.data.token, cart })); } catch { /* storage unavailable: the return link still carries the reference */ }
+        if (payload.data.direct || !payload.data.redirectUrl) {
+          // The café's own QR: pay it here, then send the reference number (no GCash page to open).
+          setCartOpen(false);
+          setPlacingOrder(false);
+          setPaymentCheck({ token: payload.data.token, state: "pay", cart, amount: payload.data.amount, payBy: null });
+          return;
+        }
         window.location.assign(payload.data.redirectUrl);
       } catch (paymentError) {
         setOrderError(paymentError instanceof Error ? paymentError.message : "Could not start the GCash payment.");
@@ -1547,9 +1575,18 @@ export default function MenuPage() {
       </section>
     </div>}
     {receiptFor && <ReceiptSheet source={receiptFor} onClose={() => setReceiptFor(null)} />}
-    {paymentCheck && <div className="modal-backdrop bh-legacy">
+    {paymentCheck?.state === "pay" && <div className="modal-backdrop bh-legacy">
+      <DirectGcashPay token={paymentCheck.token} amount={paymentCheck.amount ?? 0} payBy={paymentCheck.payBy ?? null}
+        account={{ accountName: paymentConfig.accountName ?? "", accountNumber: paymentConfig.accountNumber ?? "", qrVersion: paymentConfig.qrVersion ?? null }}
+        onSent={() => setPaymentCheck((current) => current ? { ...current, state: "sent" } : current)} onCancel={() => void cancelDirectPayment()} />
+    </div>}
+    {paymentCheck && paymentCheck.state !== "pay" && <div className="modal-backdrop bh-legacy">
       <section className="confirmation-modal payment-check" role="status" aria-live="polite">
-        {paymentCheck.state === "failed" ? <>
+        {paymentCheck.state === "sent" ? <>
+          <div className="payment-check-spinner" aria-hidden="true" />
+          <h2>Waiting for the café to confirm…</h2>
+          <p>The cashier is checking your GCash payment. Your order is made as soon as it is confirmed. You can keep this page open.</p>
+        </> : paymentCheck.state === "failed" ? <>
           <div className="payment-check-icon is-failed" aria-hidden="true">!</div>
           <h2>Payment not completed</h2>
           <p>{paymentCheck.message}</p>
