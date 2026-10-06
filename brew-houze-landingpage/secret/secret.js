@@ -314,168 +314,255 @@
     },
   };
 
-  // Dirty Work (98 BPM). The page stays; the MV gets on it like dirt, water and work. It follows the
-  // song itself: its bass and its melody (DW_ENV, measured from the MV's sound 20 times a second)
-  // drive the mud, the shimmer, the tapes and the logo, and the choreo's hits move the page.
-  //   bridge (0-20 s)      mud lands on the page on the bass hits: splats that are smeared windows
-  //                        onto the MV behind the page, flecks flying, drips running down (they scroll
-  //                        with the page); the plates play it in grimy sepia
-  //   wet (20 s)           the rain: the mud rinses off, rain streaks the page (harder with the
-  //                        melody), water drops slide down the screen, each showing the MV upside down
-  //   ningning (24.45 s)   her close-up in her plate, lifted in gold, the rest dark, her name stamped
-  //   wet2 (26.3 s)        the splash: spray and ripples, then the drops again
-  //   strobe (36.8 s)      the rain strobe flickers the page
-  //   drop (39.21 s)       two caution tapes slam across the screen in an X, the MV inside them
-  //   chorus               by the bar: the tapes (throbbing with the bass) whip back in, then a gold
-  //                        DIRTY WORK stamp of the frame thuds onto the page; gold shimmer on the melody
-  //   breakdown (56 s)     the long dance take through the giant DIRTY WORK logo (pulsing with the
-  //                        bass), gold sparks; every 2 bars it gives the stage back to the plates
-  //   shake (58.7 s)       the page shaken on every hit of the choreo
-  //   hips (62 s)          the page sways with their hips, left and right, dropping low on each hit
-  //   strobe2 (75.57 s)    the reflective jackets strobe; the tapes and stamps are ripped off
-  //   iris (77.6 s)        the last wide shot closes to a circle, the drain pipe of the bridge
-  //   title (79.75 s)      the MV's own DIRTY WORK and aespa cards print onto the page itself (the
-  //                        page's own logo steps aside for them)
+  // Dirty Work (98 BPM). The page stays; the MV plays over it, through a window. Its bridge (the MV
+  // from its start, the same 16 bars as track 2), measured shot by shot:
+  //   open / take (0-18.6 s)   the long take, shot like an old hip-hop video: the dance in a wide band
+  //                            across the page through a fisheye lens (dwLens), the lens pumping on the
+  //                            kick (harder on the bar), the dust of the stage floor kicked up with it;
+  //                            on the song's three silent beats the DJ scratches the picture (it is
+  //                            pulled back over its last half second and pushed, twice, then lets go);
+  //                            in the build (14.72 s) the lens swells and red lasers sweep the band
+  //   desert / bite (18.6 s)   the warm desert shot warms the page; gold grillz bite shut over the
+  //                            black (19.27 s) and open on the first close-up (19.77 s): "Sharp teeth,
+  //                            bite first"; they bite again over the cuts into the glossy lips (31.7
+  //                            and 35.27 s)
+  //   the close-ups            the window, big, iced out: a diamond-set gold rim glinting with the
+  //                            melody, a focus pull on each cut; the wet shots only (rain, Ningning, the
+  //                            splash, lying in the water, the hair whip, the strobe, the rain) run the
+  //                            extracted water (dirty-work/water.mp4, a hard-light map) down the window
+  //                            and the whole screen
+  //   ningning (24.33 s)       her nameplate chain: her shot is the gold pendant, swinging down on two
+  //                            gold chains, her name in diamond-set blackletter under it, the rest
+  //                            dark, the stones flashing on the beat; the splash (26.73 s) drops the
+  //                            chain and bursts the window to the whole screen
+  //   tear (30.63 s)           the gold-tear eye: gold tears run down the page from the window
+  //   whip (34.2 s)            the red hair whip swings the window, red strands lashing across
+  //   strobe (36.83 s)         the water strobe flickers the screen       dark (39 s)  the window closes
+  // Its chorus (from the drop, 39.21 s) is a dance battle: the black crew (black and red, on the
+  // dirt, white light sabers crossing over them) against the white crew (reflective white jackets,
+  // in the smoke), the MV cutting between them (DW_CREWS). The stage is a canvas over the whole
+  // screen, cut to a shape for each crew:
+  //   drop (39.21 s)       two light sabers cross white-hot in an X and slash the page open: the MV
+  //                        in a diagonal band, its edges lit like the sabers
+  //   black                the slash; light rods sweep across on the beats, the dirt kicks up
+  //   white                the page turns to its negative, like the reflective jackets; the MV in a
+  //                        big white frame, camera flashes popping round it on the eighths
+  //   faces (54.2 s)       the white crew's close-ups in the iced-out window
+  //   battle (58.53 s)     the call and response: the screen split by a saber, the black crew's side
+  //                        and the white crew's; the side on screen dances, the other holds its last
+  //                        move in the dark; each switch flashes, "vs" thuds, the page jolts
+  //   echo (68.33 s)       the black crew's squats with their last moves trailing them in red
+  //                        afterimages, the page swaying with their hips on every beat
+  //   cypher (71.3 s)      the circle in the dark: the MV through a spotlight swinging with the beat,
+  //                        the page gone to silhouettes like the crowd watching
+  //   strobe2 (75.53 s)    the jackets strobe        lineup (78.93 s)  the four of them across the
+  //                        page's four plates, as one wall
+  //   title (79.93 s)      the MV's own DIRTY WORK and aespa cards in gold set with stones, on the page
   const DW_BEAT = 60 / 98;
   const DW_DROP = 39.21; // bar 1 of the chorus (the grid of the rest of the MV)
   // The song's bass and its melody (treble), 0-63 a character, 20 a second from the start of the MV.
   const DW_ENV = { low: "uKRIDzylciXMFnmi847uzDCBErpswk9EUZEHDmwBywBxojinouXSw60553lXVCd86a79SZF92033343365b88becbcdafxwDzzAPMylkkd6o-YKxu200cyzzAywxtsqngLYLxrjkzCGHIwyqpolsTRl85344oX_ra6456cSYD800174434555300144423fAzByzAJNzmol85lMYsf81013swwuspqplhieKVPhehhlgb77eouwxzzUSq31320pWZn61000dVYB722343333551232664222dnomhhuROtlqptwzMWBsuxxyAfeddddnCDEEDSUGkcbczAAABuDAAEEzpmnqtjvDszJGnnmipiotwnqrnggrmnhtuxyztsvxutormnnqqROlikhknsrqrb9aghqV-KfbbqvcbjoRYWQLJfbbflpuxqrniz--nmqsxzK--Q8bbdgq_-QqnknlfrDHzACABClfabnjoqpnnhFW_xxtywvtrmusutwuytvxuyytqwyBB_WSvsrsuxBywtqnptwMV-ErywzwJ--PssvyAzTQItwysqtxByrswtxzrppstvvvtronBZUnjlpqpF--uffdjnpyrvpvrsojzGJSXREEFcchjqrvtorvuF-_qoqspnK--Dieefnw--MtqniijAFLBDBCFIfhkjoknprrrrJ-YGzryxaLTRwrvymtiywkjrhplkrnpT-JgynqtsCtjuuCqzApedb7fddaggda9ffafdd789jjfa76geb7ec88da97beb8baa8xNInqpqomEORkuyvuqpuFNUUZMBpoknFWEjfgdgihfhopmqmrINJCBFzDrF--xuyACDDLGxHzBndppjloooroqnomoomnvttrsJVOqrllioAJJvCCyxvnyGENFGIrosrlDKzhjefgeikdoppolnBLQTIKQDBJ--OTNMUVLIMttwDifrnihnpomihfiheiihnqqrrDPCmppqnmOOKszzzwwuzHJR_WJDusqqIVEgbdefgbfgmqnqooDNFEHIEztw--GQPNLSRSKvvzxmjpomlqpoqqmionqpnqrpuvuO-PqursooLSIzAEECvwuTWRUUGFppqqKNBjfecdhdihqnonponjkmkholhmmhoekrqmmjebijfaafjfdaeeahdieacbfbc8aaaANFssqnooKKHtuAAzvsDQRUURFqwrpqMUAiddbbceddkkhiikESOIKIBFEQ--suwDAFJQVpBJBkkookktqofabacfcdemqoomnU-SwvpqpoKNKxAFJBBuDOXQSVKyqnnsELziffcdechgnpmnkhLXPQRTKFCT--GTXV_ZROSnuwxjhnlkisnoqnkhllmnmhlmnmlIOBpklkihSMEpwzDxCxEW_Z-TKzqtotJYygbdba9dadookpmmGUHPPMFEAS--wHLQQWRTSnDEypipolkspoebb9ggdfgnppnnrT-IwuqqnnKRDuBDJDFxzNNUNNJDnqovBQuijeeheeihlnplkiwqvpxuwwtwyxtuuAyBuqqosrpqggihdhjrnihnhilljeigkejotyyBBzzwutwxxAAxyvwzwyzAwg10000000000000000000000100121010000100012312132314122010010100001000000000000000000000000000000000000000000", high: "vxtpAQytKSFtAVpnqwJKAFEptMNquvqxrruiaTHttaqGncIwpnstneEBvrrjlvWvte8uvkdte0gjwxHOAsrule--JErnqogjhiCBqusppkcsidDVn65GvoimkdckrsrunwktPrq-Xwc9Frihtgeowlj7tDwGzp6yQvtgmFFxvu21pvxxyxAxvnGA-LBDHGKJFCzCQBBlxAvcAVLfD-zsyyKQTFslrMEECAADqdBnbZJHGHCuyMBtoDttCqAD83MBwO-MCKLOMMqononwAvstvurqm6ZEyzBEBTNFwyBFJPUrHSGqEgBUIAGGxttvovvnCsqqqtxxrLP-ColkojyBwrbxZKLDHKLqJKlnHQUSCAMWZXTIKKIHHMSLEFqmxMSQWJFxqOQORNRPQ-_KCzFBKWyzwpororslfrqqplfqnmnjg-wigfcjnlhe8pmj8Gsoe5l97GYGAByBsoidacmmdbLxrc8999YTGHGAwsold9rqwkbvICjjAtCMDxrhqurqoqmxutrliBuqrhjGBrlkhqsspndrmgbqmmniob9AOJDyvurnhhmhqramslFElom8HFGFGEGyuyAyvrplhFumhonkOPwxtnlnutqnfmrqsllrpopnf-yqomejqoifdpklatrsl8k97ZQrstpvlgkiefprkdCtkbadbb-wpoqppjheflwnd64AGt8njiBBvpkgisurlhgotqkgkqpkidgIohdebjjgedavGCBIvlabcbkGFBysqpsCCAvtumezNSQKpywFXP_TSHP_S----DBDDJDuqrgc-XxurpsokokcaevHGFEvlgytu-zBECyByMuphpkwuqimiCvjaQMuphgqmFJpwonOmrSDDBvosv-vrswtsnpnzAoijkhdkgqtkaMEohffspxxlqomztkyHADwxtD-yswBGDDyxAIIrojg9jdprf9PDkhb9qktIsvnGFcEsrBwtrsE-EBzBCIECFGuDvvwrmmblpd7YLAxxruxTHk9sBwqsrtnghI-S-CyzzuxrqnkkzutpndmmvxhaPAqqmgqnEMvyurJVzsDyyxsrC_qlptruoojjhrmgfc9rFCta8WHndegtGNpqmrWEbwpArpnmoC-uooppzDDxwuIIIzAjjBCwjltAxnhjoy-MIxzSLkpAEBxsllqzDHIMQSRPPOKGCwurpHywuoh-IvrrmrvromlgtsklixtrtvtM-IxstBNJEIJqzpieeengikbe-MDyxrvrfahjpxunljwslmihL-BuuvwEyspfeojjfcewotqec-HtljtzqDnzspAxwRJKFAAGBS-GEAABvvDvogomlgb9nqvob9_CofdgqwEeBxqHxcRMRGHDBCW_DFHHIHAAzAyxyyxurymlsjm-EupqvAlifcbfnrkmjFoiiljRXAtqqyDGDAyyAqshgfpiknbf_CtpmiujimfcqAvomlConmkE--CxzwwwponJFonplgiuntvkc-GrljizsJAwuuoInbKKDAzyuW-BwADFzxolwDyAEEAmhjwuqlvDztletxJSJytMEcOCHIEAtrwxDIIMLDEDyCDxqga8448a83233332264223331000000000000000000000000000000000000000001000011000001000000000000000000000000000000000000000000000000000000" };
   const DW_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_-";
   const dwLevel = (band, now) => { const text = DW_ENV[band]; const i = Math.max(0, Math.min(text.length - 1, Math.floor(now * 20))); return DW_CHARS.indexOf(text[i]) / 63; };
-  // The choreo's hits (measured): Ningning's, the shake at 0:59, and the hip sways from 1:02.
-  const DW_HITS = [[24.47, "ning"], [25.46, "ning"], [26.05, "ning"],
-    ...[58.8, 59.26, 59.41, 59.76, 60.01, 60.33].map((t) => [t, "jolt"]),
-    ...[62.12, 62.44, 62.9, 63.43, 63.78, 64.16, 64.45, 64.83, 65.23, 65.47, 65.91].map((t) => [t, "hip"])];
-  // A mud splat: a blob with a few drops, as an SVG mask (seeded, so each one differs).
-  function splatMask(seed) {
-    let state = seed % 2147483646 + 1;
-    const rand = () => (state = (state * 16807) % 2147483647) / 2147483647;
-    const count = 16;
-    const points = Array.from({ length: count }, (_, i) => {
-      const angle = (i / count) * Math.PI * 2;
-      const radius = 24 + rand() * 12 + (rand() < 0.3 ? 8 : 0);
-      return [50 + Math.cos(angle) * radius, 50 + Math.sin(angle) * radius];
-    });
-    const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-    let path = `M${mid(points[count - 1], points[0]).map((v) => v.toFixed(1)).join(" ")}`;
-    points.forEach((point, i) => { const next = mid(point, points[(i + 1) % count]); path += ` Q${point.map((v) => v.toFixed(1)).join(" ")} ${next.map((v) => v.toFixed(1)).join(" ")}`; });
-    const drops = Array.from({ length: 5 }, () => {
-      const angle = rand() * Math.PI * 2;
-      const radius = 40 + rand() * 7;
-      return `<circle cx='${(50 + Math.cos(angle) * radius).toFixed(1)}' cy='${(50 + Math.sin(angle) * radius).toFixed(1)}' r='${(1.2 + rand() * 2.4).toFixed(1)}'/>`;
-    }).join("");
-    // Its drips: a few runs down from its lower edge.
-    const drips = Array.from({ length: 3 }, () => { const x = 30 + rand() * 40; const w = 1.6 + rand() * 2.4; return `<path d='M${(x - w).toFixed(1)} 60 L${(x + w).toFixed(1)} 60 L${(x + w * 0.5).toFixed(1)} ${(90 + rand() * 9).toFixed(1)} Q${x.toFixed(1)} 100 ${(x - w * 0.5).toFixed(1)} ${(90 + rand() * 9).toFixed(1)} Z'/>`; }).join("");
-    return { splat: svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><path d='${path}'/>${drops}</svg>`), drips: svgUrl(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'>${drips}</svg>`) };
-  }
-  // A water drop on the screen: the MV under it, magnified and upside down, as a real drop shows it.
-  function drawDrop(canvas, video) {
-    if (!mirrorsDue || !video.videoWidth) return;
-    const box = canvas.getBoundingClientRect();
-    if (!box.width || box.bottom < 0 || box.top > window.innerHeight) return;
-    const scale = Math.max(window.innerWidth / video.videoWidth, window.innerHeight / video.videoHeight);
-    const left = (window.innerWidth - video.videoWidth * scale) / 2;
-    const top = (window.innerHeight - video.videoHeight * scale) / 2;
-    const reach = box.width * 1.4; // how much of the screen the drop gathers
-    const cx = box.left + box.width / 2;
-    const cy = box.top + box.height / 2;
-    const size = Math.round(box.width * mirrorRatio());
-    if (canvas.width !== size) { canvas.width = size; canvas.height = size; }
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(-1, 0, 0, -1, size, size);
-    ctx.drawImage(video, (cx - reach - left) / scale, (cy - reach - top) / scale, (reach * 2) / scale, (reach * 2) / scale, 0, 0, size, size);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // The chorus's shots by crew (measured): black, white, or close (the white crew's close-ups).
+  const DW_CREWS = [[DW_DROP, "black"], [48.43, "white"], [54.2, "close"], [58.53, "black"], [59.93, "white"], [60.5, "black"], [61.13, "white"],
+    [62.13, "black"], [63.5, "white"], [68.33, "black"], [71.3, "white"], [73.3, "black"], [74.6, "white"], [75.53, "black"], [78.37, "white"], [78.93, "black"]];
+  // The MV's bars: its bar 1 is DW_GRID0 into the video (the bridge, as track 2 of the loop).
+  const DW_GRID0 = DW_DROP - 64 * DW_BEAT;
+  // The bridge's silent beats (beat 3 of bars 2, 4 and 6: the song drops out; the scratches) and
+  // its build.
+  const DW_SILENT = [1, 3, 5].map((bar) => DW_GRID0 + (bar * 4 + 2) * DW_BEAT);
+  const DW_BUILD = DW_GRID0 + 24 * DW_BEAT;
+  // The grillz shut over these (from, to): the black before the first close-up, then the cuts into
+  // the glossy lips.
+  const DW_BITES = [[19.27, 19.77], [31.58, 31.78], [35.15, 35.37]];
+  // The wet shots of the bridge (the water runs down the window and the page in these only).
+  const DW_WET_CUES = new Set(["rainbg", "ningning", "splash", "lying", "whip", "strobe", "rain"]);
+  // The scratch: the frames of the last half second, kept small.
+  const DW_RING = 18;
+  // A row of grillz (gold teeth on the gum line), as a mask: the top row; the bottom one is the same
+  // turned over, half a tooth along so they lock.
+  const dwTeeth = (offset) => svgUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 200" preserveAspectRatio="none"><rect width="800" height="70"/>${Array.from({ length: 9 }, (_, i) => {
+    const x = i * 100 - 50 + offset;
+    const fang = i === 2 || i === 6;
+    return `<path d="M${x + 6} 50 H${x + 94} V${fang ? 150 : 128} Q${x + 50} ${fang ? 200 : 168} ${x + 6} ${fang ? 150 : 128} Z"/>`;
+  }).join("")}</svg>`);
+  // The lens of the long take: the MV through a fisheye, the way the old hip-hop videos were shot
+  // (WebGL: the middle swollen, the edges bent away into a dark rim, the colours parting at the
+  // edge). draw() takes the video or a canvas; null where WebGL is missing (the plain mirror then).
+  function dwLens(canvas) {
+    const gl = canvas.getContext("webgl", { alpha: false, antialias: false });
+    if (!gl) return null;
+    const shader = (type, source) => { const s = gl.createShader(type); gl.shaderSource(s, source); gl.compileShader(s); return s; };
+    const program = gl.createProgram();
+    gl.attachShader(program, shader(gl.VERTEX_SHADER, "attribute vec2 a; varying vec2 v; void main() { v = a * 0.5 + 0.5; gl_Position = vec4(a, 0.0, 1.0); }"));
+    gl.attachShader(program, shader(gl.FRAGMENT_SHADER, `precision mediump float;
+      varying vec2 v; uniform sampler2D t; uniform vec2 fit; uniform float aspect; uniform float bulge; uniform float split;
+      vec3 tap(vec2 p) { vec2 q = p * fit; if (abs(q.x) > 1.0 || abs(q.y) > 1.0) return vec3(0.0); return texture2D(t, q * 0.5 + 0.5).rgb; }
+      void main() {
+        vec2 p = v * 2.0 - 1.0;
+        float r = length(vec2(p.x * aspect, p.y)) / length(vec2(aspect, 1.0));
+        vec2 s = p * (1.0 + bulge * (r * r - 0.45));
+        vec3 c = vec3(tap(s * (1.0 + split)).r, tap(s).g, tap(s * (1.0 - split)).b);
+        gl_FragColor = vec4(c * smoothstep(1.1, 0.45, r * (1.0 + bulge * 0.35)), 1.0);
+      }`));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+    gl.useProgram(program);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const corner = gl.getAttribLocation(program, "a");
+    gl.enableVertexAttribArray(corner);
+    gl.vertexAttribPointer(corner, 2, gl.FLOAT, false, 0, 0);
+    gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    const u = Object.fromEntries(["fit", "aspect", "bulge", "split"].map((name) => [name, gl.getUniformLocation(program, name)]));
+    return {
+      // source: the video or a canvas, width × height its size; bulge 0-1; split: how far the
+      // colours part at the edge.
+      draw(source, width, height, bulge, split) {
+        const box = canvas.getBoundingClientRect();
+        if (!box.width || !box.height || !width || !height) return;
+        const ratio = mirrorRatio();
+        const w = Math.round(box.width * ratio);
+        const h = Math.round(box.height * ratio);
+        if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+        gl.viewport(0, 0, w, h);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+        const aspect = box.width / box.height;
+        const media = width / height;
+        // As cover: the part of the frame that shows.
+        gl.uniform2f(u.fit, aspect > media ? 1 : aspect / media, aspect > media ? media / aspect : 1);
+        gl.uniform1f(u.aspect, aspect);
+        gl.uniform1f(u.bulge, bulge);
+        gl.uniform1f(u.split, split);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      },
+      lose() { gl.getExtension("WEBGL_lose_context")?.loseContext(); },
+    };
   }
   const dirtyWorkScene = {
     src: "dirty-work/scene.mp4",
     className: "dw-scene",
-    cues: [[0, "bridge"], [20, "wet"], [24.45, "ningning"], [26.3, "wet2"], [36.8, "strobe"], [DW_DROP, "drop"], [40.4, "chorus"], [56, "breakdown"], [58.7, "shake"], [60.5, "breakdown2"], [62, "hips"], [66.2, "breakdown3"], [75.57, "strobe2"], [77.6, "iris"], [79.75, "title"], [82.3, "title2"]],
+    // The bridge, shot by shot (measured on the MV), then the chorus by its crews (DW_CREWS).
+    cues: [[0, "open"], [0.63, "take"], [18.6, "desert"], [19.27, "bite"], [19.77, "close"], [21.33, "rainbg"], [22.03, "close"],
+      [24.33, "ningning"], [26.73, "splash"], [27.87, "close"], [29.23, "lying"], [30.63, "tear"], [31.7, "close"], [34.2, "whip"], [35.27, "close"],
+      [36.83, "strobe"], [37.6, "rain"], [39.0, "dark"],
+      [DW_DROP, "drop"], [39.9, "black"], [48.43, "white"], [54.2, "faces"], [58.53, "battle"], [63.5, "white"], [68.33, "echo"], [71.3, "cypher"],
+      [73.3, "black"], [74.6, "white"], [75.53, "strobe2"], [76.3, "black"], [78.37, "white"], [78.93, "lineup"], [79.93, "title"], [82.3, "title2"]],
     mount(box, video) {
-      const tape = (name, text) => `<div class="dws-tape ${name}"><canvas class="dws-tape-video" aria-hidden="true"></canvas><span>${text.repeat(12)}</span><span>${text.repeat(12)}</span></div>`;
+      const water = (name) => `<video class="${name}" muted playsinline loop preload="auto" src="dirty-work/water.mp4" aria-hidden="true"></video>`;
       box.innerHTML = `
-        <i class="dws-dim"></i>
-        <i class="dws-rain"></i>
         <div class="dws-screen"></div>
-        <div class="dws-drops">${"<i><canvas aria-hidden='true'></canvas></i>".repeat(12)}</div>
-        <div class="dws-splash">${"<i></i>".repeat(16)}<b></b><b></b></div>
-        ${tape("is-a", "DIRTY WORK ✦ ")}${tape("is-b", "DIRTY WORKER VER. ✦ ")}
-        <i class="dws-shimmer"></i>
+        <div class="dws-tears">${"<i></i>".repeat(6)}</div>
+        <div class="dws-necklace"><i class="dws-chain is-l"></i><i class="dws-chain is-r"></i><p class="dws-name" aria-hidden="true">Ningning <span>닝닝</span></p></div>
+        <div class="dws-pane"><canvas class="dws-pane-mv" aria-hidden="true"></canvas><canvas class="dws-lens" aria-hidden="true"></canvas>${water("dws-water")}<i class="dws-pane-rim"></i></div>
+        <canvas class="dws-stage" aria-hidden="true"></canvas>
+        <canvas class="dws-side is-black" aria-hidden="true"></canvas>
+        <canvas class="dws-side is-white" aria-hidden="true"></canvas>
+        <i class="dws-frame"></i>
+        <svg class="dws-cuts" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><line class="is-top" x1="0" y1="40" x2="100" y2="22" pathLength="100"/><line class="is-bottom" x1="0" y1="82" x2="100" y2="64" pathLength="100"/><line class="is-vs" x1="54" y1="5" x2="47" y2="95" pathLength="100"/></svg>
+        <div class="dws-x"><i></i><i></i></div>
+        <b class="dws-vs" aria-hidden="true">vs</b>
+        <i class="dws-spot"></i>
+        <div class="dws-lasers"><i></i><i></i><i></i></div>
+        <div class="dws-rods"><i></i><i></i><i></i></div>
+        <div class="dws-pops">${"<i></i>".repeat(8)}</div>
+        <div class="dws-dust">${Array.from({ length: 28 }, (_, n) => `<i style="--x: ${(n * 37) % 100}; --s: ${(0.5 + ((n * 13) % 10) / 10).toFixed(1)}; --d: ${(n * 7) % 10}"></i>`).join("")}</div>
+        <div class="dws-whip"><i></i><i></i><i></i><i></i></div>
         <div class="dws-sparks">${"<i>✦</i>".repeat(12)}</div>
-        <p class="dws-name" aria-hidden="true">Ningning <span>닝닝</span></p>
+        <i class="dws-jaw is-top" style='-webkit-mask-image: ${dwTeeth(0)}; mask-image: ${dwTeeth(0)}'></i>
+        <i class="dws-jaw is-bottom" style='-webkit-mask-image: ${dwTeeth(50)}; mask-image: ${dwTeeth(50)}'></i>
         <i class="dws-flash"></i>
         <p class="dws-tag"><b>⚠ Dirty Work</b> <span class="dws-time">00:00</span></p>`;
       box.querySelector(".dws-screen").append(video);
       const time = box.querySelector(".dws-time");
-      const tapes = [...box.querySelectorAll(".dws-tape-video")];
-      const drops = [...box.querySelectorAll(".dws-drops canvas")];
-      // The plates: the MV across their photos, as in the bridge of Whiplash, but grimy.
-      const lineup = document.getElementById("ae-lineup");
-      lineup.scrollIntoView({ block: "center" });
+      const pane = box.querySelector(".dws-pane-mv");
+      const stage = box.querySelector(".dws-stage");
+      const sides = { black: box.querySelector(".dws-side.is-black"), white: box.querySelector(".dws-side.is-white") };
+      // The fisheye of the long take (the plain mirror where WebGL is missing).
+      const lens = dwLens(box.querySelector(".dws-lens"));
+      box.classList.toggle("has-lens", Boolean(lens));
+      // The last frames, kept small: for the scratch (about half a second, every other frame) and
+      // the afterimages of the echo.
+      const ring = Array.from({ length: DW_RING }, () => document.createElement("canvas"));
+      let head = -1;
+      let kept = 0;
+      let keepTurn = false;
+      const keep = () => {
+        head = (head + 1) % DW_RING;
+        const canvas = ring[head];
+        if (canvas.width !== 480) { canvas.width = 480; canvas.height = Math.round(480 * video.videoHeight / video.videoWidth); }
+        canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+        kept = Math.min(DW_RING, kept + 1);
+      };
+      // The echo: the MV over the whole stage with its last moves trailing it in red (the kept
+      // frames 3, 6 and 9 back, lightened over it, so only what moved shows).
+      const echo = () => {
+        if (!mirrorsDue || !video.videoWidth) return;
+        drawMirror(stage, video, viewportWall());
+        keepTurn = !keepTurn;
+        if (keepTurn || SCENE_LITE) keep();
+        if (kept < 10 || !stage.width) return;
+        const ctx = stage.getContext("2d");
+        const frame = ring[head];
+        const scale = Math.max(stage.width / frame.width, stage.height / frame.height);
+        const w = frame.width * scale;
+        const h = frame.height * scale;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighten";
+        ctx.filter = "sepia(1) saturate(6) hue-rotate(-38deg) brightness(1.15)";
+        [[9, 0.28], [6, 0.42], [3, 0.6]].forEach(([back, alpha]) => {
+          ctx.globalAlpha = alpha;
+          ctx.drawImage(ring[(head - back + DW_RING) % DW_RING], (stage.width - w) / 2, (stage.height - h) / 2, w, h);
+        });
+        ctx.restore();
+      };
+      // The water over the whole screen is on the page itself (outside the scene), so its hard light
+      // blends with the page.
+      box.insertAdjacentHTML("beforeend", water("dws-wetpage"));
+      const wetpage = box.lastElementChild;
+      document.body.append(wetpage);
+      const waters = [box.querySelector(".dws-water"), wetpage];
+      const dust = box.querySelector(".dws-dust");
+      // The page from the top (the window plays over the heading).
+      window.scrollTo({ top: 0, behavior: "instant" });
       const hero = document.querySelector(".hero");
+      const lineup = document.getElementById("ae-lineup");
       const plates = [...lineup.querySelectorAll(".ae-member")].map((plate) => { const canvas = mirror("dws-plate"); plate.querySelector(".ae-photo")?.after(canvas); return canvas; });
-      const ningning = lineup.querySelector('.ae-member[data-member="ningning"] .dws-plate');
-      // The print: the title cards, screened onto the page (outside the scene, so it blends with the page).
-      const print = mirror("dws-print");
-      document.body.append(print);
-      // What lands on the page (it scrolls with it): the mud and the stamps.
-      const muds = [];
-      const stamps = [];
-      let seed = 7;
-      const landing = (width, height) => ({
-        left: window.scrollX + 12 + Math.random() * Math.max(0, window.innerWidth - width - 24),
-        top: window.scrollY + 60 + Math.random() * Math.max(0, window.innerHeight - height - 120),
-      });
-      const splat = (strength) => {
-        const size = Math.round(Math.min(340, window.innerWidth * 0.5) * (0.5 + strength * 0.5));
-        const at = landing(size, size * 1.4);
-        const masks = splatMask(seed += 97);
-        const el = document.createElement("div");
-        el.className = "dws-mud";
-        el.setAttribute("aria-hidden", "true");
-        el.style.cssText = `left: ${at.left.toFixed(0)}px; top: ${at.top.toFixed(0)}px; width: ${size}px; height: ${size}px; --splat: ${masks.splat}; --drips: ${masks.drips}; --r: ${(Math.random() * 40 - 20).toFixed(0)}deg`;
-        el.innerHTML = `<div class="dws-splat"></div><i class="dws-drip"></i><div class="dws-flecks">${Array.from({ length: 7 }, () => `<i style="--fx: ${(Math.random() * 2 - 1).toFixed(2)}; --fy: ${(Math.random() * 2 - 1).toFixed(2)}"></i>`).join("")}</div>`;
-        el.firstChild.append(mirror("dws-splat-video"));
-        document.body.append(el);
-        muds.push(el);
-        if (muds.length > (SCENE_LITE ? 6 : 12)) muds.shift().remove();
-      };
-      const stamp = () => {
-        if (!video.videoWidth) return;
-        const width = Math.round(Math.min(380, window.innerWidth * 0.62));
-        const at = landing(width, width * 835 / 1600);
-        const el = document.createElement("div");
-        el.className = "dws-stamp";
-        el.setAttribute("aria-hidden", "true");
-        const canvas = document.createElement("canvas");
-        canvas.width = 480;
-        canvas.height = 250;
-        const crop = video.videoWidth / (480 / 250);
-        canvas.getContext("2d").drawImage(video, 0, (video.videoHeight - crop) / 2, video.videoWidth, crop, 0, 0, 480, 250);
-        el.append(canvas);
-        el.style.cssText = `left: ${at.left.toFixed(0)}px; top: ${at.top.toFixed(0)}px; width: ${width}px; --r: ${(Math.random() * 16 - 8).toFixed(1)}deg`;
-        document.body.append(el);
-        stamps.push(el);
-        if (stamps.length > 6) stamps.shift().remove();
-      };
-      // The choreo's hits: the page shaken or swaying, her plate pulsing.
-      let nextHit = 0;
-      let hipSide = 1;
+      // The title cards in gold: the MV multiplied over polished gold set with stones (white letters
+      // turn gold, the black stays black), screened onto the page (outside the scene, so the black
+      // drops out over the page).
+      const gold = document.createElement("div");
+      gold.className = "dws-gold";
+      gold.setAttribute("aria-hidden", "true");
+      gold.innerHTML = `<i class="dws-gold-metal">${"<b></b>".repeat(10)}</i>`;
+      const goldMv = mirror("dws-gold-mv");
+      gold.append(goldMv);
+      document.body.append(gold);
       const restart = (el, name) => { el.classList.remove(name); void el.offsetWidth; el.classList.add(name); };
-      const hit = (kind) => {
-        if (kind === "jolt") restart(root, "is-dw-jolt");
-        if (kind === "hip") { hipSide = -hipSide; root.classList.remove("is-dw-hip-l", "is-dw-hip-r"); void root.offsetWidth; root.classList.add(hipSide < 0 ? "is-dw-hip-l" : "is-dw-hip-r"); }
-        if (kind === "ning") restart(box, "is-ning-hit");
-      };
-      let bleed = "";
-      let lastBar = null;
-      let lastSplat = -9;
+      let crew = "";
       let lastLevels = "";
+      let lastBeat = -1;
+      let scratching = -1; // the silent beat being scratched (-1: none)
+      let bitten = false;
+      let wet = false;
+      let hipSide = 1;
+      let sideTurn = 0;
       return {
         show(cue) {
-          // The mud rinses off in the rain, the stamps rip off from the second strobe (also when skipped past).
-          if (cue !== "bridge") muds.forEach((el, i) => { el.style.setProperty("--k", i); el.classList.add("is-rinsed"); });
-          if (["strobe2", "iris", "title", "title2"].includes(cue)) stamps.forEach((el, i) => { el.style.setProperty("--k", i); el.classList.add("is-ripped"); });
           box.style.setProperty("--beat-lag", `${(-((((video.currentTime - DW_DROP) % DW_BEAT) + DW_BEAT) % DW_BEAT)).toFixed(3)}s`);
+          // The water runs only on the wet shots (and only plays then).
+          wet = DW_WET_CUES.has(cue);
+          box.classList.toggle("is-wet", wet);
+          root.classList.toggle("is-dw-wet", wet);
+          waters.forEach((el) => { if (wet) { if (el.paused) el.play().catch(() => undefined); } else el.pause(); });
+          // The echo starts its trails afresh.
+          if (cue === "echo") kept = 0;
+          if (cue !== "echo") root.classList.remove("is-dw-hip-l", "is-dw-hip-r");
         },
         tick(now) {
           time.textContent = `${String(Math.floor(now / 60)).padStart(2, "0")}:${String(Math.floor(now % 60)).padStart(2, "0")}`;
@@ -489,41 +576,103 @@
             const [l, h] = levels.split(" ");
             for (const el of SCENE_LITE ? [box] : [box, hero, lineup]) { el.style.setProperty("--low", l); el.style.setProperty("--high", h); }
           }
-          // The choreo's hits (only when reached in play, not skipped past).
-          if (nextHit > 0 && now < DW_HITS[nextHit - 1][0] - 0.5) { const i = DW_HITS.findIndex(([t]) => t > now); nextHit = i < 0 ? DW_HITS.length : i; }
-          while (nextHit < DW_HITS.length && DW_HITS[nextHit][0] <= now) { if (now - DW_HITS[nextHit][0] < 0.2) hit(DW_HITS[nextHit][1]); nextHit++; }
-          // Mud on the bass hits of the bridge.
-          if (cue === "bridge" && low > 0.58 && now - lastSplat > 0.55) { lastSplat = now; splat(low); }
-          if (now < lastSplat) lastSplat = now - 1;
-          const bar = Math.floor((now - DW_DROP) / (DW_BEAT * 4));
-          let next = "";
-          if (cue === "chorus") {
-            next = bar % 2 === 0 ? "tapes" : "page";
-            if (bar !== lastBar) { lastBar = bar; if (bar % 2 === 1) stamp(); }
+          // The long take: the silent beats are scratched; the dust kicks up on the beats (harder
+          // on the bar), more in the build.
+          const silent = cue === "take" ? DW_SILENT.findIndex((at) => now >= at && now < at + DW_BEAT) : -1;
+          if (silent !== scratching) {
+            scratching = silent;
+            box.classList.toggle("is-scratch", silent >= 0);
           }
-          if (cue === "drop") next = "tapes";
-          if (cue.startsWith("breakdown")) next = Math.floor(bar / 2) % 2 === 0 ? "logo" : "plates";
-          if (cue === "shake") next = "logo";
-          if (cue === "hips") next = "plates";
-          if (next !== bleed) { bleed = next; box.dataset.bleed = next; }
-          // The mirrors (only those on screen are drawn).
-          const photos = cue.startsWith("title") ? [] : plates.filter((canvas) => canvas.isConnected && !(cue === "ningning" && canvas === ningning));
-          if (photos.length) {
-            const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
-            const wall = { left: Math.min(...boxes.map((b) => b.left)), top: Math.min(...boxes.map((b) => b.top)), width: 0, height: 0 };
-            wall.width = Math.max(...boxes.map((b) => b.right)) - wall.left;
-            wall.height = Math.max(...boxes.map((b) => b.bottom)) - wall.top;
-            photos.forEach((canvas) => drawMirror(canvas, video, wall));
+          box.classList.toggle("is-build", cue === "take" && now >= DW_BUILD);
+          // The grillz, shut over the black and the cuts into the lips.
+          const bite = DW_BITES.some(([from, to]) => now >= from && now < to);
+          if (bite !== bitten) { bitten = bite; box.classList.toggle("is-bitten", bite); }
+          // The chorus's crew on screen now (the battle's sides follow it; each switch is a cut).
+          let shot = "";
+          for (const [at, name] of DW_CREWS) if (now >= at) shot = name;
+          if (shot !== crew) {
+            crew = shot;
+            box.dataset.crew = shot;
+            if (cue === "battle") { restart(box, "is-cut"); restart(root, "is-dw-jolt"); }
           }
-          if (cue === "ningning" && ningning) drawCrop(ningning, video, 0.5, 0, 0.5, 1);
-          muds.forEach((el) => drawMirror(el.firstChild.firstChild, video, viewportWall()));
-          if (cue.startsWith("wet") || cue === "ningning") drops.forEach((canvas, i) => { if (!SCENE_LITE || i < 6) drawDrop(canvas, video); });
-          if (bleed === "tapes") tapes.forEach((canvas) => drawMirror(canvas, video, viewportWall()));
-          if (cue === "title" || cue === "title2") drawMirror(print, video, viewportWall());
+          const into = (now - DW_GRID0) / DW_BEAT;
+          const beat = Math.floor(into);
+          if (beat !== lastBeat) {
+            lastBeat = beat;
+            const dirt = ["drop", "black", "strobe2"].includes(cue);
+            if ((cue === "take" && silent < 0) || (dirt && beat % 2 === 0)) {
+              dust.classList.toggle("is-big", beat % 4 === 0 || now >= DW_BUILD);
+              restart(dust, "is-kick");
+            }
+            if (cue === "ningning") restart(box, "is-ning-hit");
+            // The battle hits on the bar; the echo sways with their hips on every beat.
+            if (cue === "battle" && beat % 4 === 0) restart(root, "is-dw-jolt");
+            if (cue === "echo") { hipSide = -hipSide; root.classList.remove("is-dw-hip-l", "is-dw-hip-r"); void root.offsetWidth; root.classList.add(hipSide < 0 ? "is-dw-hip-l" : "is-dw-hip-r"); }
+          }
+          // The cypher's spotlight swings with the beat.
+          if (cue === "cypher") box.style.setProperty("--spot-x", `${(50 + Math.sin(into * Math.PI / 2) * 9).toFixed(2)}%`);
+          // The window: the long take through the lens (scratched on the silent beats), Ningning
+          // cropped into her pendant, the rest as it is.
+          const bridge = now < DW_DROP;
+          const lensed = lens && ["open", "take", "desert"].includes(cue);
+          if (lensed && mirrorsDue && video.videoWidth) {
+            const phase = into - beat;
+            const kick = cue === "desert" ? 0 : Math.exp(-phase * 6) * (beat % 4 === 0 ? 1 : 0.6);
+            const build = now >= DW_BUILD ? Math.min(1, (now - DW_BUILD) / (8 * DW_BEAT)) : 0;
+            let source = video;
+            let bulge = 0.3 + build * 0.35 + kick * 0.22;
+            let split = 0.003 + kick * 0.012 + build * 0.006;
+            if (silent >= 0 && kept > 1) {
+              // Pulled back over the kept frames and pushed, twice in the beat (0 back: now).
+              const s = (now - DW_SILENT[silent]) / DW_BEAT;
+              const back = Math.round((kept - 1) * (0.5 - 0.5 * Math.cos(s * Math.PI * 4)));
+              source = ring[(head - back + DW_RING) % DW_RING];
+              const pull = Math.sin(s * Math.PI * 4);
+              box.style.setProperty("--scratch", pull.toFixed(3));
+              bulge = 0.5 + Math.abs(pull) * 0.25;
+              split = 0.006 + Math.abs(pull) * 0.03;
+            } else if (cue === "take") {
+              // Every other frame into the scratch's memory.
+              keepTurn = !keepTurn;
+              if (keepTurn) keep();
+            }
+            lens.draw(source, source.videoWidth || source.width, source.videoHeight || source.height, bulge, split);
+          } else if (bridge) {
+            if (cue === "ningning") drawCrop(pane, video, 0.5, 0, 0.62, 1);
+            else drawMirror(pane, video);
+          }
+          // The chorus: the stage (its shape follows the crew, in dirtywork.css), the echo, the
+          // battle's two sides, the plates as one wall, the title cards in gold.
+          if (bridge) return;
+          if (cue === "echo") echo();
+          else if (cue === "battle") {
+            if (sides[crew]) drawMirror(sides[crew], video, viewportWall());
+          } else if (cue === "lineup") {
+            const photos = plates.filter((canvas) => canvas.isConnected);
+            if (photos.length) {
+              const boxes = photos.map((canvas) => canvas.getBoundingClientRect());
+              const wall = { left: Math.min(...boxes.map((b) => b.left)), top: Math.min(...boxes.map((b) => b.top)), width: 0, height: 0 };
+              wall.width = Math.max(...boxes.map((b) => b.right)) - wall.left;
+              wall.height = Math.max(...boxes.map((b) => b.bottom)) - wall.top;
+              photos.forEach((canvas) => drawMirror(canvas, video, wall));
+            }
+          } else if (cue.startsWith("title")) {
+            // The whole card, fitted to the screen (on a phone too), on black (black drops out).
+            if (mirrorsDue && goldMv.width) { const ctx = goldMv.getContext("2d"); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, goldMv.width, goldMv.height); }
+            const width = Math.min(window.innerWidth, window.innerHeight * 16 / 9);
+            drawMirror(goldMv, video, { left: (window.innerWidth - width) / 2, top: (window.innerHeight - width * 9 / 16) / 2, width, height: width * 9 / 16 });
+          }
+          else {
+            drawMirror(stage, video, viewportWall());
+            // Each crew's side of the battle keeps its latest frame, ready for it.
+            if (mirrorsDue && sides[crew] && ++sideTurn % 4 === 0) drawMirror(sides[crew], video, viewportWall());
+          }
         },
         unmount() {
-          [...plates, print, ...muds, ...stamps].forEach((el) => el.remove());
-          root.classList.remove("is-dw-jolt", "is-dw-hip-l", "is-dw-hip-r");
+          waters.forEach((el) => { el.pause(); el.removeAttribute("src"); el.load(); });
+          lens?.lose();
+          [...plates, gold, wetpage].forEach((el) => el.remove());
+          root.classList.remove("is-dw-jolt", "is-dw-hip-l", "is-dw-hip-r", "is-dw-wet");
           for (const el of [hero, lineup]) { el.style.removeProperty("--low"); el.style.removeProperty("--high"); }
         },
       };
@@ -851,39 +1000,163 @@
     },
   };
 
-  // Dirty Work: the clip is two phrases with the same rhythm, a big hit then a triple hit (about
-  // 0.76 / 0.83 / 0.90 s, and again 1.67 / 1.75 / 1.83 s), and it runs straight into track 1. Blackletter DIRTY slams in on the first
-  // hit and WORK on the triple (the middle hit flashes the card orange); the second phrase opens
-  // the "aespa ‘Dirty Work’" labels and flashes the four members, each with her gold initial, and
-  // it lands on the gold DIRTY WORK logo. Between the phrases, the hits at 1.14 / 1.30 / 1.44 /
-  // 1.52 s strobe the four group photos in orange and black.
+  // Dirty Work (one bar at 98 BPM; the music starts DW_START into the file, and the cues are on the
+  // file's clock, so each is the hit's time in the bar plus 25 ms). Bone white, blood red and gold,
+  // the look of the MV: the downbeat slams DIRTY in bone white with the dust of the stage floor
+  // bursting up, its flam (80 / 155 ms) slams WORK and flips the frame white like the concept
+  // studio; the first triple (620 / 700 / 775 ms) bites: three grillz close-ups in red, "Sharp
+  // teeth, bite first"; the second triple and the next hit (925 / 1000 / 1075 / 1185 ms) are the
+  // four members, each with her gold blackletter initial; the hit at 1240 ms flashes the studio
+  // white with the silhouette and her two dogs, 1475 ms crosses the red lasers through the dust,
+  // 1855 ms opens the gold-tear eye, and 2080 ms lands the aespa blackletter over the gold DIRTY
+  // WORK, the dust rising into track 1. The shots are stills from the MV and the concept clips.
+  // DW_BEAT (60 / 98) is set with the MV scene above.
+  const DW_START = 1105 / 44100;
+
+  // The bridge (track 2, 16 bars) deals the members' concept clips (dirty-work/clips/, silent) onto
+  // the page as framed cards, the page darkening behind them as it builds. Its sections
+  // (dirtywork.stage.sections) and, in its bars:
+  //   grind  (bars 1-6)   a new card slams onto the page every bar (the page shakes), three at most;
+  //                       on the silent beats (freeze) a shutter flash, every clip stops in black and
+  //                       white and the lyric stamps in red ("Hold tight", "Get tough", "Hold tight")
+  //   build  (bars 7-8)   the four members deal out in a fan along the bottom, one a beat, a red glow
+  //                       rising behind them; bar 8 flickers with the lasers sweeping on the beat
+  //   drive  (bars 9-15)  the lineup: four tall cards, each member's next clip shuttering in every
+  //                       bar, the red spotlight jumping from member to member on the beat (on the
+  //                       eighths in bars 11-12)
+  //   fill   (bar 16)     the cards fall off one a beat, red flashes; Ningning, the last one, steps
+  //                       into the middle in gold; slam (its last beat): the gold logo stamps down and
+  //                       she goes down under it
+  const DW_CLIPS = { karina: [1, 2, 3, 4], giselle: [3, 2, 1], winter: [2, 1, 4, 3], ningning: [1, 2, 4] };
+  const DW_GRIND = ["karina-2", "giselle-3", "winter-1", "ningning-2", "karina-4", "giselle-2"];
+  const DW_FAN = ["karina-3", "giselle-1", "winter-3", "ningning-4"];
+  const DW_HOLD = ["Hold tight", "Get tough", "Hold tight"];
+  const dirtyWorkClips = (() => {
+    let cards = new Map(); // clip name → its figure
+    let box = null;
+    let hold = null;
+    let lasers = null;
+    const show = (wanted, frozen) => {
+      cards.forEach((card, name) => {
+        const want = wanted.get(name);
+        const video = card.querySelector("video");
+        if (want) {
+          const classes = `dwx-card is-on ${want}`;
+          if (card.className !== classes) card.className = classes;
+          if (frozen) video.pause();
+          else if (video.paused) video.play().catch(() => undefined);
+        } else if (card.classList.contains("is-on")) {
+          // It fades where it is (a fallen card stays fallen).
+          card.className = `dwx-card ${[...card.classList].filter((c) => /^(is-[abc]\d|is-drop|is-last)$/.test(c)).join(" ")}`;
+          video.pause();
+        }
+      });
+      box?.classList.toggle("is-frozen", frozen);
+    };
+    return {
+      mount(fx) {
+        box = fx.querySelector(".dwx-cards");
+        hold = fx.querySelector(".dwx-hold");
+        lasers = fx.querySelector(".dwx-lasers");
+        cards = new Map();
+        Object.entries(DW_CLIPS).forEach(([key, numbers]) => numbers.forEach((n) => {
+          const card = document.createElement("figure");
+          card.className = "dwx-card";
+          card.innerHTML = `<video muted playsinline loop preload="auto" src="dirty-work/clips/${key}-${n}.mp4"></video><figcaption>${MEMBERS[key].name}</figcaption>`;
+          box.append(card);
+          cards.set(`${key}-${n}`, card);
+        }));
+      },
+      tick(at, name) {
+        const t = at - 32 * DW_BEAT; // seconds into the bridge
+        const wanted = new Map();
+        let bar = -1;
+        let hit = false;
+        if (at >= 0 && name !== "calm" && t >= 0) {
+          bar = Math.floor(t / (DW_BEAT * 4));
+          const beat = Math.floor(t / DW_BEAT) % 4;
+          const inBar = t - bar * DW_BEAT * 4;
+          if (bar < 6) {
+            for (let k = Math.max(0, bar - 2); k <= bar; k++) wanted.set(DW_GRIND[k], `is-a${k % 3}${k === bar ? " is-fresh" : ""}`);
+            hit = inBar < 0.2;
+          } else if (bar < 8) {
+            DW_FAN.forEach((clip, i) => { if (bar === 7 || i <= beat) wanted.set(clip, `is-b${i}${bar === 7 ? " is-flicker" : ""}`); });
+          } else {
+            // The light: on the beat, or on the eighths in the busiest bars (11 and 12).
+            const lead = bar === 10 || bar === 11 ? Math.floor(t / (DW_BEAT / 2)) % 4 : Math.floor(t / DW_BEAT) % 4;
+            // Each bar's new clips shutter in on its first eighth.
+            const swap = bar < 15 && inBar < DW_BEAT / 2;
+            memberOrder.forEach((key, i) => {
+              const list = DW_CLIPS[key];
+              const clip = `${key}-${list[(Math.min(bar, 14) - 8) % list.length]}`;
+              let state = "";
+              // The fill: one a beat off the bottom; the last one (Ningning) steps into the middle
+              // when she is left alone, and falls on the slam.
+              if (bar >= 15) state = `${i === 3 && beat >= 2 ? " is-last" : ""}${i <= beat ? " is-drop" : ""}`;
+              else if (i === lead) state = " is-lead";
+              wanted.set(clip, `is-c${i}${state}${swap ? " is-swap" : ""}`);
+            });
+          }
+        }
+        show(wanted, name === "freeze");
+        if (hold) {
+          if (name === "freeze" && !hold.classList.contains("is-on")) hold.textContent = DW_HOLD[Math.max(0, Math.floor(bar / 2))] ?? DW_HOLD[0];
+          hold.classList.toggle("is-on", name === "freeze");
+        }
+        lasers?.classList.toggle("is-on", bar === 7);
+        document.documentElement.classList.toggle("dwx-hit", hit);
+      },
+      unmount() {
+        cards.forEach((card) => card.querySelector("video").pause());
+        document.documentElement.classList.remove("dwx-hit");
+        cards = new Map();
+        box = null;
+        hold = null;
+        lasers = null;
+      },
+    };
+  })();
+  const DW_INTRO_SHOTS = ["bite-1", "bite-2", "bite-3", "karina", "giselle", "winter", "ningning", "dogs", "eye", "aespa"];
   const dirtyWorkIntro = {
-    end: 2500,
+    end: 2475,
     cues: [
-      [0, "dirty"], [760, "work"], [830, "invert"], [900, "work"],
-      [1140, "flash", 0], [1300, "flash", 1], [1440, "flash", 2], [1520, "flash", 3],
-      [1590, "photo", 0], [1670, "photo", 1], [1750, "photo", 2], [1830, "photo", 3], [1910, "final"],
+      [25, "dirty"], [105, "work"], [180, "studio"], [340, "labels"],
+      [645, "bite", 0], [725, "bite", 1], [800, "bite", 2],
+      [950, "member", 0], [1025, "member", 1], [1100, "member", 2], [1210, "member", 3],
+      [1265, "dogs"], [1500, "laser"], [1880, "eye"], [2105, "final"],
     ],
-    hits: new Set(["dirty", "work", "invert", "flash", "photo", "final"]),
-    mount(box, photos, flashes) {
+    hits: new Set(["dirty", "work", "studio", "bite", "member", "dogs", "laser", "eye", "final"]),
+    bites: ["Sharp", "teeth,", "bite first"],
+    mount(box) {
+      const shot = (name) => `<img class="dw-shot is-${name.replace(/-\d$/, "")}" data-shot="${name}" src="dirty-work/intro/${name}.webp" alt="" draggable="false" />`;
       box.innerHTML = `
-        <div class="dw-grain"></div>
+        <div class="dw-dust">${Array.from({ length: 34 }, (_, n) => `<i style="--n: ${n}; --x: ${(n * 37) % 100}; --s: ${0.4 + ((n * 13) % 10) / 10}; --d: ${(n * 7) % 10}"></i>`).join("")}</div>
+        <div class="dw-shots">${DW_INTRO_SHOTS.filter((name) => name !== "aespa").map(shot).join("")}</div>
+        <div class="dw-lasers"><i></i><i></i><i></i></div>
         <span class="dw-label is-left">aespa ‘Dirty Work’</span><span class="dw-label is-right">Dirty Worker Ver.</span>
         <div class="dw-stack" role="img" aria-label="Dirty Work"><i class="dw-word is-dirty"></i><i class="dw-word is-work"></i></div>
-        <div class="dw-flashes"></div><div class="dw-photos"></div><i class="dw-initial"></i>
-        <div class="dw-final"><img src="dirty-work/logo-gold.webp" alt="" draggable="false" /><small>Brew Houze × aespa</small></div>`;
-      box.querySelector(".dw-flashes").append(...flashes);
-      box.querySelector(".dw-photos").append(...photos);
+        <b class="dw-caption"></b><i class="dw-initial"></i><span class="dw-name"></span>
+        <div class="dw-final"><img class="dw-final-aespa" src="dirty-work/intro/aespa.webp" alt="" draggable="false" /><img class="dw-final-logo" src="dirty-work/logo-gold.webp" alt="" draggable="false" /><small>Brew Houze × aespa</small></div>
+        <i class="dw-frame"></i>`;
+      const shots = Object.fromEntries([...box.querySelectorAll(".dw-shot")].map((img) => [img.dataset.shot, img]));
+      const caption = box.querySelector(".dw-caption");
       const initial = box.querySelector(".dw-initial");
+      const name = box.querySelector(".dw-name");
       return (step) => {
         const [, scene, value] = this.cues[step];
-        const photo = scene === "photo" ? photos[value] : scene === "flash" ? flashes[value] : null;
-        const ready = !photo || (photo.complete && photo.naturalWidth > 0);
-        photos.forEach((img) => img.classList.toggle("is-current", img === photo));
-        flashes.forEach((img) => img.classList.toggle("is-current", img === photo));
-        initial.textContent = scene === "photo" ? MEMBERS[memberOrder[value]].name[0] : "";
-        box.className = `dw-intro is-${ready ? scene : "labels"}`;
-        // Every hit shakes the frame; restart the animation each time.
+        const key = scene === "member" ? memberOrder[value] : null;
+        const current = scene === "bite" ? shots[`bite-${value + 1}`] : key ? shots[key] : ["dogs", "eye"].includes(scene) ? shots[scene] : null;
+        // A shot not loaded yet is skipped (the dark frame shows instead), never a broken image.
+        const ready = !current || (current.complete && current.naturalWidth > 0);
+        Object.values(shots).forEach((img) => img.classList.toggle("is-current", img === current && ready));
+        caption.textContent = scene === "bite" ? this.bites[value] : scene === "laser" ? "That’s dirty work" : "";
+        initial.textContent = key ? MEMBERS[key].name[0] : "";
+        name.textContent = key ? MEMBERS[key].name : "";
+        const classes = ["dw-intro", `is-${ready ? scene : "labels"}`];
+        // The labels stay once shown, and the dust keeps rising after the slam.
+        if (step >= 3) classes.push("has-labels");
+        if (scene === "final") classes.push("is-rise");
+        box.className = classes.join(" ");
         if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
       };
     },
@@ -1238,14 +1511,18 @@
       era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "facts",
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
-      // The intro runs straight into track 1 (the chorus, 8 bars at 98 BPM); tracks 1 and 2 (the
-      // bridge, 16 bars) then take turns with no gap. The bridge (seconds into track 2): the grind
+      // The intro (one bar at 98 BPM) runs straight into track 1 (the chorus, 8 bars); tracks 1 and 2
+      // (the bridge, 16 bars) then take turns with no gap. The three files were cut on the bar lines,
+      // so each is played from the sample its music starts on (after the encoder's 1105-sample delay)
+      // for exactly its bars. The bridge (seconds into track 2): the grind
       // (a full bar, then sparse bars whose beat 3 drops out: the freezes at 3.67 / 8.57 /
       // 13.47 s), the build (14.69 s), the drive (19.59 s), and the drum fill (36.73 s) with a slam
       // on its last beat (38.57 s). Its effects are its own (fx, styled in dirtywork.css).
-      introClip: "dirty-work/intro.mp3", loops: ["dirty-work/track-1.mp3", "dirty-work/track-2.mp3"], joined: true, intro: dirtyWorkIntro, introClass: "dw-intro",
+      introClip: "dirty-work/intro.mp3", introStart: DW_START, introLength: 4 * DW_BEAT,
+      loops: [{ src: "dirty-work/track-1.mp3", start: DW_START, length: 32 * DW_BEAT }, { src: "dirty-work/track-2.mp3", start: DW_START, length: 64 * DW_BEAT }],
+      joined: true, intro: dirtyWorkIntro, introClass: "dw-intro",
       stage: {
-        beat: 60 / 98, parts: [19.616, 39.218], grid: 19.616,
+        beat: DW_BEAT, parts: [32 * DW_BEAT, 64 * DW_BEAT], grid: 32 * DW_BEAT,
         lyrics: [
         "World domination, I don't gotta say it",
         "Set 'em on fire",
@@ -1263,10 +1540,11 @@
         "Drop it low, low, low",
         "Work it out, work it out",
       ],
-        fx: `<div class="dwx-tape is-top"><span>${"Dirty Work ✦ ".repeat(16)}</span></div><div class="dwx-tape is-bottom"><span>${"Dirty Worker Ver. ✦ ".repeat(14)}</span></div><i class="dwx-stamp"></i><i class="dwx-gold"></i><i class="dwx-still"></i><div class="dwx-sparks">${"<i>✦</i>".repeat(12)}</div>`,
-        sections: [[0, "calm"], ...[[0, "grind"], [3.674, "freeze"], [4.286, "grind"], [8.571, "freeze"], [9.184, "grind"], [13.469, "freeze"], [14.082, "grind"], [14.694, "build"], [19.592, "drive"], [36.735, "fill"], [38.571, "slam"]].map(([at, name]) => [19.616 + at, name])],
+        fx: `<i class="dwx-veil"></i><i class="dwx-rise"></i><i class="dwx-gold"></i><div class="dwx-sparks">${"<i>✦</i>".repeat(12)}</div><div class="dwx-lasers"><i></i><i></i><i></i></div><i class="dwx-flash"></i><div class="dwx-cards"></div><b class="dwx-hold">Hold tight</b><i class="dwx-shutter"></i><i class="dwx-slam"></i>`,
+        ...dirtyWorkClips,
+        sections: [[0, "calm"], ...[[0, "grind"], [3.674, "freeze"], [4.286, "grind"], [8.571, "freeze"], [9.184, "grind"], [13.469, "freeze"], [14.082, "grind"], [14.694, "build"], [19.592, "drive"], [36.735, "fill"], [38.571, "slam"]].map(([at, name]) => [32 * DW_BEAT + at, name])],
       },
-      extras: ["logo-gold.webp", "logo-gold-cut.webp", "logo-white.webp"],
+      extras: ["logo-gold.webp", "logo-gold-cut.webp", "logo-white.webp", ...DW_INTRO_SHOTS.map((name) => `intro/${name}.webp`)],
       scene: dirtyWorkScene,
     },
     armageddon: {
@@ -1480,6 +1758,9 @@
   document.body.appendChild(stageFx);
   let stageFrame = 0;
   let stageName = "";
+  // A stage may also run code: mount(fx) once its markup is in, tick(seconds into the loop, or -1
+  // in the intro; the section) every frame, unmount() when the theme changes.
+  let mountedStage = null;
   let stageClock = 0;
   const stageOf = (theme) => THEMES[theme]?.stage ?? null;
   const stageCycle = (stage) => stage.parts ? stage.parts.reduce((sum, part) => sum + part, 0) : stage.cycle;
@@ -1547,7 +1828,7 @@
       at = (((performance.now() - stageClock) / 1000) % cycle + cycle) % cycle;
     }
     if (at !== null) {
-      if (at < 0) { setStage("calm"); restoreLyrics(); }
+      if (at < 0) { setStage("calm"); restoreLyrics(); stage.tick?.(-1, "calm"); }
       else {
         let section = stage.sections[0];
         for (const entry of stage.sections) if (at >= entry[0]) section = entry;
@@ -1556,6 +1837,7 @@
         const bar = stage.beat * 4;
         const grid = stage.grid ?? stage.sections[1]?.[0] ?? 0;
         setStage(name, begins === 0 && name === "calm" ? 0 : ((at - grid) % bar + bar) % bar);
+        stage.tick?.(at, name);
         if (name === "calm" || !stage.lyrics) restoreLyrics();
         else dealLyrics(stage.lyrics, Math.floor((at - grid) / (bar * 2)));
       }
@@ -1567,17 +1849,22 @@
     stageName = "";
     restoreLyrics();
     const stage = stageOf(theme);
-    if (!stage) { delete root.dataset.stage; return; }
+    if (!stage) { mountedStage?.unmount?.(); mountedStage = null; delete root.dataset.stage; return; }
     root.style.setProperty("--stage-beat", `${Math.round(stage.beat * 1000)}ms`);
     root.style.setProperty("--stage-bar", `${Math.round(stage.beat * 4000)}ms`);
     // The theme's own effects.
+    mountedStage?.unmount?.();
     stageFx.innerHTML = stage.fx;
+    mountedStage = stage;
+    stage.mount?.(stageFx);
     stageClock = performance.now();
     setStage("calm");
     if (motionOK()) stageFrame = requestAnimationFrame(stageTick);
   }
   function stopStage() {
     cancelAnimationFrame(stageFrame);
+    mountedStage?.unmount?.();
+    mountedStage = null;
     stageName = "";
     restoreLyrics();
     delete root.dataset.stage;
@@ -1630,24 +1917,26 @@
       return ctx;
     };
     // length (seconds from the first sound): the part is played for exactly that long, its own
-    // silence at the end included (a part that ends on a rest).
-    const trim = (buffer, length) => {
+    // silence at the end included (a part that ends on a rest). start (seconds into the file): where
+    // the music begins, when it is known exactly (the MP3 encoder's delay), instead of looking for
+    // the first sound (which the encoder smears a few milliseconds early).
+    const trim = (buffer, length, start) => {
       const channels = Array.from({ length: buffer.numberOfChannels }, (_, c) => buffer.getChannelData(c));
       const loud = (i) => channels.some((data) => Math.abs(data[i]) > 1e-4);
       let first = 0;
       while (first < buffer.length && !loud(first)) first++;
       let last = buffer.length - 1;
       while (last > first && !loud(last)) last--;
-      const offset = first / buffer.sampleRate;
+      const offset = start ?? first / buffer.sampleRate;
       return { buffer, offset, duration: length ? Math.min(length, buffer.duration - offset) : (last + 1 - first) / buffer.sampleRate };
     };
     const load = () => {
       if (!loading) {
         const decode = async (entry) => {
-          const { src, length } = typeof entry === "string" ? { src: entry } : entry;
+          const { src, length, start } = typeof entry === "string" ? { src: entry } : entry;
           const response = await fetch(src);
           if (!response.ok) throw new Error(`Could not load ${src}`);
-          return trim(await context().decodeAudioData(await response.arrayBuffer()), length);
+          return trim(await context().decodeAudioData(await response.arrayBuffer()), length, start);
         };
         loading = Promise.all([Promise.all(srcs.map(decode)), introSrc ? decode(introSrc) : null])
           .then(([decoded, intro]) => { parts = decoded; introPart = intro; }, (error) => { loading = null; throw error; });
@@ -1767,7 +2056,7 @@
   }
 
   const players = {};
-  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops, THEMES[theme].joined ? { src: THEMES[theme].introClip, length: THEMES[theme].introLength } : null));
+  const playerFor = (theme) => (players[theme] ??= stitchedLoop(THEMES[theme].loops, THEMES[theme].joined ? { src: THEMES[theme].introClip, length: THEMES[theme].introLength, start: THEMES[theme].introStart } : null));
   const clips = {};
   const clipFor = (theme) => { if (!clips[theme]) { clips[theme] = new Audio(THEMES[theme].introClip); clips[theme].preload = "auto"; } return clips[theme]; };
   // The next theme's intro sound, photos and extra images, loaded before the click so the intro

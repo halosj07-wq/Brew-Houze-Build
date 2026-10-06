@@ -1160,7 +1160,12 @@ strong.is-low { color: #B45309 !important; }
 .acc-switches { display: flex; flex-direction: column; gap: 8px; }
 .acc-role { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; vertical-align: middle; background: #F3EDE5; color: #6B4C3B; }
 .acc-card-name .acc-role { align-self: flex-start; margin-top: 4px; }
+/* One color per role, so each is told apart at a glance. */
+.acc-role.is-cashier { background: #FEF3C7; color: #92400E; }
 .acc-role.is-barista { background: #E0F2FE; color: #0369A1; }
+.acc-role.is-kitchen { background: #DCFCE7; color: #15803D; }
+.acc-role.is-rider { background: #F3E8FF; color: #7E22CE; }
+.acc-role.is-app { background: #E0F2FE; color: #0369A1; }
 .acc-role-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .acc-role-picker button { display: flex; flex-direction: column; gap: 3px; padding: 11px 13px; border-radius: 12px; border: 1.5px solid #E8DDD5; background: #FFFFFF; text-align: left; cursor: pointer; }
 .acc-role-picker button strong { color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 14px; font-weight: 800; }

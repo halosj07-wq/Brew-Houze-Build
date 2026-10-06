@@ -8359,7 +8359,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
         <div style={{ minWidth: 0, flex: 1 }}>
           <h2 id="customer-dialog-title">{customer.fullName}</h2>
           <p>{customer.username ? `@${customer.username}` : "No login"}{customer.email ? ` · ${customer.email}` : ""}</p>
-          <span className={`acc-role ${customer.hasLogin ? "is-barista" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span>{" "}
+          <span className={`acc-role ${customer.hasLogin ? "is-app" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span>{" "}
           {!customer.isActive && <span className="acc-status is-off"><i />Deactivated</span>}
         </div>
         <div className="flex items-center gap-2">
@@ -8585,7 +8585,7 @@ function Customers() {
                 {shown.slice(0, visible).map((customer) => <button key={customer.id} type="button" className={`acc-card${customer.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(customer.id)}>
                   <span className="acc-card-top">
                     <UserAvatar name={customer.fullName} size={44} />
-                    <span className="acc-card-name"><strong>{customer.fullName}</strong><em>{customer.username ? `@${customer.username}` : customer.email ?? "No login"}</em><span className={`acc-role ${customer.hasLogin ? "is-barista" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span></span>
+                    <span className="acc-card-name"><strong>{customer.fullName}</strong><em>{customer.username ? `@${customer.username}` : customer.email ?? "No login"}</em><span className={`acc-role ${customer.hasLogin ? "is-app" : ""}`}>{customer.hasLogin ? "App account" : "Profile"}</span></span>
                     {customer.stars !== null && customer.isActive && <span className="loy-cost" title="Stars in the running campaign">★ {customer.stars}</span>}
                     {!customer.isActive ? <span className="acc-status is-off"><i />Deactivated</span> : birthdayThisMonth(customer.birthday) ? <span className="acc-status is-on">🎂 {birthdayLabel(customer.birthday)}</span> : null}
                   </span>
@@ -10147,7 +10147,7 @@ type ArchivesData = {
   employeeTimeLogs: ArchivedEmployeeTimeLog[];
 };
 type RestoreType = "product" | "product_variant" | "inventory" | "packaging" | "addition" | "category" | "sales_order" | "employee_time_log";
-type ArchiveGroup = "products" | "inventory" | "addons" | "categories" | "sales" | "attendance";
+type ArchiveGroup = "products" | "inventory" | "addons" | "categories";
 type ArchiveEntry = { key: string; type: RestoreType; id: number; group: ArchiveGroup; kind: string; title: string; subtitle: string; blocked: string | null; archivedAt: string | null; archivedBy: string | null; search: string };
 
 const archiveGroups: { id: ArchiveGroup; label: string; restoreNote: string }[] = [
@@ -10155,8 +10155,6 @@ const archiveGroups: { id: ArchiveGroup; label: string; restoreNote: string }[] 
   { id: "inventory", label: "Inventory", restoreNote: "Restored items and packages return to Inventory with the stock they had when archived." },
   { id: "addons", label: "Add-ons", restoreNote: "Restored add-ons can be punched at the POS again." },
   { id: "categories", label: "Categories", restoreNote: "Restored categories can be picked when adding products again." },
-  { id: "sales", label: "Sales records", restoreNote: "Sales can no longer be archived. These were archived before that rule: restore them so they count in Finance again, under their original business date and shift." },
-  { id: "attendance", label: "Attendance", restoreNote: "Attendance can no longer be archived. These were archived before that rule: restore them so they count in the employee's hours again." },
 ];
 
 function buildArchiveEntries(data: ArchivesData): ArchiveEntry[] {
@@ -10168,19 +10166,10 @@ function buildArchiveEntries(data: ArchivesData): ArchiveEntry[] {
   for (const pack of data.packagings ?? []) add({ type: "packaging", id: pack.id, group: "inventory", kind: "Package", title: `${pack.name}${pack.brand ? ` (${pack.brand})` : ""}`, subtitle: `${formatStock(pack.contentQuantity, pack.unit)} of ${pack.itemName} per pack${pack.lastPackPrice !== null ? ` · ${peso(pack.lastPackPrice)}` : ""}`, blocked: pack.itemArchived ? `Restore the inventory item “${pack.itemName}” first.` : null, archivedAt: pack.archivedAt, archivedBy: pack.archivedBy });
   for (const addon of data.additions) add({ type: "addition", id: addon.id, group: "addons", kind: "Add-on", title: addon.name, subtitle: `+${peso(addon.price)} · uses ${addon.unit ? formatStock(addon.quantity, addon.unit) : formatAmount(addon.quantity)} of ${addon.itemName}`, blocked: addon.itemArchived ? `Restore the inventory item “${addon.itemName}” first.` : null, archivedAt: addon.archivedAt, archivedBy: addon.archivedBy });
   for (const category of data.categories ?? []) add({ type: "category", id: category.id, group: "categories", kind: "Category", title: category.name, subtitle: category.productCount ? `${category.productCount} active product${category.productCount === 1 ? "" : "s"} still use this name` : "No products use it", blocked: null, archivedAt: null, archivedBy: null });
-  for (const order of data.salesOrders) add({ type: "sales_order", id: order.id, group: "sales", kind: "Sale", title: `Order ${order.id}${order.queueNumber ? ` · #${order.queueNumber}` : ""} · ${peso(order.totalAmount)}`, subtitle: `${order.items || "Order"} · ${shiftTime(order.createdAt)}${order.cashierName ? ` · ${order.cashierName}` : ""}${order.status !== "completed" ? ` · ${order.status}` : ""}`, blocked: null, archivedAt: order.archivedAt, archivedBy: order.archivedBy });
-  for (const log of data.employeeTimeLogs) add({ type: "employee_time_log", id: log.id, group: "attendance", kind: "Attendance", title: log.employeeName, subtitle: `${shiftTime(log.timeIn)} → ${log.timeOut ? shiftTime(log.timeOut) : "no time out"}`, blocked: null, archivedAt: log.archivedAt, archivedBy: log.archivedBy });
   return entries;
 }
 
-// Sales and attendance are kept forever: restore only, never deleted.
-const keptForeverGroups: ArchiveGroup[] = ["sales", "attendance"];
-const canDeleteForever = (entry: ArchiveEntry) => !keptForeverGroups.includes(entry.group);
-
-const archiveKindLabels: Record<RestoreType, string> = { product: "product", product_variant: "size", inventory: "inventory item", packaging: "package", addition: "add-on", category: "category", sales_order: "sales record", employee_time_log: "attendance log" };
-
 function Archives() {
-  const confirmAction = useConfirm();
   const [data, setData] = useState<ArchivesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -10219,9 +10208,7 @@ function Archives() {
     .filter((entry) => (tab === "all" || entry.group === tab) && (archivedBy === "all" || entry.archivedBy === archivedBy) && (!query || entry.search.includes(query)))
     .sort((a, b) => sort === "name" ? a.title.localeCompare(b.title) : sort === "oldest" ? (a.archivedAt ?? "").localeCompare(b.archivedAt ?? "") : (b.archivedAt ?? "").localeCompare(a.archivedAt ?? ""));
   const selectedShown = shown.filter((entry) => selected.has(entry.key));
-  const deletableSelected = selectedShown.filter(canDeleteForever);
   const allShownSelected = shown.length > 0 && selectedShown.length === shown.length;
-  const salesTotal = (data?.salesOrders ?? []).reduce((sum, order) => sum + order.totalAmount, 0);
 
   function toggle(key: string) {
     setSelected((current) => {
@@ -10231,7 +10218,7 @@ function Archives() {
     });
   }
 
-  async function send(method: "PATCH" | "DELETE", entry: ArchiveEntry): Promise<{ ok: boolean; message?: string; warning?: string }> {
+  async function send(method: "PATCH", entry: ArchiveEntry): Promise<{ ok: boolean; message?: string; warning?: string }> {
     try {
       const response = await fetch("/api/archives", { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: entry.type, id: entry.id }) });
       const payload = await response.json();
@@ -10242,15 +10229,11 @@ function Archives() {
     }
   }
 
-  // Runs one action over several records, then reports how many worked and why any did not.
-  async function run(action: "restore" | "delete", requested: ArchiveEntry[]) {
-    const targets = action === "delete" ? requested.filter(canDeleteForever) : requested;
+  // Restores several records, then reports how many worked and why any did not. Nothing in
+  // Archives can be deleted for good: it is kept as the record of what the café had.
+  async function run(action: "restore", requested: ArchiveEntry[]) {
+    const targets = requested;
     if (targets.length === 0) return;
-    if (action === "delete" && !(await confirmAction({
-      title: targets.length === 1 ? `Delete this ${archiveKindLabels[targets[0].type]} forever?` : `Delete ${targets.length} records forever?`,
-      message: <>This <strong>cannot be undone</strong>. {targets.length === 1 ? <>“{targets[0].title}” will be gone for good.</> : "They will be gone for good."} Anything still used by past sales or another record is kept.</>,
-      confirmLabel: targets.length === 1 ? "Delete forever" : `Delete ${targets.length} forever`,
-    }))) return;
     setBusy(targets.length === 1 ? targets[0].key : "bulk");
     setError("");
     setNotice("");
@@ -10258,7 +10241,7 @@ function Archives() {
     const problems: string[] = [];
     const warnings: string[] = [];
     for (const target of targets) {
-      const result = await send(action === "restore" ? "PATCH" : "DELETE", target);
+      const result = await send("PATCH", target);
       if (result.ok) {
         done += 1;
         if (result.warning) warnings.push(`${target.title}: ${result.warning}`);
@@ -10273,20 +10256,20 @@ function Archives() {
     });
     await loadArchives();
     setBusy(null);
-    const verb = action === "restore" ? "Restored" : "Deleted forever";
+    const verb = "Restored";
     if (done > 0) setNotice([`${verb}: ${done} record${done === 1 ? "" : "s"}.`, ...warnings].join(" "));
-    if (problems.length > 0) setError(`${problems.length} could not be ${action === "restore" ? "restored" : "deleted"}. ${problems.slice(0, 3).join(" ")}${problems.length > 3 ? ` And ${problems.length - 3} more.` : ""}`);
+    if (problems.length > 0) setError(`${problems.length} could not be ${action === "restore" ? "restored" : "changed"}. ${problems.slice(0, 3).join(" ")}${problems.length > 3 ? ` And ${problems.length - 3} more.` : ""}`);
   }
 
-  const tabNote = tab === "all" ? "Nothing here is shown in the apps. Restore puts a record back where it came from, and Delete forever removes it for good." : archiveGroups.find((group) => group.id === tab)?.restoreNote;
+  const tabNote = tab === "all" ? "Nothing here is shown in the apps. Restore puts a record back where it came from. Nothing here is ever deleted." : archiveGroups.find((group) => group.id === tab)?.restoreNote;
 
   return <div className="inv-wrap">
     <div className="inv">
       <div className="inv-summary">
-        <button type="button" className="inv-stat" aria-pressed={tab === "all"} onClick={() => setTab("all")}><span>In Archives</span><strong>{entries.length}</strong><em>kept until you delete them</em></button>
+        <button type="button" className="inv-stat" aria-pressed={tab === "all"} onClick={() => setTab("all")}><span>In Archives</span><strong>{entries.length}</strong><em>kept for good, restore any time</em></button>
         <button type="button" className="inv-stat" aria-pressed={tab === "products"} onClick={() => setTab("products")}><span>Products</span><strong>{counts.products}</strong><em>plus {counts.addons} add-on{counts.addons === 1 ? "" : "s"}, {counts.categories} categor{counts.categories === 1 ? "y" : "ies"}</em></button>
         <button type="button" className="inv-stat" aria-pressed={tab === "inventory"} onClick={() => setTab("inventory")}><span>Inventory</span><strong>{counts.inventory}</strong><em>items and packages</em></button>
-        <button type="button" className="inv-stat" aria-pressed={tab === "sales"} onClick={() => setTab("sales")}><span>Sales records</span><strong>{counts.sales}</strong><em>{peso(salesTotal)} not in Finance</em></button>
+        <button type="button" className="inv-stat" aria-pressed={tab === "addons"} onClick={() => setTab("addons")}><span>Add-ons</span><strong>{counts.addons}</strong><em>and {counts.categories} categor{counts.categories === 1 ? "y" : "ies"}</em></button>
       </div>
 
       <div className="menu-chips" role="group" aria-label="Archive type">
@@ -10297,7 +10280,7 @@ function Archives() {
       <div className="inv-toolbar">
         <div className="inv-search is-wide">
           <IconSearch size={14} />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, order, employee or category" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name or category" />
           {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
         </div>
         <label className="inv-filter"><span>Archived by</span>
@@ -10313,10 +10296,10 @@ function Archives() {
       </div>
 
       <details className="arc-rules">
-        <summary>What can be archived or deleted?</summary>
+        <summary>What can be archived?</summary>
         <div className="arc-rules-grid">
           <div><strong>Archive and restore</strong><span>Products, sizes, add-ons, categories, inventory items and packages. Archiving hides them from the apps; restoring brings them back.</span></div>
-          <div><strong>Delete forever</strong><span>The same setup data, once archived. Refused while a past sale or a recipe still uses it.</span></div>
+          <div><strong>Never deleted</strong><span>Archived records stay in Archives for good, so the café always has a record of every product, item and price it used. Restore one any time.</span></div>
           <div><strong>Kept forever</strong><span>Sales records, voids and refunds, shifts, attendance and stock history. They are the café’s financial record, so they cannot be archived or deleted. Correct a sale by voiding or refunding it.</span></div>
           <div><strong>Customers</strong><span>Deactivated in Customers instead of archived. A customer who asks to be forgotten has their personal details erased; their orders stay in the sales records without a name.</span></div>
         </div>
@@ -10341,7 +10324,6 @@ function Archives() {
                 </label>
                 {selectedShown.length > 0 && <div className="arc-bulk-actions">
                   <button type="button" className="arc-restore" onClick={() => void run("restore", selectedShown)} disabled={busy !== null}><IconRotateCcw size={13} />{busy === "bulk" ? "Working…" : "Restore"}</button>
-                  {deletableSelected.length > 0 && <button type="button" className="inv-mini is-danger" style={{ height: 38 }} onClick={() => void run("delete", deletableSelected)} disabled={busy !== null} title={deletableSelected.length < selectedShown.length ? "Sales records and attendance in the selection are kept and skipped" : undefined}><IconTrash size={13} />Delete {deletableSelected.length < selectedShown.length ? `${deletableSelected.length} ` : ""}forever</button>}
                   <button type="button" className="inv-link" onClick={() => setSelected(new Set())}>Clear</button>
                 </div>}
               </div>
@@ -10360,9 +10342,7 @@ function Archives() {
                   </div>
                   <div className="arc-actions">
                     <button type="button" className="arc-restore" onClick={() => void run("restore", [entry])} disabled={busy !== null} title={entry.blocked ?? "Put it back where it came from"}><IconRotateCcw size={13} />{busy === entry.key ? "…" : "Restore"}</button>
-                    {canDeleteForever(entry)
-                      ? <button type="button" className="menu-archive" onClick={() => void run("delete", [entry])} disabled={busy !== null} title="Delete forever" aria-label={`Delete ${entry.title} forever`}><IconTrash size={14} /></button>
-                      : <span className="arc-kept" title="Sales records and attendance are kept permanently">Kept</span>}
+
                   </div>
                 </li>)}
               </ul>
