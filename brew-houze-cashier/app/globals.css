@@ -267,11 +267,16 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 
 /* ─── Receipts ───────────────────────────────────────────────────────────────
    Only the slip prints: everything else is hidden while a receipt is printing. Widths are the
-   printable area of a 58 mm (48 mm) or 80 mm (72 mm) thermal roll. */
-.receipt-print-root { display: none; }
+   printable area of a 58 mm (48 mm) or 80 mm (72 mm) thermal roll. The page itself is set to the
+   roll's width and the slip's height when printing (see the receipt print in page.tsx), so the
+   printer gets a narrow portrait page instead of A4 or Letter. Off screen until then, so the slip
+   can be measured. */
+.receipt-print-root { position: fixed; left: -10000px; top: 0; pointer-events: none; }
 .receipt { color: #000000; background: #FFFFFF; font-family: 'Inter', Arial, sans-serif; font-size: 11px; line-height: 1.35; padding: 3mm 0 6mm; margin: 0 auto; }
-.receipt.is-58 { width: 48mm; }
-.receipt.is-80 { width: 72mm; font-size: 12.5px; }
+/* Drivers report 48 mm (58 mm rolls) and 72 mm (80 mm rolls), but the heads of common printers
+   (tested on a ZPrinter 58) reach a few mm less, so the slip stays inside with a safety margin. */
+.receipt.is-58 { width: 45mm; }
+.receipt.is-80 { width: 69mm; font-size: 12.5px; }
 .receipt-center { text-align: center; }
 .receipt-name { font-family: 'Hanken Grotesk', Arial, sans-serif; font-size: 1.7em; font-weight: 800; letter-spacing: 0.02em; }
 .receipt-title { margin-top: 2px; font-weight: 800; letter-spacing: 0.08em; }
@@ -293,7 +298,11 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 @media print {
   body.is-printing-receipt { background: #FFFFFF !important; }
   body.is-printing-receipt .app-shell, body.is-printing-receipt .login-shell, body.is-printing-receipt nextjs-portal { display: none !important; }
-  body.is-printing-receipt .receipt-print-root { display: block !important; }
+  body.is-printing-receipt .receipt-print-root { display: block !important; position: static; left: auto; }
+  body.is-printing-receipt { margin: 0 !important; padding: 0 !important; }
+  /* At the page's left edge, not centred: the printer already starts at its own printable edge
+     (the roll's blank margin), so centring would push the slip off the right side. */
+  body.is-printing-receipt .receipt { margin: 0; }
   @page { margin: 0; }
 }
 

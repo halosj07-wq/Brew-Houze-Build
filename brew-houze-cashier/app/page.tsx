@@ -5276,14 +5276,24 @@ export default function App() {
       return error instanceof Error ? error.message : "Could not load the receipt.";
     }
   }, []);
-  // Once the slip is on the page, open the print window; clear it when printing is done.
+  // Once the slip is on the page, open the print window; clear it when printing is done. The page
+  // is sized to the roll (its width, and the slip's own height), so the printer does not crop or
+  // turn an A4 or Letter page onto it.
   useEffect(() => {
     if (!receiptJob) return;
     document.body.classList.add("is-printing-receipt");
-    const finish = () => { document.body.classList.remove("is-printing-receipt"); setReceiptJob(null); };
-    const timer = window.setTimeout(() => window.print(), 60);
+    const pageSize = document.createElement("style");
+    const finish = () => { document.body.classList.remove("is-printing-receipt"); pageSize.remove(); setReceiptJob(null); };
+    const timer = window.setTimeout(() => {
+      const paper = receiptSettingsRef.current.paperWidth;
+      const slip = document.querySelector(".receipt-print-root .receipt");
+      const heightMm = slip ? Math.ceil(slip.getBoundingClientRect().height * 25.4 / 96) + 4 : 200;
+      pageSize.textContent = `@media print { @page { size: ${paper}mm ${heightMm}mm; margin: 0; } html, body { width: ${paper}mm; } }`;
+      document.head.append(pageSize);
+      window.print();
+    }, 60);
     window.addEventListener("afterprint", finish);
-    return () => { window.clearTimeout(timer); window.removeEventListener("afterprint", finish); document.body.classList.remove("is-printing-receipt"); };
+    return () => { window.clearTimeout(timer); window.removeEventListener("afterprint", finish); document.body.classList.remove("is-printing-receipt"); pageSize.remove(); };
   }, [receiptJob]);
   const receiptContext = { settings: receiptSettings, setSettings: (settings: ReceiptSettings) => { setReceiptSettings(settings); saveReceiptSettings(settings); }, printReceipt };
 
