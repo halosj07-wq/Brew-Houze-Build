@@ -1,0 +1,102 @@
+[
+  {
+    "id": "UT-INV-01",
+    "module": "Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "restock averages the cost by quantity",
+    "input": "1,000 g on hand at ₱0.50/g; add 1,000 g for ₱700.00",
+    "expected": "₱0.60/g",
+    "actual": "0.6",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-02",
+    "module": "Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "with nothing on hand the new packs set the cost",
+    "input": "0 g on hand at ₱0.50/g; add 1,000 g for ₱800.00",
+    "expected": "₱0.80/g",
+    "actual": "0.8",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-03",
+    "module": "Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "with no known cost the new packs set the cost",
+    "input": "500 g on hand, cost not entered; add 1,000 g for ₱800.00",
+    "expected": "₱0.80/g",
+    "actual": "0.8",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-04",
+    "module": "Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "negative stock on hand is treated as none",
+    "input": "−50 g on hand at ₱0.50/g; add 1,000 g for ₱800.00",
+    "expected": "₱0.80/g",
+    "actual": "0.8",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-05",
+    "module": "Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "adding nothing leaves the cost as it was",
+    "input": "500 g on hand, cost not entered; add 0 g for ₱0.00",
+    "expected": "₱0.00/g (no cost to average; not an invalid number)",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-06",
+    "module": "Inventory",
+    "fn": "parsePackaging",
+    "title": "accepts a packaging and rounds its price",
+    "input": "\"Nescafe Bean Bag 1 kg\", contains 1,000, price \"845.678\"",
+    "expected": "{\"value\":{\"name\":\"Nescafe Bean Bag 1 kg\",\"brand\":null,\"contentQuantity\":1000,\"packPrice\":845.68}}",
+    "actual": "{\"value\":{\"name\":\"Nescafe Bean Bag 1 kg\",\"brand\":null,\"contentQuantity\":1000,\"packPrice\":845.68}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-07",
+    "module": "Inventory",
+    "fn": "parsePackaging",
+    "title": "a packaging needs a name",
+    "input": "Name \"\", contains 1,000",
+    "expected": "Error: give the packaging a name",
+    "actual": "{\"error\":\"Give the packaging a name, e.g. Nescafe Bean Bag 1 kg.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-08",
+    "module": "Inventory",
+    "fn": "parsePackaging",
+    "title": "a pack must contain something",
+    "input": "\"Milk 1 L\", contains 0",
+    "expected": "Error: contents must be more than 0",
+    "actual": "{\"error\":\"Enter how much one pack contains (more than 0).\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-09",
+    "module": "Inventory",
+    "fn": "parsePackaging",
+    "title": "whole-unit items come in whole packs",
+    "input": "\"Coke case\", contains 2.5 cans",
+    "expected": "Error: must be a whole number",
+    "actual": "{\"error\":\"This item is counted in whole units, so one pack must contain a whole number.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-10",
+    "module": "Inventory",
+    "fn": "parsePackaging",
+    "title": "a pack price cannot be negative",
+    "input": "\"Milk 1 L\", contains 1,000, price −5",
+    "expected": "Error: price must be 0 or more",
+    "actual": "{\"error\":\"The pack price must be 0 or more.\"}",
+    "status": "Passed"
+  }
+]

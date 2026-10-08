@@ -1,0 +1,90 @@
+[
+  {
+    "id": "UT-USR-01",
+    "objective": "Objective 7 - User Management",
+    "fn": "staffPermissions",
+    "title": "an admin may do everything, even with no flags set",
+    "kind": "Positive",
+    "input": "Role admin, no permission flags",
+    "expected": "{\"canVoidOrders\":true,\"canRefundOrders\":true,\"canOpenShift\":true,\"canCloseShift\":true}",
+    "actual": "{\"canVoidOrders\":true,\"canRefundOrders\":true,\"canOpenShift\":true,\"canCloseShift\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-02",
+    "objective": "Objective 7 - User Management",
+    "fn": "staffPermissions",
+    "title": "a cashier has only what the admin turned on",
+    "kind": "Positive",
+    "input": "Role cashier, void and open shift on",
+    "expected": "{\"canVoidOrders\":true,\"canRefundOrders\":false,\"canOpenShift\":true,\"canCloseShift\":false}",
+    "actual": "{\"canVoidOrders\":true,\"canRefundOrders\":false,\"canOpenShift\":true,\"canCloseShift\":false}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-03",
+    "objective": "Objective 7 - User Management",
+    "fn": "staffPermissions",
+    "title": "a cashier with no permissions can still sell but not void, refund, open or close",
+    "kind": "Boundary",
+    "input": "Role cashier, no flags",
+    "expected": "{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false}",
+    "actual": "{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-04",
+    "objective": "Objective 7 - User Management",
+    "fn": "staffPermissions",
+    "title": "a barista, kitchen staff or rider never has cashier permissions, even with flags left on",
+    "kind": "Negative",
+    "input": "Roles barista, kitchen, rider with every flag on",
+    "expected": "[{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false},{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false},{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false}]",
+    "actual": "[{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false},{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false},{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-05",
+    "objective": "Objective 7 - User Management",
+    "fn": "staffPermissions",
+    "title": "an unknown role gets nothing it was not given",
+    "kind": "Negative",
+    "input": "Role \"owner\", no flags",
+    "expected": "{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false}",
+    "actual": "{\"canVoidOrders\":false,\"canRefundOrders\":false,\"canOpenShift\":false,\"canCloseShift\":false}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-06",
+    "objective": "Objective 7 - User Management",
+    "fn": "finishStaffLogin",
+    "title": "signing in gives the session the role's permissions",
+    "kind": "Positive",
+    "input": "Cashier allowed to close the shift",
+    "expected": "{\"status\":200,\"role\":\"cashier\",\"canCloseShift\":true,\"canVoidOrders\":false}",
+    "actual": "{\"status\":200,\"role\":\"cashier\",\"canCloseShift\":true,\"canVoidOrders\":false}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-07",
+    "objective": "Objective 7 - User Management",
+    "fn": "finishStaffLogin",
+    "title": "a deactivated (or deleted) account cannot sign in",
+    "kind": "Negative",
+    "input": "Account no longer active",
+    "expected": "{\"status\":401,\"body\":{\"error\":\"This account can no longer sign in.\"}}",
+    "actual": "{\"status\":401,\"body\":{\"error\":\"This account can no longer sign in.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-08",
+    "objective": "Objective 7 - User Management",
+    "fn": "finishStaffLogin",
+    "title": "signing in clocks the employee in (attendance)",
+    "kind": "Positive",
+    "input": "Barista signs in",
+    "expected": "2",
+    "actual": "2",
+    "status": "Passed"
+  }
+]

@@ -122,6 +122,28 @@ async function resolveBoundDeductions(client: PoolClient, deductions: Map<number
   }
 }
 
+// How much of a recipe ingredient one item uses: less uses half, none uses nothing.
+export const usedShare = (level: CustomizationLevel | undefined) => level === "none" ? 0 : level === "less" ? 0.5 : 1;
+
+// What the customer handed over and their change. Cash covers the total; a split payment has a
+// cash part (more than 0, less than the total) and GCash pays the rest. Cash on delivery: nothing
+// received yet (the rider records what was collected).
+export function settlePayment(method: PlaceOrderInput["paymentMethod"], total: number, received: unknown, cashAmount: unknown): { receivedAmount: number; changeAmount: number; cashPortion: number | null } {
+  if (method === "cash") {
+    const receivedAmount = Number(received);
+    if (!Number.isFinite(receivedAmount) || receivedAmount < total) throw new Error("Received payment must be at least the subtotal amount.");
+    return { receivedAmount, changeAmount: Number((receivedAmount - total).toFixed(2)), cashPortion: null };
+  }
+  if (method === "split") {
+    const cashPortion = Math.round(Number(cashAmount) * 100) / 100;
+    if (!Number.isFinite(cashPortion) || cashPortion <= 0 || cashPortion >= total) throw new Error("The cash part must be more than ₱0 and less than the total.");
+    const receivedAmount = Number(received);
+    if (!Number.isFinite(receivedAmount) || receivedAmount < cashPortion) throw new Error("The cash received must cover the cash part.");
+    return { receivedAmount, changeAmount: Number((receivedAmount - cashPortion).toFixed(2)), cashPortion };
+  }
+  return { receivedAmount: method === "cod" ? 0 : total, changeAmount: 0, cashPortion: null };
+}
+
 export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Promise<PlacedOrder> {
   if (input.items.length === 0) throw new Error("At least one valid cart item is required.");
 
@@ -200,9 +222,6 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     const variantId = Number(row.product_variant_id);
     recipes.set(variantId, [...(recipes.get(variantId) ?? []), { inventoryId: Number(row.inventory_id), quantity: Number(row.required_quantity), name: String(row.item_name), customizable: Boolean(row.is_customizable), wholeUnit: Boolean(row.is_whole_unit), unitCost: row.unit_cost === null ? null : Number(row.unit_cost) }]);
   }
-  // Less uses half, none uses nothing.
-  const usedShare = (level: CustomizationLevel | undefined) => level === "none" ? 0 : level === "less" ? 0.5 : 1;
-
   const deductions = new Map<number, number>();
   let additionTotal = 0;
   for (const group of groupedItems.values()) {
@@ -309,22 +328,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   if (input.paymentMethod === "cod" && (!delivery || delivery.payment !== "cod")) throw new Error("Cash on delivery is only for delivery orders.");
   if (delivery?.payment === "cod" && delivery.codMaxAmount !== null && total > delivery.codMaxAmount + 0.005) throw new Error(`Cash on delivery is for orders up to ₱${delivery.codMaxAmount.toFixed(2)}. Pay with GCash instead.`);
 
-  // Cash on delivery: nothing received yet (the rider records what was collected).
-  let receivedAmount = input.paymentMethod === "cod" ? 0 : total;
-  let changeAmount = 0;
-  let cashPortion: number | null = null;
-  if (input.paymentMethod === "cash") {
-    receivedAmount = Number(input.receivedAmount);
-    if (!Number.isFinite(receivedAmount) || receivedAmount < total) throw new Error("Received payment must be at least the subtotal amount.");
-    changeAmount = Number((receivedAmount - total).toFixed(2));
-  }
-  if (input.paymentMethod === "split") {
-    cashPortion = Math.round(Number(input.cashAmount) * 100) / 100;
-    if (!Number.isFinite(cashPortion) || cashPortion <= 0 || cashPortion >= total) throw new Error("The cash part must be more than ₱0 and less than the total.");
-    receivedAmount = Number(input.receivedAmount);
-    if (!Number.isFinite(receivedAmount) || receivedAmount < cashPortion) throw new Error("The cash received must cover the cash part.");
-    changeAmount = Number((receivedAmount - cashPortion).toFixed(2));
-  }
+  const { receivedAmount, changeAmount, cashPortion } = settlePayment(input.paymentMethod, total, input.receivedAmount, input.cashAmount);
 
   const order = await client.query(`
     INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id,

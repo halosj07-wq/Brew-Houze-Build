@@ -1,0 +1,156 @@
+[
+  {
+    "id": "UT-QRO-01",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "the menu refuses orders while the café is closed (no open shift)",
+    "kind": "Negative",
+    "input": "Mobile order, no shift open",
+    "expected": "{\"error\":\"Brew Houze isn't taking orders right now. Please order again once the café is open.\"}",
+    "actual": "{\"error\":\"Brew Houze isn't taking orders right now. Please order again once the café is open.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-02",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "an order while the café is open goes to the queue as an online order",
+    "kind": "Positive",
+    "input": "Mobile order, shift #7 open, 1 Spanish Latte",
+    "expected": "{\"source\":\"online\",\"shiftId\":7,\"total\":120}",
+    "actual": "{\"source\":\"online\",\"shiftId\":7,\"total\":120}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-03",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "the order is tied to the phone session that scanned the QR code (order token)",
+    "kind": "Positive",
+    "input": "Mobile order with order token \"qr-7f3a\"",
+    "expected": "\"qr-7f3a\"",
+    "actual": "\"qr-7f3a\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-04",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "an add-on is charged per item: (₱120.00 + ₱25.00) × 2",
+    "kind": "Positive",
+    "input": "2 Spanish Latte with 1 Extra Shot each",
+    "expected": "Subtotal ₱290.00",
+    "actual": "290",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-05",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "a repeated add-on (double shot) is charged twice",
+    "kind": "Boundary",
+    "input": "1 Spanish Latte with Extra Shot × 2",
+    "expected": "Subtotal ₱170.00 (₱120.00 + 2 × ₱25.00)",
+    "actual": "170",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-06",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "asking for less or no ingredient does not change the price",
+    "kind": "Boundary",
+    "input": "1 Spanish Latte, less caramel syrup, no milk",
+    "expected": "Subtotal ₱120.00",
+    "actual": "120",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-07",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "an ingredient the admin did not mark customizable cannot be changed",
+    "kind": "Negative",
+    "input": "Spanish Latte with \"no espresso beans\"",
+    "expected": "{\"error\":\"Espresso Beans in Spanish Latte can't be changed. Remove the customization and try again.\"}",
+    "actual": "{\"error\":\"Espresso Beans in Spanish Latte can't be changed. Remove the customization and try again.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-08",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "parseOrderItems",
+    "title": "a cart line with quantity 0 is dropped",
+    "kind": "Boundary",
+    "input": "Variant 5, quantity 0",
+    "expected": "No lines",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-09",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "parseOrderItems",
+    "title": "a cart line with a negative quantity is dropped",
+    "kind": "Negative",
+    "input": "Variant 5, quantity −2",
+    "expected": "No lines",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-10",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "parseOrderItems",
+    "title": "a fractional quantity is dropped",
+    "kind": "Negative",
+    "input": "Variant 5, quantity 1.5",
+    "expected": "No lines",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-11",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "parseOrderItems",
+    "title": "quantity 1 (the smallest valid) is kept",
+    "kind": "Boundary",
+    "input": "Variant 5, quantity 1",
+    "expected": "1",
+    "actual": "1",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-12",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "an empty cart is refused",
+    "kind": "Negative",
+    "input": "No items",
+    "expected": "{\"error\":\"At least one valid cart item is required.\"}",
+    "actual": "{\"error\":\"At least one valid cart item is required.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-13",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "an item no longer on the menu is refused as sold out",
+    "kind": "Negative",
+    "input": "Archived variant 99",
+    "expected": "{\"soldOut\":true,\"error\":\"One or more selected products are no longer available.\"}",
+    "actual": "{\"soldOut\":true,\"error\":\"One or more selected products are no longer available.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-QRO-14",
+    "objective": "Objective 1 - QR Code Ordering",
+    "fn": "placeOrder",
+    "title": "a drink add-on cannot go on an item sold as stocked",
+    "kind": "Negative",
+    "input": "Bottled Water with Extra Shot",
+    "expected": "{\"error\":\"Bottled Water does not take additions.\"}",
+    "actual": "{\"error\":\"Bottled Water does not take additions.\"}",
+    "status": "Passed"
+  }
+]

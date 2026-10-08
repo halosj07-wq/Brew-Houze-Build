@@ -1,0 +1,123 @@
+[
+  {
+    "id": "UT-USR-09",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "a new cashier is saved with a bcrypt-hashed password and the permissions given",
+    "kind": "Positive",
+    "input": "Ana Cruz, cashier, may void",
+    "expected": "{\"status\":201,\"account\":{\"name\":\"Ana Cruz\",\"email\":\"ana@brewhouze.test\",\"hashedInSql\":true,\"role\":\"cashier\",\"void\":true,\"refund\":false,\"open\":false,\"close\":false}}",
+    "actual": "{\"status\":201,\"account\":{\"name\":\"Ana Cruz\",\"email\":\"ana@brewhouze.test\",\"hashedInSql\":true,\"role\":\"cashier\",\"void\":true,\"refund\":false,\"open\":false,\"close\":false}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-10",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "a new barista gets no cashier permissions, even if sent",
+    "kind": "Positive",
+    "input": "Barista with \"may void\" sent",
+    "expected": "{\"role\":\"barista\",\"void\":false,\"open\":false}",
+    "actual": "{\"role\":\"barista\",\"void\":false,\"open\":false}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-11",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "only staff roles can be given (no admin or owner through this form)",
+    "kind": "Negative",
+    "input": "Role \"owner\"",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Choose cashier, barista, kitchen staff or rider.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Choose cashier, barista, kitchen staff or rider.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-12",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "an invalid email is refused",
+    "kind": "Negative",
+    "input": "Email \"ana@brewhouze\"",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Enter a valid email address. It is used to sign in and to reset the password.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Enter a valid email address. It is used to sign in and to reset the password.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-13",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "a password of 7 characters is too short (8 is the minimum)",
+    "kind": "Boundary",
+    "input": "Password \"Temp#12\" (7 characters)",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Use at least 8 characters for the password.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Use at least 8 characters for the password.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-14",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "two accounts cannot share an email",
+    "kind": "Negative",
+    "input": "Email already used (unique violation)",
+    "expected": "{\"status\":409,\"body\":{\"error\":\"Another account already uses this email.\"}}",
+    "actual": "{\"status\":409,\"body\":{\"error\":\"Another account already uses this email.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-15",
+    "objective": "Objective 7 - User Management",
+    "fn": "PATCH /api/cashier-accounts (update_profile)",
+    "title": "the admin updates an employee's name and email",
+    "kind": "Positive",
+    "input": "Account #12 → \"Ana Reyes\", ana.reyes@brewhouze.test",
+    "expected": "{\"status\":200,\"body\":{\"data\":{\"id\":12,\"fullName\":\"Ana Reyes\",\"email\":\"ana.reyes@brewhouze.test\"}}}",
+    "actual": "{\"status\":200,\"body\":{\"data\":{\"id\":12,\"fullName\":\"Ana Reyes\",\"email\":\"ana.reyes@brewhouze.test\"}}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-16",
+    "objective": "Objective 7 - User Management",
+    "fn": "PATCH /api/cashier-accounts (set_active)",
+    "title": "a deactivated account is signed out of every device at once",
+    "kind": "Positive",
+    "input": "Deactivate account #12 (signed in on 2 devices)",
+    "expected": "{\"status\":200,\"active\":false,\"signedOutDevices\":2,\"endedFor\":12}",
+    "actual": "{\"status\":200,\"active\":false,\"signedOutDevices\":2,\"endedFor\":12}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-17",
+    "objective": "Objective 7 - User Management",
+    "fn": "PATCH /api/cashier-accounts",
+    "title": "only an admin can change employee accounts",
+    "kind": "Negative",
+    "input": "Session of a cashier",
+    "expected": "{\"status\":403,\"body\":{\"error\":\"Only an admin can change employee accounts.\"}}",
+    "actual": "{\"status\":403,\"body\":{\"error\":\"Only an admin can change employee accounts.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-18",
+    "objective": "Objective 7 - User Management",
+    "fn": "PATCH /api/cashier-accounts",
+    "title": "permissions cannot be given to a barista",
+    "kind": "Negative",
+    "input": "Barista #13, \"may void\"",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Baristas and riders have no cashier permissions. Make them a cashier first.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Baristas and riders have no cashier permissions. Make them a cashier first.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-USR-19",
+    "objective": "Objective 7 - User Management",
+    "fn": "POST /api/cashier-accounts",
+    "title": "only an admin can add employee accounts",
+    "kind": "Negative",
+    "input": "Session of a cashier",
+    "expected": "{\"status\":403}",
+    "actual": "{\"status\":201}",
+    "status": "Failed"
+  }
+]

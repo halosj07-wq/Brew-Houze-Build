@@ -1,0 +1,68 @@
+[
+  {
+    "id": "UT-NOT-01",
+    "objective": "Objective 9 - Notifications",
+    "fn": "signalChange",
+    "title": "an order-ready change is broadcast to the live screens",
+    "kind": "Positive",
+    "input": "signalChange(\"queue\")",
+    "expected": "{\"url\":\"https://project.supabase.test/realtime/v1/api/broadcast\",\"body\":{\"messages\":[{\"topic\":\"brew-houze-live\",\"event\":\"changed\",\"payload\":{\"scope\":\"queue\"}}]}}",
+    "actual": "{\"url\":\"https://project.supabase.test/realtime/v1/api/broadcast\",\"body\":{\"messages\":[{\"topic\":\"brew-houze-live\",\"event\":\"changed\",\"payload\":{\"scope\":\"queue\"}}]}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-02",
+    "objective": "Objective 9 - Notifications",
+    "fn": "signalChange",
+    "title": "a checkout signals the queue, the counter line and stock together, in one request",
+    "kind": "Positive",
+    "input": "signalChange(\"queue\", \"line\", \"stock\")",
+    "expected": "{\"requests\":1,\"scopes\":[\"queue\",\"line\",\"stock\"]}",
+    "actual": "{\"requests\":1,\"scopes\":[\"queue\",\"line\",\"stock\"]}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-03",
+    "objective": "Objective 9 - Notifications",
+    "fn": "signalChange",
+    "title": "the payload holds only the kind of change (no order or customer data)",
+    "kind": "Positive",
+    "input": "signalChange(\"queue\")",
+    "expected": "[[\"scope\"]]",
+    "actual": "[[\"scope\"]]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-04",
+    "objective": "Objective 9 - Notifications",
+    "fn": "signalChange",
+    "title": "nothing is sent when there is nothing to signal",
+    "kind": "Boundary",
+    "input": "signalChange() with no scopes",
+    "expected": "0",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-05",
+    "objective": "Objective 9 - Notifications",
+    "fn": "signalChange",
+    "title": "nothing is sent without the Supabase settings",
+    "kind": "Negative",
+    "input": "Supabase URL not set",
+    "expected": "0",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-06",
+    "objective": "Objective 9 - Notifications",
+    "fn": "signalChange",
+    "title": "Supabase being down never breaks the order (the screens catch up on their next refresh)",
+    "kind": "Negative",
+    "input": "fetch fails (network error)",
+    "expected": "\"no error\"",
+    "actual": "\"no error\"",
+    "status": "Passed"
+  }
+]

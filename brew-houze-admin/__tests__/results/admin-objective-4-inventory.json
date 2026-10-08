@@ -1,0 +1,90 @@
+[
+  {
+    "id": "UT-INV-08",
+    "objective": "Objective 4 - Inventory",
+    "fn": "applyWriteOff",
+    "title": "spoiled stock comes off with its reason and cost logged",
+    "kind": "Positive",
+    "input": "500 ml Fresh Milk expired (1,200 ml on hand)",
+    "expected": "700 ml left; logged: expired, ₱50.00",
+    "actual": "[{\"item\":\"Fresh Milk\",\"before\":1200,\"after\":700,\"change\":-500,\"reason\":\"expired\",\"cost\":50}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-09",
+    "objective": "Objective 4 - Inventory",
+    "fn": "applyWriteOff",
+    "title": "a spilled drink takes its whole recipe off",
+    "kind": "Positive",
+    "input": "2 × Spanish Latte 16 oz spilled",
+    "expected": "Beans −36 g, milk −300 ml; cost ₱73.20",
+    "actual": "{\"left\":{\"10\":4964,\"11\":900},\"cost\":73.2}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-10",
+    "objective": "Objective 4 - Inventory",
+    "fn": "applyWriteOff",
+    "title": "everything on hand can be written off (exactly 0 left)",
+    "kind": "Boundary",
+    "input": "1,200 ml Fresh Milk expired (1,200 ml on hand)",
+    "expected": "0",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-11",
+    "objective": "Objective 4 - Inventory",
+    "fn": "applyWriteOff",
+    "title": "writing off more than is on hand is refused, so stock never goes below 0",
+    "kind": "Negative",
+    "input": "1,500 ml Fresh Milk (1,200 ml on hand)",
+    "expected": "{\"stockError\":true,\"error\":\"Only 1200 ml of Fresh Milk is in stock, but this needs 1500.\",\"milkLeft\":1200,\"updates\":0}",
+    "actual": "{\"stockError\":true,\"error\":\"Only 1200 ml of Fresh Milk is in stock, but this needs 1500.\",\"milkLeft\":1200,\"updates\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-12",
+    "objective": "Objective 4 - Inventory",
+    "fn": "GET /api/notifications",
+    "title": "an item at or below its low-stock level raises a warning",
+    "kind": "Positive",
+    "input": "Caramel Syrup 120 ml (alert at 200 ml)",
+    "expected": "[{\"tone\":\"warning\",\"title\":\"Caramel Syrup is running low\"}]",
+    "actual": "[{\"tone\":\"warning\",\"title\":\"Caramel Syrup is running low\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-13",
+    "objective": "Objective 4 - Inventory",
+    "fn": "GET /api/notifications",
+    "title": "an item at 0 is out of stock (danger, not just low)",
+    "kind": "Boundary",
+    "input": "Fresh Milk 0 ml",
+    "expected": "[{\"tone\":\"danger\",\"title\":\"Fresh Milk is out of stock\"}]",
+    "actual": "[{\"tone\":\"danger\",\"title\":\"Fresh Milk is out of stock\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-14",
+    "objective": "Objective 4 - Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "restocking averages the cost of what is on hand and the new packs",
+    "kind": "Positive",
+    "input": "500 g at ₱1.00 on hand + 1,000 g bought for ₱1,400.00",
+    "expected": "₱1.2667 per g",
+    "actual": "1.2667",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-15",
+    "objective": "Objective 4 - Inventory",
+    "fn": "weightedAverageUnitCost",
+    "title": "adding nothing leaves the cost unchanged (never NaN)",
+    "kind": "Negative",
+    "input": "Nothing on hand, no cost entered, 0 added",
+    "expected": "₱0.00 (unchanged)",
+    "actual": "0",
+    "status": "Passed"
+  }
+]

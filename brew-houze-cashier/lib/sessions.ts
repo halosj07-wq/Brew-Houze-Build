@@ -69,22 +69,31 @@ export async function getSession() {
   if (result.rowCount === 0) return null;
   const row = result.rows[0];
   if (row.stale) await pool.query("UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE session_id = $1", [row.session_id]);
-  const isAdmin = String(row.role).toLowerCase() === "admin";
-  // A barista, kitchen staff or rider never has cashier permissions, even if the flags were left on from an earlier role.
-  const isBarista = ["barista", "kitchen", "rider"].includes(String(row.role).toLowerCase());
   return {
     adminId: Number(row.admin_id),
     fullName: String(row.full_name),
     email: String(row.email),
     role: String(row.role),
-    canVoidOrders: isAdmin || (!isBarista && Boolean(row.can_void_orders)),
-    canRefundOrders: isAdmin || (!isBarista && Boolean(row.can_refund_orders)),
-    // Opening the store is an admin decision unless an admin grants it to this cashier.
-    canOpenShift: isAdmin || (!isBarista && Boolean(row.can_open_shift)),
-    // Closing the shift ends the business day: a separate permission an admin gives.
-    canCloseShift: isAdmin || (!isBarista && Boolean(row.can_close_shift)),
+    ...staffPermissions(row.role, row),
     sid: token.sid,
     exp: token.exp,
+  };
+}
+
+// What a role may do in the Staff Portal. An admin may do everything. A cashier has what an admin
+// turned on for them: opening the store, closing the shift (ends the business day), voids and
+// refunds. A barista, kitchen staff or rider never has cashier permissions, even if the flags were
+// left on from an earlier role.
+export function staffPermissions(role: unknown, flags: { can_void_orders?: unknown; can_refund_orders?: unknown; can_open_shift?: unknown; can_close_shift?: unknown }) {
+  const value = String(role).toLowerCase();
+  const isAdmin = value === "admin";
+  const isBarista = ["barista", "kitchen", "rider"].includes(value);
+  const allowed = (flag: unknown) => isAdmin || (!isBarista && Boolean(flag));
+  return {
+    canVoidOrders: allowed(flags.can_void_orders),
+    canRefundOrders: allowed(flags.can_refund_orders),
+    canOpenShift: allowed(flags.can_open_shift),
+    canCloseShift: allowed(flags.can_close_shift),
   };
 }
 

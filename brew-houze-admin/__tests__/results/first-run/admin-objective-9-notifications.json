@@ -1,0 +1,57 @@
+[
+  {
+    "id": "UT-NOT-07",
+    "objective": "Objective 9 - Notifications",
+    "fn": "GET /api/notifications",
+    "title": "a shift closed short is a danger alert with the amount",
+    "kind": "Positive",
+    "input": "Shift #7 closed ₱30.00 short",
+    "expected": "[{\"kind\":\"cash\",\"tone\":\"danger\",\"title\":\"Shift #7 closed ₱30.00 short\"}]",
+    "actual": "[{\"kind\":\"cash\",\"tone\":\"danger\",\"title\":\"Shift #7 closed ₱30.00 short\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-08",
+    "objective": "Objective 9 - Notifications",
+    "fn": "GET /api/notifications",
+    "title": "a shift closed over is a warning",
+    "kind": "Positive",
+    "input": "Shift #8 closed ₱1,250.50 over",
+    "expected": "[{\"kind\":\"cash\",\"tone\":\"warning\",\"title\":\"Shift #8 closed ₱1,250.50 over\"}]",
+    "actual": "[{\"kind\":\"cash\",\"tone\":\"warning\",\"title\":\"Shift #8 closed ₱1,250.50 over\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-09",
+    "objective": "Objective 9 - Notifications",
+    "fn": "GET /api/notifications",
+    "title": "a failed delivery not yet voided is a danger alert",
+    "kind": "Positive",
+    "input": "Order #12 failed: Customer not home",
+    "expected": "[{\"kind\":\"delivery\",\"tone\":\"danger\",\"title\":\"Order #12 could not be delivered\"}]",
+    "actual": "[{\"kind\":\"delivery\",\"tone\":\"danger\",\"title\":\"Order #12 could not be delivered\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-10",
+    "objective": "Objective 9 - Notifications",
+    "fn": "GET /api/notifications",
+    "title": "alerts are listed newest first",
+    "kind": "Positive",
+    "input": "Stock alert 9:00, shift alert 22:00, delivery alert 15:00",
+    "expected": "[\"cash\",\"delivery\",\"stock\"]",
+    "actual": "[\"cash\",\"delivery\",\"stock\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-11",
+    "objective": "Objective 9 - Notifications",
+    "fn": "GET /api/notifications",
+    "title": "nothing to report gives an empty bell",
+    "kind": "Boundary",
+    "input": "No active problems",
+    "expected": "[]",
+    "actual": "[]",
+    "status": "Passed"
+  }
+]

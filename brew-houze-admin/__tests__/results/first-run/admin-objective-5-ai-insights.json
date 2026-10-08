@@ -1,0 +1,167 @@
+[
+  {
+    "id": "UT-AIA-01",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "insightFacts",
+    "title": "net profit is net sales less cost of goods, PayMongo fees, expenses and waste",
+    "kind": "Positive",
+    "input": "₱6,000 sales, ₱2,100 cost, ₱45 fees, ₱800 expenses, ₱55 waste, 40 orders",
+    "expected": "Net profit ₱3,000.00, gross ₱3,900.00, average order ₱150.00",
+    "actual": "{\"net_profit\":3000,\"gross_profit\":3900,\"average_order\":150}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-02",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "insightFacts",
+    "title": "top sellers are listed with how many sold and their sales",
+    "kind": "Positive",
+    "input": "Spanish Latte 30 sold (₱3,600), Iced Americano 6",
+    "expected": "[{\"product\":\"Spanish Latte\",\"sold\":30,\"sales\":3600},{\"product\":\"Iced Americano\",\"sold\":6,\"sales\":540}]",
+    "actual": "[{\"product\":\"Spanish Latte\",\"sold\":30,\"sales\":3600},{\"product\":\"Iced Americano\",\"sold\":6,\"sales\":540}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-03",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "insightFacts",
+    "title": "peak hours are written as clock hours (noon and midnight included)",
+    "kind": "Boundary",
+    "input": "Busiest hours 14:00, 9:00, 0:00",
+    "expected": "[\"2 PM\",\"9 AM\",\"12 AM\"]",
+    "actual": "[\"2 PM\",\"9 AM\",\"12 AM\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-04",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "insightFacts",
+    "title": "stock running out is predicted from the last 14 days of use",
+    "kind": "Positive",
+    "input": "Fresh Milk 1,400 ml, 2,800 ml used in 14 days; beans unused",
+    "expected": "{\"running_out\":[{\"item\":\"Fresh Milk\",\"days_left\":7}],\"below_alert\":[\"Fresh Milk\"]}",
+    "actual": "{\"running_out\":[{\"item\":\"Fresh Milk\",\"days_left\":7}],\"below_alert\":[\"Fresh Milk\"]}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-05",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "insightFacts",
+    "title": "the period before is the same length, just before",
+    "kind": "Positive",
+    "input": "Period Oct 1–7, 2026 (7 days)",
+    "expected": "{\"days\":7,\"period_before\":{\"from\":\"2026-09-24\",\"to\":\"2026-09-30\"}}",
+    "actual": "{\"days\":7,\"period_before\":{\"from\":\"2026-09-24\",\"to\":\"2026-09-30\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-06",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "insightFacts",
+    "title": "only numbers and item names go to Claude: no names, emails or phone numbers of customers or staff",
+    "kind": "Positive",
+    "input": "The facts of a week",
+    "expected": "No personal fields",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-07",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "Claude's cards are saved, keeping at most 5 and dropping any without a message",
+    "kind": "Positive",
+    "input": "Claude answers 7 cards, one with no message",
+    "expected": "{\"status\":201,\"saved\":[\"A\",\"C\",\"D\",\"E\",\"F\"]}",
+    "actual": "{\"status\":500,\"saved\":[\"A\",\"C\",\"D\",\"E\",\"F\"]}",
+    "status": "Failed"
+  },
+  {
+    "id": "UT-AIA-08",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "rate limited or out of credits: a clear message, nothing saved",
+    "kind": "Negative",
+    "input": "Claude answers 429 (rate limit)",
+    "expected": "{\"status\":503,\"error\":\"Claude is busy or the account is out of credits. Try again later.\",\"saved\":0}",
+    "actual": "{\"status\":503,\"error\":\"Claude is busy or the account is out of credits. Try again later.\",\"saved\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-09",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "Claude timing out gives a clear message",
+    "kind": "Negative",
+    "input": "Request to Claude times out",
+    "expected": "{\"status\":503,\"body\":{\"error\":\"Could not reach Claude. Check the internet connection and try again.\"}}",
+    "actual": "{\"status\":503,\"body\":{\"error\":\"Could not reach Claude. Check the internet connection and try again.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-10",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "an answer that is not valid JSON is not saved",
+    "kind": "Negative",
+    "input": "Claude answers \"Sure! Here are...\"",
+    "expected": "{\"status\":502,\"body\":{\"error\":\"Claude's answer could not be read. Try again.\"}}",
+    "actual": "{\"status\":502,\"body\":{\"error\":\"Claude's answer could not be read. Try again.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-11",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "a refusal is reported, not saved",
+    "kind": "Negative",
+    "input": "Claude stops with \"refusal\"",
+    "expected": "{\"status\":502,\"body\":{\"error\":\"Claude could not write insights for this period. Try another period.\"}}",
+    "actual": "{\"status\":502,\"body\":{\"error\":\"Claude could not write insights for this period. Try another period.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-12",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "nothing is sent to Claude while AI insights are switched off",
+    "kind": "Negative",
+    "input": "Switch off",
+    "expected": "{\"status\":409,\"body\":{\"error\":\"AI insights are turned off. An admin can turn them on at the top of this page.\"}}",
+    "actual": "{\"status\":409,\"body\":{\"error\":\"AI insights are turned off. An admin can turn them on at the top of this page.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-13",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "a second request within 5 minutes waits (no credits spent)",
+    "kind": "Boundary",
+    "input": "Last request 2 minutes ago",
+    "expected": "{\"status\":429,\"error\":\"Please wait 3 more minutes before asking again.\"}",
+    "actual": "{\"status\":429,\"error\":\"Please wait 3 more minutes before asking again.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-14",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "a period that ends before it starts is refused",
+    "kind": "Negative",
+    "input": "Oct 7 to Oct 1",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Choose a valid period.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Choose a valid period.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-AIA-15",
+    "objective": "Objective 5 - AI Insights",
+    "fn": "POST /api/insights",
+    "title": "without the API key on the server nothing is sent",
+    "kind": "Negative",
+    "input": "ANTHROPIC_API_KEY not set",
+    "expected": "{\"status\":503,\"body\":{\"error\":\"AI insights are not set up yet: the ANTHROPIC_API_KEY setting is missing on the server.\"}}",
+    "actual": "{\"status\":503,\"body\":{\"error\":\"AI insights are not set up yet: the ANTHROPIC_API_KEY setting is missing on the server.\"}}",
+    "status": "Passed"
+  }
+]

@@ -1,0 +1,142 @@
+[
+  {
+    "id": "UT-LOY-01",
+    "module": "Loyalty",
+    "fn": "computeDiscount",
+    "title": "percent discount on the whole order",
+    "input": "10% off, ₱300.00 order",
+    "expected": "₱30.00",
+    "actual": "30",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-02",
+    "module": "Loyalty",
+    "fn": "computeDiscount",
+    "title": "percent discount stops at its cap",
+    "input": "10% off up to ₱20.00, ₱300.00 order",
+    "expected": "₱20.00",
+    "actual": "20",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-03",
+    "module": "Loyalty",
+    "fn": "computeDiscount",
+    "title": "refused below the minimum order",
+    "input": "Needs ₱200.00, order is ₱150.00",
+    "expected": "Error: needs an order of at least ₱200.00",
+    "actual": "{\"error\":\"\\\"Reward\\\" needs an order of at least ₱200.00.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-04",
+    "module": "Loyalty",
+    "fn": "computeDiscount",
+    "title": "category discount only counts that category, never more than it",
+    "input": "₱30.00 off Pastries; coffee ₱150.00 + pastry ₱20.00",
+    "expected": "₱20.00 (the pastry's price, not ₱30.00)",
+    "actual": "20",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-05",
+    "module": "Loyalty",
+    "fn": "computeDiscount",
+    "title": "refused when the category is not in the order",
+    "input": "₱30.00 off Pastries; coffee only",
+    "expected": "Error: only applies to Pastries items",
+    "actual": "{\"error\":\"\\\"Reward\\\" only applies to Pastries items that is not in this order.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-06",
+    "module": "Loyalty",
+    "fn": "rewardMismatch",
+    "title": "free drink up to a price accepts a cheaper drink",
+    "input": "Free drink up to ₱160.00, Americano ₱150.00",
+    "expected": "Accepted (no reason given)",
+    "actual": "null",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-07",
+    "module": "Loyalty",
+    "fn": "rewardMismatch",
+    "title": "free drink up to a price refuses a dearer drink",
+    "input": "Free drink up to ₱160.00, Caramel Latte ₱180.00",
+    "expected": "\"\"Reward\" covers items up to ₱160.00. Caramel Latte costs ₱180.00.\"",
+    "actual": "\"\"Reward\" covers items up to ₱160.00. Caramel Latte costs ₱180.00.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-08",
+    "module": "Loyalty",
+    "fn": "rewardMismatch",
+    "title": "a discount reward cannot be taken as a free item",
+    "input": "10% discount reward used on an item",
+    "expected": "\"\"Reward\" is a discount, not a free item.\"",
+    "actual": "\"\"Reward\" is a discount, not a free item.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-09",
+    "module": "Loyalty",
+    "fn": "birthdayMatch",
+    "title": "birthday-day treat on the birthday itself",
+    "input": "Birthday Oct 8, window \"day\", today 2026-10-08",
+    "expected": "{\"eligible\":true,\"claimYear\":2026}",
+    "actual": "{\"eligible\":true,\"claimYear\":2026}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-10",
+    "module": "Loyalty",
+    "fn": "birthdayMatch",
+    "title": "birthday-day treat not the day after",
+    "input": "Birthday Oct 8, window \"day\", today 2026-10-09",
+    "expected": "{\"eligible\":false,\"claimYear\":2026}",
+    "actual": "{\"eligible\":false,\"claimYear\":2026}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-11",
+    "module": "Loyalty",
+    "fn": "birthdayMatch",
+    "title": "birthday week across New Year belongs to the old year",
+    "input": "Birthday Dec 31, window \"week\", today 2027-01-02",
+    "expected": "{\"eligible\":true,\"claimYear\":2026}",
+    "actual": "{\"eligible\":true,\"claimYear\":2026}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-12",
+    "module": "Loyalty",
+    "fn": "birthdayMatch",
+    "title": "a 29 February birthday falls on 28 February in other years",
+    "input": "Birthday Feb 29, window \"day\", today 2027-02-28",
+    "expected": "{\"eligible\":true,\"claimYear\":2027}",
+    "actual": "{\"eligible\":true,\"claimYear\":2027}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-13",
+    "module": "Loyalty",
+    "fn": "birthdayMatch",
+    "title": "birthday month treat any day that month",
+    "input": "Birthday Oct 8, window \"month\", today 2026-10-30",
+    "expected": "{\"eligible\":true,\"claimYear\":2026}",
+    "actual": "{\"eligible\":true,\"claimYear\":2026}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-14",
+    "module": "Loyalty",
+    "fn": "discountText",
+    "title": "describes a capped percent discount",
+    "input": "10% off, up to ₱50.00",
+    "expected": "\"10% off (up to ₱50.00)\"",
+    "actual": "\"10% off (up to ₱50.00)\"",
+    "status": "Passed"
+  }
+]

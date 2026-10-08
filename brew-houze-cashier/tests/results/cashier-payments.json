@@ -1,0 +1,42 @@
+[
+  {
+    "id": "UT-PAY-01",
+    "module": "Payments",
+    "fn": "normalizeGcashReference",
+    "title": "accepts a 13-digit reference as GCash prints it",
+    "input": "\"1234 567 890123\"",
+    "expected": "\"1234567890123\"",
+    "actual": "\"1234567890123\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-PAY-02",
+    "module": "Payments",
+    "fn": "normalizeGcashReference",
+    "title": "refuses a reference with a digit missing",
+    "input": "\"123456789012\" (12 digits)",
+    "expected": "Rejected (null)",
+    "actual": "null",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-PAY-03",
+    "module": "Payments",
+    "fn": "normalizeGcashReference",
+    "title": "refuses letters",
+    "input": "\"12345ABC90123\"",
+    "expected": "Rejected (null)",
+    "actual": "null",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-PAY-04",
+    "module": "Payments",
+    "fn": "parseCounterCartId",
+    "title": "reads a cart sent to the counter",
+    "input": "\"15\", 0, \"abc\"",
+    "expected": "[15,null,null]",
+    "actual": "[15,null,null]",
+    "status": "Passed"
+  }
+]

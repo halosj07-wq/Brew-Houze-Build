@@ -3,6 +3,7 @@
 import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
+import { excelPayment, excelReturnMethod, excelStatus, getFinanceDateStamp } from "@/lib/excel-format";
 import { MoneyField, PhoneField } from "@/lib/input-format";
 
 type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
@@ -4713,13 +4714,6 @@ function saveWorkbook(sheets: [name: string, sheet: XLSX.WorkSheet | null][], fi
   XLSX.writeFile(workbook, fileName);
 }
 
-const excelStatus = (status: string) => status.startsWith("void") ? "Voided" : status.startsWith("refund") ? "Refunded" : status === "completed" ? "Completed" : status.charAt(0).toUpperCase() + status.slice(1);
-const excelPayment = (order: { orderSource: string; paymentMethod: string }) => order.paymentMethod === "cod" ? "Cash on delivery" : order.orderSource === "online" ? "Mobile menu (GCash)" : order.paymentMethod === "split" ? "Split (cash + GCash)" : order.paymentMethod === "online" ? "GCash" : "Cash";
-const excelReturnMethod = (method: string | null | undefined) => method === "gcash" ? "GCash" : method === "cash" ? "Cash" : method === "split" ? "As paid (cash + GCash)" : "";
-
-function getFinanceDateStamp(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
-}
 
 // ─── Shift ───────────────────────────────────────────────────────────────────
 // The shift as it happens: open or close the store, the drawer and sales so far, and a running

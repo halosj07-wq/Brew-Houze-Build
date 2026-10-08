@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
 import pool from "@/lib/db";
-import { startSession } from "@/lib/sessions";
+import { staffPermissions, startSession } from "@/lib/sessions";
 
 // Roles that may use the Staff Portal.
 export const STAFF_PORTAL_ROLES = ["cashier", "barista", "kitchen", "rider", "admin"];
@@ -21,14 +21,9 @@ export async function finishStaffLogin(adminId: number, request: Request): Promi
   `, [adminId, STAFF_PORTAL_ROLES]);
   const admin = result.rows[0];
   if (!admin) return NextResponse.json({ error: "This account can no longer sign in." }, { status: 401 });
-  const isAdmin = String(admin.role).toLowerCase() === "admin";
-  const isBarista = ["barista", "kitchen", "rider"].includes(String(admin.role).toLowerCase());
   const session = {
     adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role,
-    canVoidOrders: isAdmin ? true : !isBarista && Boolean(admin.can_void_orders),
-    canRefundOrders: isAdmin ? true : !isBarista && Boolean(admin.can_refund_orders),
-    canOpenShift: isAdmin ? true : !isBarista && Boolean(admin.can_open_shift),
-    canCloseShift: isAdmin ? true : !isBarista && Boolean(admin.can_close_shift),
+    ...staffPermissions(admin.role, admin),
   };
   await pool.query(`
     INSERT INTO employee_time_logs (admin_id)

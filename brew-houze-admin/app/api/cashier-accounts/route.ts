@@ -167,6 +167,7 @@ function staffRole(value: unknown): StaffRole | null {
 export async function POST(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  if (String(session.role).toLowerCase() !== "admin") return NextResponse.json({ error: "Only an admin can add employee accounts." }, { status: 403 });
   try {
     const body = await request.json() as { fullName?: unknown; email?: unknown; password?: unknown; role?: unknown; canOpenShift?: unknown; canCloseShift?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown };
     const fullName = String(body.fullName ?? "").trim().slice(0, 120);

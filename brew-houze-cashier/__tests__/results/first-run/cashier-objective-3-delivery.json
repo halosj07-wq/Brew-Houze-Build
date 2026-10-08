@@ -1,0 +1,211 @@
+[
+  {
+    "id": "UT-DEL-01",
+    "objective": "Objective 3 - Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "deliveries are taken within the delivery hours",
+    "kind": "Positive",
+    "input": "Hours 10:00–22:00, now 2:00 PM",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-02",
+    "objective": "Objective 3 - Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "the first minute of the delivery hours is open",
+    "kind": "Boundary",
+    "input": "Hours 10:00–22:00, now 10:00 AM",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-03",
+    "objective": "Objective 3 - Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "no deliveries after the delivery hours",
+    "kind": "Negative",
+    "input": "Hours 10:00–22:00, now 11:00 PM",
+    "expected": "false",
+    "actual": "false",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-04",
+    "objective": "Objective 3 - Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "hours that run past midnight",
+    "kind": "Boundary",
+    "input": "Hours 20:00–02:00, now 1:00 AM",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-05",
+    "objective": "Objective 3 - Delivery",
+    "fn": "deliveryFeeFor",
+    "title": "the zone's fee is charged below the free-delivery amount",
+    "kind": "Positive",
+    "input": "Zone fee ₱50.00, free from ₱500.00, items ₱499.00",
+    "expected": "₱50.00",
+    "actual": "50",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-06",
+    "objective": "Objective 3 - Delivery",
+    "fn": "deliveryFeeFor",
+    "title": "delivery is free from exactly the free-delivery amount",
+    "kind": "Boundary",
+    "input": "Zone fee ₱50.00, free from ₱500.00, items ₱500.00",
+    "expected": "₱0.00 (free)",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-07",
+    "objective": "Objective 3 - Delivery",
+    "fn": "placeOrder",
+    "title": "the delivery fee is added to the order total",
+    "kind": "Positive",
+    "input": "2 Spanish Latte (₱240.00) to Poblacion (fee ₱50.00)",
+    "expected": "{\"deliveryFee\":50,\"total\":290}",
+    "actual": "{\"deliveryFee\":50,\"total\":290}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-08",
+    "objective": "Objective 3 - Delivery",
+    "fn": "placeOrder",
+    "title": "an order below the zone's minimum is refused",
+    "kind": "Negative",
+    "input": "1 Spanish Latte (₱120.00), Poblacion minimum ₱200.00",
+    "expected": "{\"error\":\"Delivery to Poblacion starts at ₱200.00 of items. Add a little more to your order.\"}",
+    "actual": "{\"error\":\"Delivery to Poblacion starts at ₱200.00 of items. Add a little more to your order.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-09",
+    "objective": "Objective 3 - Delivery",
+    "fn": "placeOrder",
+    "title": "cash on delivery is refused for an order that is not delivered",
+    "kind": "Negative",
+    "input": "Dine-in order paid \"cod\"",
+    "expected": "{\"error\":\"Cash on delivery is only for delivery orders.\"}",
+    "actual": "{\"error\":\"Cash on delivery is only for delivery orders.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-10",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (delivered)",
+    "title": "the rider must collect the full COD amount",
+    "kind": "Negative",
+    "input": "COD ₱350.00, rider collected ₱300.00",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Collect ₱350.00 for this order.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Collect ₱350.00 for this order.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-11",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (delivered)",
+    "title": "delivered with the COD collected: the cash is recorded with the rider",
+    "kind": "Positive",
+    "input": "COD ₱350.00, rider collected ₱350.00",
+    "expected": "{\"status\":200,\"collected\":350}",
+    "actual": "{\"status\":200,\"collected\":350}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-12",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (remit)",
+    "title": "the cashier receives the rider's COD cash into the open shift's drawer",
+    "kind": "Positive",
+    "input": "Delivered, ₱350.00 collected, shift #7 open",
+    "expected": "{\"status\":200,\"receivedBy\":2,\"shift\":7}",
+    "actual": "{\"status\":200,\"receivedBy\":2,\"shift\":7}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-13",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (remit)",
+    "title": "a rider cannot record their own hand-in",
+    "kind": "Negative",
+    "input": "Rider sends \"remit\"",
+    "expected": "{\"status\":403,\"body\":{\"error\":\"The cashier records the cash you hand in.\"}}",
+    "actual": "{\"status\":403,\"body\":{\"error\":\"The cashier records the cash you hand in.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-14",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (remit)",
+    "title": "the same COD cash cannot be received twice",
+    "kind": "Negative",
+    "input": "Cash already received",
+    "expected": "{\"status\":409,\"body\":{\"error\":\"This cash was already received.\"}}",
+    "actual": "{\"status\":409,\"body\":{\"error\":\"This cash was already received.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-15",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (remit)",
+    "title": "COD cash needs an open shift to go into",
+    "kind": "Negative",
+    "input": "No shift open",
+    "expected": "{\"status\":409,\"body\":{\"error\":\"Open a shift first: the cash goes into its drawer.\"}}",
+    "actual": "{\"status\":409,\"body\":{\"error\":\"Open a shift first: the cash goes into its drawer.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-16",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (failed)",
+    "title": "a failed delivery needs a reason",
+    "kind": "Negative",
+    "input": "Failed, reason \"   \"",
+    "expected": "{\"status\":400,\"body\":{\"error\":\"Say why it could not be delivered.\"}}",
+    "actual": "{\"status\":400,\"body\":{\"error\":\"Say why it could not be delivered.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-17",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (failed)",
+    "title": "a failed COD delivery keeps its reason and blocks COD for that customer",
+    "kind": "Positive",
+    "input": "Failed, reason \"Customer not home\"",
+    "expected": "{\"status\":200,\"reason\":\"Customer not home\",\"blocked\":[400,\"Cash on delivery order #12 was not delivered: Customer not home\"]}",
+    "actual": "{\"status\":200,\"reason\":\"Customer not home\",\"blocked\":[400,\"Cash on delivery order #12 was not delivered: Customer not home\"]}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-18",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries (failed)",
+    "title": "a delivered order cannot be marked failed",
+    "kind": "Negative",
+    "input": "Delivery already delivered",
+    "expected": "{\"status\":409,\"body\":{\"error\":\"Only a packed or outgoing delivery can be marked failed.\"}}",
+    "actual": "{\"status\":409,\"body\":{\"error\":\"Only a packed or outgoing delivery can be marked failed.\"}}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DEL-19",
+    "objective": "Objective 3 - Delivery",
+    "fn": "PATCH /api/deliveries",
+    "title": "a rider cannot act on another rider's delivery",
+    "kind": "Negative",
+    "input": "Rider #32 on a delivery rider #31 took",
+    "expected": "{\"status\":403,\"body\":{\"error\":\"Another rider has this delivery.\"}}",
+    "actual": "{\"status\":403,\"body\":{\"error\":\"Another rider has this delivery.\"}}",
+    "status": "Passed"
+  }
+]

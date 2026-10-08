@@ -1,0 +1,167 @@
+[
+  {
+    "id": "UT-FIN-01",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "addSafeEntry",
+    "title": "a deposit raises the balance, and the entry keeps the balance after it",
+    "kind": "Positive",
+    "input": "Safe ₱10,000.00, deposit ₱4,200.00",
+    "expected": "[{\"kind\":\"deposit\",\"amount\":4200,\"balanceAfter\":14200}]",
+    "actual": "[{\"kind\":\"deposit\",\"amount\":4200,\"balanceAfter\":14200}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-02",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "addSafeEntry",
+    "title": "the whole balance can be withdrawn (exactly ₱0.00 left)",
+    "kind": "Boundary",
+    "input": "Safe ₱10,000.00, withdraw ₱10,000.00",
+    "expected": "[{\"kind\":\"withdrawal\",\"amount\":-10000,\"balanceAfter\":0}]",
+    "actual": "[{\"kind\":\"withdrawal\",\"amount\":-10000,\"balanceAfter\":0}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-03",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "addSafeEntry",
+    "title": "an account can never go below ₱0.00",
+    "kind": "Negative",
+    "input": "Safe ₱10,000.00, withdraw ₱10,000.01",
+    "expected": "{\"short\":true,\"error\":\"The account does not have enough money.\",\"written\":0}",
+    "actual": "{\"short\":true,\"error\":\"The account does not have enough money.\",\"written\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-04",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "addSafeEntry",
+    "title": "amounts are kept to the centavo",
+    "kind": "Boundary",
+    "input": "Safe ₱0.10, deposit ₱0.20",
+    "expected": "Balance ₱0.30 (not 0.30000000000000004)",
+    "actual": "[{\"kind\":\"deposit\",\"amount\":0.2,\"balanceAfter\":0.3}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-05",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "recordShiftFloat",
+    "title": "opening with more cash than was left in the drawer takes the difference from the safe",
+    "kind": "Positive",
+    "input": "Start ₱2,000.00, ₱1,500.00 left from last night",
+    "expected": "[{\"kind\":\"float_out\",\"amount\":-500,\"balanceAfter\":9500}]",
+    "actual": "[{\"kind\":\"float_out\",\"amount\":-500,\"balanceAfter\":9500}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-06",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "recordShiftFloat",
+    "title": "opening with less returns the difference to the safe",
+    "kind": "Positive",
+    "input": "Start ₱1,000.00, ₱1,500.00 left from last night",
+    "expected": "[{\"kind\":\"float_return\",\"amount\":500,\"balanceAfter\":10500}]",
+    "actual": "[{\"kind\":\"float_return\",\"amount\":500,\"balanceAfter\":10500}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-07",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "recordShiftFloat",
+    "title": "nothing is recorded before the owner enters the safe's opening balance",
+    "kind": "Negative",
+    "input": "Safe not in use yet",
+    "expected": "[]",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-08",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "recordShiftGcash",
+    "title": "closing adds the shift's GCash to the PayMongo balance and takes PayMongo's fees off",
+    "kind": "Positive",
+    "input": "12 GCash payments, ₱2,000.00, fees ₱45.00, PayMongo balance ₱10,000.00",
+    "expected": "[{\"kind\":\"gcash_sales\",\"amount\":2000,\"balanceAfter\":12000},{\"kind\":\"gateway_fee\",\"amount\":-45,\"balanceAfter\":11955}]",
+    "actual": "[{\"kind\":\"gcash_sales\",\"amount\":2000,\"balanceAfter\":12000},{\"kind\":\"gateway_fee\",\"amount\":-45,\"balanceAfter\":11955}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-09",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "recordShiftGcash",
+    "title": "a shift with no GCash adds nothing",
+    "kind": "Boundary",
+    "input": "No GCash payments",
+    "expected": "[]",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-10",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "expenseCategoryFor",
+    "title": "a cash out is filed under its expense category",
+    "kind": "Positive",
+    "input": "\"Ice\", \"staff meal\", \"Rent\", \"gas for the generator\"",
+    "expected": "[\"Supplies\",\"Staff meals\",\"Rent\",\"Other\"]",
+    "actual": "[\"Supplies\",\"Staff meals\",\"Rent\",\"Other\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-11",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "pesoText",
+    "title": "amounts are written in pesos with thousands separators and two decimals",
+    "kind": "Positive",
+    "input": "12500.5, 0",
+    "expected": "[\"₱12,500.50\",\"₱0.00\"]",
+    "actual": "[\"₱12,500.50\",\"₱0.00\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-12",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "excelStatus",
+    "title": "order statuses are worded for the export",
+    "kind": "Positive",
+    "input": "\"voided\", \"refund\", \"completed\", \"pending\"",
+    "expected": "[\"Voided\",\"Refunded\",\"Completed\",\"Pending\"]",
+    "actual": "[\"Voided\",\"Refunded\",\"Completed\",\"Pending\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-13",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "excelPayment",
+    "title": "each payment is named the way the café says it",
+    "kind": "Positive",
+    "input": "COD, mobile GCash, split, counter GCash, cash",
+    "expected": "[\"Cash on delivery\",\"Mobile menu (GCash)\",\"Split (cash + GCash)\",\"GCash\",\"Cash\"]",
+    "actual": "[\"Cash on delivery\",\"Mobile menu (GCash)\",\"Split (cash + GCash)\",\"GCash\",\"Cash\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-14",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "excelReturnMethod",
+    "title": "an order with no refund leaves the column blank",
+    "kind": "Negative",
+    "input": "\"gcash\", null, \"unknown\"",
+    "expected": "[\"GCash\",\"\",\"\"]",
+    "actual": "[\"GCash\",\"\",\"\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-FIN-15",
+    "objective": "Objective 6 - Finance and Treasury",
+    "fn": "getFinanceDateStamp",
+    "title": "export file names use the Philippine date, not the server's",
+    "kind": "Boundary",
+    "input": "Oct 8, 2026 11:30 PM UTC (Oct 9, 7:30 AM in Manila)",
+    "expected": "\"2026-10-09\"",
+    "actual": "\"2026-10-09\"",
+    "status": "Passed"
+  }
+]

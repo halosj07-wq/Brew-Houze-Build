@@ -1,0 +1,112 @@
+[
+  {
+    "id": "UT-DIS-01",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "senior discount removes VAT, then 20%",
+    "input": "Senior, ₱112.00 item, VAT-registered (12%)",
+    "expected": "VAT exempt ₱12.00, discount ₱20.00 (pays ₱80.00)",
+    "actual": "{\"vatExempt\":12,\"discount\":20}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-02",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "PWD discount on two items",
+    "input": "PWD, ₱224.00 covered, VAT-registered (12%)",
+    "expected": "VAT exempt ₱24.00, discount ₱40.00 (pays ₱160.00)",
+    "actual": "{\"vatExempt\":24,\"discount\":40}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-03",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "no VAT removal when the café is not VAT-registered",
+    "input": "Senior, ₱100.00 item, not VAT-registered",
+    "expected": "VAT exempt ₱0.00, discount ₱20.00",
+    "actual": "{\"vatExempt\":0,\"discount\":20}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-04",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "student discount comes off the VAT-inclusive price",
+    "input": "Student 10%, ₱150.00 item",
+    "expected": "VAT exempt ₱0.00, discount ₱15.00",
+    "actual": "{\"vatExempt\":0,\"discount\":15}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-05",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "percent discount stops at its cap",
+    "input": "20% capped at ₱50.00, ₱500.00 covered",
+    "expected": "Discount ₱50.00 (the cap, not ₱100.00)",
+    "actual": "{\"vatExempt\":0,\"discount\":50}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-06",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "fixed discount never exceeds the item price",
+    "input": "Fixed ₱30.00 off, ₱20.00 item",
+    "expected": "Discount ₱20.00 (item becomes free, not negative)",
+    "actual": "{\"vatExempt\":0,\"discount\":20}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-07",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "nothing covered gives no discount",
+    "input": "Senior, ₱0.00 covered",
+    "expected": "{\"vatExempt\":0,\"discount\":0}",
+    "actual": "{\"vatExempt\":0,\"discount\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-08",
+    "module": "ID Discounts",
+    "fn": "idDiscountAmounts",
+    "title": "a negative amount is treated as nothing",
+    "input": "Senior, −₱50.00 covered (invalid)",
+    "expected": "{\"vatExempt\":0,\"discount\":0}",
+    "actual": "{\"vatExempt\":0,\"discount\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-09",
+    "module": "ID Discounts",
+    "fn": "isStatutoryDiscount",
+    "title": "senior and PWD are fixed by law",
+    "input": "\"senior\", \"pwd\", \"student\"",
+    "expected": "[true,true,false]",
+    "actual": "[true,true,false]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-10",
+    "module": "ID Discounts",
+    "fn": "parseIdDiscounts",
+    "title": "cleans the holder name and empty ID number",
+    "input": "holder \"  Juan   Dela Cruz \", ID number \"  \", group of 3",
+    "expected": "[{\"typeId\":1,\"holderName\":\"Juan Dela Cruz\",\"idNumber\":null,\"lines\":null,\"groupSize\":3}]",
+    "actual": "[{\"typeId\":1,\"holderName\":\"Juan Dela Cruz\",\"idNumber\":null,\"lines\":null,\"groupSize\":3}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DIS-11",
+    "module": "ID Discounts",
+    "fn": "parseIdDiscounts",
+    "title": "anything but a list gives no discounts",
+    "input": "\"senior\" (not a list)",
+    "expected": "[]",
+    "actual": "[]",
+    "status": "Passed"
+  }
+]

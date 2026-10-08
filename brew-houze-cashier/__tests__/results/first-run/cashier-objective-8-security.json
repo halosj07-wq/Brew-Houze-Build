@@ -1,0 +1,233 @@
+[
+  {
+    "id": "UT-SEC-01",
+    "objective": "Objective 8 - Security",
+    "fn": "createSessionToken / verifySessionToken",
+    "title": "a signed-in session reads back, valid for 8 hours",
+    "kind": "Positive",
+    "input": "Cashier #2 signs in at 9:00 AM",
+    "expected": "{\"adminId\":2,\"role\":\"cashier\",\"expiresInHours\":8}",
+    "actual": "{\"adminId\":2,\"role\":\"cashier\",\"expiresInHours\":8}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-02",
+    "objective": "Objective 8 - Security",
+    "fn": "verifySessionToken",
+    "title": "a token whose role was edited to admin is rejected",
+    "kind": "Negative",
+    "input": "Token payload changed from cashier to admin, old signature",
+    "expected": "null",
+    "actual": "null",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-03",
+    "objective": "Objective 8 - Security",
+    "fn": "verifySessionToken",
+    "title": "a token is refused once its 8 hours are over",
+    "kind": "Boundary",
+    "input": "Same token 8 hours later",
+    "expected": "null",
+    "actual": "null",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-04",
+    "objective": "Objective 8 - Security",
+    "fn": "verifySessionToken",
+    "title": "a token is still valid one second before it ends",
+    "kind": "Boundary",
+    "input": "Same token 7 h 59 min 59 s later",
+    "expected": "2",
+    "actual": "2",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-05",
+    "objective": "Objective 8 - Security",
+    "fn": "verifySessionToken",
+    "title": "a token signed with another secret is rejected",
+    "kind": "Negative",
+    "input": "Token made with a different AUTH_SECRET",
+    "expected": "null",
+    "actual": "null",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-06",
+    "objective": "Objective 8 - Security",
+    "fn": "verifySessionToken",
+    "title": "missing or malformed tokens are rejected",
+    "kind": "Negative",
+    "input": "undefined, \"\", \"abc\", \"a.b.c\"",
+    "expected": "[null,null,null,null]",
+    "actual": "[null,null,null,null]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-07",
+    "objective": "Objective 8 - Security",
+    "fn": "createSessionToken",
+    "title": "no tokens are made without the server secret",
+    "kind": "Negative",
+    "input": "AUTH_SECRET not set",
+    "expected": "{\"error\":\"AUTH_SECRET is not configured.\"}",
+    "actual": "{\"error\":\"AUTH_SECRET is not configured.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-08",
+    "objective": "Objective 8 - Security",
+    "fn": "confirmPassword",
+    "title": "the password is compared against its bcrypt hash in the database, never in plain text",
+    "kind": "Positive",
+    "input": "Admin #1, password \"Cafe#2026\"",
+    "expected": "{\"ok\":true,\"comparedWithBcrypt\":true,\"sentPassword\":\"Cafe#2026\"}",
+    "actual": "{\"ok\":true,\"comparedWithBcrypt\":true,\"sentPassword\":\"Cafe#2026\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-09",
+    "objective": "Objective 8 - Security",
+    "fn": "confirmPassword",
+    "title": "a wrong password is refused",
+    "kind": "Negative",
+    "input": "Admin #1, wrong password",
+    "expected": "false",
+    "actual": "false",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-10",
+    "objective": "Objective 8 - Security",
+    "fn": "confirmPassword",
+    "title": "an empty or over-long password is refused without asking the database",
+    "kind": "Boundary",
+    "input": "\"\" and 201 characters",
+    "expected": "{\"results\":[false,false],\"queries\":0}",
+    "actual": "{\"results\":[false,false],\"queries\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-11",
+    "objective": "Objective 8 - Security",
+    "fn": "verifyChallenge",
+    "title": "the right code signs in and trusts the device for 30 days",
+    "kind": "Positive",
+    "input": "Code 482915 (spaced as \"482 915\")",
+    "expected": "{\"result\":{\"kind\":\"staff\",\"accountId\":2},\"trustedDays\":30}",
+    "actual": "{\"result\":{\"kind\":\"staff\",\"accountId\":2},\"trustedDays\":30}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-12",
+    "objective": "Objective 8 - Security",
+    "fn": "verifyChallenge",
+    "title": "a wrong code counts an attempt and says how many are left",
+    "kind": "Negative",
+    "input": "Wrong code, 1 wrong already",
+    "expected": "{\"error\":\"That code is not right. 3 tries left.\",\"status\":401}",
+    "actual": "{\"error\":\"That code is not right. 3 tries left.\",\"status\":401}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-13",
+    "objective": "Objective 8 - Security",
+    "fn": "verifyChallenge",
+    "title": "the fifth wrong code ends the sign-in",
+    "kind": "Boundary",
+    "input": "Wrong code, 4 wrong already",
+    "expected": "{\"error\":\"That code is not right. Sign in again to get a new one.\",\"status\":401}",
+    "actual": "{\"error\":\"That code is not right. Sign in again to get a new one.\",\"status\":401}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-14",
+    "objective": "Objective 8 - Security",
+    "fn": "verifyChallenge",
+    "title": "after 5 wrong codes even the right code is refused",
+    "kind": "Negative",
+    "input": "Right code, 5 wrong already",
+    "expected": "{\"error\":\"Too many wrong codes. Sign in again to get a new one.\",\"status\":429}",
+    "actual": "{\"error\":\"Too many wrong codes. Sign in again to get a new one.\",\"status\":429}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-15",
+    "objective": "Objective 8 - Security",
+    "fn": "verifyChallenge",
+    "title": "a code older than 10 minutes is refused",
+    "kind": "Negative",
+    "input": "Right code, expired",
+    "expected": "{\"error\":\"This code has expired. Ask for a new one, or sign in again.\",\"status\":410}",
+    "actual": "{\"error\":\"This code has expired. Ask for a new one, or sign in again.\",\"status\":410}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-16",
+    "objective": "Objective 8 - Security",
+    "fn": "verifyChallenge",
+    "title": "a code that is not 6 digits is refused before any lookup",
+    "kind": "Negative",
+    "input": "\"48291\"",
+    "expected": "{\"error\":\"Type the 6-digit code from the email.\",\"status\":400}",
+    "actual": "{\"error\":\"Type the 6-digit code from the email.\",\"status\":400}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-17",
+    "objective": "Objective 8 - Security",
+    "fn": "isAllowedRole",
+    "title": "only staff roles may use the Staff Portal",
+    "kind": "Negative",
+    "input": "\"Cashier\", \"rider\", \"customer\", \"owner\"",
+    "expected": "[true,true,false,false]",
+    "actual": "[true,true,false,false]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-18",
+    "objective": "Objective 8 - Security",
+    "fn": "isQueueOnly",
+    "title": "baristas, kitchen staff and riders are limited to their queue",
+    "kind": "Positive",
+    "input": "\"barista\", \"kitchen\", \"rider\", \"cashier\", \"admin\"",
+    "expected": "[true,true,true,false,false]",
+    "actual": "[true,true,true,false,false]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-19",
+    "objective": "Objective 8 - Security",
+    "fn": "POST /api/shift",
+    "title": "the server refuses a barista closing the shift, whatever the screen shows",
+    "kind": "Negative",
+    "input": "Barista session sends \"close\"",
+    "expected": "{\"status\":403,\"code\":\"queue_only\"}",
+    "actual": "{\"status\":403,\"code\":\"queue_only\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-20",
+    "objective": "Objective 8 - Security",
+    "fn": "POST /api/shift",
+    "title": "a cashier the admin did not allow cannot open the store",
+    "kind": "Negative",
+    "input": "Cashier without \"open shift\" permission",
+    "expected": "{\"status\":403,\"error\":\"Only an admin, or a cashier an admin has allowed, can open the store.\"}",
+    "actual": "{\"status\":403,\"error\":\"Only an admin, or a cashier an admin has allowed, can open the store.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-SEC-21",
+    "objective": "Objective 8 - Security",
+    "fn": "placeOrder",
+    "title": "every stock change of an order is logged with before, after, the order, who and from where",
+    "kind": "Positive",
+    "input": "Cashier #2 sells 1 Spanish Latte",
+    "expected": "{\"changeType\":\"order_deduction\",\"milk\":{\"before\":2000,\"after\":1850,\"change\":-150},\"order\":900,\"by\":2,\"from\":\"cashier\"}",
+    "actual": "{\"changeType\":\"order_deduction\",\"milk\":{\"before\":2000,\"after\":1850,\"change\":-150},\"order\":900,\"by\":2,\"from\":\"cashier\"}",
+    "status": "Passed"
+  }
+]

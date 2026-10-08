@@ -105,8 +105,10 @@ export function parsePackaging(value: unknown, itemIsWholeUnit: boolean): { valu
 
 // New unit cost after adding stock that cost `addedTotalCost`: the cost of the stock on hand and
 // of the new packs, averaged by quantity. If the stock on hand has no known cost (or none is
-// left), the new packs set the cost on their own.
+// left), the new packs set the cost on their own. Adding nothing leaves the cost as it was (0 when
+// it was never entered), never an invalid number.
 export function weightedAverageUnitCost(currentQuantity: number, currentUnitCost: number | null, addedQuantity: number, addedTotalCost: number): number {
+  if (!(addedQuantity > 0)) return currentUnitCost ?? 0;
   const onHand = Math.max(0, currentQuantity);
   const average = currentUnitCost === null || onHand === 0
     ? addedTotalCost / addedQuantity

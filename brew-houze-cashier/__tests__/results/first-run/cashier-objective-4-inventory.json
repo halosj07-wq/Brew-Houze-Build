@@ -1,0 +1,79 @@
+[
+  {
+    "id": "UT-INV-01",
+    "objective": "Objective 4 - Inventory",
+    "fn": "placeOrder",
+    "title": "an order takes each recipe ingredient off the stock, times the quantity",
+    "kind": "Positive",
+    "input": "2 Spanish Latte",
+    "expected": "Beans −36 g, milk −300 ml, syrup −30 ml",
+    "actual": "{\"Espresso Beans\":36,\"Fresh Milk\":300,\"Caramel Syrup\":30}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-02",
+    "objective": "Objective 4 - Inventory",
+    "fn": "placeOrder",
+    "title": "an add-on takes its own ingredient off too",
+    "kind": "Positive",
+    "input": "1 Spanish Latte with Extra Shot (18 g beans)",
+    "expected": "Beans −36 g (18 + 18)",
+    "actual": "{\"Espresso Beans\":36,\"Fresh Milk\":150,\"Caramel Syrup\":15}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-03",
+    "objective": "Objective 4 - Inventory",
+    "fn": "placeOrder",
+    "title": "\"less\" takes half and \"none\" takes nothing",
+    "kind": "Boundary",
+    "input": "1 Spanish Latte, less syrup, no milk",
+    "expected": "Beans −18 g, syrup −7.5 ml, milk untouched",
+    "actual": "{\"Espresso Beans\":18,\"Caramel Syrup\":7.5}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-04",
+    "objective": "Objective 4 - Inventory",
+    "fn": "usedShare",
+    "title": "the share of an ingredient each level uses",
+    "kind": "Positive",
+    "input": "\"less\", \"none\", no request",
+    "expected": "[0.5,0,1]",
+    "actual": "[0.5,0,1]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-05",
+    "objective": "Objective 4 - Inventory",
+    "fn": "placeOrder",
+    "title": "an order may use the last of an item (stock reaches exactly 0)",
+    "kind": "Boundary",
+    "input": "Fresh Milk on hand 150 ml, 1 Spanish Latte",
+    "expected": "0",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-06",
+    "objective": "Objective 4 - Inventory",
+    "fn": "placeOrder",
+    "title": "an order needing more than is on hand is refused as sold out, and stock never goes below 0",
+    "kind": "Negative",
+    "input": "Fresh Milk on hand 100 ml, 1 Spanish Latte (needs 150 ml)",
+    "expected": "{\"soldOut\":true,\"error\":\"Insufficient stock for Fresh Milk.\",\"milkLeft\":100}",
+    "actual": "{\"soldOut\":true,\"error\":\"Insufficient stock for Fresh Milk.\",\"milkLeft\":100}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-INV-07",
+    "objective": "Objective 4 - Inventory",
+    "fn": "placeOrder",
+    "title": "the cost of what was made is kept on the sales line",
+    "kind": "Positive",
+    "input": "1 Spanish Latte: 18 × ₱1.20 + 150 × ₱0.10 + 15 × ₱0.50",
+    "expected": "Unit cost ₱44.10",
+    "actual": "44.1",
+    "status": "Passed"
+  }
+]

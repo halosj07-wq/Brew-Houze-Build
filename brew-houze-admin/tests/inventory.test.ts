@@ -1,0 +1,17 @@
+import { unitCases } from "./harness";
+import { parsePackaging, weightedAverageUnitCost } from "@/lib/inventory";
+
+// Inventory (lib/inventory.ts): restocking by package averages the unit cost by quantity, and
+// packaging descriptions are checked before they are saved.
+unitCases("admin", "Inventory", [
+  { id: "UT-INV-01", fn: "weightedAverageUnitCost", title: "restock averages the cost by quantity", input: "1,000 g on hand at ₱0.50/g; add 1,000 g for ₱700.00", expected: 0.6, expectedText: "₱0.60/g", run: () => weightedAverageUnitCost(1000, 0.5, 1000, 700) },
+  { id: "UT-INV-02", fn: "weightedAverageUnitCost", title: "with nothing on hand the new packs set the cost", input: "0 g on hand at ₱0.50/g; add 1,000 g for ₱800.00", expected: 0.8, expectedText: "₱0.80/g", run: () => weightedAverageUnitCost(0, 0.5, 1000, 800) },
+  { id: "UT-INV-03", fn: "weightedAverageUnitCost", title: "with no known cost the new packs set the cost", input: "500 g on hand, cost not entered; add 1,000 g for ₱800.00", expected: 0.8, expectedText: "₱0.80/g", run: () => weightedAverageUnitCost(500, null, 1000, 800) },
+  { id: "UT-INV-04", fn: "weightedAverageUnitCost", title: "negative stock on hand is treated as none", input: "−50 g on hand at ₱0.50/g; add 1,000 g for ₱800.00", expected: 0.8, expectedText: "₱0.80/g", run: () => weightedAverageUnitCost(-50, 0.5, 1000, 800) },
+  { id: "UT-INV-05", fn: "weightedAverageUnitCost", title: "adding nothing leaves the cost as it was", input: "500 g on hand, cost not entered; add 0 g for ₱0.00", expected: 0, expectedText: "₱0.00/g (no cost to average; not an invalid number)", run: () => weightedAverageUnitCost(500, null, 0, 0) },
+  { id: "UT-INV-06", fn: "parsePackaging", title: "accepts a packaging and rounds its price", input: "\"Nescafe Bean Bag 1 kg\", contains 1,000, price \"845.678\"", expected: { value: { name: "Nescafe Bean Bag 1 kg", brand: null, contentQuantity: 1000, packPrice: 845.68 } }, run: () => parsePackaging({ packaging_name: "Nescafe Bean Bag 1 kg", content_quantity: 1000, pack_price: "845.678" }, false) },
+  { id: "UT-INV-07", fn: "parsePackaging", title: "a packaging needs a name", input: "Name \"\", contains 1,000", expected: { error: "Give the packaging a name, e.g. Nescafe Bean Bag 1 kg." }, expectedText: "Error: give the packaging a name", run: () => parsePackaging({ packaging_name: "", content_quantity: 1000 }, false) },
+  { id: "UT-INV-08", fn: "parsePackaging", title: "a pack must contain something", input: "\"Milk 1 L\", contains 0", expected: { error: "Enter how much one pack contains (more than 0)." }, expectedText: "Error: contents must be more than 0", run: () => parsePackaging({ packaging_name: "Milk 1 L", content_quantity: 0 }, false) },
+  { id: "UT-INV-09", fn: "parsePackaging", title: "whole-unit items come in whole packs", input: "\"Coke case\", contains 2.5 cans", expected: { error: "This item is counted in whole units, so one pack must contain a whole number." }, expectedText: "Error: must be a whole number", run: () => parsePackaging({ packaging_name: "Coke case", content_quantity: 2.5 }, true) },
+  { id: "UT-INV-10", fn: "parsePackaging", title: "a pack price cannot be negative", input: "\"Milk 1 L\", contains 1,000, price −5", expected: { error: "The pack price must be 0 or more." }, expectedText: "Error: price must be 0 or more", run: () => parsePackaging({ packaging_name: "Milk 1 L", content_quantity: 1000, pack_price: -5 }, false) },
+]);

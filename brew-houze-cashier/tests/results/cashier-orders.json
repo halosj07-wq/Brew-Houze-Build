@@ -1,0 +1,92 @@
+[
+  {
+    "id": "UT-ORD-01",
+    "module": "Orders",
+    "fn": "parseServiceType",
+    "title": "accepts dine in, take out and delivery only",
+    "input": "\"dine_in\", \"delivery\", \"pickup\"",
+    "expected": "[\"dine_in\",\"delivery\",null]",
+    "actual": "[\"dine_in\",\"delivery\",null]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-02",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "keeps a valid cart line",
+    "input": "Variant 5, quantity 2, add-on 9",
+    "expected": "[{\"productVariantId\":5,\"quantity\":2,\"additionIds\":[9],\"rewardId\":null,\"customizations\":[],\"note\":\"\"}]",
+    "actual": "[{\"productVariantId\":5,\"quantity\":2,\"additionIds\":[9],\"rewardId\":null,\"customizations\":[],\"note\":\"\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-03",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "drops a line with quantity 0",
+    "input": "Variant 5, quantity 0",
+    "expected": "No lines",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-04",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "drops a line over the 500 limit",
+    "input": "Variant 5, quantity 501",
+    "expected": "No lines",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-05",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "a free reward line is one item only",
+    "input": "Reward line, quantity 2",
+    "expected": "No lines",
+    "actual": "[]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-06",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "keeps a repeated add-on (double shot) and drops invalid ones",
+    "input": "Add-ons [7, 7, −1, \"x\"]",
+    "expected": "[7,7]",
+    "actual": "[7,7]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-07",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "keeps only less/none requests, one per ingredient, in order",
+    "input": "Ingredient 12 \"none\", 4 \"less\", 8 \"extra\"",
+    "expected": "[{\"inventoryId\":4,\"level\":\"less\"},{\"inventoryId\":12,\"level\":\"none\"}]",
+    "actual": "[{\"inventoryId\":4,\"level\":\"less\"},{\"inventoryId\":12,\"level\":\"none\"}]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-08",
+    "module": "Orders",
+    "fn": "parseOrderItems",
+    "title": "tidies the note on a line",
+    "input": "Note \"  less   ice\\n please \"",
+    "expected": "\"less ice please\"",
+    "actual": "\"less ice please\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-ORD-09",
+    "module": "Orders",
+    "fn": "parseCoverage",
+    "title": "a shared bill split by the group",
+    "input": "{ group_size: 3 }",
+    "expected": "{\"lines\":null,\"groupSize\":3}",
+    "actual": "{\"lines\":null,\"groupSize\":3}",
+    "status": "Passed"
+  }
+]

@@ -1,0 +1,13 @@
+import { unitCases } from "./harness";
+import { expenseCategoryFor, pesoText } from "@/lib/treasury";
+import { formatPhone, groupMoney, plainMoney } from "@/lib/input-format";
+
+// The treasury (lib/treasury.ts) and the money and phone boxes (lib/input-format.tsx).
+unitCases("cashier", "Treasury and Formats", [
+  { id: "UT-TRS-01", fn: "expenseCategoryFor", title: "a cash out is filed under its expense category", input: "\"Ice\", \"staff meal\", \"Rent\", \"gas for the generator\"", expected: ["Supplies", "Staff meals", "Rent", "Other"], run: () => ["Ice", "staff meal", "Rent", "gas for the generator"].map(expenseCategoryFor) },
+  { id: "UT-TRS-02", fn: "pesoText", title: "amounts are shown in pesos with two decimals", input: "12500.5", expected: "₱12,500.50", run: () => pesoText(12500.5) },
+  { id: "UT-FMT-01", fn: "groupMoney", title: "money box groups thousands as you type", input: "\"12500.5\"", expected: "12,500.5", run: () => groupMoney("12500.5") },
+  { id: "UT-FMT-02", fn: "plainMoney", title: "money box keeps digits and two decimals only", input: "\"₱1,2a3.456\"", expected: "123.45", run: () => plainMoney("₱1,2a3.456") },
+  { id: "UT-FMT-03", fn: "formatPhone", title: "phone box spaces a local number", input: "\"09171234567\"", expected: "0917 123 4567", run: () => formatPhone("09171234567") },
+  { id: "UT-FMT-04", fn: "formatPhone", title: "phone box spaces an international number", input: "\"639171234567\"", expected: "+63 917 123 4567", run: () => formatPhone("639171234567") },
+]);

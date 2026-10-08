@@ -1,0 +1,22 @@
+[
+  {
+    "id": "UT-STA-01",
+    "module": "Staff Roles",
+    "fn": "stationForRole",
+    "title": "baristas work the bar, kitchen staff the kitchen",
+    "input": "\"Barista\", \"kitchen\", \"cashier\"",
+    "expected": "bar, kitchen, both (null)",
+    "actual": "[\"bar\",\"kitchen\",null]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-STA-02",
+    "module": "Staff Roles",
+    "fn": "canHandOff",
+    "title": "the kitchen and riders do not hand orders over",
+    "input": "\"barista\", \"cashier\", \"kitchen\", \"rider\"",
+    "expected": "[true,true,false,false]",
+    "actual": "[true,true,false,false]",
+    "status": "Passed"
+  }
+]

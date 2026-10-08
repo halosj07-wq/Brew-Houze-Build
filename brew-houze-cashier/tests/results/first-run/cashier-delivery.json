@@ -1,0 +1,82 @@
+[
+  {
+    "id": "UT-DLV-01",
+    "module": "Delivery",
+    "fn": "deliveryFeeFor",
+    "title": "zone fee below the free-delivery amount",
+    "input": "Zone fee ₱50.00, free from ₱500.00, items ₱499.00",
+    "expected": "₱50.00",
+    "actual": "50",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-02",
+    "module": "Delivery",
+    "fn": "deliveryFeeFor",
+    "title": "free delivery from exactly the free-delivery amount",
+    "input": "Zone fee ₱50.00, free from ₱500.00, items ₱500.00",
+    "expected": "₱0.00 (free)",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-03",
+    "module": "Delivery",
+    "fn": "deliveryFeeFor",
+    "title": "always the zone fee when free delivery is off",
+    "input": "Zone fee ₱50.00, no free delivery, items ₱2,000.00",
+    "expected": "₱50.00",
+    "actual": "50",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-04",
+    "module": "Delivery",
+    "fn": "normalizePhone",
+    "title": "accepts the ways people write mobile numbers",
+    "input": "\"0917 123 4567\", \"+63 917-123-4567\", \"9171234567\"",
+    "expected": "[\"09171234567\",\"09171234567\",\"09171234567\"]",
+    "actual": "[\"09171234567\",\"09171234567\",\"09171234567\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-05",
+    "module": "Delivery",
+    "fn": "normalizePhone",
+    "title": "refuses what is not a mobile number",
+    "input": "\"12345\", \"02 8123 4567\" (landline)",
+    "expected": "[null,null]",
+    "actual": "[null,null]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-06",
+    "module": "Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "open within the delivery hours",
+    "input": "Hours 10:00–22:00, now 2:00 PM (Manila)",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-07",
+    "module": "Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "closed after the delivery hours",
+    "input": "Hours 10:00–22:00, now 11:00 PM (Manila)",
+    "expected": "false",
+    "actual": "false",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-DLV-08",
+    "module": "Delivery",
+    "fn": "withinDeliveryHours",
+    "title": "hours that run past midnight",
+    "input": "Hours 20:00–02:00, now 1:00 AM (Manila)",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  }
+]

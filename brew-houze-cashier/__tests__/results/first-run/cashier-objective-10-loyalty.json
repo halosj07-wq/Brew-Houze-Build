@@ -1,0 +1,167 @@
+[
+  {
+    "id": "UT-LOY-01",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "a completed order earns 1 star",
+    "kind": "Positive",
+    "input": "First order today, ₱120.00",
+    "expected": "1",
+    "actual": "1",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-02",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "one star per order however many items it has",
+    "kind": "Positive",
+    "input": "Order of 3 items (₱360.00)",
+    "expected": "1",
+    "actual": "1",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-03",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "the fifth order of the day still earns its star",
+    "kind": "Boundary",
+    "input": "4 stars already earned today",
+    "expected": "1",
+    "actual": "1",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-04",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "the daily limit of 5 stops further stars that day",
+    "kind": "Boundary",
+    "input": "5 stars already earned today",
+    "expected": "{\"stars\":0,\"saved\":0}",
+    "actual": "{\"stars\":0,\"saved\":0}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-05",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "an order of only free reward items earns no star",
+    "kind": "Negative",
+    "input": "Order with only a free drink",
+    "expected": "0",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-06",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "no stars when no campaign is running",
+    "kind": "Negative",
+    "input": "No campaign on today",
+    "expected": "0",
+    "actual": "0",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-07",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "per-amount campaigns count what was paid after the discount",
+    "kind": "Positive",
+    "input": "1 star per ₱50.00, ₱260.00 order with ₱20.00 discount",
+    "expected": "4 stars (₱240.00 ÷ ₱50.00)",
+    "actual": "4",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-08",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "awardOrderStarsSafely",
+    "title": "a loyalty error never blocks the sale: no stars, rolled back to the savepoint",
+    "kind": "Negative",
+    "input": "Database error while awarding",
+    "expected": "{\"stars\":0,\"rolledBack\":true}",
+    "actual": "{\"stars\":0,\"rolledBack\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-09",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "reverseOrderStarsSafely",
+    "title": "voiding an order takes back the star it earned",
+    "kind": "Positive",
+    "input": "Order #900 earned 1 star, then voided",
+    "expected": "1",
+    "actual": "1",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-10",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "planRewards",
+    "title": "exactly 10 stars redeem the free drink",
+    "kind": "Boundary",
+    "input": "Balance 10 stars, 1 Free Drink (10 stars)",
+    "expected": "10",
+    "actual": "10",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-11",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "planRewards",
+    "title": "9 stars are not enough for the free drink",
+    "kind": "Negative",
+    "input": "Balance 9 stars",
+    "expected": "{\"error\":\"Not enough stars: Juan has 9 and the rewards need 10.\"}",
+    "actual": "{\"error\":\"Not enough stars: Juan has 9 and the rewards need 10.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-12",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "planRewards",
+    "title": "two free drinks need 20 stars",
+    "kind": "Negative",
+    "input": "Balance 15 stars, 2 Free Drinks",
+    "expected": "{\"error\":\"Not enough stars: Juan has 15 and the rewards need 20.\"}",
+    "actual": "{\"error\":\"Not enough stars: Juan has 15 and the rewards need 20.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-13",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "rewardMismatch",
+    "title": "the free drink covers drinks up to its price limit only",
+    "kind": "Negative",
+    "input": "Free Drink (up to ₱150.00) on a ₱180.00 Caramel Macchiato",
+    "expected": "\"\"Free Drink\" covers items up to ₱150.00. Caramel Macchiato costs ₱180.00.\"",
+    "actual": "\"\"Free Drink\" covers items up to ₱150.00. Caramel Macchiato costs ₱180.00.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-14",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "recordRewardUse",
+    "title": "redeeming takes the 10 stars off the balance (a −10 entry)",
+    "kind": "Positive",
+    "input": "Order #901 with 1 Free Drink",
+    "expected": "{\"spent\":10,\"entry\":-10}",
+    "actual": "{\"spent\":10,\"entry\":-10}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-LOY-15",
+    "objective": "Objective 10 - Loyalty",
+    "fn": "placeOrder",
+    "title": "a reward is only given after the customer confirms it",
+    "kind": "Negative",
+    "input": "Free Drink line, customer #400 not confirmed",
+    "expected": "{\"error\":\"The customer has to confirm the reward first (scan the Stars sign, or the cashier confirms with their password).\"}",
+    "actual": "{\"error\":\"The customer has to confirm the reward first (scan the Stars sign, or the cashier confirms with their password).\"}",
+    "status": "Passed"
+  }
+]
