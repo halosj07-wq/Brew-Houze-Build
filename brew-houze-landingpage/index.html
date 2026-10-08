@@ -17,19 +17,20 @@
   <link href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@700;800;900&family=UnifrakturMaguntia&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=Anton&display=swap" rel="stylesheet" />
   <script>
-    // A secret theme (see secret/secret.js) is set before the page paints, so a reload keeps it
-    // without flashing the café colors. "aespa" is the old name of Whiplash.
-    try {
-      const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama" }[localStorage.getItem("brew-houze-theme")];
-      if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
-    } catch { /* storage blocked: default theme */ }
+    // The secret themes are Brew Houze Build's only (the thesis defense): at the café's own address
+    // (CAFE_SITES, the same list as CAFE_HOSTS below) none of them load, and the page is the plain
+    // portal. Anywhere else, a secret theme (see secret/secret.js) is set before the page paints, so
+    // a reload keeps it without flashing the café colors. "aespa" is the old name of Whiplash.
+    window.BREW_HOUZE_CAFE = ["brew-houze-cafe.vercel.app"].includes(location.hostname);
+    if (!window.BREW_HOUZE_CAFE) {
+      try {
+        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama" }[localStorage.getItem("brew-houze-theme")];
+        if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
+      } catch { /* storage blocked: default theme */ }
+      // (Written in while the head is read, so they hold the first paint like ordinary links.)
+      document.write(["secret", "whiplash", "dirtywork", "armageddon", "drama", "richman"].map((name) => `<link rel="stylesheet" href="secret/${name}.css" />`).join(""));
+    }
   </script>
-  <link rel="stylesheet" href="secret/secret.css" />
-  <link rel="stylesheet" href="secret/whiplash.css" />
-  <link rel="stylesheet" href="secret/dirtywork.css" />
-  <link rel="stylesheet" href="secret/armageddon.css" />
-  <link rel="stylesheet" href="secret/drama.css" />
-  <link rel="stylesheet" href="secret/richman.css" />
   <style>
     :root {
       --espresso: #3D2B1F; --espresso-deep: #2A1D14; --roast: #6B4C3B; --latte: #9C8278;
@@ -298,7 +299,7 @@
       mobile: "https://brew-houze-cafe-mobile.vercel.app",
       queue: "https://brew-houze-cafe-queue.vercel.app",
     };
-    const CAFE_HOSTS = ["brew-houze-cafe.vercel.app"];
+    const CAFE_HOSTS = ["brew-houze-cafe.vercel.app"]; // (also in the head: the secret themes are off there)
     const APPS = CAFE_HOSTS.includes(location.hostname) ? CAFE_APPS : BUILD_APPS;
 
     const icons = {
@@ -498,7 +499,9 @@
 
     footerYear.textContent = yearText;
   </script>
-  <!-- The secret themes: the "© Brew Houze" line opens the theme picker (café, Whiplash, Dirty Work, Armageddon, Drama, Rich Man). -->
-  <script src="secret/secret.js"></script>
+  <!-- The secret themes (Build only): the "© Brew Houze" line opens the theme picker (café, Whiplash, Dirty Work, Armageddon, Drama, Rich Man). -->
+  <script>
+    if (!window.BREW_HOUZE_CAFE) document.write('<script src="secret/secret.js"><\/script>');
+  </script>
 </body>
 </html>
