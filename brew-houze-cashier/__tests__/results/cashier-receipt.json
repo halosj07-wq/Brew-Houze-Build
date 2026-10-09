@@ -1,0 +1,123 @@
+[
+  {
+    "id": "UT-POS-20",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "no line on 58 mm paper is longer than 32 characters",
+    "kind": "Boundary",
+    "input": "Long drink name with 5 add-ons, 58 mm",
+    "expected": "Longest line ≤ 32 characters",
+    "actual": "32",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-21",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "80 mm paper uses its 48 characters",
+    "kind": "Boundary",
+    "input": "Same order, 80 mm",
+    "expected": "{\"fits\":true,\"total\":\"TOTAL                                   P 725.00\"}",
+    "actual": "{\"fits\":true,\"total\":\"TOTAL                                   P 725.00\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-22",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "every add-on is listed with its own amount, right-aligned",
+    "kind": "Positive",
+    "input": "5 add-ons, 58 mm",
+    "expected": "[\"  + Extra Espresso Shot x2 50.00\",\"  + Caramel Drizzle        15.00\",\"  + Whipped Cream          20.00\",\"  + Oat Milk Substitute    35.00\",\"  + Vanilla Syrup Pump     45.00\"]",
+    "actual": "[\"  + Extra Espresso Shot x2 50.00\",\"  + Caramel Drizzle        15.00\",\"  + Whipped Cream          20.00\",\"  + Oat Milk Substitute    35.00\",\"  + Vanilla Syrup Pump     45.00\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-23",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "a wrapped item name continues indented under the name, not as a new line",
+    "kind": "Boundary",
+    "input": "\"3 x Caramel Macchiato Frappuccino\" on 58 mm",
+    "expected": "[\"3 x Caramel Macchiato     555.00\",\"    Frappuccino\"]",
+    "actual": "[\"3 x Caramel Macchiato     555.00\",\"    Frappuccino\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-24",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "a senior discount prints its VAT exemption, discount and a signature line",
+    "kind": "Positive",
+    "input": "Senior, ₱112.00 Americano",
+    "expected": "{\"vat\":\"  Less VAT                -12.00\",\"discount\":\"  Less discount           -20.00\",\"total\":\"TOTAL                    P 80.00\",\"signature\":true}",
+    "actual": "{\"vat\":\"  Less VAT                -12.00\",\"discount\":\"  Less discount           -20.00\",\"total\":\"TOTAL                    P 80.00\",\"signature\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-25",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "a split payment prints the cash part, the change and the GCash part",
+    "kind": "Positive",
+    "input": "Split ₱300.00: cash ₱100.00 (received ₱150.00), GCash ₱200.00",
+    "expected": "[\"Cash                      100.00\",\"  Cash received           150.00\",\"  Change                   50.00\",\"GCash                     200.00\"]",
+    "actual": "[\"Cash                      100.00\",\"  Cash received           150.00\",\"  Change                   50.00\",\"GCash                     200.00\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-26",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "characters the printer cannot print are replaced (₱ → P, é → e)",
+    "kind": "Negative",
+    "input": "Item \"Café Latte ₱\"",
+    "expected": "{\"item\":\"1 x Cafe Latte P\",\"onlyPrintable\":true}",
+    "actual": "{\"item\":\"1 x Cafe Latte P\",\"onlyPrintable\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-27",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "the commands reset the printer first and feed and cut at the end",
+    "kind": "Positive",
+    "input": "Any receipt",
+    "expected": "{\"start\":[27,64],\"end\":[27,100,4,29,86,66,0]}",
+    "actual": "{\"start\":[27,64],\"end\":[27,100,4,29,86,66,0]}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-28",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "a voided order's slip says VOIDED",
+    "kind": "Positive",
+    "input": "Order voided",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-29",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "escposReceipt",
+    "title": "the slip states it is not an official receipt",
+    "kind": "Positive",
+    "input": "Any receipt",
+    "expected": "true",
+    "actual": "true",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-POS-30",
+    "objective": "Objective 2 - POS and Queue",
+    "fn": "rawbtIntentUrl",
+    "title": "the RawBT intent carries the exact commands for the RawBT app",
+    "kind": "Positive",
+    "input": "The commands of a receipt",
+    "expected": "{\"scheme\":true,\"sameBytes\":true}",
+    "actual": "{\"scheme\":true,\"sameBytes\":true}",
+    "status": "Passed"
+  }
+]

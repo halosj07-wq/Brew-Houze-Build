@@ -5,5 +5,5 @@ import path from "node:path";
 // database. See tests/harness.ts.
 export default defineConfig({
   resolve: { alias: { "@": path.resolve(__dirname) } },
-  test: { environment: "node", include: ["tests/**/*.test.ts", "__tests__/**/*.test.ts"] },
+  test: { environment: "node", include: ["tests/**/*.test.ts", "__tests__/unit/**/*.test.ts"] },
 });
