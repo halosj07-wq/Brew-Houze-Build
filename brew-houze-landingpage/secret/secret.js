@@ -31,30 +31,13 @@
     ningning: { name: "Ningning", hangul: "닝닝", short: "Main vocalist", real: "Ning Yizhuo (宁艺卓)", born: "October 23, 2002", from: "Harbin, China", role: "Main vocalist · the youngest", about: "The youngest member and a main vocalist, known for her strong live vocals." },
   };
   const memberOrder = Object.keys(MEMBERS);
-  // The back of the Dirty Work cards: a funny, a cute and a cool fact per member. They are built only
-  // from things that are certain (birthdays, hometowns, positions, aespa's avatar concept), with a
-  // playful twist. Edit freely; each is [label, text].
-  const DIRTY_FACTS = {
-    karina: [
-      ["Funny", "aespa’s concept gives every member an avatar, so there is also an æ-Karina. Technically, the group has two leaders."],
-      ["Cute", "She is the oldest member, but only just: Giselle was born the same year, six months later."],
-      ["Cool", "The leader and the center, the one out front when the formation hits."],
-    ],
-    giselle: [
-      ["Funny", "Her birthday is October 30, the day before Halloween. Costume planning starts early."],
-      ["Cute", "Her birthday is exactly one week after Ningning’s, just two years earlier."],
-      ["Cool", "She raps in Korean, Japanese and English."],
-    ],
-    winter: [
-      ["Funny", "Her name is Winter and she was born on January 1. Very on brand."],
-      ["Cute", "She gets a year older on New Year’s Day, so the whole world celebrates with her."],
-      ["Cool", "Main vocalist and lead dancer: she carries the high notes and the choreography."],
-    ],
-    ningning: [
-      ["Funny", "Born one week before Giselle’s birthday, two years later, so their parties are practically back to back."],
-      ["Cute", "The maknae, the youngest of the four, born October 23, 2002."],
-      ["Cool", "She grew up in Harbin, China’s “Ice City”, famous for its giant ice and snow festival."],
-    ],
+  const DW_TAROT = {
+    // The Dirty Work card backs: a tarot card each, titled from a line she sings in Dirty Work, with
+    // the arcana it borrows (XXI the World, VIII Strength, XIII Death, XV the Devil).
+    karina: { numeral: "XXI", title: "The World", line: "World domination, I don’t gotta say it" },
+    winter: { numeral: "VIII", title: "The Fierce", line: "Sharp eyes, fierce look" },
+    giselle: { numeral: "XIII", title: "The Reaper", line: "Call me the reaper, I’m knock, knock, knocking" },
+    ningning: { numeral: "XV", title: "The Baddie", line: "It’s me, it’s me, a little baddie" },
   };
 
   // ── Intros: each cue on its beat of the theme's intro clip (ms from its start) ──
@@ -1758,49 +1741,134 @@
     },
   };
 
-  // Drama: "Scene ver." in red and black. The clip's two booms (0.07 / 0.99 s) rip two red-edged
-  // slashes across the dark into an X, each showing a scene; in the silence the third scene holds
-  // in letterbox with the album line; the rolling bass hits (2.83 / 3.11 / 3.38 / 3.61 s) cut to the
-  // four members, each with her emblem stamped in red; the big chop (3.73 s) floods the screen red
-  // with the DRAMA logo in black, the loudest hit (4.19 s) turns it black with the logo in red, and
-  // 4.36 s floods red again, straight into track 1.
+  // ── Drama's bridge: the page is the film ──
+  //   project  (bars 1-7)   the page dims like a cinema and is projected: a beam from the top with
+  //                         dust in it, a member's footage cast over the page as light (the next
+  //                         member on each bar's clap), sprocket holes running down both edges, the
+  //                         page weaving and flickering in the gate
+  //   burn     (bar 8)      the film burns in from the edges, the flicker racing
+  //   rack     (bars 9-13)  a camera viewfinder over the page; on each accent (beats 1 and 3) it
+  //                         pulls focus to a part of the page (a heading, a card, a member), the rest
+  //                         going soft
+  //   cut                   "CUT!": the clapperboard slams down
+  //   neg1-3                each stab freezes the page as a red film negative, a member burned in
+  //   curtain / leader      red curtains sweep shut; a film-leader countdown runs on them: 3, 2, 1
+  //   premiere(2)           the curtains open on the DRAMA logo, the members projected behind it in
+  //                         red, the next one each beat; the second hit flashes white
+  const DR_FILMS = ["karina", "giselle", "winter", "ningning"];
+  const DR_TRACK2 = 29.304;
+  const DR_FOCUS = ".hero h1, .hero .lead, .ae-member, .status-strip, .section-head, .card, .guide-item, .tips";
+  const dramaStage = (() => {
+    const root = document.documentElement;
+    let films = [], focusBox = null, count = null, tcode = null, focused = null, accent = -1;
+    const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 40 && r.height > 16 && r.bottom > 60 && r.top < innerHeight - 60; };
+    const focus = (el) => {
+      if (el !== focused) { focused?.classList.remove("drx-focus"); focused = el; el?.classList.add("drx-focus"); }
+      if (!el || !focusBox) return;
+      const r = el.getBoundingClientRect();
+      focusBox.style.cssText = `left: ${r.left - 10}px; top: ${r.top - 10}px; width: ${r.width + 20}px; height: ${r.height + 20}px;`;
+    };
+    return {
+      mount(fx) {
+        films = [...fx.querySelectorAll(".drx-proj video")];
+        focusBox = fx.querySelector(".drx-af");
+        count = fx.querySelector(".drx-leader b");
+        tcode = fx.querySelector(".drx-tcode");
+      },
+      tick(at, name) {
+        const t = at - DR_TRACK2; // seconds into the bridge
+        // The projection: a member a bar (switched on the clap), then one a beat in the premiere.
+        let film = -1;
+        if (name === "project") film = Math.floor(Math.max(0, t + 2 * DR_BEAT) / (4 * DR_BEAT)) % 4;
+        else if (name === "premiere" || name === "premiere2") film = Math.floor(Math.max(0, t - 29.313) / DR_BEAT) % 4;
+        films.forEach((video, i) => {
+          const on = i === film;
+          if (video.classList.contains("is-on") !== on) video.classList.toggle("is-on", on);
+          if (on && video.paused) video.play().catch(() => undefined);
+          else if (!on && !video.paused) video.pause();
+        });
+        // The focus pull: a new part of the page on each accent, followed as the page scrolls.
+        if (name === "rack") {
+          const n = Math.floor(Math.max(0, t - 14.656) / (2 * DR_BEAT));
+          if (n !== accent || !focused) {
+            accent = n;
+            const options = [...document.querySelectorAll(DR_FOCUS)].filter(visible);
+            focus(options.length ? options[(n * 3 + 1) % options.length] : null);
+          } else focus(focused);
+          root.classList.add("drx-rack");
+        } else if (root.classList.contains("drx-rack")) { root.classList.remove("drx-rack"); focus(null); accent = -1; }
+        if (tcode && t >= 0) { const f = Math.floor(t * 24); tcode.textContent = `00:00:${String(Math.floor(f / 24)).padStart(2, "0")}:${String(f % 24).padStart(2, "0")}`; }
+        // The leader counts down a beat at a time: 3 and 2 in the hush, 1 on the pickup.
+        if (count) { const n = name === "curtain" ? (t < 27.939 + DR_BEAT ? "3" : "2") : name === "leader" ? "1" : ""; if (count.textContent !== n) count.textContent = n; }
+      },
+      unmount() {
+        films.forEach((video) => video.pause());
+        root.classList.remove("drx-rack");
+        focus(null);
+        films = []; focusBox = null; count = null; tcode = null; accent = -1;
+      },
+    };
+  })();
+
+  // Drama: "Scene ver.", cut like a film from the members' own clips (drama/intro-wide.mp4 and
+  // intro-tall.mp4, built frame-exact to the intro music) with the page's titles over it. The first
+  // boom (0.07 s) slams the clapperboard shut over Karina's burning "I'M THE DRAMA" billboard; the
+  // second (0.98 s) splits the frame into three scenes; the hush (1.62 s) letterboxes Karina through
+  // the car window while the subtitle types; the bass hits (2.82 / 3.11 / 3.38 / 3.61 s) cut to the
+  // four members, each stamped with her name, scene number and emblem; the chop (3.73 s) floods the
+  // flickering montage red with the DRAMA logo in black, the loudest hit (4.19 s) inverts it, and
+  // 4.36 s floods red again, straight into track 1. A timecode runs in the corner all along.
+  const DR_SPLIT = ["Giselle", "Winter", "Ningning"]; // the triptych, in the site's member order (scenes 02 to 04)
   const dramaIntro = {
     end: 4630,
+    video: { wide: "intro-wide.mp4", tall: "intro-tall.mp4" },
     cues: [
-      [0, "dark"], [70, "slash", 1], [990, "slash", 2], [1450, "hold"], [2640, "rise"],
-      [2830, "member", 0], [3110, "member", 1], [3380, "member", 2], [3610, "member", 3],
+      [0, "dark"], [70, "slate"], [980, "split"], [1620, "hush"],
+      [2820, "member", 0], [3110, "member", 1], [3380, "member", 2], [3610, "member", 3],
       [3730, "flood"], [3870, "flood"], [4190, "invert"], [4360, "flood"],
     ],
-    hits: new Set(["slash", "member", "flood", "invert"]),
-    mount(box, photos, flashes) {
+    hits: new Set(["slate", "split", "member", "flood", "invert"]),
+    mount(box, photos, flashes, video) {
       box.innerHTML = `
-        <div class="dr-shot is-a"></div><div class="dr-shot is-b"></div><div class="dr-scene"></div>
-        <div class="dr-members"></div><i class="dr-emblem"></i><span class="dr-who"></span>
+        <div class="dr-film"></div><i class="dr-red"></i>
+        <div class="dr-slate"><div class="dr-slate-stick"><i></i></div><div class="dr-slate-board">
+          <p class="dr-slate-title">DRAMA</p>
+          <dl><dt>Roll</dt><dd>A</dd><dt>Scene</dt><dd>00</dd><dt>Take</dt><dd>01</dd></dl>
+          <p class="dr-slate-foot">aespa · Scene Ver. · Dir. Brew Houze</p></div></div>
+        <div class="dr-split">${DR_SPLIT.map((name, n) => `<p><b>Scene 0${n + 2}</b>${name}</p>`).join("")}</div>
         <div class="dr-bars"><i></i><i></i></div>
+        <p class="dr-sub"><span>I’m the drama.</span></p>
+        <p class="dr-kicker"></p><span class="dr-who"></span><i class="dr-emblem"></i>
         <p class="dr-caption is-left">aespa · The 4th Mini Album</p><p class="dr-caption is-right">Scene Ver.</p>
-        <div class="dr-logo"></div><div class="dr-grain"></div>`;
-      box.querySelector(".dr-shot.is-a").append(flashes[0]);
-      box.querySelector(".dr-shot.is-b").append(flashes[1]);
-      box.querySelector(".dr-scene").append(flashes[2], flashes[3]);
-      box.querySelector(".dr-members").append(...photos);
+        <p class="dr-tc"><i></i><span>00:00:00:00</span></p>
+        <div class="dr-logo"></div><i class="dr-flash"></i><div class="dr-grain"></div>`;
+      if (video) { video.className = "dr-video"; box.querySelector(".dr-film").append(video); }
       const emblem = box.querySelector(".dr-emblem");
       const who = box.querySelector(".dr-who");
-      return (step) => {
+      const kicker = box.querySelector(".dr-kicker");
+      const tc = box.querySelector(".dr-tc span");
+      const show = (step) => {
         const [, scene, value] = this.cues[step];
-        const photo = scene === "member" ? photos[value] : null;
-        const ready = !photo || (photo.complete && photo.naturalWidth > 0);
-        photos.forEach((img) => img.classList.toggle("is-current", img === photo));
-        if (photo) {
+        if (scene === "member") {
           const key = memberOrder[value];
           emblem.style.setProperty("--emblem", `url("${siteUrl(`drama/${key}-emblem.webp`)}")`);
           who.textContent = MEMBERS[key].name;
+          kicker.textContent = `Scene 0${value + 1} · Take 01`;
         }
-        const classes = ["dr-intro", `is-${ready ? scene : "rise"}`];
-        // The slashes stay once ripped: the second joins the first as an X.
-        if (scene === "slash" && value === 2) classes.push("is-x");
-        box.className = classes.join(" ");
+        box.className = `dr-intro is-${scene}${scene === "member" ? ` is-m${value}` : ""}${video?.readyState >= 2 ? " has-film" : ""}`;
         if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
       };
+      // Every frame: the film follows the music (started on the first frame, nudged back when it
+      // drifts), and the timecode counts film frames.
+      show.tick = (now) => {
+        if (video) {
+          if (video.paused && !video.ended) void video.play().catch(() => undefined);
+          if (video.readyState >= 2) { box.classList.add("has-film"); if (Math.abs(video.currentTime * 1000 - now) > 90) video.currentTime = now / 1000; }
+        }
+        const f = Math.max(0, Math.floor(now / (1000 / 24)));
+        tc.textContent = `00:00:${String(Math.floor(f / 24)).padStart(2, "0")}:${String(f % 24).padStart(2, "0")}`;
+      };
+      return show;
     },
   };
 
@@ -2078,7 +2146,7 @@
       scene: whiplashScene,
     },
     dirtywork: {
-      era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "facts",
+      era: "Dirty Work", folder: "dirty-work/", tag: "Dirty Work", back: "tarot",
       title: "Brew Houze × aespa · Dirty Work", toast: "Brew Houze × aespa · Dirty Work",
       sub: "Dirty Work · System portal", h1: "Every Brew Houze app. We do the dirty work.", footer: "Brew Houze × aespa · Dirty Work · café management system",
       // The intro (one bar at 98 BPM) runs straight into track 1 (the chorus, 8 bars); tracks 1 and 2
@@ -2165,7 +2233,8 @@
       // (seconds into track 2): the groove with its clap on beat 3 (bars 1-7), the riser (12.82 s),
       // the drive accented on beats 1 and 3 (14.66 s), the hit (24.73 s), three lone stabs (25.65 /
       // 26.57 / 27.48 s), the hush and its pickup (27.94 / 28.86 s), and the slam back into the
-      // chorus with its second hit (29.31 / 30.23 s). Its effects are its own (fx, styled in drama.css).
+      // chorus with its second hit (29.31 / 30.23 s). Its effects (the page is the film; see
+      // dramaStage and drama.css) are its own.
       stage: {
         beat: 60 / 131, parts: [29.304, 31.168], grid: 29.304,
         lyrics: [
@@ -2186,8 +2255,18 @@
         "Oh, I'ma make it my way",
         "너로 시작될 my drama",
       ],
-        fx: `<i class="drx-spot"></i><div class="drx-emblems"><i></i><i></i><i></i><i></i></div><i class="drx-beam"></i><i class="drx-beam is-b"></i><i class="drx-claw"></i><i class="drx-claw is-b"></i><div class="drx-scene"><i></i><i></i><i></i></div><i class="drx-flash"></i><i class="drx-logo"></i><b class="drx-slate"></b>`,
-        sections: [[0, "calm"], ...[[0, "spot"], [12.824, "rise"], [14.656, "drive"], [24.733, "hit"], [25.649, "stab1"], [26.565, "stab2"], [27.481, "stab3"], [27.939, "hush"], [28.855, "pickup"], [29.313, "encore"], [30.229, "encore2"]].map(([at, name]) => [29.304 + at, name])],
+        fx: `<i class="drx-dim"></i><div class="drx-proj">${DR_FILMS.map((key) => `<video muted playsinline loop preload="auto" src="drama/stage/${key}.mp4"></video>`).join("")}</div>`
+          + `<i class="drx-beam"></i><i class="drx-dust"></i>`
+          + `<div class="drx-sprockets is-l"><span>${"BREW HOUZE × AESPA · DRAMA · SCENE VER. · ".repeat(4)}</span></div><div class="drx-sprockets is-r"><span>${"4TH MINI ALBUM · TAKE 01 · ROLL A · ".repeat(4)}</span></div>`
+          + `<i class="drx-burn"></i>`
+          + `<div class="drx-vf"><i class="drx-thirds"></i><i class="drx-af"></i><p class="drx-rec"><i></i>REC</p><p class="drx-tcode">00:00:00:00</p><p class="drx-lens">35mm · f/1.4 · ISO 800</p></div>`
+          + `<div class="drx-cut"><div class="drx-cut-stick"></div><div class="drx-cut-board"><b>CUT!</b><span>Scene 04 · Take 01 · Drama</span></div></div>`
+          + `<div class="drx-neg">${[1, 2, 3].map((n) => `<i style="background-image: url('drama/stage/still-${n}.webp')"></i>`).join("")}<b class="drx-neg-label"></b></div>`
+          + `<svg class="drx-defs" width="0" height="0" aria-hidden="true"><filter id="drx-redneg" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="-0.3030 -1.0192 -0.1029 0 1.1425  -0.0638 -0.2146 -0.0217 0 0.2300  -0.0542 -0.1824 -0.0184 0 0.2055  0 0 0 1 0"/></filter></svg>`
+          + `<i class="drx-curtain is-l"></i><i class="drx-curtain is-r"></i><div class="drx-leader"><i></i><b></b></div>`
+          + `<i class="drx-logo"></i><i class="drx-flash"></i>`,
+        sections: [[0, "calm"], ...[[0, "project"], [12.824, "burn"], [14.656, "rack"], [24.733, "cut"], [25.649, "neg1"], [26.565, "neg2"], [27.481, "neg3"], [27.939, "curtain"], [28.855, "leader"], [29.313, "premiere"], [30.229, "premiere2"]].map(([at, name]) => [29.304 + at, name])],
+        ...dramaStage,
       },
       extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
       scene: dramaScene,
@@ -2296,10 +2375,12 @@
     drama: { kicker: "Scene 00 · Take 01", label: "Action" },
     richman: { kicker: "● Live · Rich Man", label: "Plug in. Play it loud." },
   };
+  // In the page, after Quick tips (not floating over it): it takes its place at the end of the
+  // page and lights up there during the bridge.
   const cta = document.createElement("div");
   cta.className = "ae-cta";
   cta.id = "ae-cta";
-  document.body.append(cta);
+  (document.querySelector("main") ?? document.body).append(cta);
   function renderCta(theme) {
     const t = theme ? THEMES[theme] : null;
     const words = theme ? CTAS[theme] : null;
@@ -2442,6 +2523,7 @@
 
   function applyTheme(theme) {
     current = theme;
+    calmStorm();
     if (theme) startStage(theme); else stopStage();
     const t = theme ? THEMES[theme] : null;
     if (t) { root.dataset.theme = theme; root.dataset.secret = ""; } else { delete root.dataset.theme; delete root.dataset.secret; }
@@ -2632,7 +2714,25 @@
   // The next theme's intro sound, photos and extra images, loaded before the click so the intro
   // never skips a member.
   const warmed = {};
+  // An intro's film (a theme whose intro has one): the wide or the tall cut for this screen, loaded
+  // ahead (see warm) and reused, muted and inline so it can play without a tap of its own.
+  const introVideos = {};
+  function introVideo(theme) {
+    const spec = THEMES[theme].intro?.video;
+    if (!spec) return null;
+    const src = siteUrl(`${THEMES[theme].folder}${matchMedia("(orientation: portrait)").matches ? spec.tall : spec.wide}`);
+    let video = introVideos[theme];
+    if (!video || video.dataset.src !== src) {
+      video = document.createElement("video");
+      video.muted = true; video.playsInline = true; video.preload = "auto";
+      video.setAttribute("muted", ""); video.setAttribute("playsinline", ""); video.setAttribute("aria-hidden", "true");
+      video.dataset.src = src; video.src = src; video.load();
+      introVideos[theme] = video;
+    }
+    return video;
+  }
   function warm(theme) {
+    introVideo(theme);
     if (THEMES[theme].joined) playerFor(theme).preload(); else clipFor(theme);
     if (warmed[theme]) return;
     const t = THEMES[theme];
@@ -2676,7 +2776,8 @@
       // The members' and the group photos, loaded now (one not ready in time is skipped).
       const image = (src) => { const img = new Image(); img.alt = ""; img.draggable = false; img.src = src; return img; };
       const photos = memberOrder.map((key) => image(photoOf(theme, key)));
-      const show = spec.mount(box, photos, flashesOf(theme).map(image));
+      const film = introVideo(theme);
+      const show = spec.mount(box, photos, flashesOf(theme).map(image), film);
       document.body.appendChild(box);
       show(0);
       let shown = 0;
@@ -2686,9 +2787,10 @@
         let step = 0;
         spec.cues.forEach(([at], i) => { if (now >= at) step = i; });
         if (step !== shown) { shown = step; show(step); }
+        show.tick?.(now);
         if (now >= spec.end) {
           box.classList.add("is-out");
-          setTimeout(() => box.remove(), 260);
+          setTimeout(() => { box.remove(); if (film) { film.pause(); film.currentTime = 0; } }, 260);
           done({ joined });
           return;
         }
@@ -2966,8 +3068,51 @@
   const pcCard = document.getElementById("ae-pc");
   let pcIndex = 0;
   let pcOpener = null;
+  // ── The Dirty Work tarot back ──
+  // A gold tarot card: double rules with corner medallions (the top-left one is the flip mark), the
+  // arcana numeral, her back photo in an arched window with red lasers and rising dust, the title in
+  // blackletter, her name, the lyric, and a gold grill as the seal. Drawn in the card's own
+  // proportions (550 × 850), so the frame never stretches. Styled in dirtywork.css.
+  function dirtyTarotBack(member, key, t) {
+    const card = DW_TAROT[key];
+    const corners = [[46, 46], [504, 46], [46, 804], [504, 804]];
+    const teeth = [0, 1, 2, 3, 4, 5].map((i) => {
+      const x = 14 + i * 12, fang = i === 1 || i === 4;
+      return `<path d="M${x} 14 h10 v${fang ? 14 : 9} q-5 ${fang ? 8 : 5} -10 0 z" />`;
+    }).join("");
+    return `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
+      <svg class="dw-tarot-frame" viewBox="0 0 550 850" aria-hidden="true">
+        <defs><linearGradient id="dw-gold-${key}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8C6420" /><stop offset="0.3" stop-color="#F6DE8D" /><stop offset="0.5" stop-color="#B8862B" /><stop offset="0.7" stop-color="#FFF4C4" /><stop offset="1" stop-color="#9A6E22" /></linearGradient></defs>
+        <g fill="none" stroke="url(#dw-gold-${key})">
+          <rect class="dw-rule" x="18" y="18" width="514" height="814" rx="10" stroke-width="2.2" pathLength="1" />
+          <rect class="dw-rule" x="30" y="30" width="490" height="790" rx="5" stroke-width="0.9" pathLength="1" />
+          ${corners.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="17" stroke-width="1.4" /><circle cx="${x}" cy="${y}" r="21" stroke-width="0.6" />`).join("")}
+          <path d="M235 30 l40 -0 M275 22 l0 16 M255 30 l20 -9 l20 9 l-20 9 z" stroke-width="1" />
+          <path d="M235 820 l80 0 M275 812 l0 16" stroke-width="0.8" />
+          <path d="M30 425 l-12 0 M532 425 l-12 0" stroke-width="1" />
+          <path d="M24 425 l6 -8 l6 8 l-6 8 z M514 425 l6 -8 l6 8 l-6 8 z" stroke-width="1" fill="url(#dw-gold-${key})" />
+        </g>
+        ${corners.slice(1).map(([x, y]) => `<text x="${x}" y="${y + 6}" text-anchor="middle" class="dw-corner-star">✦</text>`).join("")}
+      </svg>
+      <p class="dw-tarot-num">${card.numeral}</p>
+      <div class="dw-tarot-window">
+        <div class="dw-tarot-photo" role="img" aria-label="${escapeHtml(member.name)}" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
+        <i class="dw-tarot-lasers" aria-hidden="true"></i>
+        <i class="dw-tarot-dust" aria-hidden="true"></i>
+      </div>
+      <h3 class="dw-tarot-title">${escapeHtml(card.title)}</h3>
+      <p class="dw-tarot-name">${escapeHtml(member.name)} <span>${escapeHtml(member.hangul)}</span></p>
+      <p class="dw-tarot-line">“${escapeHtml(card.line)}”</p>
+      <div class="dw-tarot-seal" aria-hidden="true">
+        <svg viewBox="0 0 100 44"><path class="dw-grill-band" d="M6 16 Q50 2 94 16 L94 20 Q50 8 6 20 Z" />${teeth}</svg>
+        <span>Brew Houze × aespa · ${escapeHtml(t.era)}</span>
+      </div>`;
+  }
+
   function showMember(index) {
     if (!current) return;
+    calmStorm();
     const t = THEMES[current];
     pcIndex = (index + memberOrder.length) % memberOrder.length;
     const key = memberOrder[pcIndex];
@@ -2984,7 +3129,8 @@
     back.classList.toggle("is-spec", t.back === "spec");
     back.classList.toggle("is-emblem", t.back === "emblem");
     back.classList.toggle("is-image", t.back === "image");
-    back.innerHTML = t.back === "image" ? `
+    back.classList.toggle("is-tarot", t.back === "tarot");
+    back.innerHTML = t.back === "tarot" ? dirtyTarotBack(member, key, t) : t.back === "image" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <div class="rm-back-photo" role="img" aria-label="${escapeHtml(member.name)}, the back of her card" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>` : t.back === "emblem" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
@@ -3012,10 +3158,9 @@
       <span class="ae-pc-back-num">0${pcIndex + 1} / 04</span>
       <h3>${escapeHtml(member.name)}</h3>
       <p class="ae-pc-kr">${escapeHtml(member.hangul)}</p>
-      ${t.back === "facts" ? `<ul class="ae-pc-fun">${DIRTY_FACTS[key].map(([label, text]) => `<li><b>${escapeHtml(label)}</b><span>${escapeHtml(text)}</span></li>`).join("")}</ul>` : `
       <p class="ae-pc-role">${escapeHtml(member.role)}</p>
       <dl class="ae-pc-facts"><dt>Name</dt><dd>${escapeHtml(member.real)}</dd><dt>Born</dt><dd>${escapeHtml(member.born)}</dd><dt>From</dt><dd>${escapeHtml(member.from)}</dd><dt>Group</dt><dd>aespa · debuted Nov 17, 2020</dd></dl>
-      <p class="ae-pc-about">${escapeHtml(member.about)}</p>`}
+      <p class="ae-pc-about">${escapeHtml(member.about)}</p>
       <div class="ae-pc-foot"><span>Brew Houze × aespa<br />${escapeHtml(t.era)}</span><i></i></div>`;
     back.style.setProperty("--device", t.back === "spec" ? `url("${siteUrl(`${t.folder}device.webp`)}")` : "none");
     // Replaying the entrance each time a member is shown.
@@ -3086,6 +3231,7 @@
   function closeMember() {
     if (pcModal.hidden) return;
     pcModal.hidden = true;
+    calmStorm();
     stopTilt();
     document.body.style.overflow = "";
     pcCard.classList.remove("is-flipped");
@@ -3116,19 +3262,28 @@
     if (current === "richman") { strike(); thunder(); }
   }
   // Rich Man: lightning over the card as it turns (the bolts in the album's colours), the card jolting.
-  function strike() {
-    if (!motionOK()) return;
+  // Both belong to that one flip: calmStorm() clears them when the card changes, the card closes or
+  // the theme changes, and the jolt's class goes as soon as it has played (a class left behind would
+  // replay the jolt each time the card opens, in any theme).
+  let stormTimer = 0;
+  function calmStorm() {
+    clearTimeout(stormTimer);
     pcModal.querySelector(".rm-storm")?.remove();
+    pcModal.querySelector(".ae-pc-stage")?.classList.remove("is-struck");
+  }
+  function strike() {
+    calmStorm();
+    if (!motionOK()) return;
     const storm = document.createElement("div");
     storm.className = "rm-storm";
     storm.setAttribute("aria-hidden", "true");
     storm.innerHTML = `<i class="rm-storm-flash"></i>${[2, 1, 4, 3, 2, 1].map((n, i) => `<i class="rm-bolt is-${n} is-s${i}"></i>`).join("")}`;
     pcModal.append(storm);
-    setTimeout(() => storm.remove(), 1700);
+    stormTimer = setTimeout(() => storm.remove(), 1700);
     const stage = pcModal.querySelector(".ae-pc-stage");
-    stage.classList.remove("is-struck");
     void stage.offsetWidth;
     stage.classList.add("is-struck");
+    stage.addEventListener("animationend", () => stage.classList.remove("is-struck"), { once: true });
   }
   // And its thunder: a crack, then the rumble rolling off (made here, no sound file), when the
   // visitor has the sound on.

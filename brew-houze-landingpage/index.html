@@ -24,7 +24,7 @@
     window.BREW_HOUZE_CAFE = ["brew-houze-cafe.vercel.app"].includes(location.hostname);
     if (!window.BREW_HOUZE_CAFE) {
       try {
-        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama" }[localStorage.getItem("brew-houze-theme")];
+        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama", richman: "richman" }[localStorage.getItem("brew-houze-theme")];
         if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
       } catch { /* storage blocked: default theme */ }
       // (Written in while the head is read, so they hold the first paint like ordinary links.)
