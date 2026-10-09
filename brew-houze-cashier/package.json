@@ -9,7 +9,9 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:unit": "vitest run __tests__/unit",
-    "test:integration": "vitest run -c vitest.integration.config.ts"
+    "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test:system": "vitest run -c vitest.system.config.ts",
+    "test:performance": "vitest run -c vitest.performance.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

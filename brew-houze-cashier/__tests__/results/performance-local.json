@@ -1,0 +1,73 @@
+{
+  "ranAt": "2026-10-09T03:29:25.313Z",
+  "targetMs": 3000,
+  "environment": "Production builds (next start) and PostgreSQL 17 on one Windows PC",
+  "results": [
+    {
+      "name": "Mobile Menu: load the menu (GET /api/products)",
+      "requests": 200,
+      "concurrent": 20,
+      "seconds": 0.6,
+      "averageMs": 58,
+      "p95Ms": 227,
+      "maxMs": 243,
+      "errors": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "name": "QR order: send the cart to the counter (POST /api/counter-carts)",
+      "requests": 30,
+      "concurrent": 10,
+      "seconds": 0.4,
+      "averageMs": 125,
+      "p95Ms": 219,
+      "maxMs": 229,
+      "errors": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "name": "POS: complete a cash order (POST /api/checkout)",
+      "requests": 100,
+      "concurrent": 10,
+      "seconds": 0.9,
+      "averageMs": 90,
+      "p95Ms": 186,
+      "maxMs": 240,
+      "errors": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "name": "Queue sync: staff queue (GET /api/queue)",
+      "requests": 200,
+      "concurrent": 20,
+      "seconds": 1,
+      "averageMs": 97,
+      "p95Ms": 111,
+      "maxMs": 138,
+      "errors": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "name": "Queue Screen: queue (GET /api/queue)",
+      "requests": 200,
+      "concurrent": 20,
+      "seconds": 0.7,
+      "averageMs": 66,
+      "p95Ms": 250,
+      "maxMs": 276,
+      "errors": 0,
+      "errorRatePercent": 0
+    },
+    {
+      "name": "AI insights: one request to Claude (POST /api/insights)",
+      "requests": 1,
+      "concurrent": 1,
+      "seconds": 5.9,
+      "averageMs": 5934,
+      "p95Ms": 5934,
+      "maxMs": 5934,
+      "errors": 0,
+      "errorRatePercent": 0
+    }
+  ]
+}
