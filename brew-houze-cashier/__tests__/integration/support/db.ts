@@ -36,7 +36,7 @@ export async function rebuildDatabase(env: NodeJS.ProcessEnv) {
     ALTER DATABASE "${name}" SET timezone = 'UTC';
     SET search_path = public, extensions;
   `);
-  for (const file of ["01-schema.sql", "02-built-in-rows.sql", "03-gcash-direct-migration.sql"]) {
+  for (const file of ["01-schema.sql", "02-built-in-rows.sql", "03-gcash-direct-migration.sql", "04-promotions-migration.sql"]) {
     await db.query(readFileSync(path.join(__dirname, "..", "schema", file), "utf8"));
   }
   await db.query(SEED);

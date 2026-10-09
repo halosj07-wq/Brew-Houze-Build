@@ -5,8 +5,9 @@ import Image from "next/image";
 import * as XLSX from "xlsx";
 import { excelPayment, excelReturnMethod, excelStatus, getFinanceDateStamp } from "@/lib/excel-format";
 import { MoneyField, PhoneField } from "@/lib/input-format";
+import { manilaWhen, PROMOTION_MESSAGE_MAX, PROMOTION_TITLE_MAX, type PromotionKind, type PromotionStatus } from "@/lib/promotions";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "discounts" | "delivery" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "promotions" | "discounts" | "delivery" | "accounts" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -318,6 +319,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "insights", label: "Insights", short: "Insights", Icon: IconSparkle },
   { id: "customers", label: "Customers", short: "Customers", Icon: IconHeart },
   { id: "loyalty", label: "Loyalty", short: "Loyalty", Icon: IconStar },
+  { id: "promotions", label: "Promotions & Events", short: "Promos", Icon: IconMegaphone },
   { id: "discounts", label: "Discounts", short: "Discounts", Icon: IconTag },
   { id: "delivery", label: "Delivery", short: "Delivery", Icon: IconTruck },
   { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
@@ -327,7 +329,7 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "treasury", "insights", "customers", "loyalty", "discounts", "delivery", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "treasury", "insights", "customers", "loyalty", "promotions", "discounts", "delivery", "accounts", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -9798,6 +9800,226 @@ function deliveryHoursProblem(start: string, end: string): string | null {
   if (start === end) return "The delivery start and end are the same time, so delivery would never open. Change one of them.";
   return null;
 }
+// ─── Promotions & Events (Objective 9) ─────────────────────────────────────────────────────────
+// Posts for customers: shown on the Mobile Menu (a banner and the bell) while they are scheduled,
+// and optionally emailed once to the customers who switched promo emails on. See lib/promotions.ts
+// and api/promotions.
+type PromotionPost = {
+  id: number; kind: PromotionKind; title: string; message: string; image: string; productId: number | null; productName: string | null;
+  eventStartsAt: string | null; eventEndsAt: string | null; showFrom: string; showUntil: string | null; isActive: boolean; archivedAt: string | null;
+  status: PromotionStatus; createdBy: string | null; updatedAt: string; emailCustomers: boolean; emailedAt: string | null; emailedCount: number | null;
+};
+
+const promotionStatusLabels: Record<PromotionStatus, { label: string; color: string; background: string }> = {
+  showing: { label: "Showing now", color: "#047857", background: "#D1FAE5" },
+  scheduled: { label: "Scheduled", color: "#1D4ED8", background: "#DBEAFE" },
+  ended: { label: "Ended", color: "#6B4C3B", background: "#F1E8DE" },
+  off: { label: "Off", color: "#9C8278", background: "#F5EFEA" },
+  archived: { label: "Archived", color: "#9C8278", background: "#F5EFEA" },
+};
+
+// <input type="datetime-local"> works in local time; the café runs on Philippine time (UTC+8).
+function toManilaInput(iso: string | null): string {
+  if (!iso) return "";
+  const local = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000);
+  return local.toISOString().slice(0, 16);
+}
+const fromManilaInput = (value: string): string | null => (value ? `${value}:00+08:00` : null);
+// "Oct 13", Philippine time (the card chips are narrow; the full date and time is on hover).
+const promoDay = (iso: string) => new Date(iso).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", month: "short", day: "numeric" });
+
+function IconMegaphone({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z" /><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" /></svg>;
+}
+
+function Promotions({ products }: { products: Product[] }) {
+  const confirmAction = useConfirm();
+  const [posts, setPosts] = useState<PromotionPost[] | null>(null);
+  const [subscribers, setSubscribers] = useState(0);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [editing, setEditing] = useState<PromotionPost | "new-promo" | "new-event" | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/promotions", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the promotions and events.");
+      setPosts(payload.data ?? []);
+      setSubscribers(Number(payload.subscribers ?? 0));
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the promotions and events.");
+    }
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void load(), 0);
+    const refresh = window.setInterval(() => void load(), 30_000);
+    return () => { window.clearTimeout(timer); window.clearInterval(refresh); };
+  }, [load]);
+
+  async function act(post: PromotionPost, action: "on" | "off" | "archive" | "restore") {
+    if (action === "archive" && !(await confirmAction({ title: `Archive "${post.title}"?`, message: "It stops showing on the menu and moves to Archived. Nothing is deleted.", confirmLabel: "Archive" }))) return;
+    setError("");
+    try {
+      const response = await fetch("/api/promotions", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: post.id, action }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not change the post.");
+      setNotice(action === "archive" ? `"${post.title}" archived.` : action === "restore" ? `"${post.title}" restored (switched off).` : `"${post.title}" switched ${action}.`);
+      await load();
+    } catch (actError) {
+      setError(actError instanceof Error ? actError.message : "Could not change the post.");
+    }
+  }
+
+  const all = posts ?? [];
+  const visible = all.filter((post) => showArchived ? post.status === "archived" : post.status !== "archived");
+  const archivedCount = all.filter((post) => post.status === "archived").length;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <p className="inv-hint" style={{ margin: 0 }}>Tell customers about promos and events right on the Mobile Menu, not only on Facebook. A post shows as a card under the greeting and in the menu&apos;s bell while it is scheduled, and open menus update by themselves. You can also email it to the customers who asked for promo emails in their account.</p>
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="acc-notice" role="status">{notice}</div>}
+      <div className="acc-stats">
+        <div><span>Showing now</span><strong>{posts ? all.filter((post) => post.status === "showing").length : "…"}</strong><em className="fin-loy-sub">on the Mobile Menu</em></div>
+        <div><span>Scheduled</span><strong>{posts ? all.filter((post) => post.status === "scheduled").length : "…"}</strong><em className="fin-loy-sub">start showing later</em></div>
+        <div><span>Email subscribers</span><strong>{subscribers}</strong><em className="fin-loy-sub">customers who asked for promo emails</em></div>
+      </div>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-2">
+          <button type="button" className={showArchived ? "inv-secondary" : "inv-primary"} onClick={() => setShowArchived(false)}>Posts</button>
+          <button type="button" className={showArchived ? "inv-primary" : "inv-secondary"} onClick={() => setShowArchived(true)}>Archived{archivedCount ? ` (${archivedCount})` : ""}</button>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button type="button" className="inv-secondary" onClick={() => setEditing("new-promo")}><IconPlus size={14} />New promo</button>
+          <button type="button" className="inv-secondary" onClick={() => setEditing("new-event")}><IconPlus size={14} />New event</button>
+        </div>
+      </div>
+      {!posts ? <div className="inv-empty">Loading…</div> : visible.length === 0 ? <p className="inv-hint" style={{ margin: 0 }}>{showArchived ? "No archived posts." : "No posts yet. Add a promo (an offer or a new item) or an event (with its date and time)."}</p> : <div className="acc-grid">
+        {visible.map((post) => {
+          const status = promotionStatusLabels[post.status];
+          return <div key={post.id} className={`acc-card${post.status === "showing" || post.status === "scheduled" ? "" : " is-inactive"}`} style={{ cursor: "default" }}>
+            <span className="acc-card-top">
+              {post.image
+                ? <span style={{ position: "relative", width: 44, height: 44, borderRadius: 12, overflow: "hidden", flexShrink: 0, background: "#F1E8DE" }}><Image src={post.image} alt="" fill unoptimized sizes="44px" style={{ objectFit: "cover" }} /></span>
+                : <span className="loy-badge" style={{ background: post.kind === "event" ? "#CCFBF1" : "#FEF3C7", color: post.kind === "event" ? "#0F766E" : "#B45309" }}><IconMegaphone size={20} /></span>}
+              <span className="acc-card-name"><strong>{post.title}</strong><em style={{ whiteSpace: "normal" }}>{post.kind === "event" ? `Event · ${post.eventStartsAt ? manilaWhen(post.eventStartsAt) : ""}` : "Promo"}{post.productName ? ` · ${post.productName}` : ""}</em></span>
+              <span className="acc-status" style={{ color: status.color, background: status.background }}><i />{status.label}</span>
+            </span>
+            <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 13, color: "#6B4C3B", lineHeight: 1.45, whiteSpace: "pre-line" }}>{post.message}</span>
+            <span className="acc-card-stats">
+              <span title={manilaWhen(post.showFrom)}><em>Shows</em><strong>{promoDay(post.showFrom)}</strong></span>
+              <span title={post.showUntil ? manilaWhen(post.showUntil) : undefined}><em>Until</em><strong>{post.showUntil ? promoDay(post.showUntil) : post.kind === "event" ? "Event ends" : "Switched off"}</strong></span>
+              <span><em>Email</em><strong>{post.emailedAt ? `Sent to ${post.emailedCount ?? 0}` : post.emailCustomers ? "When it goes live" : "No"}</strong></span>
+            </span>
+            <span className="flex gap-2 flex-wrap">
+              {post.status === "archived"
+                ? <button type="button" className="inv-mini" onClick={() => void act(post, "restore")}><IconRotateCcw size={12} />Restore</button>
+                : <>
+                  <button type="button" className="inv-mini" onClick={() => setEditing(post)}><IconPencil size={12} />Edit</button>
+                  {post.status !== "ended" && <button type="button" className="inv-mini" onClick={() => void act(post, post.isActive ? "off" : "on")}>{post.isActive ? "Switch off" : "Switch on"}</button>}
+                  <button type="button" className="inv-mini" onClick={() => void act(post, "archive")}><IconArchive size={12} />Archive</button>
+                </>}
+            </span>
+          </div>;
+        })}
+      </div>}
+    </div>
+    {editing && <PromotionDialog post={typeof editing === "string" ? null : editing} kind={typeof editing === "string" ? (editing === "new-event" ? "event" : "promo") : editing.kind} products={products} subscribers={subscribers}
+      onClose={() => setEditing(null)} onSaved={async (message) => { setEditing(null); setNotice(message); await load(); }} />}
+  </div>;
+}
+
+function PromotionDialog({ post, kind, products, subscribers, onClose, onSaved }: { post: PromotionPost | null; kind: PromotionKind; products: Product[]; subscribers: number; onClose: () => void; onSaved: (message: string) => Promise<void> }) {
+  const [draft, setDraft] = useState({
+    kind, title: post?.title ?? "", message: post?.message ?? "", productId: post?.productId ? String(post.productId) : "",
+    eventStartsAt: toManilaInput(post?.eventStartsAt ?? null), eventEndsAt: toManilaInput(post?.eventEndsAt ?? null),
+    showFrom: toManilaInput(post?.showFrom ?? null), showUntil: toManilaInput(post?.showUntil ?? null),
+    isActive: post?.isActive ?? true, emailCustomers: post?.emailCustomers ?? false,
+  });
+  // "keep": the stored picture stays; a data: URL: a new one; "": none.
+  const [image, setImage] = useState(post?.image ? "keep" : "");
+  const [preview, setPreview] = useState(post?.image ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const set = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => setDraft((current) => ({ ...current, [key]: value }));
+  const isEvent = draft.kind === "event";
+  const emailSent = Boolean(post?.emailedAt);
+  const problem = !draft.title.trim() ? "Enter the title." : !draft.message.trim() ? "Write the message." : isEvent && !draft.eventStartsAt ? "Enter when the event starts." : "";
+
+  async function pickImage(file: File | undefined) {
+    if (!file) return;
+    try {
+      const data = await shrinkProductImage(file);
+      setImage(data);
+      setPreview(data);
+    } catch {
+      setError("That picture could not be read. Try a JPG or PNG.");
+    }
+  }
+
+  async function save() {
+    if (problem) return;
+    setSaving(true);
+    setError("");
+    try {
+      const body = {
+        ...(post ? { id: post.id } : {}), kind: draft.kind, title: draft.title, message: draft.message, productId: draft.productId ? Number(draft.productId) : null,
+        eventStartsAt: isEvent ? fromManilaInput(draft.eventStartsAt) : null, eventEndsAt: isEvent ? fromManilaInput(draft.eventEndsAt) : null,
+        showFrom: fromManilaInput(draft.showFrom), showUntil: fromManilaInput(draft.showUntil), isActive: draft.isActive, emailCustomers: draft.emailCustomers, image,
+      };
+      const response = await fetch("/api/promotions", { method: post ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the post.");
+      await onSaved(post ? `"${draft.title.trim()}" saved.` : `"${draft.title.trim()}" added${payload.data?.status === "showing" ? " and showing on the menu" : payload.data?.status === "scheduled" ? "; it shows when its time comes" : ""}.`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the post.");
+      setSaving(false);
+    }
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label={post ? "Edit post" : isEvent ? "New event" : "New promo"}>
+    <form onSubmit={(event) => { event.preventDefault(); void save(); }} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title={post ? `Edit ${post.title}` : isEvent ? "New event" : "New promo"} sub={isEvent ? "Something happening at the café, with its date and time. It disappears from the menu once it is over." : "An offer, a new item or a reminder. It shows on the menu until you switch it off or its end date."} onClose={onClose} disabled={saving} />
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <WizardField label="Title"><input data-autofocus value={draft.title} onChange={(event) => set("title", event.target.value)} placeholder={isEvent ? "e.g. Acoustic Night" : "e.g. Buy 1 Take 1 Iced Lattes"} style={packagingInput} maxLength={PROMOTION_TITLE_MAX} /></WizardField>
+        <WizardField label="Message" hint={`${draft.message.length} / ${PROMOTION_MESSAGE_MAX} characters`}><textarea value={draft.message} onChange={(event) => set("message", event.target.value)} rows={4} placeholder={isEvent ? "Live music from 7 PM. Bring a friend!" : "Every Tuesday, 2 to 5 PM. Dine in or take out."} style={{ ...packagingInput, resize: "vertical" }} maxLength={PROMOTION_MESSAGE_MAX} /></WizardField>
+        {isEvent && <div className="inv-step-grid">
+          <WizardField label="Event starts"><input type="datetime-local" value={draft.eventStartsAt} onChange={(event) => set("eventStartsAt", event.target.value)} style={packagingInput} /></WizardField>
+          <WizardField label="Event ends (optional)" hint="Empty: the end of that day."><input type="datetime-local" value={draft.eventEndsAt} onChange={(event) => set("eventEndsAt", event.target.value)} style={packagingInput} /></WizardField>
+        </div>}
+        <div className="inv-step-grid">
+          <WizardField label="Show from (optional)" hint="Empty: right away."><input type="datetime-local" value={draft.showFrom} onChange={(event) => set("showFrom", event.target.value)} style={packagingInput} /></WizardField>
+          <WizardField label="Show until (optional)" hint={isEvent ? "Empty: until the event is over." : "Empty: until you switch it off."}><input type="datetime-local" value={draft.showUntil} onChange={(event) => set("showUntil", event.target.value)} style={packagingInput} /></WizardField>
+        </div>
+        <WizardField label="Menu item (optional)" hint="Customers get a button that opens it."><select value={draft.productId} onChange={(event) => set("productId", event.target.value)} style={packagingInput}>
+          <option value="">None</option>
+          {[...products].sort((a, b) => a.name.localeCompare(b.name)).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+        </select></WizardField>
+        <WizardField label="Picture (optional)" hint="Resized before upload.">
+          <div className="flex items-center gap-3 flex-wrap">
+            {preview && <span style={{ position: "relative", width: 120, height: 68, borderRadius: 10, overflow: "hidden", background: "#F1E8DE" }}><Image src={preview} alt="" fill unoptimized sizes="120px" style={{ objectFit: "cover" }} /></span>}
+            <label className="inv-mini" style={{ cursor: "pointer" }}><IconImage size={12} />{preview ? "Change" : "Choose a picture"}<input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void pickImage(event.target.files?.[0])} style={{ display: "none" }} /></label>
+            {preview && <button type="button" className="inv-mini" onClick={() => { setImage(""); setPreview(""); }}><IconX size={12} />Remove</button>}
+          </div>
+        </WizardField>
+        <PermissionSwitch checked={draft.isActive} title="Show on the Mobile Menu" description="Switched off: customers do not see it, even within its dates." onChange={(checked) => set("isActive", checked)} />
+        <PermissionSwitch checked={draft.emailCustomers} disabled={emailSent} title="Email it to subscribers when it goes live"
+          description={emailSent ? `Already emailed to ${post?.emailedCount ?? 0} customer${post?.emailedCount === 1 ? "" : "s"}.` : `Sent once to the ${subscribers} customer${subscribers === 1 ? "" : "s"} who switched promo emails on, with a link to stop them.`}
+          onChange={(checked) => set("emailCustomers", checked)} />
+        {error && <p role="alert" className="acc-error">{error}</p>}
+      </div>
+      <div className="flex items-center justify-end gap-3 px-6 py-4 border-t flex-wrap" style={{ borderColor: "#E8DDD5" }}>
+        {problem && <span className="inv-footer-note">{problem}</span>}
+        <button type="button" onClick={onClose} disabled={saving} className="ui-button ui-button-secondary">Cancel</button>
+        <button type="submit" disabled={saving || Boolean(problem)} className="ui-button ui-button-primary">{saving ? "Saving…" : post ? "Save post" : isEvent ? "Add event" : "Add promo"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
 function DeliveryHoursPreview({ start, end }: { start: string; end: string }) {
   const [now, setNow] = useState(manilaMinutes);
   useEffect(() => {
@@ -11169,7 +11391,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", insights: "Insights", customers: "Customers", loyalty: "Loyalty Campaigns", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", insights: "Insights", customers: "Customers", loyalty: "Loyalty Campaigns", promotions: "Promotions & Events", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -11194,6 +11416,7 @@ export default function App() {
         {page === "insights" && <InsightsPage onNavigate={goTo} />}
         {page === "customers" && <Customers />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
+        {page === "promotions" && <Promotions products={products} />}
         {page === "discounts" && <Discounts />}
         {page === "delivery" && <Delivery />}
         {page === "accounts" && <Accounts />}

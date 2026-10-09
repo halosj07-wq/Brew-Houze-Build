@@ -1,0 +1,211 @@
+[
+  {
+    "id": "UT-NOT-12",
+    "objective": "Objective 9 - Notifications",
+    "fn": "promotionStatus",
+    "title": "a switched-on promo inside its window is showing",
+    "kind": "Positive",
+    "input": "Promo shown since yesterday, no end",
+    "expected": "\"showing\"",
+    "actual": "\"showing\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-13",
+    "objective": "Objective 9 - Notifications",
+    "fn": "promotionStatus",
+    "title": "a promo that starts later is scheduled",
+    "kind": "Positive",
+    "input": "Shows from Oct 12, now Oct 10",
+    "expected": "\"scheduled\"",
+    "actual": "\"scheduled\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-14",
+    "objective": "Objective 9 - Notifications",
+    "fn": "promotionStatus",
+    "title": "a promo ends exactly at its show-until time",
+    "kind": "Boundary",
+    "input": "Show until Oct 10, 10:00 AM; now 10:00 AM",
+    "expected": "\"ended\"",
+    "actual": "\"ended\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-15",
+    "objective": "Objective 9 - Notifications",
+    "fn": "promotionStatus",
+    "title": "an event with no end time still shows at 11:59 PM of its day",
+    "kind": "Boundary",
+    "input": "Event Oct 10, 7:00 PM; now 11:59 PM",
+    "expected": "\"showing\"",
+    "actual": "\"showing\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-16",
+    "objective": "Objective 9 - Notifications",
+    "fn": "promotionStatus",
+    "title": "an event with no end time is over at midnight after its day",
+    "kind": "Boundary",
+    "input": "Event Oct 10, 7:00 PM; now Oct 11, 12:00 AM",
+    "expected": "\"ended\"",
+    "actual": "\"ended\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-17",
+    "objective": "Objective 9 - Notifications",
+    "fn": "promotionStatus",
+    "title": "switched off and archived posts are never showing",
+    "kind": "Negative",
+    "input": "Off post; archived post",
+    "expected": "[\"off\",\"archived\"]",
+    "actual": "[\"off\",\"archived\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-18",
+    "objective": "Objective 9 - Notifications",
+    "fn": "sortForCustomers",
+    "title": "events come first by date, then promos newest first",
+    "kind": "Positive",
+    "input": "Promo Oct 1, event Oct 15, promo Oct 9, event Oct 11",
+    "expected": "[4,2,3,1]",
+    "actual": "[4,2,3,1]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-19",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "a valid promo is cleaned and shows right away",
+    "kind": "Positive",
+    "input": "Title \"  Buy 1   Take 1 \", no show date",
+    "expected": "{\"title\":\"Buy 1 Take 1\",\"showFrom\":\"2026-10-10T02:00:00.000Z\",\"isActive\":true}",
+    "actual": "{\"title\":\"Buy 1 Take 1\",\"showFrom\":\"2026-10-10T02:00:00.000Z\",\"isActive\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-20",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "a post needs Promo or Event",
+    "kind": "Negative",
+    "input": "kind \"sale\"",
+    "expected": "\"Choose Promo or Event.\"",
+    "actual": "\"Choose Promo or Event.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-21",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "a post needs a title",
+    "kind": "Negative",
+    "input": "Title of spaces only",
+    "expected": "\"Enter the title.\"",
+    "actual": "\"Enter the title.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-22",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "the title is limited to 80 characters",
+    "kind": "Boundary",
+    "input": "80 and 81 characters",
+    "expected": "[\"accepted\",\"Keep the title to 80 characters.\"]",
+    "actual": "[\"accepted\",\"Keep the title to 80 characters.\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-23",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "the message is limited to 400 characters",
+    "kind": "Boundary",
+    "input": "400 and 401 characters",
+    "expected": "[\"accepted\",\"Keep the message to 400 characters.\"]",
+    "actual": "[\"accepted\",\"Keep the message to 400 characters.\"]",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-24",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "an event needs its start",
+    "kind": "Negative",
+    "input": "Event with no start",
+    "expected": "\"Enter when the event starts.\"",
+    "actual": "\"Enter when the event starts.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-25",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "an event that is already over is refused",
+    "kind": "Negative",
+    "input": "Event Oct 3, now Oct 10",
+    "expected": "\"That event is already over.\"",
+    "actual": "\"That event is already over.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-26",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "an event cannot end before it starts",
+    "kind": "Negative",
+    "input": "Starts 7:00 PM, ends 6:00 PM",
+    "expected": "\"The event must end after it starts.\"",
+    "actual": "\"The event must end after it starts.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-27",
+    "objective": "Objective 9 - Notifications",
+    "fn": "parsePromotion",
+    "title": "the show window must end after it starts",
+    "kind": "Negative",
+    "input": "Show from Oct 12, until Oct 11",
+    "expected": "\"The post must stop showing after it starts.\"",
+    "actual": "\"The post must stop showing after it starts.\"",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-28",
+    "objective": "Objective 9 - Notifications",
+    "fn": "POST /api/promotions",
+    "title": "an admin's post is saved and signals the open menus",
+    "kind": "Positive",
+    "input": "Valid promo by an admin",
+    "expected": "{\"status\":201,\"error\":null,\"signalled\":[\"promos\"]}",
+    "actual": "{\"status\":201,\"error\":null,\"signalled\":[\"promos\"]}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-29",
+    "objective": "Objective 9 - Notifications",
+    "fn": "POST /api/promotions",
+    "title": "only an admin can post",
+    "kind": "Negative",
+    "input": "Valid promo by a cashier",
+    "expected": "{\"status\":403,\"error\":\"Only an admin can manage promotions and events.\",\"signalled\":[]}",
+    "actual": "{\"status\":403,\"error\":\"Only an admin can manage promotions and events.\",\"signalled\":[]}",
+    "status": "Passed"
+  },
+  {
+    "id": "UT-NOT-30",
+    "objective": "Objective 9 - Notifications",
+    "fn": "POST /api/promotions",
+    "title": "a linked menu item must still be on the menu",
+    "kind": "Negative",
+    "input": "Promo linked to an archived item",
+    "expected": "{\"status\":400,\"error\":\"That menu item is not available. Choose another, or none.\",\"signalled\":[]}",
+    "actual": "{\"status\":400,\"error\":\"That menu item is not available. Choose another, or none.\",\"signalled\":[]}",
+    "status": "Passed"
+  }
+]

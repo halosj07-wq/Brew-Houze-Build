@@ -9,8 +9,9 @@ import { after } from "next/server";
 //   queue  orders placed, made, picked up, voided or refunded, and deliveries
 //   line   the counter line: carts sent to the counter, ID photos, Stars claims
 //   stock  what can be sold: stock, recipes, products and add-ons
+//   promos promotions and events for customers (see lib/promotions.ts)
 
-export type ChangeScope = "queue" | "line" | "stock";
+export type ChangeScope = "queue" | "line" | "stock" | "promos";
 export const LIVE_TOPIC = "brew-houze-live";
 
 async function send(scopes: ChangeScope[]) {

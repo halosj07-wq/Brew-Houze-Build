@@ -97,5 +97,14 @@
     "actual": "{\"codeRequired\":true,\"emailMasked\":true,\"challengeSaved\":1,\"wrongCode\":{\"status\":401,\"error\":\"That code is not right. 4 tries left.\"},\"sessionRecorded\":true,\"attendanceRecorded\":true,\"voidActorRecorded\":true}",
     "status": "Passed",
     "ms": 24994
+  },
+  {
+    "id": "IT-12",
+    "modules": "Admin Promotions → Mobile Menu (Supabase Realtime) and Gmail SMTP",
+    "scenario": "The admin posts a promo with email on: a live \"promos\" signal goes out, the Mobile Menu lists it, and it is emailed once through the Gmail SMTP account to the customer who switched promo emails on (halosj07+promo@gmail.com); a second menu request sends nothing more",
+    "expected": "HTTP 201; promos signal received; listed on the Mobile Menu; emailed to 1 customer, once",
+    "actual": "{\"status\":201,\"promosSignal\":true,\"onMenu\":true,\"emailedCount\":1,\"sentOnce\":true}",
+    "status": "Passed",
+    "ms": 10802
   }
 ]

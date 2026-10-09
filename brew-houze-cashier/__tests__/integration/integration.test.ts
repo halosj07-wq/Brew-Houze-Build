@@ -254,4 +254,27 @@ integrationCases([
       };
     },
   },
+  {
+    id: "IT-12", modules: "Admin Promotions → Mobile Menu (Supabase Realtime) and Gmail SMTP",
+    scenario: `The admin posts a promo with email on: a live "promos" signal goes out, the Mobile Menu lists it, and it is emailed once through the Gmail SMTP account to the customer who switched promo emails on (${OTP_EMAIL.replace("@", "+promo@")}); a second menu request sends nothing more`,
+    expectedText: "HTTP 201; promos signal received; listed on the Mobile Menu; emailed to 1 customer, once",
+    expected: { status: 201, promosSignal: true, onMenu: true, emailedCount: 1, sentOnce: true },
+    run: async () => {
+      const member = await customer();
+      await member.patch("/api/account", { action: "update_profile", fullName: "Ana Test", email: OTP_EMAIL.replace("@", "+promo@"), birthday: "", phone: "09171234567" });
+      await member.patch("/api/account", { action: "promo_emails", on: true });
+      const live = listen(); await live.ready;
+      const posted = await admin.post("/api/promotions", { kind: "promo", title: "Integration Test Promo", message: "Buy 1 Take 1 Americano this afternoon.", productId: AMERICANO, emailCustomers: true });
+      const promosSignal = await live.waitFor("promos");
+      await live.close();
+      const onMenu = ((await new AppUser("mobile").get("/api/promotions")).json.data as { title: string }[]).some((p) => p.title === "Integration Test Promo");
+      const emailed = async () => one("SELECT emailed_at, emailed_count FROM promotions WHERE promotion_id = $1", [posted.json.data?.id]);
+      for (let i = 0; i < 60 && (await emailed()).emailed_count === null; i++) await new Promise((r) => setTimeout(r, 500));
+      const first = await emailed();
+      await new AppUser("mobile").get("/api/promotions");
+      await new Promise((r) => setTimeout(r, 1500));
+      const again = await emailed();
+      return { status: posted.status, promosSignal, onMenu, emailedCount: first.emailed_count, sentOnce: String(first.emailed_at) === String(again.emailed_at) && again.emailed_count === first.emailed_count };
+    },
+  },
 ]);

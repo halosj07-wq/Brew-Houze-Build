@@ -56,7 +56,7 @@ export async function GET() {
     `, [session.customerId]).catch(() => ({ rows: [] as { product_id: number }[] }));
     // Mobile number and delivery addresses (with their zone and its fee), and whether cash on
     // delivery is blocked for this account.
-    const contact = await pool.query("SELECT phone, cod_blocked, (SELECT COUNT(*)::int FROM sales_orders so WHERE so.customer_id = customers.customer_id AND so.status = 'completed') AS completed FROM customers WHERE customer_id = $1", [session.customerId]).catch(() => ({ rows: [] as { phone: string | null; cod_blocked: boolean; completed: number }[] }));
+    const contact = await pool.query("SELECT phone, cod_blocked, promo_emails, (SELECT COUNT(*)::int FROM sales_orders so WHERE so.customer_id = customers.customer_id AND so.status = 'completed') AS completed FROM customers WHERE customer_id = $1", [session.customerId]).catch(() => ({ rows: [] as { phone: string | null; cod_blocked: boolean; promo_emails: boolean; completed: number }[] }));
     const addresses = await pool.query(`
       SELECT a.address_id, a.label, a.recipient_name, a.phone, a.zone_id, z.name AS zone_name, z.fee AS zone_fee, z.is_active AS zone_active, a.street, a.landmark, a.rider_notes, a.is_default
       FROM customer_addresses a LEFT JOIN delivery_zones z ON z.zone_id = a.zone_id
@@ -75,6 +75,8 @@ export async function GET() {
         favorites: favorites.rows.map((row) => Number(row.product_id)),
         phone: (contact.rows[0]?.phone as string | null | undefined) ?? null,
         codBlocked: Boolean(contact.rows[0]?.cod_blocked),
+        // Emails about the café's promos and events (Objective 9), only when the customer asks.
+        promoEmails: Boolean((contact.rows[0] as { promo_emails?: boolean } | undefined)?.promo_emails),
         // Completed orders, for the cash on delivery rule (completed orders first).
         completedOrders: Number((contact.rows[0] as { completed?: number } | undefined)?.completed ?? 0),
         addresses: addresses.rows.map((row) => ({
@@ -106,7 +108,7 @@ export async function GET() {
 export async function PATCH(request: Request) {
   const session = await getCustomerSession();
   if (!session) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
-  let body: { action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; phone?: unknown; currentPassword?: unknown; newPassword?: unknown };
+  let body: { action?: unknown; on?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; phone?: unknown; currentPassword?: unknown; newPassword?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -133,6 +135,13 @@ export async function PATCH(request: Request) {
       // Other phones signed in with the old password are signed out; this one stays.
       await endCustomerSessions(session.customerId, "password_changed", pool, true);
       return NextResponse.json({ data: { ok: true } });
+    }
+    if (body.action === "promo_emails") {
+      const on = body.on === true;
+      const account = await pool.query("SELECT email FROM customers WHERE customer_id = $1", [session.customerId]);
+      if (on && !account.rows[0]?.email) return NextResponse.json({ error: "Add your email in Personal details first." }, { status: 400 });
+      await pool.query("UPDATE customers SET promo_emails = $2, promo_emails_changed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId, on]);
+      return NextResponse.json({ data: { promoEmails: on } });
     }
     if (body.action === "forget_id") {
       await pool.query("UPDATE customers SET id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId]);
@@ -165,7 +174,7 @@ export async function DELETE(request: Request) {
       UPDATE customers
       SET username = NULL, full_name = 'Deleted customer', email = NULL, password_hash = NULL, birthday = NULL, notes = NULL,
         id_discount_type_id = NULL, id_discount_name = NULL, id_discount_number = NULL, id_verified_at = NULL, id_verified_by = NULL, phone = NULL,
-        is_active = FALSE, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+        promo_emails = FALSE, is_active = FALSE, deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
       WHERE customer_id = $1
     `, [session.customerId]);
     await client.query("DELETE FROM customer_password_resets WHERE customer_id = $1", [session.customerId]);

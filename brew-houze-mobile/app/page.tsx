@@ -8,6 +8,7 @@ import { PhoneField } from "@/lib/input-format";
 import { downloadReceipt, ReceiptSheet } from "./receipt";
 import { livePollGate, onLive } from "@/lib/live";
 import { DirectGcashPay } from "./gcash-pay";
+import { NewsBell, NewsSheet, NewsStrip, useNews, type NewsPost } from "./news";
 
 type Product = {
   id: number;
@@ -192,6 +193,10 @@ export default function MenuPage() {
   const [addedNote, setAddedNote] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  // The café's news (promotions and events, Objective 9): the sheet, and which post it opens at.
+  const [newsOpen, setNewsOpen] = useState(false);
+  const [newsFocus, setNewsFocus] = useState<number | null>(null);
+  const news = useNews(useCallback((post: NewsPost) => setAddedNote(`New ${post.kind === "event" ? "event" : "promo"}: ${post.title}`), []));
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
@@ -728,6 +733,25 @@ export default function MenuPage() {
     setEditingKey(line?.key ?? null);
     if (line) setCartOpen(false);
   }
+  // Opens the news sheet (at one post, from a card or an emailed link) and marks the news as seen.
+  function openNews(post: NewsPost | null) {
+    setNewsFocus(post?.id ?? null);
+    setNewsOpen(true);
+    news.markSeen();
+  }
+  // An emailed post links to the menu with ?news=<id>: open it once the news has loaded.
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("news"));
+    if (!id || news.posts.length === 0) return;
+    const post = news.posts.find((candidate) => candidate.id === id);
+    const params = new URLSearchParams(window.location.search);
+    params.delete("news");
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
+    if (!post) return;
+    const timer = window.setTimeout(() => { setNewsFocus(post.id); setNewsOpen(true); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [news.posts]);
+
   function closeProduct() {
     const wasEditing = editingKey !== null;
     setSelectedProduct(null);
@@ -1159,7 +1183,7 @@ export default function MenuPage() {
     ? ({ preparing: "Preparing", ready: "Packed", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" } as Record<string, string>)[latestOrder.deliveryStatus ?? "preparing"] ?? "Preparing"
     : latestOrder.status === "served" ? "Ready for pickup" : partlyReady(latestOrder) ? `${readyPartNames(latestOrder)} ready` : "Preparing";
   const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served" || partlyReady(latestOrder)) : false;
-  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck || receiptFor);
+  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck || receiptFor || newsOpen);
   useEffect(() => {
     document.body.style.overflow = sheetOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
@@ -1233,6 +1257,7 @@ export default function MenuPage() {
     <header className="bh-header">
       <button type="button" className="bh-brand" onClick={() => goTab("menu")} aria-label="Brew Houze Cafe, menu"><Image src="/brand/badge.png" alt="" width={40} height={40} unoptimized priority /><span>Brew Houze Cafe</span></button>
       <div className="bh-header-actions">
+        <NewsBell count={news.unread} onOpen={() => openNews(null)} />
         {activeOrder
           ? <button type="button" className={`bh-orders-button${orderReady ? " is-ready" : ""}`} onClick={() => goTab("orders")} aria-label={`Your order ${latestOrder?.queueNumber ?? ""}: ${orderPillText}`}><i aria-hidden="true" />#{latestOrder?.queueNumber ?? "—"} · {orderPillText}</button>
           : <span className={`bh-open${storeOpen ? "" : " is-closed"}`}><i aria-hidden="true" />{storeOpen ? "Open now" : "Closed"}</span>}
@@ -1257,6 +1282,7 @@ export default function MenuPage() {
             <span className="bh-stars-text"><strong>Earn stars on every order</strong>Join Brew Houze Rewards, it&apos;s free</span>
             <IconNext />
           </button> : null}
+        <NewsStrip posts={news.posts} isNew={news.isNew} onOpen={openNews} />
         <div className="bh-search-row">
           <label className="bh-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
           <button type="button" className={`bh-filter${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} aria-label="Filter and sort" onClick={() => setFilterOpen((open) => !open)}><IconFilter />{filtersOn && <i aria-hidden="true" />}</button>
@@ -1337,6 +1363,12 @@ export default function MenuPage() {
         <span className="bh-tab-icon">{customer.account ? <span className="bh-tab-avatar">{accountInitials}</span> : <IconUser />}</span>{customer.account ? "Account" : "Sign in"}
       </button>
     </nav>
+
+    {newsOpen && <NewsSheet posts={news.posts} focusId={newsFocus} onClose={() => setNewsOpen(false)} onSeeItem={(productId) => {
+      const product = products.find((candidate) => candidate.id === productId);
+      setNewsOpen(false);
+      if (product) openProduct(product);
+    }} />}
 
     {selectedProduct && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) closeProduct(); }}>
       <section className="bh-sheet bh-item" role="dialog" aria-modal="true" aria-label={selectedProduct.name}>

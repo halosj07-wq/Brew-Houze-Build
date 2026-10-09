@@ -64,6 +64,8 @@ export type CustomerAccount = { username: string; fullName: string; email: strin
   favorites?: number[];
   // Mobile number and delivery addresses; codBlocked: cash on delivery switched off for this account.
   phone?: string | null; codBlocked?: boolean; completedOrders?: number; addresses?: CustomerAddress[];
+  // Emails about the café's promos and events (Objective 9), switched on by the customer.
+  promoEmails?: boolean;
   // A senior, PWD or other ID the café checked and the customer asked to remember (see ./id-discount.tsx).
   savedId?: { typeId: number; typeName: string; holderName: string; idEnding: string | null; expiresAt?: string } | null };
 
@@ -127,6 +129,8 @@ export function useCustomerAccount() {
     removeAddress: async (id: number) => afterSignIn(await send(`/api/account/addresses?id=${id}`, "DELETE")),
     // Removes the senior, PWD or other ID the café remembered for discounts.
     forgetSavedId: async () => afterSignIn(await send("/api/account", "PATCH", { action: "forget_id" })),
+    // Promo and event emails on or off.
+    setPromoEmails: async (on: boolean) => afterSignIn(await send("/api/account", "PATCH", { action: "promo_emails", on })),
     changePassword: async (currentPassword: string, newPassword: string) => send("/api/account", "PATCH", { action: "change_password", currentPassword, newPassword }),
     deleteAccount: async (password: string) => { const result = await send("/api/account", "DELETE", { password }); if (result.ok) setAccount(null); return result; },
     forgotPassword: async (login: string) => send("/api/account/forgot-password", "POST", { login }),
@@ -346,6 +350,28 @@ function SettingsRow({ icon, title, detail, onClick, tone }: { icon: string; tit
   </button></li>;
 }
 
+// Promo and event emails (Objective 9): off until the customer switches them on. Needs an email.
+function PromoEmailsRow({ state }: { state: CustomerAccountState }) {
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState("");
+  const account = state.account;
+  if (!account) return null;
+  const on = Boolean(account.promoEmails);
+  const detail = problem || (!account.email ? "Add your email in Personal details to get them" : on ? `Sent to ${account.email}` : "Promos and events by email, now and then");
+  async function toggle() {
+    setBusy(true);
+    setProblem("");
+    const result = await state.setPromoEmails(!on);
+    if (!result.ok) setProblem(result.error || "Could not save. Please try again.");
+    setBusy(false);
+  }
+  return <li><label className="ac-row ac-toggle-row">
+    <span className="ac-row-icon" aria-hidden="true">✉️</span>
+    <span className="ac-row-text"><strong>Email me promos and events</strong><em>{detail}</em></span>
+    <input type="checkbox" role="switch" className="ac-switch" checked={on} disabled={busy || (!on && !account.email)} onChange={() => void toggle()} aria-label="Email me promos and events" />
+  </label></li>;
+}
+
 // The Account tab. Signed in: who they are, their rewards, and a
 // settings list (each opens its form in AccountSheet). Guests: why to join, and the way in.
 export function AccountPage({ state, onOpen }: { state: CustomerAccountState; onOpen: (form: AccountForm) => void }) {
@@ -408,6 +434,7 @@ export function AccountPage({ state, onOpen }: { state: CustomerAccountState; on
         <SettingsRow icon="📍" title="Delivery addresses" detail={addressCount === 0 ? "Add where the café delivers" : `${addressCount} saved${defaultAddress ? ` · ${defaultAddress.label} is the default` : ""}`} onClick={() => onOpen("addresses")} />
         <SettingsRow icon="👤" title="Personal details" detail={details || "Add your email, mobile number and birthday"} onClick={() => onOpen("edit")} />
         <SettingsRow icon="🔒" title="Change password" onClick={() => onOpen("password")} />
+        <PromoEmailsRow state={state} />
       </ul>
     </section>
     <section className="ac-group">

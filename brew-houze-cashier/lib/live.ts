@@ -8,7 +8,7 @@ import { createClient, type RealtimeChannel } from "@supabase/supabase-js";
 // connection is up the timers slow down (see livePollGate); if it drops they run at full pace, so
 // nothing depends on it. brew-houze-cashier and brew-houze-mobile keep identical copies.
 
-export type LiveScope = "queue" | "line" | "stock";
+export type LiveScope = "queue" | "line" | "stock" | "promos";
 const LIVE_TOPIC = "brew-houze-live";
 
 type Listener = (scope: LiveScope | "reconnect") => void;
@@ -26,7 +26,7 @@ function connect() {
   channel = client.channel(LIVE_TOPIC)
     .on("broadcast", { event: "changed" }, ({ payload }) => {
       const scope = (payload as { scope?: LiveScope } | null)?.scope;
-      if (scope === "queue" || scope === "line" || scope === "stock") listeners.forEach((listener) => listener(scope));
+      if (scope === "queue" || scope === "line" || scope === "stock" || scope === "promos") listeners.forEach((listener) => listener(scope));
     })
     .subscribe((status) => {
       connected = status === "SUBSCRIBED";

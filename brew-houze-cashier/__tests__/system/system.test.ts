@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { beforeAll } from "vitest";
 import { systemCases } from "./harness";
 import { loadTestEnv } from "../integration/support/env";
@@ -181,6 +182,40 @@ systemCases([
     run: async () => { await barista.patch("/api/queue", { order_id: s.trackedOrder.orderId, action: "ready" }); return (await phone.get(`/api/orders/${s.trackToken}`)).json.data?.queue_status; } },
   { id: "TC-NOT-004", fr: "FR-29", kind: "Negative", scenario: "Look for the delivery orders on the Queue Screen", expectedText: "Delivery orders are not shown", expected: false,
     run: async () => { const q = (await new AppUser("queue").get("/api/queue")).json.data; return [...(q?.ready ?? []), ...(q?.waiting ?? [])].some((o: { queue_number: number }) => o.queue_number === s.cod.queueNumber || o.queue_number === s.failedOrder.queueNumber); } },
+
+  // ── Notifications: promotions and events for customers (Objective 9) ──
+  { id: "TC-NOT-005", fr: "FR-32", kind: "Positive", scenario: "The admin posts the promo \"Buy 1 Take 1 Americano\"; open the Mobile Menu", expectedText: "Posted (201) and listed on the menu as a promo", expected: { status: 201, listed: "promo" },
+    run: async () => { const r = await admin.post("/api/promotions", { kind: "promo", title: "Buy 1 Take 1 Americano", message: "Every Tuesday, 2 to 5 PM.", productId: AMERICANO }); s.promoId = r.json.data?.id; return { status: r.status, listed: ((await phone.get("/api/promotions")).json.data as { title: string; kind: string }[]).find((p) => p.title === "Buy 1 Take 1 Americano")?.kind }; } },
+  { id: "TC-NOT-006", fr: "FR-32", kind: "Positive", scenario: "The admin posts the event \"Acoustic Night\" for tomorrow at 7:00 PM; open the Mobile Menu", expectedText: "Listed first (events before promos), with its start time", expected: { first: "Acoustic Night", hasTime: true },
+    run: async () => {
+      const tomorrow = new Date(Date.now() + 86_400_000).toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+      await admin.post("/api/promotions", { kind: "event", title: "Acoustic Night", message: "Live music from 7 PM.", eventStartsAt: `${tomorrow}T19:00:00+08:00` });
+      const posts = (await phone.get("/api/promotions")).json.data as { title: string; eventStartsAt: string | null }[];
+      return { first: posts[0]?.title, hasTime: Boolean(posts[0]?.eventStartsAt) };
+    } },
+  { id: "TC-NOT-007", fr: "FR-32", kind: "Negative", scenario: "The admin schedules the promo \"Halloween Specials\" to start next week; open the Mobile Menu", expectedText: "Saved as scheduled and not shown yet", expected: { status: "scheduled", shown: false },
+    run: async () => { const r = await admin.post("/api/promotions", { kind: "promo", title: "Halloween Specials", message: "Spooky drinks all week.", showFrom: new Date(Date.now() + 7 * 86_400_000).toISOString() }); return { status: r.json.data?.status, shown: ((await phone.get("/api/promotions")).json.data as { title: string }[]).some((p) => p.title === "Halloween Specials") }; } },
+  { id: "TC-NOT-008", fr: "FR-32", kind: "Negative", scenario: "The admin posts an event that ended last week", expectedText: "400: That event is already over.", expected: { status: 400, error: "That event is already over." },
+    run: async () => outcome(await admin.post("/api/promotions", { kind: "event", title: "Old event", message: "Already done.", eventStartsAt: new Date(Date.now() - 7 * 86_400_000).toISOString() })) },
+  { id: "TC-NOT-009", fr: "FR-32", kind: "Negative", scenario: "Post a promotion without signing in to the Admin Portal", expectedText: "401: Not authenticated.", expected: { status: 401, error: "Not authenticated." },
+    run: async () => outcome(await new AppUser("admin").post("/api/promotions", { kind: "promo", title: "Free coffee", message: "For everyone." })) },
+  { id: "TC-NOT-010", fr: "FR-33", kind: "Positive", scenario: `Ana switches promo emails on (${OTP_EMAIL.replace("@", "+promo@")}); the admin posts a promo with email on`, expectedText: "Emailed once, to 1 customer (only Ana opted in)", expected: { emailedTo: 1 },
+    run: async () => {
+      await member.patch("/api/account", { action: "update_profile", fullName: "Ana Test", email: OTP_EMAIL.replace("@", "+promo@"), birthday: "", phone: "09171234567" });
+      await member.patch("/api/account", { action: "promo_emails", on: true });
+      const r = await admin.post("/api/promotions", { kind: "promo", title: "Happy Hour", message: "20% off frappes, 3 to 5 PM.", emailCustomers: true });
+      let row = await one("SELECT emailed_count FROM promotions WHERE promotion_id = $1", [r.json.data?.id]);
+      for (let i = 0; i < 60 && row.emailed_count === null; i++) { await phone.get("/api/promotions"); await new Promise((done) => setTimeout(done, 500)); row = await one("SELECT emailed_count FROM promotions WHERE promotion_id = $1", [r.json.data?.id]); }
+      return { emailedTo: row.emailed_count };
+    } },
+  { id: "TC-NOT-011", fr: "FR-33", kind: "Negative", scenario: "Open the stop-emails link with a forged token", expectedText: "Refused (400); Ana stays subscribed", expected: { status: 400, subscribed: true },
+    run: async () => { const r = await phone.request("GET", `/api/promotions/unsubscribe?c=${s.customerId}&t=forged-token`); return { status: r.status, subscribed: (await one("SELECT promo_emails FROM customers WHERE customer_id = $1", [s.customerId])).promo_emails }; } },
+  { id: "TC-NOT-012", fr: "FR-33", kind: "Positive", scenario: "Open the stop-emails link from Ana's email", expectedText: "Emails switched off for Ana", expected: { status: 200, subscribed: false },
+    run: async () => {
+      const token = createHmac("sha256", String(env.AUTH_SECRET)).update(`promo-unsubscribe:${s.customerId}`).digest("base64url").slice(0, 32);
+      const r = await phone.request("GET", `/api/promotions/unsubscribe?c=${s.customerId}&t=${token}`);
+      return { status: r.status, subscribed: (await one("SELECT promo_emails FROM customers WHERE customer_id = $1", [s.customerId])).promo_emails };
+    } },
 
   // ── Inventory ──
   { id: "TC-INV-001", fr: "FR-15", kind: "Positive", scenario: "Add the inventory item Oat Milk (mL, ₱0.15/mL, 1,000 mL)", expectedText: "Created (201) and listed", expected: { status: 201, listed: true },

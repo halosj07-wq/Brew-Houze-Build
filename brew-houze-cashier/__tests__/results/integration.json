@@ -6,7 +6,7 @@
     "expected": "Realtime \"line\" and \"queue\" signals received; cart listed at the POS (2 × Spanish Latte + Extra Shot, ₱290.00); queue #1 waiting on the barista queue, the Queue Screen and the customer's phone",
     "actual": "{\"lineSignal\":true,\"cartAtPos\":{\"listed\":true,\"lines\":1},\"checkoutTotal\":290,\"queueSignal\":true,\"barista\":[1],\"queueScreen\":[1],\"phone\":{\"queue_number\":1,\"queue_status\":\"waiting\"}}",
     "status": "Passed",
-    "ms": 1124
+    "ms": 5387
   },
   {
     "id": "IT-02",
@@ -15,7 +15,7 @@
     "expected": "PayMongo returns its GCash page; after \"Authorize Test Payment\" the checkout is completed and its order (₱100.00, PayMongo GCash) gets a queue number",
     "actual": "{\"paymongoPage\":\"secure-authentication.paymongo.com\",\"status\":\"completed\",\"order\":{\"total\":100,\"provider\":\"paymongo_gcash\",\"queued\":true}}",
     "status": "Passed",
-    "ms": 4231
+    "ms": 7443
   },
   {
     "id": "IT-03",
@@ -24,7 +24,7 @@
     "expected": "Forged signature → 401; signed event → 200 received; still exactly one order for the payment",
     "actual": "{\"forged\":401,\"signed\":200,\"ordersForPayment\":1}",
     "status": "Passed",
-    "ms": 16
+    "ms": 17
   },
   {
     "id": "IT-04",
@@ -33,7 +33,7 @@
     "expected": "Slip lines: TOTAL P 145.00, Cash received 200.00, Change 55.00 (58 mm); intent URL carries the exact command bytes",
     "actual": "{\"total\":\"TOTAL                   P 145.00\",\"received\":\"Cash received             200.00\",\"change\":\"Change                     55.00\",\"intentMatches\":true}",
     "status": "Passed",
-    "ms": 40
+    "ms": 37
   },
   {
     "id": "IT-05",
@@ -51,7 +51,7 @@
     "expected": "Order voided; beans +36, milk +150, syrup +15 back in stock; voided by the cashier, with stock history entries",
     "actual": "{\"status\":\"voided\",\"voidedBy\":\"Test Cashier\",\"restoreEntries\":3,\"restored\":{\"beans\":36,\"milk\":150,\"syrup\":15}}",
     "status": "Passed",
-    "ms": 30
+    "ms": 29
   },
   {
     "id": "IT-07",
@@ -69,7 +69,7 @@
     "expected": "Expected cash +₱100.00 after the cash sale and +₱150.00 after the COD hand-in; finance net sales +₱250.00 for the two orders",
     "actual": "{\"afterSale\":100,\"afterCodHandIn\":150,\"financeIncrease\":250}",
     "status": "Passed",
-    "ms": 160
+    "ms": 143
   },
   {
     "id": "IT-09",
@@ -78,7 +78,7 @@
     "expected": "Star balance 1 after the first order; queue signal received; phone shows served; balance stays 5 after 6 orders",
     "actual": "{\"starsAfterFirst\":1,\"readySignal\":true,\"phoneStatus\":\"served\",\"starsAfterSix\":5}",
     "status": "Passed",
-    "ms": 587
+    "ms": 833
   },
   {
     "id": "IT-10",
@@ -87,7 +87,7 @@
     "expected": "HTTP 201; 3 to 5 cards, each with a tone, title and message; the saved facts include today's net sales",
     "actual": "{\"status\":201,\"cards\":true,\"savedFactsHaveSales\":true}",
     "status": "Passed",
-    "ms": 6509
+    "ms": 8645
   },
   {
     "id": "IT-11",
@@ -96,6 +96,15 @@
     "expected": "Password step → code required (email masked) and the email accepted by Gmail; wrong code → 401 with 4 tries left; the sign-in session, attendance and the void's actor are recorded",
     "actual": "{\"codeRequired\":true,\"emailMasked\":true,\"challengeSaved\":1,\"wrongCode\":{\"status\":401,\"error\":\"That code is not right. 4 tries left.\"},\"sessionRecorded\":true,\"attendanceRecorded\":true,\"voidActorRecorded\":true}",
     "status": "Passed",
-    "ms": 25103
+    "ms": 8696
+  },
+  {
+    "id": "IT-12",
+    "modules": "Admin Promotions → Mobile Menu (Supabase Realtime) and Gmail SMTP",
+    "scenario": "The admin posts a promo with email on: a live \"promos\" signal goes out, the Mobile Menu lists it, and it is emailed once through the Gmail SMTP account to the customer who switched promo emails on (halosj07+promo@gmail.com); a second menu request sends nothing more",
+    "expected": "HTTP 201; promos signal received; listed on the Mobile Menu; emailed to 1 customer, once",
+    "actual": "{\"status\":201,\"promosSignal\":true,\"onMenu\":true,\"emailedCount\":1,\"sentOnce\":true}",
+    "status": "Passed",
+    "ms": 10802
   }
 ]
