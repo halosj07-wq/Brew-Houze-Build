@@ -9911,8 +9911,8 @@ function Promotions({ products }: { products: Product[] }) {
             <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 13, color: "#6B4C3B", lineHeight: 1.45, whiteSpace: "pre-line" }}>{post.message}</span>
             <span className="acc-card-stats">
               <span title={manilaWhen(post.showFrom)}><em>Shows</em><strong>{promoDay(post.showFrom)}</strong></span>
-              <span title={post.showUntil ? manilaWhen(post.showUntil) : undefined}><em>Until</em><strong>{post.showUntil ? promoDay(post.showUntil) : post.kind === "event" ? "Event ends" : "Switched off"}</strong></span>
-              <span><em>Email</em><strong>{post.emailedAt ? `Sent to ${post.emailedCount ?? 0}` : post.emailCustomers ? "When it goes live" : "No"}</strong></span>
+              <span title={post.showUntil ? manilaWhen(post.showUntil) : undefined}><em>Until</em><strong>{post.showUntil ? promoDay(post.showUntil) : post.kind === "event" ? "Event ends" : "No end"}</strong></span>
+              <span><em>Email</em><strong>{post.emailedAt ? `Sent to ${post.emailedCount ?? 0}` : post.emailCustomers ? "Pending" : "No"}</strong></span>
             </span>
             <span className="flex gap-2 flex-wrap">
               {post.status === "archived"
