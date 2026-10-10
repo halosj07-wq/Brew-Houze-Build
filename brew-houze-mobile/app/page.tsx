@@ -904,8 +904,8 @@ export default function MenuPage() {
     void refreshAccount();
   }
 
-  async function sendIdPhoto(details: { holderName: string; idNumber: string; coverage: IdCoverage; photo: string; remember: boolean }) {
-    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, coverage: details.coverage, remember: details.remember, consent: true, photo: details.photo }) });
+  async function sendIdPhoto(details: { holderName: string; idNumber: string; photo: string; remember: boolean }) {
+    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, remember: details.remember, consent: true, photo: details.photo }) });
     const payload = await response.json() as { data?: { token: string }; error?: string; code?: string };
     if (payload.code === "sold_out") { setIdSheet(null); await handleSoldOut(); return; }
     if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your ID.");

@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { idHistory } from "@/lib/id-history";
-import { APPROVED_MINUTES, cleanupIdVerifications } from "@/lib/id-verifications";
+import { APPROVED_MINUTES, cleanupIdVerifications, parseCoverage } from "@/lib/id-verifications";
+import { quoteOrderBreakdown, type OrderItemInput } from "@/lib/orders";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
 import { signalChange } from "@/lib/realtime";
 
 // ID photos sent from the mobile menu, waiting for the counter to check them (see
 // lib/id-verifications.ts). GET lists them, each with its ID's history (was it used for this
 // discount before? see lib/id-history.ts); the photos themselves come from ./[id]/photo.
-// PATCH { id, action: "approve" | "reject", reason } decides. Either way the photo is deleted.
+// PATCH { id, action: "approve" | "reject", reason, coverage } decides. Either way the photo is deleted.
+// Approving needs coverage, { lines: [{ line, quantity }] } or { group_size }: which items of the
+// order the discount covers. Only the cashier picks this, never the customer.
 // An approval the customer asked to remember is saved to their account (never the photo).
 
 export async function GET() {
@@ -67,9 +70,23 @@ export async function PATCH(request: Request) {
   if (isQueueOnly(session)) return NextResponse.json(QUEUE_ONLY, { status: 403 });
   const client = await pool.connect();
   try {
-    const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown };
+    const body = await request.json() as { id?: unknown; action?: unknown; reason?: unknown; coverage?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0 || (body.action !== "approve" && body.action !== "reject")) return NextResponse.json({ error: "Unknown request." }, { status: 400 });
+    const coverage = parseCoverage(body.coverage);
+    if (body.action === "approve") {
+      if (coverage.lines === null && coverage.groupSize === null) return NextResponse.json({ error: "Choose which items the discount covers." }, { status: 400 });
+      // Checks the order with the chosen coverage before saving it (throws with the reason). Done
+      // before the transaction below: the quote opens and rolls back its own.
+      const sentRow = await client.query("SELECT items, holder_name, id_number, discount_type_id FROM id_verifications WHERE verification_id = $1", [id]);
+      const sent = sentRow.rows[0];
+      if (!sent) return NextResponse.json({ error: "This request is no longer waiting." }, { status: 409 });
+      try {
+        await quoteOrderBreakdown(client, { items: sent.items as OrderItemInput[], source: "mobile", cashierAdminId: null, idDiscounts: [{ typeId: Number(sent.discount_type_id), holderName: String(sent.holder_name), idNumber: (sent.id_number as string | null) ?? null, ...coverage }] });
+      } catch (quoteError) {
+        return NextResponse.json({ error: quoteError instanceof Error ? quoteError.message : "This order can't be approved right now." }, { status: 400 });
+      }
+    }
     await client.query("BEGIN");
     const current = await client.query("SELECT status, remember, customer_id, discount_type_id, holder_name, id_number, expires_at < CURRENT_TIMESTAMP AS expired FROM id_verifications WHERE verification_id = $1 FOR UPDATE", [id]);
     const row = current.rows[0];
@@ -83,9 +100,10 @@ export async function PATCH(request: Request) {
     } else {
       await client.query(`
         UPDATE id_verifications SET status = 'approved', photo = NULL, decided_by = $2, decided_at = CURRENT_TIMESTAMP,
+          lines = $4::jsonb, group_size = $5,
           expires_at = CURRENT_TIMESTAMP + ($3 || ' minutes')::interval, updated_at = CURRENT_TIMESTAMP
         WHERE verification_id = $1
-      `, [id, session.adminId, String(APPROVED_MINUTES)]);
+      `, [id, session.adminId, String(APPROVED_MINUTES), coverage.lines === null ? null : JSON.stringify(coverage.lines), coverage.lines === null ? coverage.groupSize : null]);
       if (row.remember && row.customer_id !== null) {
         await client.query(`
           UPDATE customers SET id_discount_type_id = $2, id_discount_name = $3, id_discount_number = $4, id_verified_at = CURRENT_TIMESTAMP, id_verified_by = $5, updated_at = CURRENT_TIMESTAMP

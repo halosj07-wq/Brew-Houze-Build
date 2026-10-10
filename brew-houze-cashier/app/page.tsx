@@ -1864,7 +1864,8 @@ function IdDiscountDialog({ types, vat, lines, taken, lockedMode, lockedGroupSiz
 }
 
 // ID photos sent from the mobile menu, waiting for the counter to check them. Approving lets the
-// customer pay with GCash on their phone; the photo is deleted either way.
+// customer pay with GCash on their phone; the photo is deleted either way. The cashier, not the
+// customer, picks which items the discount covers (or a shared bill) when approving.
 type PendingIdCheck = {
   id: number; holderName: string; idNumber: string | null; items: { productVariantId: number; quantity: number; additionIds: number[] }[];
   lines: { line: number; quantity: number }[] | null; groupSize: number | null; serviceType: "dine_in" | "take_out"; remember: boolean;
@@ -1874,7 +1875,8 @@ type PendingIdCheck = {
 };
 const ID_REJECT_REASONS = ["The photo is blurry or cut off", "The ID has expired", "The name doesn't match", "This isn't a valid ID for this discount"];
 
-// lines: the order's items as the POS menu knows them, with how many units are the holder's own.
+// lines: the order's items as the POS menu knows them. covered: units the request already names as
+// the holder's own (only requests sent before the cashier picked this), used as the starting picks.
 type IdCheckLine = { label: string; qty: number; unit: number; covered: number };
 
 function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
@@ -1888,16 +1890,23 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
   const [photoFailed, setPhotoFailed] = useState(false);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const [mode, setMode] = useState<"items" | "shared">(check.groupSize && check.lines === null ? "shared" : "items");
+  const [picks, setPicks] = useState<number[]>(() => lines.map((line) => line.covered));
+  const [groupSize, setGroupSize] = useState(String(check.groupSize ?? 2));
   const orderAmount = lines.reduce((sum, line) => sum + line.unit * line.qty, 0);
-  const coveredAmount = check.groupSize ? orderAmount / check.groupSize : lines.reduce((sum, line) => sum + line.unit * line.covered, 0);
+  const people = Number.parseInt(groupSize, 10);
+  const peopleOk = Number.isInteger(people) && people >= 1 && people <= 50;
+  const coveredAmount = mode === "shared" ? (peopleOk ? orderAmount / people : 0) : lines.reduce((sum, line, index) => sum + line.unit * (picks[index] ?? 0), 0);
   const type = types.find((entry) => entry.id === check.discountTypeId) ?? null;
-  const amounts = type ? idDiscountAmounts(type, coveredAmount, vat) : null;
+  const amounts = type && coveredAmount > 0 ? idDiscountAmounts(type, coveredAmount, vat) : null;
+  const coverage = mode === "shared" ? { group_size: people } : { lines: picks.flatMap((quantity, line) => quantity > 0 ? [{ line, quantity }] : []) };
+  const coverageProblem = mode === "shared" ? (peopleOk ? "" : "Enter how many people share the bill (1 to 50).") : coveredAmount <= 0 ? "Tick the items the discount covers." : "";
 
   async function decide(action: "approve" | "reject") {
     setWorking(true);
     setError("");
     try {
-      const response = await fetch("/api/id-verifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: check.id, action, reason }) });
+      const response = await fetch("/api/id-verifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: check.id, action, reason, ...(action === "approve" ? { coverage } : {}) }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not save the decision.");
       onDecided(action === "approve" ? `Approved ${check.holderName}'s ${check.discountName} ID. They can pay on their phone now.` : `Rejected ${check.holderName}'s ID. They were told why.`);
@@ -1924,13 +1933,37 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
         </div>
         <IdHistoryNote history={check.history ?? null} holderName={check.holderName} />
         {check.remember && check.username && <p className="pos-idcheck-remember">They asked to remember this ID on their account (@{check.username}), so their next orders get the discount without a photo. Only the name and ID number are saved.</p>}
-        <div className="pos-idd-lines">
-          {lines.map((line, index) => <div key={index} className={`pos-idd-line${check.groupSize || line.covered > 0 ? " is-on" : ""}`}>
-            <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}><strong style={{ color: "#3D2B1F", fontSize: 12.5 }}>{line.qty} × {line.label}</strong><em style={{ color: "#9C8278", fontSize: 11, fontStyle: "normal" }}>₱{line.unit.toFixed(2)} each{check.groupSize ? "" : line.covered > 0 ? ` · ${line.covered} theirs` : " · not theirs"}</em></span>
-          </div>)}
+        <p className="pos-idcheck-remember">Choose which items get the discount. The customer can&apos;t pick this on their phone.</p>
+        <div className="pos-idd-mode" role="radiogroup" aria-label="What the discount covers">
+          <button type="button" role="radio" aria-checked={mode === "items"} className={mode === "items" ? "is-on" : ""} disabled={working} onClick={() => setMode("items")}><strong>Their own items</strong><em>Tick what they will eat or drink</em></button>
+          <button type="button" role="radio" aria-checked={mode === "shared"} className={mode === "shared" ? "is-on" : ""} disabled={working} onClick={() => setMode("shared")}><strong>Shared bill</strong><em>Split evenly by the number of people</em></button>
         </div>
+        {mode === "items" ? <div className="pos-idd-lines">
+          {lines.map((line, index) => {
+            const units = picks[index] ?? 0;
+            return <div key={index} className={`pos-idd-line${units > 0 ? " is-on" : ""}`}>
+              <label>
+                <input type="checkbox" checked={units > 0} disabled={working} onChange={(event) => setPicks((current) => current.map((value, at) => at === index ? (event.target.checked ? line.qty : 0) : value))} />
+                <span><strong>{line.qty} × {line.label}</strong><em>₱{line.unit.toFixed(2)} each</em></span>
+              </label>
+              {line.qty > 1 && units > 0 && <span className="pos-idd-step">
+                <button type="button" disabled={working} onClick={() => setPicks((current) => current.map((value, at) => at === index ? Math.max(1, value - 1) : value))} aria-label={`One fewer ${line.label}`}>−</button>
+                <b>{units}</b>
+                <button type="button" disabled={working} onClick={() => setPicks((current) => current.map((value, at) => at === index ? Math.min(line.qty, value + 1) : value))} aria-label={`One more ${line.label}`}>+</button>
+              </span>}
+            </div>;
+          })}
+        </div> : <div className="pos-idd-shared">
+          <span>People sharing the bill</span>
+          <span className="pos-idd-step">
+            <button type="button" disabled={working} onClick={() => setGroupSize(String(Math.max(1, (peopleOk ? people : 2) - 1)))} aria-label="One person fewer">−</button>
+            <input value={groupSize} disabled={working} onChange={(event) => setGroupSize(event.target.value.replace(/\D/g, "").slice(0, 2))} inputMode="numeric" aria-label="People sharing the bill" />
+            <button type="button" disabled={working} onClick={() => setGroupSize(String(Math.min(50, (peopleOk ? people : 1) + 1)))} aria-label="One person more">+</button>
+          </span>
+          <em>{peopleOk ? `Their share: ₱${orderAmount.toFixed(2)} ÷ ${people} = ₱${(orderAmount / people).toFixed(2)}` : ""}</em>
+        </div>}
         {amounts && <div className="pos-idd-summary">
-          <div><span>{check.groupSize ? `Their share (1 of ${check.groupSize})` : "Their items"}</span><b>₱{coveredAmount.toFixed(2)}</b></div>
+          <div><span>{mode === "shared" ? `Their share (1 of ${people})` : "Their items"}</span><b>₱{coveredAmount.toFixed(2)}</b></div>
           {amounts.vatExempt > 0 && <div><span>Less VAT ({vat.rate}%)</span><b>−₱{amounts.vatExempt.toFixed(2)}</b></div>}
           <div><span>Less discount</span><b>−₱{amounts.discount.toFixed(2)}</b></div>
           <div className="is-total"><span>Order total after the discount</span><b>₱{Math.max(0, orderAmount - amounts.vatExempt - amounts.discount).toFixed(2)}</b></div>
@@ -1944,7 +1977,7 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
           <span>The photo shows a valid {check.discountName} ID, and the name and number match what they typed. The barista will still check the real ID at pickup.</span>
         </label>}
       </div>
-      {error && <p className="pos-idd-problem">{error}</p>}
+      {(error || (!rejecting && coverageProblem)) && <p className="pos-idd-problem">{error || coverageProblem}</p>}
       {rejecting
         ? <div className="pos-idcheck-actions">
           <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={() => setRejecting(false)}>Back</button>
@@ -1952,7 +1985,7 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
         </div>
         : <div className="pos-idcheck-actions">
           <button type="button" className="pos-idcheck-secondary" disabled={working} onClick={() => setRejecting(true)}>Reject…</button>
-          <button type="button" className="pos-reward-button" disabled={working || !confirmed} onClick={() => void decide("approve")}>{working ? "Saving…" : "Approve"}</button>
+          <button type="button" className="pos-reward-button" disabled={working || !confirmed || Boolean(coverageProblem)} onClick={() => void decide("approve")}>{working ? "Saving…" : "Approve"}</button>
         </div>}
     </section>
   </Modal>;
