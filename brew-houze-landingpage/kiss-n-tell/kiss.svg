@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 124">
+  <!-- A lipstick kiss print (used as a mask, so it takes any colour): the two lips with the gap between
+       them and the creases a real print leaves. -->
+  <defs>
+    <mask id="creases">
+      <rect width="200" height="124" fill="#fff" />
+      <g fill="none" stroke="#000" stroke-linecap="round">
+        <path d="M100 62 L100 58" stroke-width="5" />
+        <g stroke-width="2.6">
+          <path d="M60 36 Q63 44 62 52" /><path d="M76 30 Q79 40 78 51" /><path d="M89 36 Q91 44 90 52" />
+          <path d="M111 36 Q109 44 110 52" /><path d="M124 30 Q121 40 122 51" /><path d="M140 36 Q137 44 138 52" />
+          <path d="M42 46 Q46 50 46 55" /><path d="M158 46 Q154 50 154 55" />
+          <path d="M44 74 Q48 84 52 92" /><path d="M60 72 Q63 86 66 100" /><path d="M78 72 Q80 88 81 106" /><path d="M94 72 Q95 90 95 108" />
+          <path d="M156 74 Q152 84 148 92" /><path d="M140 72 Q137 86 134 100" /><path d="M122 72 Q120 88 119 106" /><path d="M106 72 Q105 90 105 108" />
+        </g>
+      </g>
+    </mask>
+  </defs>
+  <g mask="url(#creases)" fill="#000">
+    <path d="M6 60 C22 44 46 22 72 22 C86 22 94 30 100 36 C106 30 114 22 128 22 C154 22 178 44 194 60 C176 59 150 54 128 55 C116 55 108 58 100 58 C92 58 84 55 72 55 C50 54 24 59 6 60 Z" />
+    <path d="M10 65 C30 67 56 64 76 66 C86 67 93 67 100 67 C107 67 114 67 124 66 C144 64 170 67 190 65 C178 92 150 116 100 116 C50 116 22 92 10 65 Z" />
+  </g>
+</svg>

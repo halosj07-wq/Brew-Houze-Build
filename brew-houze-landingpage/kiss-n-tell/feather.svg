@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 140">
+  <!-- A fluffy feather (used as a mask, so it takes any colour): the vane with its notches, the shaft
+       cut out of it, a few wisps at the base. -->
+  <defs>
+    <mask id="shaft">
+      <rect width="48" height="140" fill="#fff" />
+      <path d="M24 6 Q25 70 23 132" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" />
+      <g fill="none" stroke="#000" stroke-width="1.2" stroke-linecap="round">
+        <path d="M24 40 L10 30" /><path d="M24 62 L40 50" /><path d="M24 84 L8 76" />
+      </g>
+    </mask>
+  </defs>
+  <g mask="url(#shaft)">
+    <path d="M24 4 C34 14 42 34 42 58 C42 76 38 92 30 104 L24 112 L18 104 C10 92 5 76 6 58 C6 34 14 14 24 4 Z" />
+    <path d="M23 106 C18 112 12 116 8 122 M24 108 C22 116 20 124 17 134 M25 108 C29 114 34 118 38 124" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" />
+  </g>
+  <path d="M24 108 L23 138" fill="none" stroke="#000" stroke-width="1.6" stroke-linecap="round" />
+</svg>

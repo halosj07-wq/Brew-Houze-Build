@@ -1,9 +1,9 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
-// dirtywork.css, armageddon.css, drama.css and richman.css; photos and sound in whiplash/,
-// dirty-work/, armageddon/, drama/ and richman/).
+// dirtywork.css, armageddon.css, drama.css, richman.css and kissntell.css; photos and sound in
+// whiplash/, dirty-work/, armageddon/, drama/, richman/ and kiss-n-tell/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
-// Armageddon, Drama or Rich Man, straight from any of them. Each
+// Armageddon, Drama, Rich Man or Kiss N Tell, straight from any of them. Each
 // theme has the four members (plates that open photo cards), an intro that follows its own sound
 // clip, and music that loops while the theme is on. index.html sets the theme before the page
 // paints (so a reload keeps it without a flash) and provides showToast().
@@ -12,7 +12,7 @@
   const THEME_KEY = "brew-houze-theme"; // the theme that is on, or "cafe"
   const LAST_KEY = "brew-houze-theme-next"; // the theme last picked (loaded ahead in the café)
   const SOUND_KEY = "brew-houze-aespa-sound"; // "off" when the visitor muted the music
-  const ORDER = ["whiplash", "dirtywork", "armageddon", "drama", "richman"]; // the picker's order, after the café
+  const ORDER = ["whiplash", "dirtywork", "armageddon", "drama", "richman", "kissntell"]; // the picker's order, after the café
   const store = {
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
@@ -1747,9 +1747,12 @@
   //                         member on each bar's clap), sprocket holes running down both edges, the
   //                         page weaving and flickering in the gate
   //   burn     (bar 8)      the film burns in from the edges, the flicker racing
-  //   rack     (bars 9-13)  a camera viewfinder over the page; on each accent (beats 1 and 3) it
-  //                         pulls focus to a part of the page (a heading, a card, a member), the rest
-  //                         going soft
+  //   script   (bars 9-13)  the screenplay: a script page drops over the dimmed cinema and types
+  //                         itself a line a beat (a scene for the four, the song's lines as their
+  //                         dialogue); on each accent (beats 1 and 3) it is revised, the paper turning
+  //                         the next colour of the industry's revision order (white, blue, pink,
+  //                         yellow, green, goldenrod, buff, salmon, cherry, then double white…), the
+  //                         director's red pen marking the newest line and an asterisk in the margin
   //   cut                   "CUT!": the clapperboard slams down
   //   neg1-3                each stab freezes the page as a red film negative, a member burned in
   //   curtain / leader      red curtains sweep shut; a film-leader countdown runs on them: 3, 2, 1
@@ -1757,23 +1760,42 @@
   //                         red, the next one each beat; the second hit flashes white
   const DR_FILMS = ["karina", "giselle", "winter", "ningning"];
   const DR_TRACK2 = 29.304;
-  const DR_FOCUS = ".hero h1, .hero .lead, .ae-member, .status-strip, .section-head, .card, .guide-item, .tips";
+  // The screenplay of the script section: [kind, text]. The dialogue is the song's own lines.
+  const DR_SCRIPT = [
+    ["fade", "FADE IN:"], ["slug", "INT. BREW HOUZE CAFÉ — NIGHT"], ["action", "Neon flickers. Four shadows at the counter. The music drops."],
+    ["char", "KARINA"], ["dial", "Ziggy-ziggy-zag, I'm new."], ["char", "GISELLE"], ["paren", "(grinning)"], ["dial", "One, two, three, 깜짝 놀랄 다음 scene"],
+    ["char", "NINGNING"], ["dial", "You and I, 함께 써 내려가는 story"], ["char", "WINTER"], ["dial", "You know I'm savage, 거침없는 baddest"],
+    ["slug", "EXT. THE CITY — CONTINUOUS"], ["action", "Red light floods the street. Every head turns."], ["char", "ALL FOUR"],
+    ["dial", "I bring, I bring all the drama-ma-ma-ma."], ["trans", "CUT TO:"],
+  ];
+  // The revision colours, in the order studios print them.
+  const DR_REVISIONS = [["White", "#F7F5EF"], ["Blue", "#CFE0FA"], ["Pink", "#F9D2DF"], ["Yellow", "#F8EDA0"], ["Green", "#CDEBC4"], ["Goldenrod", "#EECB6A"], ["Buff", "#EFDDBC"], ["Salmon", "#F8C0A6"], ["Cherry", "#EE6E80"]];
+  const DR_MARKS = ["is-circle", "is-wavy", "is-strike"];
+  const DR_NOTES = { 2: "more drama!", 5: "louder ♡", 8: "keep!!" };
+  const DR_SCRIPT_AT = 14.656;
   const dramaStage = (() => {
-    const root = document.documentElement;
-    let films = [], focusBox = null, count = null, tcode = null, focused = null, accent = -1;
-    const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 40 && r.height > 16 && r.bottom > 60 && r.top < innerHeight - 60; };
-    const focus = (el) => {
-      if (el !== focused) { focused?.classList.remove("drx-focus"); focused = el; el?.classList.add("drx-focus"); }
-      if (!el || !focusBox) return;
-      const r = el.getBoundingClientRect();
-      focusBox.style.cssText = `left: ${r.left - 10}px; top: ${r.top - 10}px; width: ${r.width + 20}px; height: ${r.height + 20}px;`;
+    let films = [], count = null, sheet = null, lines = [], linesBox = null, revName = null, note = null, beat = -1, rev = -1;
+    const today = new Date().toLocaleDateString("en-US", { timeZone: "Asia/Manila", month: "2-digit", day: "2-digit", year: "2-digit" });
+    const resetScript = () => {
+      if (!sheet) return;
+      lines.forEach((line) => line.classList.remove("is-shown", "is-typing", "is-rev", ...DR_MARKS));
+      sheet.classList.remove("is-flip", "is-on");
+      note?.classList.remove("is-on");
+      if (linesBox) linesBox.style.transform = "";
+      beat = -1; rev = -1;
     };
+    const restart = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
     return {
       mount(fx) {
         films = [...fx.querySelectorAll(".drx-proj video")];
-        focusBox = fx.querySelector(".drx-af");
         count = fx.querySelector(".drx-leader b");
-        tcode = fx.querySelector(".drx-tcode");
+        sheet = fx.querySelector(".drx-sheet");
+        linesBox = fx.querySelector(".drx-lines");
+        linesBox.innerHTML = DR_SCRIPT.map(([kind, text]) => `<p class="drx-l is-${kind}"><span>${escapeHtml(text)}</span></p>`).join("");
+        lines = [...linesBox.children];
+        revName = fx.querySelector(".drx-rev");
+        note = fx.querySelector(".drx-note");
+        linesBox.append(note); // scrolls with the lines, beside the line it is about
       },
       tick(at, name) {
         const t = at - DR_TRACK2; // seconds into the bridge
@@ -1787,25 +1809,44 @@
           if (on && video.paused) video.play().catch(() => undefined);
           else if (!on && !video.paused) video.pause();
         });
-        // The focus pull: a new part of the page on each accent, followed as the page scrolls.
-        if (name === "rack") {
-          const n = Math.floor(Math.max(0, t - 14.656) / (2 * DR_BEAT));
-          if (n !== accent || !focused) {
-            accent = n;
-            const options = [...document.querySelectorAll(DR_FOCUS)].filter(visible);
-            focus(options.length ? options[(n * 3 + 1) % options.length] : null);
-          } else focus(focused);
-          root.classList.add("drx-rack");
-        } else if (root.classList.contains("drx-rack")) { root.classList.remove("drx-rack"); focus(null); accent = -1; }
-        if (tcode && t >= 0) { const f = Math.floor(t * 24); tcode.textContent = `00:00:${String(Math.floor(f / 24)).padStart(2, "0")}:${String(f % 24).padStart(2, "0")}`; }
+        // The screenplay: a line a beat; a revision on each accent.
+        if (name === "script" && sheet) {
+          const b = Math.max(0, Math.floor((t - DR_SCRIPT_AT) / DR_BEAT));
+          if (b !== beat) {
+            beat = b;
+            sheet.classList.add("is-on");
+            const shown = Math.min(lines.length, b + 1);
+            lines.forEach((line, i) => { line.classList.toggle("is-shown", i < shown); line.classList.toggle("is-typing", i === shown - 1 && b < lines.length); });
+            const latest = lines[shown - 1];
+            if (latest) restart(latest, "is-typing");
+            // Keep the newest line on the page: the script scrolls up under it.
+            const over = latest ? latest.offsetTop + latest.offsetHeight - linesBox.parentElement.clientHeight * 0.72 : 0;
+            linesBox.style.transform = over > 0 ? `translateY(${-over}px)` : "";
+            const r = Math.floor(b / 2);
+            if (b % 2 === 0 && r !== rev) {
+              rev = r;
+              const [color, hex] = DR_REVISIONS[r % DR_REVISIONS.length];
+              sheet.style.setProperty("--paper", hex);
+              revName.textContent = `${r >= DR_REVISIONS.length ? "Double " : ""}${color} revision · ${today}`;
+              restart(sheet, "is-flip");
+              // The red pen on the newest line that has words to mark.
+              const target = [...lines].slice(0, shown).reverse().find((line) => /is-(dial|action|paren)/.test(line.className));
+              if (target && r > 0) {
+                // A circle round a short line; a long one (it may wrap) underlined, or struck if it is action.
+                const mark = target.textContent.length <= 22 ? "is-circle" : target.classList.contains("is-dial") ? "is-wavy" : r % 2 ? "is-strike" : "is-wavy";
+                target.classList.remove(...DR_MARKS); target.classList.add(mark, "is-rev");
+              }
+              if (DR_NOTES[r] && target) { note.textContent = DR_NOTES[r]; note.style.top = `${target.offsetTop}px`; restart(note, "is-on"); }
+            }
+          }
+        } else if (beat !== -1) resetScript();
         // The leader counts down a beat at a time: 3 and 2 in the hush, 1 on the pickup.
         if (count) { const n = name === "curtain" ? (t < 27.939 + DR_BEAT ? "3" : "2") : name === "leader" ? "1" : ""; if (count.textContent !== n) count.textContent = n; }
       },
       unmount() {
         films.forEach((video) => video.pause());
-        root.classList.remove("drx-rack");
-        focus(null);
-        films = []; focusBox = null; count = null; tcode = null; accent = -1;
+        resetScript();
+        films = []; count = null; sheet = null; lines = []; linesBox = null; revName = null; note = null;
       },
     };
   })();
@@ -1921,6 +1962,379 @@
         if (["charge", "zap", "surge"].includes(scene)) classes.push("is-charged");
         box.className = classes.join(" ");
         if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+    },
+  };
+
+  // KISS N TELL (126 BPM): the intro is the last 5 bars of the bridge (track 2's own ending), cut on
+  // the bars so it runs straight into the chorus. Its files keep the MP3 encoder's delay at the head
+  // (1105 samples), so each is played from there for exactly its bars. Track 2 was cut 482 samples
+  // (11 ms) after its bar line, so track 1 runs those 11 ms past its 8 bars into it, and track 2 is
+  // that much short of 12: the loop is exactly 20 bars. (Measured against the MV's own soundtrack.)
+  const KT_START = 1105 / 44100;
+  const KT_BEAT = 60 / 126;
+  const KT_SEAM = 482 / 44100;
+  // The four photobooth sheets' doodles (drawn on in the intro), in member order.
+  const KT_DOODLES = ["doodle-hearts", "doodle-bows", "doodle-sparkle", "hearts"];
+  // The line each member signs on the back of her card.
+  const KT_NOTES = { karina: "kiss n tell? never.", giselle: "shh… just between us", winter: "our little secret ♡", ningning: "sealed with a kiss" };
+  // The flip phone's screen in phone.webp (978 × 1100): its four corners (top-left, top-right,
+  // bottom-right, bottom-left as the screen reads), found from the image, as fractions of it.
+  const KT_SCREEN = [[692.8, 60.1], [920.7, 182.4], [684.6, 539.9], [459.8, 408.7]].map(([x, y]) => [x / 978, y / 1100]);
+  // A CSS transform that lays a w × h box exactly onto four corners (a perspective warp).
+  function ktWarp(w, h, quad) {
+    const [[x0, y0], [x1, y1], [x2, y2], [x3, y3]] = quad;
+    const dx1 = x1 - x2, dx2 = x3 - x2, dx3 = x0 - x1 + x2 - x3, dy1 = y1 - y2, dy2 = y3 - y2, dy3 = y0 - y1 + y2 - y3;
+    const den = dx1 * dy2 - dy1 * dx2;
+    const g = (dx3 * dy2 - dy3 * dx2) / den, k = (dx1 * dy3 - dy1 * dx3) / den;
+    const a = x1 - x0 + g * x1, b = x3 - x0 + k * x3, d = y1 - y0 + g * y1, e = y3 - y0 + k * y3;
+    return `matrix3d(${[a / w, d / w, 0, g / w, b / h, e / h, 0, k / h, 0, 0, 1, 0, x0, y0, 0, 1].map((n) => +n.toFixed(6)).join(",")})`;
+  }
+  // The intro: a Y2K flip phone and its secrets. Bar 1 has six syncopated accents (25 / 382 / 739 /
+  // 1096 / 1454 / 1692 ms, 3+3+3+3+2 sixteenths apart): the phone buzzes on each, glowing "1 new
+  // message", and a lipstick kiss stamps round it; on the sixth the view dives into its screen. The
+  // drums drop out for bars 2-3: the screen is a pink pixel LCD receiving a picture message from each
+  // member, two beats apart (1930 / 2882 / 3835 / 4787 ms), her photo loading pixel by pixel. Bar 4's
+  // soft accents: the four photobooth sheets print out (5739 ms) and get doodled on (6691 ms), the
+  // teddy peeking in and the ribbon dropping on top. Bar 5 is the riser into the chorus (7644 ms):
+  // the sheets float away, the sky goes night and fills with glitter, the chrome logo rising out of it,
+  // glinting on beats 2 and 3 (8120 / 8596 ms); on beat 4 (9073 ms) the sky turns bubblegum, the logo
+  // glows like the album's, and a kiss seals it as track 1 comes in.
+  const kissIntro = {
+    end: 9549,
+    cues: [
+      [25, "buzz", 0], [382, "buzz", 1], [739, "buzz", 2], [1096, "buzz", 3], [1454, "buzz", 4], [1692, "dive", 5],
+      [1930, "mms", 0], [2882, "mms", 1], [3835, "mms", 2], [4787, "mms", 3],
+      [5739, "booth"], [6691, "doodle"], [7644, "rise"], [8120, "glint", 1], [8596, "glint", 2], [9073, "seal"],
+    ],
+    hits: new Set(["buzz", "dive", "mms", "booth", "doodle", "glint", "seal"]),
+    mount(box, photos) {
+      const clock = new Date().toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit", hour12: false });
+      box.innerHTML = `
+        <i class="kt-sky"></i>
+        <div class="kt-glitter">${Array.from({ length: 34 }, (_, n) => `<i style="--x: ${(n * 37 + 11) % 100}; --y: ${(n * 61 + 7) % 100}; --s: ${((n * 13) % 10) / 10}; --d: ${(n * 7) % 10}"></i>`).join("")}</div>
+        <i class="kt-lace is-top"></i><i class="kt-lace is-bottom"></i>
+        <p class="kt-label is-left">aespa · The 1st Japan Mini Album</p><p class="kt-label is-right">『KISS N TELL』</p>
+        <div class="kt-phone"><img src="kiss-n-tell/phone.webp" alt="" draggable="false" /><p class="kt-ping"><span><b>💌</b>1 new<br />message</span></p></div>
+        <div class="kt-kisses">${[0, 1, 2, 3, 4, 5].map((n) => `<i class="kt-kiss is-k${n}"></i>`).join("")}</div>
+        <div class="kt-lcd"><div class="kt-lcd-screen">
+          <p class="kt-lcd-bar"><span>▮▮▮▯</span><span>${clock}</span><span>♡ 100</span></p>
+          <p class="kt-lcd-from">MMS from <b></b></p>
+          <canvas width="360" height="640"></canvas>
+          <p class="kt-lcd-load"><i></i><span>receiving…</span></p>
+          <p class="kt-lcd-foot">♡ kiss n tell ♡ 0/4</p></div></div>
+        <div class="kt-booth"><div class="kt-sheets">${memberOrder.map((key, index) => `<figure class="kt-sheet"><img src="kiss-n-tell/${key}-booth.webp" alt="" draggable="false" /><i class="kt-doodle" style="--art: url('${siteUrl(`kiss-n-tell/${KT_DOODLES[index]}.webp`)}')"></i></figure>`).join("")}</div></div>
+        <i class="kt-teddy"></i><i class="kt-ribbon"></i>
+        <div class="kt-logo"><i></i></div><i class="kt-star is-a"></i><i class="kt-star is-b"></i>
+        <div class="kt-seal"><div class="kt-seal-logo"><i></i><i class="kt-seal-kiss"></i></div><p>aespa · The 1st Japan Mini Album</p><small>Brew Houze × aespa</small></div>
+        <i class="kt-pop"></i>`;
+      const kisses = [...box.querySelectorAll(".kt-kiss")];
+      // The message is warped onto the phone's screen once the phone is on the page (its size is
+      // known then), inset a little so the screen's rounded rim frames it.
+      const phone = box.querySelector(".kt-phone");
+      const ping = box.querySelector(".kt-ping");
+      let fitted = false;
+      const fitPing = () => {
+        if (fitted || !phone.clientWidth) return;
+        fitted = true;
+        const w = phone.clientWidth, h = phone.clientHeight;
+        const cx = KT_SCREEN.reduce((sum, [x]) => sum + x, 0) / 4, cy = KT_SCREEN.reduce((sum, [, y]) => sum + y, 0) / 4;
+        const quad = KT_SCREEN.map(([x, y]) => [(cx + (x - cx) * 0.9) * w, (cy + (y - cy) * 0.9) * h]);
+        ping.style.transform = ktWarp(ping.offsetWidth, ping.offsetHeight, quad);
+      };
+      const from = box.querySelector(".kt-lcd-from b");
+      const foot = box.querySelector(".kt-lcd-foot");
+      const load = box.querySelector(".kt-lcd-load");
+      const loadText = load.querySelector("span");
+      const canvas = box.querySelector(".kt-lcd canvas");
+      const screen = canvas.getContext("2d");
+      const small = document.createElement("canvas");
+      const smallCtx = small.getContext("2d");
+      // The picture message on the screen: her photo drawn at a few pixels across, then more, every
+      // 90 ms (like a slow download), sharp after 540 ms.
+      const LEVELS = [6, 9, 14, 22, 36, 60];
+      let mms = null; // { at (ms into the clip), photo, level drawn }
+      const draw = (photo, width) => {
+        if (!photo.complete || !photo.naturalWidth) return;
+        const sw = photo.naturalWidth, sh = photo.naturalHeight, ratio = canvas.width / canvas.height;
+        const cw = Math.min(sw, sh * ratio), ch = cw / ratio;
+        const sx = (sw - cw) / 2, sy = Math.max(0, (sh - ch) * 0.25);
+        if (width) {
+          small.width = width; small.height = Math.round(width / ratio);
+          smallCtx.imageSmoothingEnabled = true;
+          smallCtx.drawImage(photo, sx, sy, cw, ch, 0, 0, small.width, small.height);
+          screen.imageSmoothingEnabled = false;
+          screen.drawImage(small, 0, 0, canvas.width, canvas.height);
+        } else {
+          screen.imageSmoothingEnabled = true;
+          screen.drawImage(photo, sx, sy, cw, ch, 0, 0, canvas.width, canvas.height);
+        }
+      };
+      const show = (step) => {
+        fitPing();
+        const [at, scene, value] = this.cues[step];
+        if (scene === "buzz" || scene === "dive") kisses.forEach((kiss, index) => kiss.classList.toggle("is-on", index <= value));
+        if (scene === "mms") {
+          const key = memberOrder[value];
+          from.textContent = MEMBERS[key].name;
+          foot.textContent = `♡ kiss n tell ♡ ${value + 1}/4`;
+          mms = { at, photo: photos[value], level: -1 };
+          screen.fillStyle = "#FFD9EE"; screen.fillRect(0, 0, canvas.width, canvas.height);
+        } else mms = null;
+        const classes = ["kt-intro", `is-${scene}`];
+        if (scene === "glint") classes.push(`is-g${value}`);
+        box.className = classes.join(" ");
+        if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+      show.tick = (now) => {
+        if (!mms) return;
+        const level = Math.min(LEVELS.length, Math.floor(Math.max(0, now - mms.at) / 90));
+        if (level !== mms.level) { mms.level = level; draw(mms.photo, LEVELS[level] ?? 0); }
+        const percent = Math.min(100, Math.round(Math.max(0, now - mms.at) / 5.4));
+        load.style.setProperty("--load", `${percent}%`);
+        loadText.textContent = percent < 100 ? `receiving… ${percent}%` : "received ♡";
+      };
+      return show;
+    },
+  };
+
+  // KISS N TELL (126 BPM; the bridge's bar 1 at 1.407 s of the clip, 1.905 s a bar): the MV is a night
+  // at an amusement park, so the scene is KISS N TELL Park, built over the page ride by ride. A marquee
+  // sign announces each ride; string lights hang over the night rides.
+  //   gate (0)            the park's arch lights up, gates closed, an ADMIT ONE ticket held up; on the
+  //                       bridge's bar 1 the stub tears off and the gates swing open
+  //   coaster (1.41)      the MV in a heart up top; under it a roller-coaster track (hills, a lift hill
+  //                       and a loop, drawn to fit the screen) and a train of four cars, a member's face
+  //                       in each, running the whole track every two bars; the page rocks in its seat
+  //   balloons (7.12)     the studio shots: clouds drift, heart balloons float up on every half bar,
+  //                       each playing the MV in its heart
+  //   climb (12.84)       the lift hill: the train clanks up it a step a beat, the page with it
+  //   loop (14.74)        bar 8: down the drop and round the loop, the heart turning a full circle
+  //   wheel (16.65)       the break, lights out: a Ferris wheel turning slowly, the MV in its eight
+  //                       cabins (each a different part of the picture), bulbs twinkling round the rim;
+  //                       flash (20.45, 21.41) bar 11's two accents light every bulb
+  //   spin (22.36)        the riser: the wheel whirls, the bulbs chasing
+  //   fireworks (24.26)   the chorus: the MV full screen, a rocket rising to burst on every beat
+  //                       (hearts, rings, stars, in turn), the park's neon sign buzzing on
+  //   kisscam (35.53)     the close-ups on the big screen: KISS CAM, a heart popping round her on each
+  //                       new shot (39.30, 41.77, 43.53), pixel hearts rising, the song on the ticker
+  //   glow (47.30)        the crowd from above: heart lightsticks waving, phone lights twinkling
+  //   claw (55.73)        the prize booth: the MV in a claw machine, the claw sliding with the joystick;
+  //                       grab (58.55) the button pressed, the claw drops, catches the teddy, YOU WON
+  //   carousel (60.13)    the MV in the round under a turning striped canopy, its fringe of bulbs
+  //                       chasing, the members' cards riding round it on poles, bobbing
+  //   finale (62.47)      the fireworks again: a rocket on every beat and a big one on every bar
+  //   photo (70.20)       the ride photo prints out of the booth, date-stamped, sealed with a kiss
+  const KT_BAR1 = 1.407;
+  const KT_BAR = 4 * KT_BEAT;
+  const KT_FIREWORK_CUES = new Set(["fireworks", "finale"]);
+  const KT_RIDES = { gate: "Night Pass", coaster: "Love Coaster", balloons: "Heart Balloons", climb: "Love Coaster", loop: "Love Coaster", wheel: "Ferris Wheel", flash: "Ferris Wheel", spin: "Ferris Wheel",
+    fireworks: "Fireworks Show", kisscam: "Kiss Cam", kisscam2: "Kiss Cam", kisscam3: "Kiss Cam", kisscam4: "Kiss Cam", dark: "Light Parade", glow: "Light Parade", claw: "Prize Zone", grab: "Prize Zone", carousel: "Carousel", finale: "Grand Finale", photo: "Ride Photo" };
+  const KT_NIGHT = new Set(["wheel", "flash", "spin", "kisscam", "kisscam2", "kisscam3", "kisscam4", "claw", "grab", "carousel"]);
+  // Where each cabin of the wheel and each balloon looks in the picture (x, top, width, height of it).
+  const KT_CABINS = [[0.5, 0, 0.4, 1], [0.2, 0, 0.36, 0.9], [0.8, 0, 0.36, 0.9], [0.35, 0.1, 0.3, 0.8], [0.65, 0.1, 0.3, 0.8], [0.5, 0.2, 0.6, 0.8], [0.12, 0.05, 0.24, 0.9], [0.88, 0.05, 0.24, 0.9]];
+  const KT_TICKER = "Come on, just say it · 秘密の girls talk · 甘く bitter, 時々spicy · Everything 打ち明けてよ hush, hush · We can't stop, ねえ ほら kiss and tell · ";
+  // The coaster's track for a w × h screen: a little hill, a dip, the lift hill, the drop, a loop, and
+  // off to the right. Its lift-hill top is returned as a fraction of the way along it.
+  function ktTrack(w, h) {
+    // On a tall screen the hills are flattened toward the bottom, so the loop stays round.
+    const X = (f) => (f * w).toFixed(1), Y = (f) => (h > w ? h * (0.66 + (f - 0.5) * 0.48) : f * h).toFixed(1);
+    return `M ${X(-0.12)} ${Y(0.84)} C ${X(0.02)} ${Y(0.84)} ${X(0.06)} ${Y(0.68)} ${X(0.14)} ${Y(0.68)} C ${X(0.22)} ${Y(0.68)} ${X(0.24)} ${Y(0.9)} ${X(0.33)} ${Y(0.9)}`
+      + ` C ${X(0.42)} ${Y(0.9)} ${X(0.44)} ${Y(0.5)} ${X(0.52)} ${Y(0.5)} C ${X(0.6)} ${Y(0.5)} ${X(0.6)} ${Y(0.92)} ${X(0.7)} ${Y(0.92)}`
+      + ` C ${X(0.86)} ${Y(0.92)} ${X(0.9)} ${Y(0.6)} ${X(0.8)} ${Y(0.6)} C ${X(0.7)} ${Y(0.6)} ${X(0.72)} ${Y(0.9)} ${X(0.86)} ${Y(0.9)} L ${X(1.15)} ${Y(0.9)}`;
+  }
+  const kissScene = {
+    src: "kiss-n-tell/scene.mp4",
+    className: "kt-scene",
+    cues: [[0, "gate"], [1.407, "coaster"], [7.121, "balloons"], [12.835, "climb"], [14.740, "loop"],
+      [16.645, "wheel"], [20.454, "flash"], [20.930, "wheel"], [21.406, "flash"], [21.882, "wheel"], [22.359, "spin"],
+      [24.264, "fireworks"], [35.53, "kisscam"], [39.30, "kisscam2"], [41.77, "kisscam3"], [43.53, "kisscam4"], [46.63, "dark"], [47.30, "glow"],
+      [55.73, "claw"], [58.55, "grab"], [60.13, "carousel"], [62.47, "finale"], [70.20, "photo"]],
+    mount(box, video) {
+      const colors = { karina: "#9FD3FF", giselle: "#FF8CC6", winter: "#CBB8FF", ningning: "#FFB37A" };
+      const stamp = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }).replace(/-/g, " ").replace(/^20/, "'");
+      box.innerHTML = `
+        <i class="kts-sky"></i>
+        <div class="kts-clouds"><i></i><i></i><i></i><i></i></div>
+        <div class="kts-garland">${Array.from({ length: 2 }, (_, g) => `<div class="kts-swag is-${g}">${Array.from({ length: 13 }, (_, n) => `<i style="--t: ${n / 12}; --n: ${n + g * 13}"></i>`).join("")}</div>`).join("")}</div>
+        <div class="kts-gate"><div class="kts-arch"><b>Kiss N Tell Park</b>${Array.from({ length: 15 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div><i class="kts-door is-l"></i><i class="kts-door is-r"></i></div>
+        <svg class="kts-coaster" aria-hidden="true"><g class="kts-legs"></g><path class="kts-rail-glow" /><path class="kts-rail" /><path class="kts-ties" /></svg>
+        <div class="kts-train">${memberOrder.map((key, n) => `<div class="kts-car" style="--k: ${n}; --c: ${colors[key]}"><img src="kiss-n-tell/${key}.webp" alt="" draggable="false" /><i></i></div>`).join("")}</div>
+        <div class="kts-wheel"><i class="kts-leg is-l"></i><i class="kts-leg is-r"></i><i class="kts-base"></i><div class="kts-whirl"><div class="kts-rim">
+          ${Array.from({ length: 8 }, (_, n) => `<i class="kts-spoke" style="--a: ${n * 22.5}deg"></i>`).join("")}
+          <i class="kts-ring"></i><i class="kts-ring is-inner"></i>
+          ${Array.from({ length: 32 }, (_, n) => `<i class="kts-bulb" style="--a: ${n * 11.25}deg; --n: ${n}"></i>`).join("")}
+          ${KT_CABINS.map((_, n) => `<div class="kts-cabin" style="--a: ${n * 45}deg; --c: ${Object.values(colors)[n % 4]}"><div><i class="kts-hanger"></i><b></b></div></div>`).join("")}
+          <i class="kts-hub"></i></div></div></div>
+        <div class="kts-balloons">${Array.from({ length: 6 }, (_, n) => `<div class="kts-balloon" style="--x: ${[18, 70, 40, 84, 28, 58][n]}%; --c: ${Object.values(colors)[n % 4]}"><div></div><i></i></div>`).join("")}</div>
+        <div class="kts-cabinet"><b class="kts-marquee">♡ Prize Zone ♡</b><i class="kts-glass"></i><div class="kts-plush"><i class="kts-heart-plush"></i><i class="kts-teddy"></i><i class="kts-heart-plush is-b"></i></div>
+          <div class="kts-claw"><i class="kts-rod"></i><i class="kts-prong is-l"></i><i class="kts-prong is-r"></i></div><b class="kts-won">You won ♡</b>
+          <div class="kts-panel"><i class="kts-stick"></i><i class="kts-button"></i><b>Insert ♡ coin</b></div></div>
+        <div class="kts-canopy"><i class="kts-fringe">${Array.from({ length: 18 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</i></div>
+        <div class="kts-ride">${memberOrder.map((key, n) => `<div class="kts-horse" style="--a: ${n * 90}deg; --c: ${colors[key]}"><div><i class="kts-pole"></i><img src="kiss-n-tell/${key}.webp" alt="" draggable="false" /><b>${escapeHtml(MEMBERS[key].name)}</b></div></div>`).join("")}</div>
+        <div class="kts-printer"><b>♡ Printing your ride photo</b><i></i></div>
+        <div class="kts-screen"><b class="kts-date">${escapeHtml(stamp)}</b></div>
+        <i class="kts-reflect"></i>
+        <div class="kts-cam"><b class="kts-camlabel"><i></i>Kiss Cam<i></i></b><div class="kts-ticker"><span>${escapeHtml(KT_TICKER.repeat(3))}</span></div>
+          <div class="kts-pixels">${Array.from({ length: 10 }, (_, n) => `<i style="--n: ${n}; --x: ${(n * 37) % 100}"></i>`).join("")}</div></div>
+        <i class="kts-heartcam"></i>
+        <canvas class="kts-sparks"></canvas>
+        <p class="kts-neon"><b>Kiss N Tell</b> <span>Park</span><small>♡ open late ♡</small></p>
+        <div class="kts-phones">${Array.from({ length: 40 }, (_, n) => `<i style="--x: ${(n * 53 + 7) % 100}; --y: ${(n * 29) % 30}; --n: ${n}"></i>`).join("")}</div>
+        <div class="kts-sticks">${Array.from({ length: 12 }, (_, n) => `<i style="--n: ${n}; --c: ${Object.values(colors)[n % 4]}"></i>`).join("")}</div>
+        <div class="kts-ticket"><div class="kts-ticket-main"><small>Brew Houze × aespa</small><b>Admit one</b><span>Kiss N Tell Park · Night pass</span></div><div class="kts-ticket-stub"><b>No. 0001</b><span>♡</span></div></div>
+        <div class="kts-sign"><i class="kts-sign-bulbs"></i><small>Now riding</small><b></b></div>
+        <p class="kts-caption">Your ride photo <span>♡ Kiss N Tell Park ♡</span></p>
+        <i class="kts-seal"></i>
+        <i class="kts-flash"></i>
+        <p class="kts-badge">aespa ‘KISS N TELL’ · <span class="kts-time">00:00</span></p>`;
+      box.querySelector(".kts-screen").prepend(video);
+      const time = box.querySelector(".kts-time");
+      const signName = box.querySelector(".kts-sign b");
+      const sign = box.querySelector(".kts-sign");
+      // The coaster: its track drawn for this screen (rails, ties, legs to the ground), the train on it.
+      const svg = box.querySelector(".kts-coaster");
+      const train = box.querySelector(".kts-train");
+      const layTrack = () => {
+        const w = window.innerWidth, h = window.innerHeight;
+        svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+        const d = ktTrack(w, h);
+        svg.querySelectorAll("path").forEach((path) => path.setAttribute("d", d));
+        const rail = svg.querySelector(".kts-rail");
+        const length = rail.getTotalLength();
+        let top = 0, topY = Infinity, legs = "";
+        for (let s = 0; s <= length; s += length / 70) {
+          const p = rail.getPointAtLength(s);
+          if (p.x > w * 0.35 && p.x < w * 0.62 && p.y < topY) { topY = p.y; top = s / length; }
+          if (p.x > 0 && p.x < w && p.y < h * 0.9 - 6) legs += `<line x1="${p.x.toFixed(1)}" y1="${p.y.toFixed(1)}" x2="${p.x.toFixed(1)}" y2="${h}" />`;
+        }
+        svg.querySelector(".kts-legs").innerHTML = legs;
+        train.style.setProperty("--path", `path("${d}")`);
+        train.style.setProperty("--top", `${(top * 100).toFixed(2)}%`);
+      };
+      layTrack();
+      // Mirrors: each cabin and balloon plays its part of the MV.
+      const cabins = [...box.querySelectorAll(".kts-cabin b")].map((el, n) => { const canvas = mirror("kts-mirror"); el.append(canvas); return { canvas, crop: KT_CABINS[n] }; });
+      const balloons = [...box.querySelectorAll(".kts-balloon")].map((el, n) => { const canvas = mirror("kts-mirror"); el.firstElementChild.append(canvas); return { el, canvas, crop: KT_CABINS[n] }; });
+      // The fireworks: rockets that rise to burst on the beat in hearts, rings and stars, with fading
+      // trails (the canvas is faded, not cleared, each frame) and twinkling glitter.
+      const sparks = box.querySelector(".kts-sparks");
+      const ctx = sparks.getContext("2d");
+      let particles = [];
+      let rockets = [];
+      let armed = -1;
+      let lastHalf = -1;
+      let launched = 0;
+      let shape = 0;
+      let cue = "";
+      let ride = "";
+      let last = performance.now();
+      const fit = () => {
+        const ratio = Math.min(window.devicePixelRatio || 1, SCENE_LITE ? 1 : 1.5);
+        sparks.width = Math.round(window.innerWidth * ratio); sparks.height = Math.round(window.innerHeight * ratio);
+        ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+        layTrack();
+      };
+      window.addEventListener("resize", fit);
+      fit();
+      const PALETTES = [["#FFFFFF", "#FF8CC6", "#FF4FA3"], ["#CBB8FF", "#FFFFFF", "#A45CFF"], ["#9FD3FF", "#FFFFFF", "#FF8CC6"], ["#FFE27A", "#FFFFFF", "#FFB37A"]];
+      const SHAPES = [
+        (t) => [16 * Math.sin(t) ** 3 / 16, -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)) / 16],
+        (t) => [Math.cos(t), Math.sin(t)],
+        (t) => { const r = 0.55 + 0.45 * Math.cos(5 * t); return [r * Math.sin(t), -r * Math.cos(t)]; },
+      ];
+      const burst = (x, y, big) => {
+        const size = Math.min(window.innerWidth, window.innerHeight) * (big ? 0.34 : 0.22) * (0.85 + Math.random() * 0.3);
+        const colors = PALETTES[Math.floor(Math.random() * PALETTES.length)];
+        const draw = SHAPES[shape++ % SHAPES.length];
+        const count = Math.round((SCENE_LITE ? 50 : 90) * (big ? 1.5 : 1));
+        for (let i = 0; i < count; i++) {
+          const [dx, dy] = draw((i / count) * Math.PI * 2);
+          particles.push({ x, y, vx: dx * size * 2.4, vy: dy * size * 2.4, life: 1, decay: 0.55 + Math.random() * 0.25, color: colors[i % colors.length], twinkle: Math.random() < 0.3 });
+        }
+        // An inner ring of glitter for the big ones.
+        if (big) for (let i = 0; i < 30; i++) { const a = Math.random() * Math.PI * 2, r = Math.random() * size; particles.push({ x, y, vx: Math.cos(a) * r, vy: Math.sin(a) * r, life: 1, decay: 0.4, color: "#FFFFFF", twinkle: true }); }
+      };
+      // A rocket, timed to burst on the beat at `at` (seconds into the clip).
+      const rocket = (now, at, big) => {
+        const w = window.innerWidth, h = window.innerHeight;
+        const tx = w * (0.14 + Math.random() * 0.72), ty = h * (0.14 + Math.random() * 0.32);
+        rockets.push({ x: tx + (Math.random() - 0.5) * 80, y: h + 10, tx, ty, from: now, at, big });
+      };
+      const draw = (now, dt) => {
+        const w = window.innerWidth, h = window.innerHeight;
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.28)";
+        ctx.fillRect(0, 0, w, h);
+        if (!particles.length && !rockets.length) { ctx.clearRect(0, 0, w, h); return; }
+        ctx.globalCompositeOperation = "lighter";
+        rockets = rockets.filter((r) => {
+          const k = Math.min(1, (now - r.from) / Math.max(0.05, r.at - r.from));
+          const e = 1 - (1 - k) ** 2;
+          const x = r.x + (r.tx - r.x) * e, y = r.y + (r.ty - r.y) * e;
+          ctx.fillStyle = "#FFF3C2";
+          ctx.beginPath(); ctx.arc(x, y, 2.6, 0, Math.PI * 2); ctx.fill();
+          if (k >= 1) { burst(r.tx, r.ty, r.big); return false; }
+          return true;
+        });
+        particles = particles.filter((p) => p.life > 0);
+        for (const p of particles) {
+          p.x += p.vx * dt; p.y += p.vy * dt;
+          p.vx *= 1 - 2.2 * dt; p.vy = p.vy * (1 - 2.2 * dt) + 70 * dt;
+          p.life -= dt * p.decay;
+          const alpha = Math.max(0, p.life) * (p.twinkle ? 0.4 + 0.6 * Math.abs(Math.sin(now * 40 + p.x)) : 1);
+          ctx.globalAlpha = alpha * 0.35; ctx.fillStyle = p.color;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 5 * p.life + 1.5, 0, Math.PI * 2); ctx.fill();
+          ctx.globalAlpha = alpha;
+          ctx.beginPath(); ctx.arc(p.x, p.y, 1.8 * p.life + 0.7, 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = "source-over";
+      };
+      return {
+        show(name, now) {
+          cue = name;
+          // The beat animations start in step with the bars.
+          box.style.setProperty("--lag", `${(-(((now - KT_BAR1) % KT_BEAT) + KT_BEAT) % KT_BEAT).toFixed(3)}s`);
+          box.style.setProperty("--lag-bar", `${(-(((now - KT_BAR1) % KT_BAR) + KT_BAR) % KT_BAR).toFixed(3)}s`);
+          box.classList.toggle("is-cam-pop", name.startsWith("kisscam"));
+          box.classList.toggle("is-night", KT_NIGHT.has(name));
+          // The marquee sign, when a new ride starts.
+          const next = KT_RIDES[name] ?? "";
+          if (next !== ride) {
+            ride = next;
+            signName.textContent = next;
+            sign.classList.remove("is-on"); void sign.offsetWidth; sign.classList.toggle("is-on", Boolean(next));
+          }
+        },
+        tick(now) {
+          const clock = performance.now();
+          const dt = Math.min(0.05, (clock - last) / 1000);
+          last = clock;
+          const seconds = Math.floor(now);
+          time.textContent = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+          // Rockets: launched 0.42 s ahead so each bursts on the next beat.
+          const nextBeat = Math.ceil((now - KT_BAR1) / KT_BEAT);
+          const burstAt = KT_BAR1 + nextBeat * KT_BEAT;
+          const fireCue = burstAt < 35.53 ? (burstAt >= 24.264 ? "fireworks" : "") : burstAt >= 62.47 && burstAt < 70.2 ? "finale" : "";
+          if (fireCue && motionOK() && nextBeat !== armed && burstAt - now < 0.42) {
+            armed = nextBeat;
+            const downbeat = nextBeat % 4 === 0;
+            rocket(now, burstAt, fireCue === "finale" && downbeat);
+            if (fireCue === "finale" && nextBeat % 2 === 0) rocket(now, burstAt, false);
+          }
+          // A balloon on every half bar.
+          const half = Math.floor((now - KT_BAR1) / (KT_BAR / 2));
+          if (cue === "balloons" && half !== lastHalf) {
+            lastHalf = half;
+            const balloon = balloons[launched++ % balloons.length].el;
+            balloon.classList.remove("is-up"); void balloon.offsetWidth; balloon.classList.add("is-up");
+          }
+          draw(now, dt);
+          if (["wheel", "flash", "spin"].includes(cue)) cabins.forEach(({ canvas, crop }) => drawCrop(canvas, video, ...crop));
+          if (cue === "balloons" || cue === "climb") balloons.forEach(({ el, canvas, crop }) => { if (el.classList.contains("is-up")) drawCrop(canvas, video, ...crop); });
+        },
+        unmount() { window.removeEventListener("resize", fit); particles = []; rockets = []; },
       };
     },
   };
@@ -2106,6 +2520,87 @@
     },
   };
 
+  // ── Whiplash's bridge: the photo shoot (the song is modelling and photography) ──
+  //   set       (bars 1-4)  the studio is planned: a top-down lighting plot draws itself over the
+  //                         dimmed page round the model's mark; on each snap (beats 2 and 4) the
+  //                         next piece of kit lands in its place and throws its light at the mark,
+  //                         and the page strikes the next pose and holds it
+  //   seamless  (14 beats)  the riser: the backdrop paper unrolls from its roll between two stands,
+  //                         a pull a beat, down to the floor and out into the sweep, the plot put
+  //                         away under it; on the last two beats the tape X is slapped down
+  //   cut       (2 beats)   the house lights drop and the wind machine spins up
+  //   gust      (3 slams)   each slam is a gust off the fan: the paper billows, the page leans into
+  //                         the wind and the next look's hang tag drops in on its string, swinging
+  //   out       (the silent beat) the paper snaps back up its roll, the tags with it
+  const WL_TRACK2 = 19.048;
+  // The kit, in the order it lands: [kind, label, angle (0 = the backdrop, 180 = the camera), reach].
+  const WL_KIT = [
+    ["paper", "BACKDROP · SEAMLESS", 0, 0.9], ["box", "KEY · OCTABOX 150", -135, 0.8], ["flat", "FILL · V-FLAT", 130, 0.78],
+    ["strip", "RIM · STRIP L", -42, 0.74], ["strip", "RIM · STRIP R", 42, 0.74], ["dish", "HAIR · BEAUTY DISH", 0, 0.42],
+    ["fan", "WIND · 18 IN FAN", -90, 0.86], ["cam", "CAM · 85 MM · F/2", 180, 0.9],
+  ];
+  // The page's poses, one a snap: [turn, across, up] (it pivots on its feet).
+  const WL_POSES = [[-0.7, -6, 0], [0.5, 4, -3], [0, 0, -6], [-0.4, 8, -2], [0.8, -4, 0], [-0.2, 0, -5], [0.6, -8, -2], [0, 0, 0]];
+  const WL_TAGS = [["LOOK 01", "One look", "WL-0101"], ["LOOK 02", "Big flash", "WL-0102"], ["LOOK 03", "Whiplash", "WL-0103"]];
+  const whiplashStage = (() => {
+    let fx = null, kit = [], tags = [], seam = null, tape = [], landed = -1, pulls = -1, gusts = -1;
+    const restart = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+    const pose = (p) => {
+      if (p) ["--wlx-turn", "--wlx-x", "--wlx-y"].forEach((v, i) => root.style.setProperty(v, `${p[i]}${i ? "px" : "deg"}`));
+      else ["--wlx-turn", "--wlx-x", "--wlx-y"].forEach((v) => root.style.removeProperty(v));
+    };
+    const reset = () => {
+      if (!fx) return;
+      kit.forEach((el) => el.classList.remove("is-on"));
+      tags.forEach((el) => el.classList.remove("is-on"));
+      tape.forEach((el) => el.classList.remove("is-on"));
+      seam.style.setProperty("--pull", 0);
+      landed = -1; pulls = -1; gusts = -1;
+      pose(null);
+    };
+    return {
+      mount(box) {
+        fx = box;
+        const plot = fx.querySelector(".wlx-plot");
+        plot.insertAdjacentHTML("beforeend", WL_KIT.map(([kind, label, angle, reach]) =>
+          `<div class="wlx-kit is-${kind}" style="--a: ${angle}deg; --r: ${reach}"><i class="wlx-beam"></i><i class="wlx-gear"></i><b>${escapeHtml(label)}</b></div>`).join(""));
+        kit = [...plot.querySelectorAll(".wlx-kit")];
+        fx.querySelector(".wlx-tags").innerHTML = WL_TAGS.map(([look, name, style], i) =>
+          `<div class="wlx-tag" style="--t: ${i}"><div class="wlx-card"><i class="wlx-hole"></i><small>aespa</small><strong>${look}</strong><em>${escapeHtml(name)}</em><i class="wlx-code"></i><small>STYLE ${style} · SIZE ONE</small></div></div>`).join("");
+        tags = [...fx.querySelectorAll(".wlx-tag")];
+        seam = fx.querySelector(".wlx-seam");
+        tape = [...fx.querySelectorAll(".wlx-x i")];
+      },
+      tick(at, name) {
+        if (!fx) return;
+        const t = at - WL_TRACK2; // seconds into the bridge
+        if (at < 0 || name === "calm") { if (landed !== -1 || pulls !== -1 || gusts !== -1) reset(); return; }
+        // The plot: the next piece of kit on each snap (beats 2 and 4), the page posing with it.
+        const shown = name === "set" ? Math.min(WL_KIT.length, Math.floor((t + WL_BEAT) / (2 * WL_BEAT))) : WL_KIT.length;
+        if (shown !== landed) {
+          landed = shown;
+          kit.forEach((el, i) => el.classList.toggle("is-on", i < shown));
+          pose(name === "set" && shown > 0 ? WL_POSES[(shown - 1) % WL_POSES.length] : null);
+        }
+        // The seamless: a pull a beat through the riser (fourteen), then down to the floor.
+        const p = name === "set" ? 0 : name === "seamless" ? Math.min(14, Math.floor((t - 7.619) / WL_BEAT) + 1) : name === "out" ? 0 : 14;
+        if (p !== pulls) {
+          pulls = p;
+          seam.style.setProperty("--pull", (p / 14).toFixed(3));
+          tape.forEach((el, i) => el.classList.toggle("is-on", p >= 13 + i && name !== "out"));
+        }
+        // The gusts: a hang tag a slam.
+        const g = name === "gust" ? Math.min(3, Math.floor((t - 15.238) / WL_BEAT) + 1) : 0;
+        if (g !== gusts) {
+          gusts = g;
+          tags.forEach((el, i) => el.classList.toggle("is-on", i < g));
+          if (g) tags.slice(0, g - 1).forEach((el) => restart(el.firstElementChild, "is-blown"));
+        }
+      },
+      unmount() { pose(null); fx = null; },
+    };
+  })();
+
   // ── The themes ──
   const THEMES = {
     whiplash: {
@@ -2118,7 +2613,8 @@
       // exactly their bars (length), so track 2 keeps the silence it ends on and track 1 comes back
       // on the beat. The bridge (seconds into track 2): the verse with its snaps on beats 2 and 4,
       // the riser (7.62 s), the two-beat cut (14.29 s), the three sub-bass slams (15.24 s), and the
-      // silent last beat (16.67 s). Its effects are its own (fx, styled in whiplash.css).
+      // silent last beat (16.67 s). Its effects, the photo shoot, are its own (whiplashStage, fx
+      // styled in whiplash.css).
       introClip: "whiplash/intro.mp3", loops: [{ src: "whiplash/track-1.mp3", length: 19.048 }, { src: "whiplash/track-2.mp3", length: 17.143 }], joined: true, intro: whiplashIntro, introClass: "wl-intro", back: "spec",
       stage: {
         beat: 60 / 126, parts: [19.048, 17.143], grid: 19.048,
@@ -2139,8 +2635,13 @@
         "Yeah, tonight it's all about me",
         "만들어갈 history",
       ],
-        fx: `<i class="wlx-glint"></i><div class="wlx-streaks">${"<b></b>".repeat(10)}</div><div class="wlx-rev">${Array.from({ length: 14 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div><i class="wlx-lid is-top"></i><i class="wlx-lid is-bottom"></i><i class="wlx-flash"></i><i class="wlx-logo"></i>`,
-        sections: [[0, "calm"], ...[[0, "snap"], [7.619, "rise"], [14.286, "cut"], [15.238, "whip"], [16.667, "out"]].map(([at, name]) => [19.048 + at, name])],
+        ...whiplashStage,
+        fx: `<i class="wlx-dim"></i><div class="wlx-plot"><i class="wlx-grid"></i><div class="wlx-mark"><i></i><i></i><b>TALENT</b></div></div>`
+          + `<div class="wlx-seam"><i class="wlx-stand"></i><i class="wlx-stand is-r"></i><div class="wlx-sheet"><div class="wlx-x"><i></i><i></i></div></div><i class="wlx-roll"></i></div>`
+          + `<svg class="wlx-wind" viewBox="0 0 100 60" preserveAspectRatio="none">${["M-5 14 C 25 6, 45 22, 70 12 S 100 8, 105 12", "M-5 26 C 30 20, 50 34, 75 24 S 98 22, 105 26", "M-5 38 C 20 32, 40 46, 66 38 S 96 34, 105 40", "M-5 50 C 28 44, 52 58, 78 48 S 100 46, 105 50"].map((d, i) => `<path d="${d}" pathLength="1" style="--w: ${i}"/>`).join("")}</svg>`
+          + `<div class="wlx-fan"><i class="wlx-cage"></i><svg class="wlx-blades" viewBox="0 0 100 100">${[0, 120, 240].map((r) => `<g transform="rotate(${r} 50 50)"><path d="M50 50 C 44 30, 46 12, 58 6 C 66 14, 62 34, 50 50 Z"/></g>`).join("")}<circle cx="50" cy="50" r="7"/></svg><i class="wlx-cage is-front"></i></div>`
+          + `<div class="wlx-tags"></div>`,
+        sections: [[0, "calm"], ...[[0, "set"], [7.619, "seamless"], [14.286, "cut"], [15.238, "gust"], [16.667, "out"]].map(([at, name]) => [19.048 + at, name])],
       },
       extras: ["device.webp", "logo-white.webp"],
       scene: whiplashScene,
@@ -2259,13 +2760,13 @@
           + `<i class="drx-beam"></i><i class="drx-dust"></i>`
           + `<div class="drx-sprockets is-l"><span>${"BREW HOUZE × AESPA · DRAMA · SCENE VER. · ".repeat(4)}</span></div><div class="drx-sprockets is-r"><span>${"4TH MINI ALBUM · TAKE 01 · ROLL A · ".repeat(4)}</span></div>`
           + `<i class="drx-burn"></i>`
-          + `<div class="drx-vf"><i class="drx-thirds"></i><i class="drx-af"></i><p class="drx-rec"><i></i>REC</p><p class="drx-tcode">00:00:00:00</p><p class="drx-lens">35mm · f/1.4 · ISO 800</p></div>`
+          + `<div class="drx-script"><div class="drx-sheet"><i class="drx-holes"></i><p class="drx-rev"></p><p class="drx-pageno">12.</p><div class="drx-page"><div class="drx-lines"></div></div><b class="drx-note"></b></div></div>`
           + `<div class="drx-cut"><div class="drx-cut-stick"></div><div class="drx-cut-board"><b>CUT!</b><span>Scene 04 · Take 01 · Drama</span></div></div>`
           + `<div class="drx-neg">${[1, 2, 3].map((n) => `<i style="background-image: url('drama/stage/still-${n}.webp')"></i>`).join("")}<b class="drx-neg-label"></b></div>`
           + `<svg class="drx-defs" width="0" height="0" aria-hidden="true"><filter id="drx-redneg" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="-0.3030 -1.0192 -0.1029 0 1.1425  -0.0638 -0.2146 -0.0217 0 0.2300  -0.0542 -0.1824 -0.0184 0 0.2055  0 0 0 1 0"/></filter></svg>`
           + `<i class="drx-curtain is-l"></i><i class="drx-curtain is-r"></i><div class="drx-leader"><i></i><b></b></div>`
           + `<i class="drx-logo"></i><i class="drx-flash"></i>`,
-        sections: [[0, "calm"], ...[[0, "project"], [12.824, "burn"], [14.656, "rack"], [24.733, "cut"], [25.649, "neg1"], [26.565, "neg2"], [27.481, "neg3"], [27.939, "curtain"], [28.855, "leader"], [29.313, "premiere"], [30.229, "premiere2"]].map(([at, name]) => [29.304 + at, name])],
+        sections: [[0, "calm"], ...[[0, "project"], [12.824, "burn"], [14.656, "script"], [24.733, "cut"], [25.649, "neg1"], [26.565, "neg2"], [27.481, "neg3"], [27.939, "curtain"], [28.855, "leader"], [29.313, "premiere"], [30.229, "premiere2"]].map(([at, name]) => [29.304 + at, name])],
         ...dramaStage,
       },
       extras: ["logo.webp", ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-emblem.webp`, `${key}-back.webp`])],
@@ -2312,6 +2813,71 @@
       scene: richmanScene,
       extras: ["logo-black.webp", "logo-chrome.webp", "logo-purple.webp", "logo-glow.webp", "pick.webp", "bolt-1.webp", "bolt-2.webp", "bolt-3.webp", "bolt-4.webp", ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-back.webp`)],
     },
+    // KISS N TELL: the only light theme (scheme). The intro (5 bars at 126 BPM) runs straight into
+    // track 1 (the chorus, 8 bars); tracks 1 and 2 (the bridge, 12 bars) then take turns with no gap,
+    // each played from the encoder's delay for exactly its length (see KT_SEAM). The header wears the
+    // chrome logo and doodles (decor); the card backs are "our little secret" notes signed with a
+    // kiss, and every flip leaves a kiss with a chime (see flipCard).
+    kissntell: {
+      era: "Kiss N Tell", folder: "kiss-n-tell/", tag: "KISS N TELL", back: "kiss", scheme: "light",
+      title: "Brew Houze × aespa · KISS N TELL", toast: "Brew Houze × aespa · KISS N TELL 💋",
+      sub: "Kiss N Tell · System portal", h1: "Every Brew Houze app. Kiss and tell.", footer: "Brew Houze × aespa · KISS N TELL · café management system",
+      introClip: "kiss-n-tell/intro.mp3", introStart: KT_START, introLength: 20 * KT_BEAT,
+      loops: [{ src: "kiss-n-tell/track-1.mp3", start: KT_START, length: 32 * KT_BEAT + KT_SEAM }, { src: "kiss-n-tell/track-2.mp3", start: KT_START, length: 48 * KT_BEAT - KT_SEAM }],
+      joined: true, intro: kissIntro, introClass: "kt-intro",
+      // The bridge (seconds into the loop; bar 1 at 15.24 s, 1.905 s a bar): a slumber party,
+      // "Pajama Party Ver." The groove (bars 1-7) bounces the page like a mattress, a bigger boing on
+      // the crash of bars 1 and 5, feathers drifting; the one-eighth stop in bar 4 dips
+      // the lights, a soft "shh…" drifting up; the fill (bar 7, beat 3) swings the pillows in; bar 8's six accents are
+      // six pillow whacks from alternate sides, the last a feather blizzard; the break (bars 9-10) is
+      // lights out: glow-in-the-dark stars and a lava lamp, blooping on bar 11's two accents; the
+      // riser (bar 12) blows a bubblegum bubble that pops into the chorus. The page's text turns into
+      // the song's lines on folded notes passed round. Styled in kissntell.css.
+      stage: {
+        beat: KT_BEAT, parts: [32 * KT_BEAT + KT_SEAM, 48 * KT_BEAT - KT_SEAM], grid: 32 * KT_BEAT,
+        lyrics: [
+          "Come on, just say it",
+          "秘密の girls talk",
+          "甘く bitter, 時々spicy",
+          "Everything 打ち明けてよ",
+          "Hush, hush",
+          "We can't stop",
+          "ねえ ほら kiss and tell",
+          "Dee-da-da-dee",
+          "I wanna kiss and tell",
+          "Eyes to eyes, be alright",
+          "ゆっくりでいい",
+          "ひとりきり 溜め込まないで",
+          "Don't forget, 味方だから",
+          "終わらない secret time",
+          "お互いをわかり合う",
+          "結んでいく friendship",
+          "Oh, I'm gonna shout it",
+        ],
+        fx: `<i class="ktx-night"></i>`
+          + `<div class="ktx-stars">${Array.from({ length: 14 }, (_, n) => `<i style="--x: ${(n * 41 + 6) % 94 + 3}; --y: ${(n * 23 + 4) % 34 + 3}; --s: ${0.6 + ((n * 7) % 5) / 6}; --n: ${n}"></i>`).join("")}</div>`
+          + `<div class="ktx-lava">${Array.from({ length: 9 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div>`
+          + `<svg class="ktx-defs" width="0" height="0" aria-hidden="true"><filter id="ktx-goo"><feGaussianBlur in="SourceGraphic" stdDeviation="16" /><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 24 -10" /></filter></svg>`
+          + `<div class="ktx-feathers">${Array.from({ length: 18 }, (_, n) => `<i style="--x: ${(n * 53 + 9) % 100}; --d: ${(n * 7) % 10}; --s: ${0.7 + ((n * 3) % 5) / 8}"><b></b></i>`).join("")}</div>`
+          + `<div class="ktx-puff">${Array.from({ length: 16 }, (_, n) => `<i style="--a: ${n * 22.5}deg; --r: ${30 + ((n * 37) % 30)}vmin; --s: ${0.6 + ((n * 5) % 6) / 6}"></i>`).join("")}</div>`
+          + `<div class="ktx-pillow is-l"></div><div class="ktx-pillow is-r"></div>`
+          + `<b class="ktx-hush">shh…</b>`
+          + `<div class="ktx-bubble"><span></span></div><div class="ktx-gum">${Array.from({ length: 12 }, (_, n) => `<i style="--a: ${n * 30 + 8}deg; --r: ${34 + ((n * 29) % 24)}vmax"></i>`).join("")}</div>`
+          + `<i class="ktx-flash"></i>`,
+        sections: [[0, "calm"], ...[
+          [0, "boing"], [0.476, "party"], [6.905, "hush"], [7.143, "party"], [7.619, "boing"], [8.095, "party"],
+          [12.381, "fill"], [13.333, "whack1"], [13.690, "whack2"], [14.048, "whack3"], [14.405, "whack4"], [14.762, "whack5"], [15.000, "whack6"],
+          [15.238, "night"], [19.048, "bloop"], [19.524, "night"], [20.000, "bloop2"], [20.476, "night"], [20.952, "bubble"], [22.500, "pop"],
+        ].map(([at, name]) => [32 * KT_BEAT + at, name])],
+        // The lava lamp's goo filter is set here: a url(#…) written in the stylesheet would be looked
+        // up in the stylesheet's own file, not this page.
+        mount(fx) { fx.querySelector(".ktx-lava").style.filter = "url(#ktx-goo)"; },
+      },
+      scene: kissScene,
+      decor: `<div class="kt-decor" aria-hidden="true"><i class="kt-decor-sparkle"></i><i class="kt-decor-hearts"></i><div class="kt-decor-logo"><i></i></div><i class="kt-decor-bows"></i><i class="kt-decor-heart"></i></div>`,
+      extras: ["logo-black.webp", "kiss.svg", "phone.webp", "heart.webp", "hearts.webp", "doodle-hearts.webp", "doodle-bows.webp", "doodle-sparkle.webp", "teddy.webp", "ribbon.webp", "lightstick.webp", "lightstick-head.webp",
+        ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-booth.webp`, `${key}-back.webp`])],
+    },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
   // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
@@ -2328,6 +2894,10 @@
   const footerText = document.querySelector("footer .wrap > span:first-child");
   const cafe = { title: document.title, brand: brandName.innerHTML, sub: brandSub.textContent, h1: heading.textContent, footer: footerText.textContent };
   const lineup = document.getElementById("ae-lineup");
+  // A theme's own decoration in the header, behind its text (THEMES[x].decor, styled in its sheet).
+  const decor = document.createElement("div");
+  decor.className = "ae-decor";
+  document.querySelector(".hero").prepend(decor);
 
   // The photo card and the sound button (built once, shown only in a secret theme).
   document.body.insertAdjacentHTML("beforeend", `
@@ -2374,6 +2944,7 @@
     armageddon: { kicker: "● Incoming", label: "Intercept the signal" },
     drama: { kicker: "Scene 00 · Take 01", label: "Action" },
     richman: { kicker: "● Live · Rich Man", label: "Plug in. Play it loud." },
+    kissntell: { kicker: "🎟 Admit one", label: "Enter Kiss N Tell Park" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
   // page and lights up there during the bridge.
@@ -2533,7 +3104,8 @@
     footerText.textContent = t ? t.footer : cafe.footer;
     document.title = t ? t.title : cafe.title;
     footerYear.textContent = t ? `${yearText} × aespa` : yearText;
-    document.querySelector('meta[name="color-scheme"]').setAttribute("content", t ? "dark" : "light");
+    document.querySelector('meta[name="color-scheme"]').setAttribute("content", t ? (t.scheme ?? "dark") : "light");
+    decor.innerHTML = t?.decor ?? "";
     if (t) renderLineup(theme); else { lineup.innerHTML = ""; closeMember(); }
     renderCta(theme);
   }
@@ -2866,6 +3438,7 @@
     armageddon: { logo: "armageddon/logo-white.webp", tint: "#BFF4F1", mask: true },
     drama: { logo: "drama/logo.webp", tint: "#F30306", mask: false },
     richman: { logo: "richman/logo-black.webp", tint: "#D9FF2E", mask: true },
+    kissntell: { logo: "kiss-n-tell/logo-black.webp", tint: "#FF8CC6", mask: true },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -2873,14 +3446,19 @@
   picker.hidden = true;
   picker.setAttribute("role", "dialog");
   picker.setAttribute("aria-label", "Choose a theme");
+  // A track for each era (its group photo as the cover, the logo, "aespa"), and the café first.
+  const EQ = `<span class="ae-pick-eq" aria-hidden="true"><i></i><i></i><i></i></span>`;
   const pickCard = (theme) => {
-    if (!theme) return `<button type="button" class="ae-pick is-cafe" data-pick="cafe" role="radio" style="--i: 0"><span class="ae-pick-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M17 10.5h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8-.6 1.7 0 2.5M11.5 3.5c-.6.8-.6 1.7 0 2.5M15 3.5c-.6.8-.6 1.7 0 2.5"/></svg></span><span class="ae-pick-name">Café</span></button>`;
+    if (!theme) return `<button type="button" class="ae-pick is-cafe" data-pick="cafe" role="radio" style="--i: 0"><span class="ae-pick-no">01</span><span class="ae-pick-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M17 10.5h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8-.6 1.7 0 2.5M11.5 3.5c-.6.8-.6 1.7 0 2.5M15 3.5c-.6.8-.6 1.7 0 2.5"/></svg></span><span class="ae-pick-text"><span class="ae-pick-name">Café</span><span class="ae-pick-by">Brew Houze · the everyday look</span></span>${EQ}</button>`;
     const p = PICKS[theme];
-    return `<button type="button" class="ae-pick" data-pick="${theme}" role="radio" style="--i: ${ORDER.indexOf(theme) + 1}; --tint: ${p.tint}">`
-      + `<span class="ae-pick-art" data-src="${flashesOf(theme)[0]}"><i class="ae-pick-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')"></i></span>`
-      + `<span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span></button>`;
+    const n = ORDER.indexOf(theme) + 2;
+    return `<button type="button" class="ae-pick" data-pick="${theme}" role="radio" style="--i: ${n - 1}; --tint: ${p.tint}">`
+      + `<span class="ae-pick-no">${String(n).padStart(2, "0")}</span>`
+      + `<span class="ae-pick-art" data-src="${flashesOf(theme)[0]}"></span>`
+      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">aespa</span></span>`
+      + `<i class="ae-pick-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')" aria-hidden="true"></i>${EQ}</button>`;
   };
-  picker.innerHTML = `<p class="ae-picker-head"><b>Brew Houze</b> × aespa <span>· pick an era</span></p>`
+  picker.innerHTML = `<div class="ae-picker-head"><i class="ae-picker-cover" aria-hidden="true"></i><p><small>Playlist</small><b>Brew Houze × aespa</b><span>${ORDER.length + 1} tracks · pick an era</span></p></div>`
     + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER].map(pickCard).join("")}</div>`;
   document.body.appendChild(picker);
   footerYear.setAttribute("aria-haspopup", "dialog");
@@ -3130,7 +3708,17 @@
     back.classList.toggle("is-emblem", t.back === "emblem");
     back.classList.toggle("is-image", t.back === "image");
     back.classList.toggle("is-tarot", t.back === "tarot");
-    back.innerHTML = t.back === "tarot" ? dirtyTarotBack(member, key, t) : t.back === "image" ? `
+    back.classList.toggle("is-kiss", t.back === "kiss");
+    back.innerHTML = t.back === "tarot" ? dirtyTarotBack(member, key, t) : t.back === "kiss" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
+      <i class="kt-back-holo" aria-hidden="true"></i>
+      <i class="kt-back-logo" aria-hidden="true"></i>
+      <span class="kt-back-num">0${pcIndex + 1} / 04</span>
+      <div class="kt-back-frame"><div class="kt-back-photo" role="img" aria-label="${escapeHtml(member.name)}, the back of her card" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div></div>
+      <p class="kt-back-note">${escapeHtml(KT_NOTES[key])}</p>
+      <p class="kt-back-name">${escapeHtml(member.name)} <span>${escapeHtml(member.hangul)}</span></p>
+      <i class="kt-back-kiss" aria-hidden="true"></i>
+      <p class="kt-back-foot">aespa · The 1st Japan Mini Album<br />Brew Houze × aespa</p>` : t.back === "image" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <div class="rm-back-photo" role="img" aria-label="${escapeHtml(member.name)}, the back of her card" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>` : t.back === "emblem" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
@@ -3260,6 +3848,7 @@
   function flipCard() {
     pcCard.classList.toggle("is-flipped");
     if (current === "richman") { strike(); thunder(); }
+    if (current === "kissntell") { smooch(); chime(); }
   }
   // Rich Man: lightning over the card as it turns (the bolts in the album's colours), the card jolting.
   // Both belong to that one flip: calmStorm() clears them when the card changes, the card closes or
@@ -3269,6 +3858,7 @@
   function calmStorm() {
     clearTimeout(stormTimer);
     pcModal.querySelector(".rm-storm")?.remove();
+    pcModal.querySelector(".kt-smooch")?.remove();
     pcModal.querySelector(".ae-pc-stage")?.classList.remove("is-struck");
   }
   function strike() {
@@ -3328,6 +3918,47 @@
     rumbleGain.gain.exponentialRampToValueAtTime(0.0001, now + 3.1);
     rumble.connect(low).connect(rumbleGain).connect(out);
     rumble.start(now);
+  }
+  // KISS N TELL: a lipstick kiss stamped on the card as it turns, hearts floating up (cleared like the
+  // storm by calmStorm), and a little glockenspiel chime when the sound is on (made here, no file).
+  function smooch() {
+    calmStorm();
+    if (!motionOK()) return;
+    const kiss = document.createElement("div");
+    kiss.className = "kt-smooch";
+    kiss.setAttribute("aria-hidden", "true");
+    kiss.innerHTML = `<i class="kt-smooch-kiss"></i>${'<i class="kt-smooch-heart"></i>'.repeat(5)}`;
+    pcModal.append(kiss);
+    stormTimer = setTimeout(() => kiss.remove(), 1500);
+  }
+  let chimeCtx = null;
+  function chime() {
+    if (!soundWanted()) return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    chimeCtx ??= new AudioContextClass();
+    const ctx = chimeCtx;
+    void ctx.resume();
+    const now = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.value = 0.22;
+    out.connect(ctx.destination);
+    // Three bell notes up (E6, G#6, B6), each with a quieter octave above.
+    [1318.5, 1661.2, 1975.5].forEach((freq, index) => {
+      [[freq, 1], [freq * 2, 0.25]].forEach(([f, level]) => {
+        const osc = ctx.createOscillator();
+        osc.type = "sine";
+        osc.frequency.value = f;
+        const env = ctx.createGain();
+        const at = now + index * 0.07;
+        env.gain.setValueAtTime(0.0001, at);
+        env.gain.exponentialRampToValueAtTime(level, at + 0.008);
+        env.gain.exponentialRampToValueAtTime(0.0001, at + 0.9);
+        osc.connect(env).connect(out);
+        osc.start(at);
+        osc.stop(at + 0.95);
+      });
+    });
   }
   pcModal.addEventListener("dragstart", (event) => event.preventDefault());
 

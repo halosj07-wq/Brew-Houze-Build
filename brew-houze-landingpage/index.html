@@ -15,7 +15,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Syncopate:wght@700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&text=%EC%B9%B4%EB%A6%AC%EB%82%98%EC%A7%80%EC%A0%A4%EC%9C%88%ED%84%B0%EB%8B%9D&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@700;800;900&family=UnifrakturMaguntia&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=Anton&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=Anton&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,700;1,900&family=Pinyon+Script&family=Silkscreen&family=Caveat:wght@600;700&family=Yomogi&display=swap" rel="stylesheet" />
   <script>
     // The secret themes are Brew Houze Build's only (the thesis defense): at the café's own address
     // (CAFE_SITES, the same list as CAFE_HOSTS below) none of them load, and the page is the plain
@@ -24,11 +25,11 @@
     window.BREW_HOUZE_CAFE = ["brew-houze-cafe.vercel.app"].includes(location.hostname);
     if (!window.BREW_HOUZE_CAFE) {
       try {
-        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama", richman: "richman" }[localStorage.getItem("brew-houze-theme")];
+        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama", richman: "richman", kissntell: "kissntell" }[localStorage.getItem("brew-houze-theme")];
         if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
       } catch { /* storage blocked: default theme */ }
       // (Written in while the head is read, so they hold the first paint like ordinary links.)
-      document.write(["secret", "whiplash", "dirtywork", "armageddon", "drama", "richman"].map((name) => `<link rel="stylesheet" href="secret/${name}.css" />`).join(""));
+      document.write(["secret", "whiplash", "dirtywork", "armageddon", "drama", "richman", "kissntell"].map((name) => `<link rel="stylesheet" href="secret/${name}.css" />`).join(""));
     }
   </script>
   <style>
@@ -499,7 +500,7 @@
 
     footerYear.textContent = yearText;
   </script>
-  <!-- The secret themes (Build only): the "© Brew Houze" line opens the theme picker (café, Whiplash, Dirty Work, Armageddon, Drama, Rich Man). -->
+  <!-- The secret themes (Build only): the "© Brew Houze" line opens the theme picker (café, Whiplash, Dirty Work, Armageddon, Drama, Rich Man, Kiss N Tell). -->
   <script>
     if (!window.BREW_HOUZE_CAFE) document.write('<script src="secret/secret.js"><\/script>');
   </script>
