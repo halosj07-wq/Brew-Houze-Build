@@ -12,25 +12,7 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Syncopate:wght@700&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@700&text=%EC%B9%B4%EB%A6%AC%EB%82%98%EC%A7%80%EC%A0%A4%EC%9C%88%ED%84%B0%EB%8B%9D&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@700;800;900&family=UnifrakturMaguntia&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=Anton&display=swap" rel="stylesheet" />
-  <script>
-    // The secret themes are Brew Houze Build's only (the thesis defense): at the café's own address
-    // (CAFE_SITES, the same list as CAFE_HOSTS below) none of them load, and the page is the plain
-    // portal. Anywhere else, a secret theme (see secret/secret.js) is set before the page paints, so
-    // a reload keeps it without flashing the café colors. "aespa" is the old name of Whiplash.
-    window.BREW_HOUZE_CAFE = ["brew-houze-cafe.vercel.app"].includes(location.hostname);
-    if (!window.BREW_HOUZE_CAFE) {
-      try {
-        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama", richman: "richman" }[localStorage.getItem("brew-houze-theme")];
-        if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
-      } catch { /* storage blocked: default theme */ }
-      // (Written in while the head is read, so they hold the first paint like ordinary links.)
-      document.write(["secret", "whiplash", "dirtywork", "armageddon", "drama", "richman"].map((name) => `<link rel="stylesheet" href="secret/${name}.css" />`).join(""));
-    }
-  </script>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
   <style>
     :root {
       --espresso: #3D2B1F; --espresso-deep: #2A1D14; --roast: #6B4C3B; --latte: #9C8278;
@@ -168,8 +150,6 @@
       <h1>Every Brew Houze app, in one place.</h1>
       <p class="lead">Open the right app for each device, share the customer links, and print the QR codes for the counter and tables. Bookmark this page on every device the café uses.</p>
       <div class="status-strip" id="status-strip" aria-label="App status"></div>
-      <!-- The secret themes' four members (filled in by secret/secret.js). -->
-      <div class="ae-only ae-lineup" id="ae-lineup" aria-label="aespa"></div>
     </div>
   </header>
 
@@ -260,7 +240,7 @@
   <footer>
     <div class="wrap">
       <span>Brew Houze café management system</span>
-      <span id="footer-year" role="button" tabindex="0"></span>
+      <span id="footer-year"></span>
     </div>
   </footer>
 
@@ -299,7 +279,7 @@
       mobile: "https://brew-houze-cafe-mobile.vercel.app",
       queue: "https://brew-houze-cafe-queue.vercel.app",
     };
-    const CAFE_HOSTS = ["brew-houze-cafe.vercel.app"]; // (also in the head: the secret themes are off there)
+    const CAFE_HOSTS = ["brew-houze-cafe.vercel.app"];
     const APPS = CAFE_HOSTS.includes(location.hostname) ? CAFE_APPS : BUILD_APPS;
 
     const icons = {
@@ -498,10 +478,6 @@
     const yearText = `© ${new Date().toLocaleDateString("en-PH", { timeZone: "Asia/Manila", year: "numeric" })} Brew Houze`;
 
     footerYear.textContent = yearText;
-  </script>
-  <!-- The secret themes (Build only): the "© Brew Houze" line opens the theme picker (café, Whiplash, Dirty Work, Armageddon, Drama, Rich Man). -->
-  <script>
-    if (!window.BREW_HOUZE_CAFE) document.write('<script src="secret/secret.js"><\/script>');
   </script>
 </body>
 </html>
