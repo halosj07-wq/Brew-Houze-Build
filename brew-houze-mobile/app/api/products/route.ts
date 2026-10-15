@@ -152,7 +152,10 @@ export async function GET() {
       const account = await gcashAccount();
       if (account.hasQr) payment = { method: "gcash", direct: true, accountName: account.name, accountNumber: account.number, qrVersion: account.version };
     } else if (paymongoConfigured()) payment = { method: "gcash", testMode: paymongoTestMode(), minimumAmount: PAYMONGO_MIN_AMOUNT };
-    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open), payment }, {
+    // How orders with drinks and food are picked up: "per_order" asks at checkout (together or separately).
+    const pickup = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'pickup_mode'")
+      .then((pickupResult) => String(pickupResult.rows[0]?.setting_value ?? "together")).catch(() => "together");
+    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open), payment, pickup }, {
       headers: {
         "Cache-Control": "public, max-age=5, stale-while-revalidate=30",
       },

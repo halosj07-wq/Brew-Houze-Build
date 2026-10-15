@@ -237,6 +237,10 @@ export default function MenuPage() {
   const [discountReward, setDiscountReward] = useState<LoyaltyReward | null>(null);
   // Eaten at the café (usually, from the table QR) or taken away.
   const [serviceType, setServiceType] = useState<"dine_in" | "take_out" | "delivery">("dine_in");
+  // When the café lets each order choose (Admin, Menu, Pickup): an order with drinks and food is
+  // called together, or the drinks and the food each as soon as they are ready.
+  const [pickupSetting, setPickupSetting] = useState<"together" | "separate" | "per_order">("together");
+  const [pickupChoice, setPickupChoice] = useState<"together" | "separate">("together");
   // Delivery: the café's rules and zones, the address chosen in the cart, and GCash or cash on delivery.
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
   const [deliveryAddressId, setDeliveryAddressId] = useState<number | null>(null);
@@ -575,12 +579,13 @@ export default function MenuPage() {
   const loadMenu = useCallback(async (fresh = false): Promise<boolean> => {
     try {
       const response = await fetch("/api/products", { cache: fresh ? "no-store" : "default" });
-      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; error?: string };
+      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; pickup?: "together" | "separate" | "per_order"; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
       const menu = payload.data ?? [];
       setProducts(menu);
       setStoreOpen(payload.storeOpen !== false);
       if (payload.payment) setPaymentConfig(payload.payment);
+      setPickupSetting(payload.pickup ?? "together");
       setError("");
       let changed = false;
       setCart((current) => { const result = reconcileCart(current, menu); changed = result.changed; return result.cart; });
@@ -850,7 +855,7 @@ export default function MenuPage() {
     setPlacingOrder(true);
     setOrderError("");
     try {
-      const response = await fetch("/api/counter-carts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, service_type: serviceType, discount_type_id: claiming ? claimIdType : null }) });
+      const response = await fetch("/api/counter-carts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, service_type: serviceType, pickup_mode: pickupBody, discount_type_id: claiming ? claimIdType : null }) });
       const payload = await response.json() as { data?: { token: string; code: string; expiresAt: string; discountName: string | null }; error?: string; code?: string };
       if (payload.code === "sold_out") { await handleSoldOut(); return; }
       if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your order to the counter.");
@@ -881,7 +886,7 @@ export default function MenuPage() {
   // Pays an order with an ID discount the café approved (verification_token) or the saved ID
   // (saved_id): GCash when it is set up, otherwise the order goes straight to the café.
   async function payWithIdDiscount(extra: { verification_token: string } | { saved_id: IdCoverage }) {
-    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, delivery: deliveryBody, ...extra });
+    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, pickup_mode: pickupBody, delivery: deliveryBody, ...extra });
     if (paymentConfig.method === "gcash" && !payCod) {
       const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const payload = await response.json() as { data?: { token: string; redirectUrl: string | null; direct?: boolean; amount: number }; error?: string; code?: string };
@@ -905,7 +910,7 @@ export default function MenuPage() {
   }
 
   async function sendIdPhoto(details: { holderName: string; idNumber: string; photo: string; remember: boolean }) {
-    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, remember: details.remember, consent: true, photo: details.photo }) });
+    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, pickup_mode: pickupBody, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, remember: details.remember, consent: true, photo: details.photo }) });
     const payload = await response.json() as { data?: { token: string }; error?: string; code?: string };
     if (payload.code === "sold_out") { setIdSheet(null); await handleSoldOut(); return; }
     if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your ID.");
@@ -1007,7 +1012,7 @@ export default function MenuPage() {
     // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
     if (paymentConfig.method === "gcash" && orderTotal > 0 && !payCod) {
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, pickup_mode: pickupBody, delivery: deliveryBody }) });
         const payload = await response.json() as { data?: { token: string; redirectUrl: string | null; direct?: boolean; amount: number }; error?: string; code?: string };
         if (payload.code === "sold_out") { await handleSoldOut(); setPlacingOrder(false); return; }
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
@@ -1030,7 +1035,7 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }),
+        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, pickup_mode: pickupBody, delivery: deliveryBody }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string; code?: string };
       if (payload.code === "sold_out") { await handleSoldOut(); return; }
@@ -1159,6 +1164,10 @@ export default function MenuPage() {
   const sheetLimit = sheetVariant ? Math.min(sheetVariant.maxQuantity || Number.MAX_SAFE_INTEGER, getCartLimit({ ingredients: sheetVariant.ingredients, additions: sheetAdditions }, sheetCartWithoutEdit, "")) : Number.MAX_SAFE_INTEGER;
   const sheetUnit = (sheetVariant?.price ?? selectedProduct?.price ?? 0) + sheetAdditions.reduce((sum, addition) => sum + addition.price, 0);
   const sheetBlocked = Boolean(selectedProduct?.variants?.length && (!sheetVariant?.available || selectedQuantity > sheetLimit));
+
+  // Asked only when the café lets each order choose, and the cart has drinks and food (not for deliveries).
+  const askPickup = pickupSetting === "per_order" && serviceType !== "delivery" && new Set(cart.map((item) => item.product.station === "kitchen" ? "kitchen" : "bar")).size > 1;
+  const pickupBody = askPickup ? pickupChoice : null;
 
   const serviceOptions = [
     { value: "dine_in" as const, label: "Dine in", Icon: IconDineIn, note: "" },
@@ -1464,6 +1473,14 @@ export default function MenuPage() {
             <button type="button" className="bh-add-more" onClick={() => setCartOpen(false)}>+ Add more items</button>
 
             <div className="bh-cart-section"><h3>How would you like it?</h3>{serviceSwitch("cart")}
+              {askPickup && <div className="bh-pickup">
+                <p>Your drinks and food</p>
+                <div className="bh-pickup-options" role="radiogroup" aria-label="Pickup of your drinks and food">
+                  {([["together", "Together", "One call, when everything is ready"], ["separate", "Separately", "Each called as soon as it's ready"]] as const).map(([value, label, note]) => (
+                    <button key={value} type="button" role="radio" aria-checked={pickupChoice === value} onClick={() => setPickupChoice(value)}><strong>{label}</strong><small>{note}</small></button>
+                  ))}
+                </div>
+              </div>}
               {isDelivery && <div className="cart-delivery">
                 {isGuest ? <>
                   <div className="cart-guest-form">

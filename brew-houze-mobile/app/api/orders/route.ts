@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { parseOrderItems, parseServiceType, placeOrder, isSoldOut } from "@/lib/orders";
+import { parseOrderItems, parsePickupChoice, parseServiceType, placeOrder, isSoldOut } from "@/lib/orders";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { directGcashReady, gcashMethod } from "@/lib/gcash";
 import { getCustomerSession } from "@/lib/customers";
@@ -17,7 +17,7 @@ import { planDelivery } from "@/lib/delivery";
 export async function POST(request: Request) {
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown; verification_token?: unknown; saved_id?: unknown; delivery?: unknown };
+    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown; pickup_mode?: unknown; verification_token?: unknown; saved_id?: unknown; delivery?: unknown };
     const customerToken = randomUUID();
     // Signed-in customers get the order saved to their account, and can use their own stars.
     const customer = await getCustomerSession();
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     // Delivery: the address, fee rules and (cash on delivery) whether this customer may use it.
     const delivery = serviceType === "delivery" ? await planDelivery(client, customer?.customerId ?? null, body.delivery) : null;
     const paymentMethod = delivery?.payment === "cod" ? "cod" : "online";
-    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod, customerToken, customerId: idDiscount?.customerId ?? customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, idDiscounts: idDiscount?.idDiscounts ?? [], serviceType, delivery });
+    const placed = await placeOrder(client, { items, source: "mobile", cashierAdminId: null, paymentMethod, customerToken, customerId: idDiscount?.customerId ?? customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, idDiscounts: idDiscount?.idDiscounts ?? [], serviceType, pickupChoice: parsePickupChoice(body.pickup_mode), delivery });
     const gcashReady = gcashMethod() === "direct_qr" ? await directGcashReady(client) : paymongoConfigured();
     if (gcashReady && placed.total > 0 && paymentMethod !== "cod") {
       await client.query("ROLLBACK");

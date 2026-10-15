@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { isSoldOut, parseOrderItems, parseServiceType, quoteOrder } from "@/lib/orders";
+import { isSoldOut, parseOrderItems, parsePickupChoice, parseServiceType, quoteOrder } from "@/lib/orders";
 import { COUNTER_CART_MINUTES, expireCounterCarts } from "@/lib/counter-carts";
 import { getCustomerSession } from "@/lib/customers";
 import { signalChange } from "@/lib/realtime";
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   signalChange("line");
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; service_type?: unknown; discount_type_id?: unknown };
+    const body = await request.json() as { items?: unknown; service_type?: unknown; pickup_mode?: unknown; discount_type_id?: unknown };
     // Each add-on is once per cup on the mobile menu.
     const items = parseOrderItems(body.items).map((item) => ({ ...item, additionIds: Array.from(new Set(item.additionIds)) }));
     if (items.length === 0) return NextResponse.json({ error: "Add something to your order first." }, { status: 400 });
@@ -51,6 +51,9 @@ export async function POST(request: Request) {
       VALUES ($1, $2, $3::jsonb, $4, $5, $6, CURRENT_TIMESTAMP + ($7 || ' minutes')::interval)
       RETURNING TO_CHAR(expires_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS expires_at
     `, [token, code, JSON.stringify(items), customer?.customerId ?? null, type ? Number(type.discount_type_id) : null, parseServiceType(body.service_type), String(COUNTER_CART_MINUTES)]);
+    // The customer's pickup choice, for the cashier (only sent while the café lets each order choose).
+    const pickupChoice = parsePickupChoice(body.pickup_mode);
+    if (pickupChoice) await client.query("UPDATE counter_carts SET pickup_mode = $2 WHERE public_token = $1", [token, pickupChoice]);
     return NextResponse.json({ data: { token, code, total, discountName: type ? String(type.name) : null, expiresAt: String(inserted.rows[0].expires_at) } }, { status: 201 });
   } catch (error) {
     if (isSoldOut(error)) return NextResponse.json({ error: "Some items in your cart just sold out.", code: "sold_out" }, { status: 409 });

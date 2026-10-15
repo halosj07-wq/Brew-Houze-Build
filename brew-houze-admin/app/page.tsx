@@ -3441,20 +3441,26 @@ async function shrinkProductImage(file: File): Promise<string> {
 }
 
 // How an order with drinks and food is called at the counter (store_settings.pickup_mode, see
-// /api/stations): together when every part is ready, or each part on its own.
+// /api/stations): together when every part is ready, each part on its own, or as each order chose.
+type PickupSetting = "together" | "separate" | "per_order";
+const PICKUP_OPTIONS: [PickupSetting, string, string][] = [
+  ["together", "Called together", "The number is called once, when the drinks and the food are both ready. One pickup."],
+  ["separate", "Called separately", "Drinks and food are each called when they are ready. The customer may pick up twice."],
+  ["per_order", "Each order chooses", "At checkout, the customer (or the cashier for them) picks together or separately. Only asked when an order has both drinks and food."],
+];
 function PickupModeButton() {
-  const [mode, setMode] = useState<"together" | "separate" | null>(null);
+  const [mode, setMode] = useState<PickupSetting | null>(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
     fetch("/api/stations", { cache: "no-store" }).then((response) => response.ok ? response.json() : null)
-      .then((payload: { data?: { pickupMode: "together" | "separate" } } | null) => { if (active && payload?.data) setMode(payload.data.pickupMode); })
+      .then((payload: { data?: { pickupMode: PickupSetting } } | null) => { if (active && payload?.data) setMode(payload.data.pickupMode); })
       .catch(() => undefined);
     return () => { active = false; };
   }, []);
-  async function choose(next: "together" | "separate") {
+  async function choose(next: PickupSetting) {
     if (saving || next === mode) { setOpen(false); return; }
     setSaving(true); setError("");
     try {
@@ -3470,12 +3476,12 @@ function PickupModeButton() {
   }
   if (mode === null) return null;
   return <>
-    <button type="button" className="inv-secondary" onClick={() => setOpen(true)} title="How orders with drinks and food are called">🔔 Pickup: {mode === "separate" ? "Separately" : "Together"}</button>
+    <button type="button" className="inv-secondary" onClick={() => setOpen(true)} title="How orders with drinks and food are called">🔔 Pickup: {mode === "separate" ? "Separately" : mode === "per_order" ? "Each order chooses" : "Together"}</button>
     {open && <Modal onClose={() => setOpen(false)} closeDisabled={saving} label="Pickup">
       <div className="pickup-dialog">
         <DialogHeader title="Orders with drinks and food" sub="How the counter calls them. The bar and the kitchen always mark their own part ready." onClose={() => setOpen(false)} disabled={saving} />
         <div className="pickup-options" role="radiogroup" aria-label="Pickup">
-          {([["together", "Called together", "The number is called once, when the drinks and the food are both ready. One pickup."], ["separate", "Called separately", "Drinks and food are each called when they are ready. The customer may pick up twice."]] as const).map(([value, title, text]) => (
+          {PICKUP_OPTIONS.map(([value, title, text]) => (
             <button key={value} type="button" role="radio" aria-checked={mode === value} disabled={saving} onClick={() => void choose(value)}><strong>{title}</strong><span>{text}</span></button>
           ))}
         </div>
@@ -4462,6 +4468,17 @@ function ProductManagement({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* The menu's settings and actions, in their own bar apart from the search, filters and sort. */}
+      <div className="menu-actions">
+        <div className="menu-actions-group">
+          <PickupModeButton />
+          <button type="button" className="inv-secondary" onClick={() => setFeaturedOpen(true)} disabled={products.length === 0} title="Barista Featured Specials on the mobile menu"><IconStar size={14} />Featured</button>
+        </div>
+        <div className="menu-actions-group is-end">
+          <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>
+          <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
+        </div>
+      </div>
       <div className="inv-summary">
         <button type="button" className="inv-stat" aria-pressed={availability === "all"} onClick={() => setAvailability("all")}><span>Products</span><strong>{summary.total}</strong><em>on the cashier and mobile menus</em></button>
         <button type="button" className="inv-stat" aria-pressed={availability === "available"} onClick={() => setAvailability(availability === "available" ? "all" : "available")}><span>Can be sold now</span><strong style={{ color: "#15803D" }}>{summary.available}</strong><em>every size has stock</em></button>
@@ -4490,10 +4507,6 @@ function ProductManagement({
             <option value="category">By category</option><option value="name">Name A–Z</option><option value="price">Price, low to high</option><option value="margin">Lowest margin first</option>
           </select>
         </label>
-        <PickupModeButton />
-        <button type="button" className="inv-secondary" onClick={() => setFeaturedOpen(true)} disabled={products.length === 0} title="Barista Featured Specials on the mobile menu"><IconStar size={14} />Featured</button>
-        <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>
-        <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
       </div>
 
       <div className="menu-chips" role="group" aria-label="Category">
@@ -7056,8 +7069,20 @@ function FinanceExpenses({ start, end }: { start: string; end: string }) {
 // app/api/insights). Claude is asked only when an admin presses the button, and only while the
 // switch is on; every result is saved, so reading it again costs nothing.
 type InsightCard = { tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: "inventory" | "finance" | "treasury" | "products" | "shift" };
-type InsightResult = { id: number; start: string; end: string; headline: string; cards: InsightCard[]; model: string; inputTokens: number | null; outputTokens: number | null; requestedBy: string | null; createdAt: string };
-type InsightsData = { enabled: boolean; configured: boolean; cooldownSeconds: number; model: string; insights: InsightResult[] };
+// kind: "numbers" (from the café's own records) or "trends" (food and drink trends Claude found on
+// the web, compared with the menu; their cards are TrendCards).
+type InsightResult = { id: number; kind: "numbers" | "trends"; area: string | null; searches: number; start: string; end: string; headline: string; cards: InsightCard[]; model: string; inputTokens: number | null; outputTokens: number | null; requestedBy: string | null; createdAt: string };
+type InsightsData = { enabled: boolean; configured: boolean; cooldownSeconds: number; model: string; trendArea: string; insights: InsightResult[] };
+type TrendCard = { fit: "on_menu" | "add" | "watch"; title: string; trend: string; menuNote: string; scope: "local" | "philippines" | "global"; sources: { url: string; title: string; age: string | null }[] };
+const trendCardsOf = (result: InsightResult) => result.cards as unknown as TrendCard[];
+// Already on the menu first, then worth adding, then ones to keep an eye on.
+const trendFit: Record<TrendCard["fit"], { label: string; icon: string; rank: number; tone: string }> = {
+  on_menu: { label: "On your menu", icon: "✓", rank: 0, tone: "good" },
+  add: { label: "Worth adding", icon: "+", rank: 1, tone: "tip" },
+  watch: { label: "Keep an eye on", icon: "◔", rank: 2, tone: "watch" },
+};
+const trendScope: Record<TrendCard["scope"], string> = { local: "In your area", philippines: "Across the Philippines", global: "Worldwide" };
+const sourceSite = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return url; } };
 
 // Most urgent first: alert (money being lost now), warning, good news, tip.
 const insightTone: Record<InsightCard["tone"], { label: string; icon: string; rank: number }> = {
@@ -7068,11 +7093,12 @@ const insightTone: Record<InsightCard["tone"], { label: string; icon: string; ra
 };
 const insightPageLabels: Record<InsightCard["page"], string> = { inventory: "Inventory", finance: "Finance", treasury: "Treasury", products: "Menu", shift: "Shift" };
 
-// What one request cost, from its tokens at Claude Opus 5.5's prices ($4 in, $20 out per million).
+// What one request cost, from its tokens at Claude Opus 5.5's prices ($4 in, $20 out per million),
+// plus its web searches ($10 per thousand).
 function insightCost(result: InsightResult): string | null {
   if (result.inputTokens === null || result.outputTokens === null) return null;
-  const dollars = (result.inputTokens * 4 + result.outputTokens * 20) / 1_000_000;
-  return `${(result.inputTokens + result.outputTokens).toLocaleString("en-PH")} tokens · about $${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
+  const dollars = (result.inputTokens * 4 + result.outputTokens * 20) / 1_000_000 + result.searches * 0.01;
+  return `${(result.inputTokens + result.outputTokens).toLocaleString("en-PH")} tokens${result.searches > 0 ? ` · ${result.searches} web search${result.searches === 1 ? "" : "es"}` : ""} · about $${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
 }
 
 function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
@@ -7087,6 +7113,10 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [error, setError] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
+  // Your numbers (insights from the café's records) or food and drink trends from the web.
+  const [view, setView] = useState<"numbers" | "trends">("numbers");
+  const [area, setArea] = useState("");
+  const [trendSelectedId, setTrendSelectedId] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -7098,6 +7128,7 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         if (!active) return;
         setData(payload.data);
         setCooldown(payload.data.cooldownSeconds);
+        setArea((current) => current || (payload.data.trendArea === "the Philippines" ? "" : payload.data.trendArea));
       } catch (loadError) {
         if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the insights.");
       } finally {
@@ -7135,6 +7166,25 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
     }
   }
 
+  async function askTrends() {
+    if (asking) return;
+    setAsking(true);
+    setError("");
+    try {
+      const response = await fetch("/api/insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "trends", area }) });
+      const payload = await response.json();
+      if (typeof payload?.cooldownSeconds === "number") setCooldown(payload.cooldownSeconds);
+      if (!response.ok) throw new Error(payload?.error || "Could not check the trends.");
+      setData((current) => current ? { ...current, insights: [payload.data, ...current.insights] } : current);
+      setTrendSelectedId(payload.data.id);
+      setCooldown(5 * 60);
+    } catch (askError) {
+      setError(askError instanceof Error ? askError.message : "Could not check the trends.");
+    } finally {
+      setAsking(false);
+    }
+  }
+
   async function setEnabled(enabled: boolean) {
     setSwitching(true);
     setError("");
@@ -7155,7 +7205,11 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
   // The one picked from the earlier list, else the latest for the chosen period, else the latest.
   const forPeriod = (entry: InsightResult) => Boolean(preset) && entry.start === preset.start && entry.end === preset.end;
-  const shown = data.insights.find((entry) => entry.id === selectedId) ?? data.insights.find(forPeriod) ?? data.insights[0] ?? null;
+  const numberRuns = data.insights.filter((entry) => entry.kind !== "trends");
+  const trendRuns = data.insights.filter((entry) => entry.kind === "trends");
+  const shown = numberRuns.find((entry) => entry.id === selectedId) ?? numberRuns.find(forPeriod) ?? numberRuns[0] ?? null;
+  const shownTrend = trendRuns.find((entry) => entry.id === trendSelectedId) ?? trendRuns[0] ?? null;
+  const trendCards = shownTrend ? [...trendCardsOf(shownTrend)].sort((a, b) => (trendFit[a.fit]?.rank ?? 9) - (trendFit[b.fit]?.rank ?? 9)) : [];
   const cards = shown ? [...shown.cards].sort((a, b) => (insightTone[a.tone]?.rank ?? 9) - (insightTone[b.tone]?.rank ?? 9)) : [];
   const blocked = !data.enabled ? "Turn AI insights on to ask Claude." : !data.configured ? "Not set up yet: the ANTHROPIC_API_KEY setting is missing on the server." : cooldown > 0 ? `You can ask again in ${Math.floor(cooldown / 60)}:${String(cooldown % 60).padStart(2, "0")}.` : null;
 
@@ -7180,6 +7234,55 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
       <div className={`ins-body${data.enabled ? "" : " is-off"}`} inert={!data.enabled} aria-disabled={!data.enabled}>
       {!data.configured && <div className="ins-setup"><strong>Not set up yet.</strong> Add the Claude API key to the admin app as <code>ANTHROPIC_API_KEY</code> (in <code>.env.local</code> and in the Vercel project settings), then reload this page. Saved insights stay readable.</div>}
 
+      <div className="menu-chips ins-views" role="group" aria-label="Insights">
+        <button type="button" aria-pressed={view === "numbers"} onClick={() => setView("numbers")}>Your numbers</button>
+        <button type="button" aria-pressed={view === "trends"} onClick={() => setView("trends")}>Food &amp; drink trends</button>
+      </div>
+
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+
+      {view === "trends" ? <>
+        <p className="inv-hint">Claude searches the web for what people in the Philippines are eating and drinking right now (viral drinks, pop-culture and seasonal flavors, new items from cafés) and compares it with your menu. Only your menu, sales counts and stock item names are sent.</p>
+        <div className="fin-datebar">
+          <label className="ins-area"><span>Area</span><input value={area} maxLength={80} onChange={(event) => setArea(event.target.value)} placeholder="Town or province (blank: the whole country)" /></label>
+          <div className="ins-ask">
+            <button type="button" className="inv-primary" onClick={() => void askTrends()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is searching the web…" : "Check trends with Claude"}</button>
+            <span className="inv-hint">{blocked ?? "Claude Opus 5.5 with web search · up to 6 searches · about $0.30 to $0.60 per check"}</span>
+          </div>
+        </div>
+        {!shownTrend ? <div className="inv-empty">{data.enabled ? "No trends checked yet. Press the button and Claude will look." : "No trends yet. Turn AI insights on, then ask Claude."}</div> : <>
+          <div className="ins-result">
+            <div className="ins-result-head">
+              <h3>{shownTrend.headline || "Food and drink trends"}</h3>
+              <p>{shownTrend.area ?? "the Philippines"} · checked {shiftTime(shownTrend.createdAt)}{shownTrend.requestedBy ? ` by ${shownTrend.requestedBy}` : ""}{insightCost(shownTrend) ? ` · ${insightCost(shownTrend)}` : ""}</p>
+            </div>
+            <ul className={`ins-cards is-n${Math.min(trendCards.length, 6)}`}>
+              {trendCards.map((card, index) => <li key={index} className={`is-${trendFit[card.fit]?.tone ?? "watch"}`}>
+                <span className="ins-card-icon" aria-hidden="true">{trendFit[card.fit]?.icon ?? "•"}</span>
+                <div className="ins-card-body">
+                  <span className="ins-trend-tags"><b>{trendFit[card.fit]?.label}</b><i>{trendScope[card.scope] ?? ""}</i></span>
+                  <strong>{card.title}</strong>
+                  <p>{card.trend}</p>
+                  {card.menuNote && <p className="ins-trend-menu"><b>Your menu:</b> {card.menuNote}</p>}
+                  <ul className="ins-sources" aria-label="Sources">
+                    {card.sources.map((source) => <li key={source.url}><a href={source.url} target="_blank" rel="noopener noreferrer">{source.title || sourceSite(source.url)}</a><span>{sourceSite(source.url)}{source.age ? ` · ${source.age}` : ""}</span></li>)}
+                  </ul>
+                  {card.fit !== "watch" && <button type="button" className="ins-card-go" onClick={() => onNavigate("products")}>Open Menu<IconChevron size={12} /></button>}
+                </div>
+              </li>)}
+            </ul>
+            <p className="inv-hint">Found by AI on the web and compared with your menu. Open the sources to check them before changing the menu.</p>
+          </div>
+          {trendRuns.length > 1 && <DashCard title="Earlier trend checks" sub="Saved results. Opening one costs nothing.">
+            <ul className="fin-simple-list">
+              {trendRuns.map((entry) => <li key={entry.id}>
+                <span><strong>{entry.headline || `${entry.cards.length} trends`}</strong><em>{entry.area ?? "the Philippines"} · {shiftTime(entry.createdAt)}{entry.requestedBy ? ` · ${entry.requestedBy}` : ""}</em></span>
+                {entry.id === shownTrend.id ? <span className="inv-hint">Showing</span> : <button type="button" className="inv-mini" onClick={() => setTrendSelectedId(entry.id)}>Open</button>}
+              </li>)}
+            </ul>
+          </DashCard>}
+        </>}
+      </> : <>
       <div className="fin-datebar">
         <div className="menu-chips" role="group" aria-label="Period">
           {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
@@ -7189,8 +7292,6 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
           <span className="inv-hint">{blocked ?? `${preset ? formatRange(preset.start, preset.end) : ""} · Claude Opus 5.5 · about $0.02 per request`}</span>
         </div>
       </div>
-
-      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
 
       {!shown ? <div className="inv-empty">{data.enabled ? "No insights yet. Choose a period and ask Claude." : "No insights yet. Turn AI insights on, then ask Claude."}</div> : <>
         <div className="ins-result">
@@ -7214,14 +7315,15 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
           </ul>
           <p className="inv-hint">Written by AI from the numbers above. Check the figures on the linked page before acting on them.</p>
         </div>
-        {data.insights.length > 1 && <DashCard title="Earlier insights" sub="Saved results. Opening one costs nothing.">
+        {numberRuns.length > 1 && <DashCard title="Earlier insights" sub="Saved results. Opening one costs nothing.">
           <ul className="fin-simple-list">
-            {data.insights.map((entry) => <li key={entry.id}>
+            {numberRuns.map((entry) => <li key={entry.id}>
               <span><strong>{entry.headline || `${entry.cards.length} insights`}</strong><em>{formatRange(entry.start, entry.end)} · {shiftTime(entry.createdAt)}{entry.requestedBy ? ` · ${entry.requestedBy}` : ""}</em></span>
               {entry.id === shown.id ? <span className="inv-hint">Showing</span> : <button type="button" className="inv-mini" onClick={() => setSelectedId(entry.id)}>Open</button>}
             </li>)}
           </ul>
         </DashCard>}
+      </>}
       </>}
       </div>
     </div>

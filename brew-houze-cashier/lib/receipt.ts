@@ -26,6 +26,8 @@ export type ReceiptData = {
   // Delivery orders: the fee, and where it went.
   deliveryFee?: number; delivery?: { recipient: string; phone: string; street: string; landmark: string | null; zone: string; status: string; rider: string | null; checkId?: boolean; notes?: string | null; codCollected?: number | null; deliveredAt?: string | null } | null;
   // rewardName: the line was a loyalty reward (free, paid with stars).
+  // An order taken while offline (see lib/offline.ts): its ticket (OFF-1...) stands for the queue number.
+  offlineTicket?: string | null;
   items: { name: string; size: string | null; temperature: string | null; quantity: number; unitPrice: number; rewardName?: string | null; station?: Station; custom?: string | null; additions: { name: string; quantity: number; unitPrice: number }[] }[];
 };
 
@@ -39,7 +41,10 @@ export function needsSignature(entry: ReceiptIdDiscount): boolean {
 // A delivery order's progress, printed on its receipt.
 export const receiptDeliveryStatus: Record<string, string> = { preparing: "Preparing", ready: "Packed for the rider", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" };
 // What the receipt says under the total for a delivery: the customer's thanks, or the rider's reminder.
-export const receiptFooter = (receipt: ReceiptData) => receipt.serviceType === "delivery" ? "Thank you! Enjoy your order." : `Thank you!${receipt.queueNumber !== null ? " Please wait for your number." : ""}`;
+export const receiptFooter = (receipt: ReceiptData) => receipt.serviceType === "delivery" ? "Thank you! Enjoy your order." : `Thank you!${receiptNumber(receipt) ? " Please wait for your number." : ""}`;
+// What the customer waits for: the queue number, or the offline ticket.
+export const receiptNumber = (receipt: ReceiptData): { label: string; value: string } | null =>
+  receipt.offlineTicket ? { label: "Offline ticket", value: receipt.offlineTicket } : receipt.queueNumber !== null ? { label: "Queue number", value: `#${receipt.queueNumber}` } : null;
 // The subtotal of the items (orders saved before subtotals were recorded work it out from the total).
 export const receiptSubtotal = (receipt: ReceiptData) => receipt.subtotal ?? receipt.total + (receipt.discountAmount ?? 0) + (receipt.vatExemptAmount ?? 0) - (receipt.deliveryFee ?? 0);
 
@@ -115,10 +120,11 @@ export function escposReceipt(receipt: ReceiptData, reprint: boolean, paperWidth
   center(RECEIPT_BUSINESS.name, { bold: true, big: true });
   RECEIPT_BUSINESS.lines.forEach((line) => center(line));
   center(`ORDER SLIP${reprint ? " - REPRINT" : ""}`, { bold: true });
-  if (receipt.queueNumber !== null) {
+  const number = receiptNumber(receipt);
+  if (number) {
     rule();
-    center("QUEUE NUMBER", { bold: true });
-    center(`#${receipt.queueNumber}`, { bold: true, big: true });
+    center(number.label.toUpperCase(), { bold: true });
+    center(number.value, { bold: true, big: true });
   }
   const status = receipt.status.startsWith("void") ? "VOIDED" : receipt.status.startsWith("refund") ? "REFUNDED" : null;
   if (status) center(`*** ${status}${receipt.reversedAt ? ` ${receiptTime(receipt.reversedAt)}` : ""} ***`, { bold: true });

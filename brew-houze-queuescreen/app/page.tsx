@@ -18,7 +18,7 @@ type QueueOrder = {
   label?: string | null;
   ready_at?: string | null;
 };
-type QueuePayload = { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[] }; mode?: "together" | "separate"; error?: string };
+type QueuePayload = { data?: { waiting?: QueueOrder[]; ready?: QueueOrder[] }; mode?: "together" | "separate" | "per_order"; error?: string };
 type Calling = { key: string; number: number; label: string | null; until: number };
 
 const CALL_SECONDS = 12;

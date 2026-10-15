@@ -153,7 +153,11 @@ body {
 .admin-sidebar.is-collapsed .admin-sidebar-toggle { margin-left: 0; }
 .admin-sidebar.is-collapsed .admin-sidebar-text,
 .admin-sidebar.is-collapsed .admin-nav-group-label { display: none; }
-.admin-sidebar-nav { flex: 1; overflow-y: auto; padding: 16px 12px; display: flex; flex-direction: column; gap: 16px; }
+.admin-sidebar-nav { flex: 1; overflow-y: auto; padding: 16px 12px; display: flex; flex-direction: column; gap: 16px; scrollbar-width: thin; scrollbar-color: rgba(253,249,245,0.16) transparent; }
+/* Its scrollbar is a faint pill in the sidebar's own brown (the pages' light one read as a stripe on the dark). */
+.admin-sidebar-nav::-webkit-scrollbar { width: 8px; }
+.admin-sidebar-nav::-webkit-scrollbar-thumb { background: rgba(253,249,245,0.16); border-radius: 8px; border: 2px solid #3D2B1F; }
+.admin-sidebar-nav::-webkit-scrollbar-thumb:hover { background: rgba(253,249,245,0.3); }
 .admin-nav-group { display: flex; flex-direction: column; gap: 3px; }
 .admin-nav-group-label { margin: 0 0 5px 12px; color: rgba(253,249,245,0.38); font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; }
 .admin-nav-item { width: 100%; display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 14px; border: none; border-radius: 12px; background: transparent; color: rgba(253,249,245,0.64); font-family: 'Inter', sans-serif; font-size: 13.5px; font-weight: 500; text-align: left; cursor: pointer; transition: background 140ms ease, color 140ms ease; }
@@ -842,6 +846,11 @@ strong.is-low { color: #B45309 !important; }
 .menu-tab-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: #E8DDD5; color: #6B4C3B; font-size: 11px; font-weight: 800; text-align: center; }
 .inv-tabs button[aria-selected="true"] .menu-tab-count { background: #3D2B1F; color: #FDF9F5; }
 
+/* Menu: its settings (pickup, featured) on the left and actions (export, add) on the right, in a bar of their own. */
+.menu-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px; border: 1px solid #E8DDD5; border-radius: 16px; background: #FFFFFF; }
+.menu-actions-group { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.menu-actions-group.is-end { margin-left: auto; }
+@media (max-width: 640px) { .menu-actions-group, .menu-actions-group.is-end { width: 100%; margin-left: 0; } .menu-actions-group > * { flex: 1; justify-content: center; } }
 .menu-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
 .menu-chips::-webkit-scrollbar { display: none; }
 .menu-chips button { display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0; height: 38px; padding: 0 14px; border: 1px solid #E8DDD5; border-radius: 999px; background: #FFFFFF; color: #6B4C3B; font-size: 13px; font-weight: 700; cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
@@ -1545,6 +1554,23 @@ strong.is-low { color: #B45309 !important; }
 .ins-cards li.is-warning { border-color: #FCD34D; background: #FFFBEB; }
 .ins-cards li.is-good { border-color: #BBF7D0; background: #F0FDF4; }
 .ins-cards li.is-tip { border-color: #BFDBFE; background: #EFF6FF; }
+/* Trends (food and drink trends from the web, compared with the menu). */
+.ins-cards li.is-watch { border-color: #E8DDD5; background: #FDF9F5; }
+.ins-views { margin-bottom: -4px; }
+.ins-area { display: flex; flex-direction: column; gap: 4px; min-width: min(320px, 100%); }
+.ins-area span { color: #9C8278; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
+.ins-area input { height: 42px; padding: 0 12px; border: 1px solid #E8DDD5; border-radius: 12px; background: #FFFFFF; color: #3D2B1F; font-size: 13.5px; outline: none; }
+.ins-area input:focus { border-color: #D97706; }
+.ins-trend-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.ins-trend-tags b, .ins-trend-tags i { padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-style: normal; font-weight: 800; letter-spacing: 0.02em; }
+.ins-trend-tags b { background: rgba(255,255,255,0.85); color: #3D2B1F; border: 1px solid rgba(61,43,31,0.12); }
+.ins-trend-tags i { background: transparent; color: #6B4C3B; border: 1px dashed rgba(61,43,31,0.2); }
+.ins-cards p.ins-trend-menu { margin-top: -4px; padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,0.7); font-size: 13px; }
+.ins-sources { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.ins-cards .ins-sources li { display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 0; border: 0; border-radius: 0; background: none; }
+.ins-sources a { color: #B45309; font-size: 12.5px; font-weight: 700; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ins-sources a:hover { text-decoration: underline; }
+.ins-sources span { color: #9C8278; font-size: 11px; }
 .ins-card-icon { flex-shrink: 0; display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.8); font-size: 15px; }
 .ins-cards strong { display: block; color: #3D2B1F; font-family: 'Hanken Grotesk', sans-serif; font-size: 16px; font-weight: 800; }
 .ins-cards p { margin: 4px 0 10px; color: #3D2B1F; font-size: 13.5px; line-height: 1.5; }

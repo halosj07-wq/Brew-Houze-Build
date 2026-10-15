@@ -319,6 +319,14 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .bh-service button[aria-checked="true"] small { color: #F8D9B8; }
 .bh-service button.is-off { opacity: 0.5; cursor: not-allowed; }
 .bh-service.is-cart { margin-top: 8px; }
+/* The pickup choice (when the café lets each order choose): drinks and food together or separately. */
+.bh-pickup { margin-top: 12px; }
+.bh-pickup > p { margin: 0 0 6px; color: var(--ink); font-size: 13px; font-weight: 700; }
+.bh-pickup-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.bh-pickup-options button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; color: var(--ink); background: #FFFFFF; border: 1px solid var(--line); border-radius: 12px; text-align: left; cursor: pointer; }
+.bh-pickup-options button strong { font-size: 14px; }
+.bh-pickup-options button small { color: var(--muted, #8A7266); font-size: 11.5px; line-height: 1.3; }
+.bh-pickup-options button[aria-checked="true"] { border-color: var(--brown); box-shadow: inset 0 0 0 1px var(--brown); background: var(--cream); }
 
 /* Search, filter, categories */
 .bh-search-row { display: flex; gap: 8px; margin-top: 16px; }

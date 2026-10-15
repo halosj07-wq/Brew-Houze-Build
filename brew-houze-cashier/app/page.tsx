@@ -4,7 +4,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import Image from "next/image";
 import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
 import { livePollGate, onLive } from "@/lib/live";
-import { escposReceipt, needsSignature, rawbtIntentUrl, RECEIPT_BUSINESS, receiptDeliveryStatus, receiptFooter, receiptItemsByStation, receiptMoney, receiptSubtotal, receiptTime, type ReceiptData } from "@/lib/receipt";
+import { escposReceipt, needsSignature, rawbtIntentUrl, RECEIPT_BUSINESS, receiptDeliveryStatus, receiptFooter, receiptItemsByStation, receiptMoney, receiptNumber, receiptSubtotal, receiptTime, type ReceiptData } from "@/lib/receipt";
+import { forgetSession, isNetworkError, nextTicket, readOutbox, readSynced, rememberedMenu, rememberedSession, rememberedShift, rememberMenu, rememberSession, rememberShift, saveOfflineOrder, writeOutbox, writeSynced, type OfflineOrder, type OfflineReceiptLine, type OfflineSynced } from "@/lib/offline";
 
 // line: the counter line, everything from the mobile menu waiting for the cashier (see CounterLine).
 type Page = "pos" | "line" | "queue" | "reversals" | "deliveries" | "accounts";
@@ -28,7 +29,7 @@ type QueueOrderDetail = { product_name: string; size_label: string | null; tempe
 // Where things are made. An order has one part per station it needs (see lib/stations.ts).
 type Station = "bar" | "kitchen";
 type StationPart = { station: Station; status: "waiting" | "ready" | "picked_up" };
-type QueueView = { station: Station | null; canHandOff: boolean; pickupMode: "together" | "separate" };
+type QueueView = { station: Station | null; canHandOff: boolean; pickupMode: "together" | "separate" | "per_order" };
 const STATION_LABEL: Record<Station, { name: string; icon: string; made: string; things: string }> = {
   bar: { name: "Bar", icon: "☕", made: "Drinks", things: "drinks" },
   kitchen: { name: "Kitchen", icon: "🍳", made: "Food", things: "food" },
@@ -740,12 +741,13 @@ async function downloadReceiptPdf(receipt: ReceiptData, reprint: boolean, paperW
   text(RECEIPT_BUSINESS.name, base * 1.7, true);
   RECEIPT_BUSINESS.lines.forEach((line) => text(line, base * 0.85));
   text(`ORDER SLIP${reprint ? " - REPRINT" : ""}`, base, true);
-  if (receipt.queueNumber !== null) {
+  const number = receiptNumber(receipt);
+  if (number) {
     y += 1.5;
     const boxTop = y;
     y += 1;
-    text("QUEUE NUMBER", base * 0.85, true);
-    text(`#${receipt.queueNumber}`, base * 2.8, true);
+    text(number.label.toUpperCase(), base * 0.85, true);
+    text(number.value, base * 2.8, true);
     y -= lineHeight(base * 2.8) * 0.22;
     ops.push({ kind: "box", y: boxTop, height: y - boxTop });
     y += 1;
@@ -868,7 +870,7 @@ function ReceiptSlip({ receipt, reprint, paperWidth }: { receipt: ReceiptData; r
       {RECEIPT_BUSINESS.lines.map((line) => <div key={line} className="receipt-small">{line}</div>)}
       <div className="receipt-title">ORDER SLIP{reprint ? " · REPRINT" : ""}</div>
     </div>
-    {receipt.queueNumber !== null && <div className="receipt-queue"><span>Queue number</span><strong>#{receipt.queueNumber}</strong></div>}
+    {receiptNumber(receipt) && <div className="receipt-queue"><span>{receiptNumber(receipt)!.label}</span><strong>{receiptNumber(receipt)!.value}</strong></div>}
     {status && <div className="receipt-stamp">{status}{receipt.reversedAt ? ` ${receiptTime(receipt.reversedAt)}` : ""}</div>}
     <div className="receipt-rule" />
     {row("Date", receiptTime(receipt.createdAt))}
@@ -956,6 +958,86 @@ const KeypadContext = createContext<{ enabled: boolean; setEnabled: (enabled: bo
 // anywhere in the app unlocks it. On or off per device (SOUNDS_STORAGE_KEY).
 type PingKind = "line" | "queue" | "delivery";
 const SOUNDS_STORAGE_KEY = "brew-houze-cashier-sounds";
+// Offline mode (see lib/offline.ts): whether the server answers, the counter orders this tablet
+// took while it did not (waiting to be sent), what was sent, and who and which shift takes them.
+type OfflineContextValue = {
+  online: boolean; pending: OfflineOrder[]; syncing: boolean;
+  shiftId: number | null; cashierId: number; cashierName: string;
+  addOrder: (order: OfflineOrder) => boolean; printOffline: (order: OfflineOrder) => Promise<string | null>;
+};
+const OfflineContext = createContext<OfflineContextValue>({
+  online: true, pending: [], syncing: false, shiftId: null, cashierId: 0, cashierName: "",
+  addOrder: () => false, printOffline: async () => "Printing is not available here.",
+});
+
+// The receipt of an order taken offline, from what the tablet saved.
+function offlineReceipt(order: OfflineOrder): ReceiptData {
+  return {
+    orderId: 0, queueNumber: null, offlineTicket: order.ticket, shiftId: order.shiftId, status: "completed", total: order.total,
+    paymentMethod: "cash", paymentProvider: null, paymentReference: null, cashPortion: null, received: order.received, change: Math.round((order.received - order.total) * 100) / 100,
+    orderSource: "cashier", returnMethod: null, createdAt: order.createdAt, reversedAt: null, cashierName: order.cashierName,
+    subtotal: order.total, discountAmount: 0, serviceType: order.serviceType, items: order.lines,
+  };
+}
+
+// The bar under the top bar while offline, while offline orders are being sent, and once they
+// were: what happened, and the orders that need a look.
+function OfflineBar({ online, pending, syncing, synced, onReview, onDismiss }: { online: boolean; pending: OfflineOrder[]; syncing: boolean; synced: OfflineSynced[]; onReview: () => void; onDismiss: () => void }) {
+  const problems = pending.filter((order) => order.problem).length;
+  const waiting = pending.length - problems;
+  const notes = synced.filter((entry) => entry.stockShort.length > 0 || Math.abs(entry.menuTotal - entry.total) > 0.005).length;
+  if (online && pending.length === 0 && synced.length === 0) return null;
+  const tone = !online ? "is-offline" : problems > 0 ? "is-problem" : pending.length > 0 ? "is-syncing" : "is-done";
+  return <div className={`offline-bar ${tone}`} role="status">
+    <span className="offline-bar-dot" aria-hidden="true" />
+    <span className="offline-bar-text">
+      {!online
+        ? <><strong>Offline.</strong> Cash counter orders are saved on this tablet and sent once the internet is back.{waiting > 0 ? ` ${waiting} waiting.` : ""}</>
+        : problems > 0 ? <><strong>{problems} offline order{problems === 1 ? "" : "s"} could not be saved.</strong> Review {problems === 1 ? "it" : "them"} before closing the shift.</>
+          : pending.length > 0 ? <><strong>{syncing ? "Sending" : "Waiting to send"} {pending.length} offline order{pending.length === 1 ? "" : "s"}…</strong> Keep this page open.</>
+            : <><strong>{synced.length} offline order{synced.length === 1 ? "" : "s"} saved.</strong>{notes > 0 ? ` ${notes} need${notes === 1 ? "s" : ""} a look (stock or price).` : " Sales and stock are up to date."}</>}
+    </span>
+    {(problems > 0 || synced.length > 0 || pending.length > 0) && <button type="button" onClick={onReview}>Review</button>}
+    {online && pending.length === 0 && synced.length > 0 && <button type="button" onClick={onDismiss} aria-label="Dismiss">×</button>}
+  </div>;
+}
+
+function OfflineReviewDialog({ pending, synced, online, syncing, onRetry, onDiscard, onClose }: { pending: OfflineOrder[]; synced: OfflineSynced[]; online: boolean; syncing: boolean; onRetry: () => void; onDiscard: (order: OfflineOrder) => void; onClose: () => void }) {
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const time = (value: string) => new Date(value).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "numeric", minute: "2-digit" });
+  return <Modal onClose={onClose} label="Offline orders">
+    <section className="offline-review">
+      <header><div><p>Offline orders</p><h3>Orders taken without the internet</h3></div><button type="button" onClick={onClose} aria-label="Close">×</button></header>
+      {pending.length > 0 && <>
+        <h4>On this tablet ({pending.length})</h4>
+        <ul>
+          {pending.map((order) => <li key={order.id} className={order.problem ? "is-problem" : ""}>
+            <div><strong>{order.ticket}</strong><span>{time(order.createdAt)} · ₱{order.total.toFixed(2)} cash · {order.lines.reduce((sum, line) => sum + line.quantity, 0)} item{order.lines.reduce((sum, line) => sum + line.quantity, 0) === 1 ? "" : "s"}</span>{order.problem && <em>{order.problem}</em>}</div>
+            {order.problem && (confirming === order.id
+              ? <span className="offline-review-confirm">Discard? It will not be in the sales.<button type="button" className="is-danger" onClick={() => { onDiscard(order); setConfirming(null); }}>Discard</button><button type="button" onClick={() => setConfirming(null)}>Keep</button></span>
+              : <button type="button" onClick={() => setConfirming(order.id)}>Discard…</button>)}
+          </li>)}
+        </ul>
+        <button type="button" className="offline-review-retry" disabled={!online || syncing} onClick={onRetry}>{syncing ? "Sending…" : online ? "Send again" : "Waiting for the internet"}</button>
+      </>}
+      {synced.length > 0 && <>
+        <h4>Saved to the system ({synced.length})</h4>
+        <ul>
+          {[...synced].reverse().map((entry) => <li key={entry.id}>
+            <div>
+              <strong>{entry.ticket} → order #{entry.queueNumber}</strong>
+              <span>₱{entry.total.toFixed(2)} · saved {time(entry.syncedAt)}</span>
+              {Math.abs(entry.menuTotal - entry.total) > 0.005 && <em>The menu price changed: charged ₱{entry.total.toFixed(2)} offline, the menu now asks ₱{entry.menuTotal.toFixed(2)}. The sale keeps the price charged{entry.menuTotal > entry.total ? " (the difference is an Offline price discount)" : ""}.</em>}
+              {entry.stockShort.length > 0 && <em>Stock ran short: {entry.stockShort.map((short) => `${short.item} (${short.short} ${short.unit})`).join(", ")}. It was set to zero; count it and restock.</em>}
+            </div>
+          </li>)}
+        </ul>
+      </>}
+      {pending.length === 0 && synced.length === 0 && <p className="offline-review-empty">No offline orders.</p>}
+    </section>
+  </Modal>;
+}
+
 const SoundContext = createContext<{ enabled: boolean; setEnabled: (enabled: boolean) => void }>({ enabled: true, setEnabled: () => undefined });
 let pingAudio: AudioContext | null = null;
 function pingContext(): AudioContext | null {
@@ -1996,7 +2078,7 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
 // and takes payment.
 type CounterCart = {
   id: number; code: string; items: { productVariantId: number; quantity: number; additionIds: number[] }[];
-  serviceType: "dine_in" | "take_out"; discountTypeId: number | null; discountName: string | null;
+  serviceType: "dine_in" | "take_out"; pickupMode?: "together" | "separate" | null; discountTypeId: number | null; discountName: string | null;
   createdAt: string; expiresAt: string; customer: AttachedCustomer | null;
 };
 
@@ -2038,7 +2120,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; station?: Station; categories?: string[]; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
   type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; product_type?: "recipe" | "stock"; station?: Station; category_order?: number | null; recent_sold?: number; image_url?: string | null; variants: Variant[] };
-  type ProductsResponse = { data?: Product[]; additions?: Addition[]; requests?: QuickRequest[] };
+  type ProductsResponse = { data?: Product[]; additions?: Addition[]; requests?: QuickRequest[]; pickup?: "together" | "separate" | "per_order" };
   // "count" is how many of this add-on go on EACH cup of the line (Double Shot x2 per cup).
   type CartAddition = Addition & { count: number };
   // rewardId: a loyalty reward line (one item, free, paid with stars; its add-ons are still charged).
@@ -2070,7 +2152,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   // The order just placed, with a button to print its receipt (or printing it right away).
   const receipts = useContext(ReceiptContext);
   // stars: "+2 ★ for Maria" when the attached customer earned loyalty stars.
-  const [lastPlaced, setLastPlaced] = useState<{ orderId: number; queueNumber: number; note: string; stars?: string } | null>(null);
+  const [lastPlaced, setLastPlaced] = useState<{ orderId: number; queueNumber: number; note: string; stars?: string; offline?: OfflineOrder } | null>(null);
+  const offline = useContext(OfflineContext);
   useEffect(() => {
     if (!lastPlaced) return;
     const timer = window.setTimeout(() => setLastPlaced(null), 20_000);
@@ -2118,6 +2201,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   // Eaten at the café or taken away: the barista's mug or cup, and the receipt. Or delivered: an
   // order that came through Messenger, with the address typed in here.
   const [serviceType, setServiceTypeState] = useState<"dine_in" | "take_out" | "delivery">("dine_in");
+  // When the café lets each order choose (Admin, Menu, Pickup), an order with drinks and food is
+  // called together or separately, as the customer asks.
+  const [pickupSetting, setPickupSetting] = useState<"together" | "separate" | "per_order">("together");
+  const [pickupChoice, setPickupChoice] = useState<"together" | "separate">("together");
   const [deliveryForm, setDeliveryForm] = useState(emptyCounterDelivery);
   const [deliveryAreas, setDeliveryAreas] = useState<CounterDeliveryAreas | null>(null);
   const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
@@ -2313,10 +2400,19 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
           setAdditions((current) => JSON.stringify(current) === JSON.stringify(nextAdditions) ? current : nextAdditions);
           const nextRequests = payload.requests ?? [];
           setQuickRequests((current) => JSON.stringify(current) === JSON.stringify(nextRequests) ? current : nextRequests);
+          setPickupSetting(payload.pickup ?? "together");
+          // Kept on the tablet, to keep selling if the internet goes.
+          rememberMenu(payload);
         }
       } catch (err) {
         console.error("POS: failed to load products", err);
-        if (active) setProducts((current) => current.length === 0 ? current : []);
+        // Offline: the menu as it was last loaded.
+        const kept = rememberedMenu<ProductsResponse>();
+        if (active && kept) {
+          setProducts((current) => current.length > 0 ? current : kept.data ?? []);
+          setAdditions((current) => current.length > 0 ? current : kept.additions ?? []);
+          setQuickRequests((current) => current.length > 0 ? current : kept.requests ?? []);
+        } else if (active) setProducts((current) => current.length === 0 ? current : []);
       } finally {
         if (active && showLoading) setLoading(false);
       }
@@ -2609,6 +2705,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     if (lines.length === 0) { setCheckoutError(`Nothing in cart ${sent.code} is available anymore.`); return; }
     setCart(lines);
     setServiceType(sent.serviceType);
+    setPickupChoice(sent.pickupMode ?? "together");
     setCustomer(sent.customer);
     setCounterCartId(sent.id);
     setCheckoutError(missing > 0 ? `${missing} item${missing === 1 ? "" : "s"} from cart ${sent.code} ${missing === 1 ? "is" : "are"} no longer available.` : "");
@@ -2749,6 +2846,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     setCounterCartId(null);
     void refreshCounterCarts();
     setServiceType("dine_in");
+    setPickupChoice("together");
     setDeliveryForm(emptyCounterDelivery);
     setRewardPassword("");
     void refreshLoyalty();
@@ -2765,7 +2863,57 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       setProducts(refreshedPayload.data ?? []);
       setAdditions(refreshedPayload.additions ?? []);
       setQuickRequests(refreshedPayload.requests ?? []);
+      setPickupSetting(refreshedPayload.pickup ?? "together");
     }
+  }
+
+  // Asked only when the café lets each order choose, and this order has drinks and food and is not a delivery.
+  const cartStations = new Set(cart.filter((item) => item.variantId !== null).map((item) => products.find((product) => product.product_id === item.productId)?.station ?? "bar"));
+  const askPickup = pickupSetting === "per_order" && serviceType !== "delivery" && cartStations.size > 1;
+
+  // Offline (see lib/offline.ts): a cash counter order is saved on the tablet with its ticket, its
+  // receipt printed, and it is sent once the internet is back. What needs the server (a customer
+  // account, rewards, ID discounts, GCash, deliveries, carts sent from phones) waits for it.
+  const offlineBlock = (): string | null => {
+    if (paymentMethod !== "cash") return "Offline: only cash is taken. GCash needs the internet.";
+    if (serviceType === "delivery") return "Offline: deliveries need the internet. Take dine in or take out orders.";
+    if (customer || claimId !== null || discountReward || idDiscounts.length > 0 || cart.some((item) => item.rewardId)) return "Offline: customers, rewards and discounts need the internet. Remove them to take the order now.";
+    if (counterCartId !== null) return "Offline: a cart sent from a phone needs the internet. Take the order fresh.";
+    return null;
+  };
+  function takeOffline(received: number, total: number): boolean {
+    const blocked = offlineBlock();
+    if (blocked) { setCheckoutError(blocked); return false; }
+    const lines: OfflineReceiptLine[] = cart.filter((item) => item.variantId !== null).map((item) => ({
+      name: item.name, size: item.size ?? null, temperature: item.temperature && item.temperature !== "both" ? item.temperature : null, quantity: item.qty, unitPrice: item.price,
+      station: products.find((product) => product.product_id === item.productId)?.station === "kitchen" ? "kitchen" : "bar",
+      custom: [...(item.customizations ?? []).map((entry) => `${entry.level === "none" ? "No" : "Less"} ${entry.name}`), item.note ?? ""].filter(Boolean).join(" · ") || null,
+      additions: item.additions.map((addition) => ({ name: addition.addition_name, quantity: addition.count * item.qty, unitPrice: Number(addition.price) })),
+    }));
+    const order: OfflineOrder = {
+      id: crypto.randomUUID(), ticket: nextTicket(offline.shiftId), createdAt: new Date().toISOString(), shiftId: offline.shiftId, cashierId: offline.cashierId, cashierName: offline.cashierName,
+      items: cart.filter((item) => item.variantId !== null).map((item) => ({
+        product_variant_id: Number(item.variantId), quantity: item.qty,
+        addition_ids: item.additions.flatMap((addition) => Array.from({ length: addition.count }, () => addition.addition_id)),
+        customizations: (item.customizations ?? []).map((entry) => ({ inventory_id: entry.inventoryId, level: entry.level })), note: item.note ?? "",
+      })),
+      lines, serviceType: serviceType === "take_out" ? "take_out" : "dine_in", pickupMode: askPickup ? pickupChoice : null, total, received,
+    };
+    if (!offline.addOrder(order)) { setCheckoutError("This tablet could not save the order (its storage is full or blocked). Write it down and enter it once the internet is back."); return false; }
+    setLastPlaced({ orderId: 0, queueNumber: 0, note: "", offline: order });
+    setServiceType("dine_in");
+    setPickupChoice("together");
+    setCart([]);
+    setReceivedAmount("");
+    setCashPart("");
+    setCartOpen(false);
+    if (receipts.settings.autoPrint) void printOfflineReceipt(order);
+    return true;
+  }
+  async function printOfflineReceipt(order: OfflineOrder) {
+    setLastPlaced((current) => current?.offline?.id === order.id ? { ...current, note: receipts.settings.output === "pdf" ? "Downloading the receipt PDF…" : "Opening the print window…" } : current);
+    const problem = await offline.printOffline(order);
+    setLastPlaced((current) => current?.offline?.id === order.id ? { ...current, note: problem ?? (receipts.settings.output === "pdf" ? "Receipt PDF downloaded" : "") } : current);
   }
 
   async function checkout(password?: string) {
@@ -2792,7 +2940,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     // Sent with the order: dine in or take out, and how its rewards were confirmed.
     if (serviceType === "delivery" && deliveryProblem) { setCheckoutError(deliveryProblem); return; }
     const delivery = serviceType === "delivery" ? { address: { recipient_name: deliveryForm.recipientName, phone: deliveryForm.phone, zone_id: Number(deliveryForm.zoneId), street: deliveryForm.street, landmark: deliveryForm.landmark, rider_notes: deliveryForm.riderNotes } } : undefined;
-    const rewardAuth = { service_type: serviceType, delivery, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, counter_cart_id: counterCartId, ...(password !== undefined ? { reward_password: password } : {}) };
+    const rewardAuth = { service_type: serviceType, pickup_mode: askPickup ? pickupChoice : null, delivery, claim_id: claimId, discount_reward_id: discountReward?.id ?? null, id_discounts: idPayload, counter_cart_id: counterCartId, ...(password !== undefined ? { reward_password: password } : {}) };
     // What the customer pays: the cart minus a reward discount or the ID discounts (and their VAT).
     const itemsDueValue = Math.max(0, Math.round((cart.reduce((sum, item) => sum + getLineTotal(item), 0) - discountCheck.amount - idCheck.discount - idCheck.vatExempt) * 100) / 100);
     const subtotalValue = Math.round((itemsDueValue + deliveryFeeOn(itemsDueValue)) * 100) / 100;
@@ -2803,6 +2951,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
         return;
       }
     }
+    // Offline: saved on the tablet instead.
+    if (!offline.online) { takeOffline(Number.isFinite(parsedReceivedAmount) ? parsedReceivedAmount : subtotalValue, subtotalValue); return; }
     setCheckingOut(true);
     setCheckoutError("");
     const cartItems = cart.filter((item) => item.variantId !== null).map((item) => ({
@@ -2866,7 +3016,9 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       setRewardPasswordOpen(false);
       await afterOrderPlaced(Number(payload.data.orderId), Number(payload.data.queueNumber), Number(payload.data.shiftId), Number(payload.data.starsEarned ?? 0), Number(payload.data.starsRedeemed ?? 0));
     } catch (error) {
-      setCheckoutError(error instanceof Error ? error.message : "Unable to complete checkout.");
+      // The internet went just now: a cash order is kept on the tablet instead.
+      if (isNetworkError(error) && paymentMethod === "cash" && !offlineBlock()) { takeOffline(Number.isFinite(parsedReceivedAmount) ? parsedReceivedAmount : subtotalValue, subtotalValue); return; }
+      setCheckoutError(isNetworkError(error) ? "No connection to the server. Try again, or take it as a cash order without a customer or discount." : error instanceof Error ? error.message : "Unable to complete checkout.");
     } finally {
       setCheckingOut(false);
     }
@@ -3227,6 +3379,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
             <div className="pos-service" role="radiogroup" aria-label="Dine in, take out/pick up or delivery">
               {([["dine_in", "Dine in"], ["take_out", "Take Out/Pick Up"], ["delivery", "Delivery"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={serviceType === value} className={serviceType === value ? `is-on is-${value}` : ""} onClick={() => setServiceType(value)}>{label}</button>)}
             </div>
+            {askPickup && <div className="pos-pickup" role="radiogroup" aria-label="Pickup of drinks and food">
+              <span>Drinks &amp; food</span>
+              {([["together", "Together"], ["separate", "Separately"]] as const).map(([value, label]) => <button key={value} type="button" role="radio" aria-checked={pickupChoice === value} className={pickupChoice === value ? "is-on" : ""} onClick={() => setPickupChoice(value)} title={value === "together" ? "Called once, when the drinks and the food are both ready" : "Drinks and food are each called when ready"}>{label}</button>)}
+            </div>}
             {serviceType === "delivery" && !deliveryAddressReady && deliveryAreas !== null && <button type="button" className="pos-dlv-missing" onClick={() => setDeliveryDialogOpen(true)}>Add the delivery address ›</button>}
             {serviceType === "delivery" && deliveryAddressReady && deliveryProblem && <p className="pos-dlv-warn">{deliveryProblem}</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
@@ -3236,7 +3392,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
                   ? [["cod", "COD"] as const, ["cash", "Cash now"] as const, ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const] : [])]
                   : [["cash", "Cash"] as const, ...(gcashConfig?.gcash ? [["gcash", "GCash"] as const, ["split", "Split"] as const] : [])]).map(([method, label]) => {
                   const tone = method === "gcash" ? "#0057E4" : method === "split" ? "#7E22CE" : method === "cod" ? "#B45309" : "#3D2B1F";
-                  return <button key={method} type="button" onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} title={method === "split" ? "Part cash, part GCash" : method === "cod" ? "Cash on delivery: the rider collects the total at the door" : method === "cash" && serviceType === "delivery" ? "Paid in cash here before it goes out" : undefined} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${tone}` : "1px solid #E8DDD5", background: paymentMethod === method ? tone : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "cash" ? "#6B4C3B" : tone, whiteSpace: "nowrap", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>;
+                  return <button key={method} type="button" disabled={!offline.online && method !== "cash"} onClick={() => { setPaymentMethod(method); if (checkoutError) setCheckoutError(""); }} title={method === "split" ? "Part cash, part GCash" : method === "cod" ? "Cash on delivery: the rider collects the total at the door" : method === "cash" && serviceType === "delivery" ? "Paid in cash here before it goes out" : undefined} style={{ flex: 1, border: paymentMethod === method ? `1px solid ${tone}` : "1px solid #E8DDD5", background: paymentMethod === method ? tone : "#FFFDF9", color: paymentMethod === method ? "#FFFFFF" : method === "cash" ? "#6B4C3B" : tone, whiteSpace: "nowrap", padding: "9px 6px", borderRadius: 8, fontSize: 12, fontWeight: 800, cursor: "pointer" }}>{label}</button>;
                 })}
               </div>
             </div>
@@ -3325,10 +3481,10 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       onSave={(form) => { setDeliveryForm(form); setDeliveryDialogOpen(false); if (checkoutError) setCheckoutError(""); }}
       onClose={() => setDeliveryDialogOpen(false)} />}
     {gcashCheckout && <GcashPaymentDialog checkout={gcashCheckout} testMode={Boolean(gcashConfig?.testMode)} onClose={() => { if ((gcashCheckout.cashAmount ?? 0) > 0) setCheckoutError(`The GCash part was not paid, so no order was made. Give back the ₱${(gcashCheckout.cashAmount ?? 0).toFixed(2)} cash part.`); setGcashCheckout(null); }} onPaid={(view) => { setGcashCheckout(null); if (view.orderId !== null && view.queueNumber !== null && view.shiftId !== null) void afterOrderPlaced(view.orderId, view.queueNumber, view.shiftId); }} />}
-    {lastPlaced && <div className="pos-placed" role="status">
-      <span className="pos-placed-number">#{lastPlaced.queueNumber}</span>
-      <span className="pos-placed-text"><strong>Order sent to the queue</strong>{lastPlaced.stars && <em className="pos-placed-stars">{lastPlaced.stars}</em>}{lastPlaced.note && <em>{lastPlaced.note}</em>}</span>
-      <button type="button" className="pos-placed-print" onClick={() => void printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber)}><IconPrinter size={16} />{receipts.settings.output === "pdf" ? "Receipt PDF" : "Receipt"}</button>
+    {lastPlaced && <div className={`pos-placed${lastPlaced.offline ? " is-offline" : ""}`} role="status">
+      <span className="pos-placed-number">{lastPlaced.offline ? lastPlaced.offline.ticket : `#${lastPlaced.queueNumber}`}</span>
+      <span className="pos-placed-text"><strong>{lastPlaced.offline ? "Saved on this tablet (offline)" : "Order sent to the queue"}</strong>{lastPlaced.offline && <em>Make it by hand; it is sent to the system once the internet is back.</em>}{lastPlaced.stars && <em className="pos-placed-stars">{lastPlaced.stars}</em>}{lastPlaced.note && <em>{lastPlaced.note}</em>}</span>
+      <button type="button" className="pos-placed-print" onClick={() => void (lastPlaced.offline ? printOfflineReceipt(lastPlaced.offline) : printPlacedReceipt(lastPlaced.orderId, lastPlaced.queueNumber))}><IconPrinter size={16} />{receipts.settings.output === "pdf" ? "Receipt PDF" : "Receipt"}</button>
       <button type="button" className="pos-placed-close" onClick={() => setLastPlaced(null)} aria-label="Dismiss">×</button>
     </div>}
     {rewardChoiceOpen && customer && <Modal onClose={() => setRewardChoiceOpen(false)} label="Choose a reward">
@@ -3799,7 +3955,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
           <h2 style={{ margin: 0, fontFamily: "Hanken Grotesk, sans-serif", fontSize: 19, fontWeight: 800, color: "#7C2D12" }}>{view.canHandOff ? "Ready for Pickup" : "Sent to the Counter"}</h2>
           <span style={{ padding: "3px 10px", borderRadius: 999, background: "#EA580C", color: "#FFFFFF", fontSize: 12, fontWeight: 800 }}>{readyQueue.length}</span>
         </div>
-        <p style={{ margin: "4px 0 0", color: "#9A3412", fontSize: 11.5 }}>{!view.canHandOff ? "Food you finished. The counter hands it over." : view.pickupMode === "separate" ? "Drinks and food are called on their own. Clear each once picked up." : "Called when the whole order is ready. Shown until picked up."}</p>
+        <p style={{ margin: "4px 0 0", color: "#9A3412", fontSize: 11.5 }}>{!view.canHandOff ? "Food you finished. The counter hands it over." : view.pickupMode === "separate" ? "Drinks and food are called on their own. Clear each once picked up." : view.pickupMode === "per_order" ? "Each order chose: called once when all is ready, or drinks and food on their own." : "Called when the whole order is ready. Shown until picked up."}</p>
       </div>
       <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 10, display: "flex", flexDirection: "column", gap: 8 }}>
         {readyQueue.length === 0 && <p style={{ margin: "18px 0", textAlign: "center", color: "#9A3412", fontSize: 13 }}>{view.canHandOff ? "No orders waiting for pickup." : "Nothing waiting at the counter."}</p>}
@@ -5225,6 +5381,16 @@ export default function App() {
   const [closingShift, setClosingShift] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [wasteOpen, setWasteOpen] = useState(false);
+  // Offline mode: whether the server answers, and the counter orders kept on this tablet.
+  const [online, setOnline] = useState(true);
+  const [outbox, setOutbox] = useState<OfflineOrder[]>([]);
+  const [synced, setSynced] = useState<OfflineSynced[]>([]);
+  const [syncing, setSyncing] = useState(false);
+  const [offlineReview, setOfflineReview] = useState(false);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { setOutbox(readOutbox()); setSynced(readSynced()); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
   const [keypadEnabled, setKeypadEnabled] = useState(false);
   const [soundsEnabled, setSoundsEnabled] = useState(true);
   useEffect(() => {
@@ -5258,26 +5424,38 @@ export default function App() {
     const timeout = window.setTimeout(() => setReceiptSettings(readReceiptSettings()), 0);
     return () => window.clearTimeout(timeout);
   }, []);
+  // Prints a receipt the way this tablet is set to (PDF, RawBT, or the print window).
+  const outputReceipt = useCallback(async (receipt: ReceiptData, reprint: boolean): Promise<string | null> => {
+    if (receiptSettingsRef.current.output === "pdf") {
+      await downloadReceiptPdf(receipt, reprint, receiptSettingsRef.current.paperWidth);
+      return null;
+    }
+    if (receiptSettingsRef.current.output === "rawbt") {
+      if (!/Android/i.test(navigator.userAgent)) return "RawBT printing works on an Android tablet with the RawBT app. On this device, choose Print or PDF in Account, Settings.";
+      sendReceiptToRawbt(escposReceipt(receipt, reprint, receiptSettingsRef.current.paperWidth));
+      return null;
+    }
+    setReceiptJob({ receipt, reprint });
+    return null;
+  }, []);
   const printReceipt = useCallback(async (orderId: number, options?: { reprint?: boolean }) => {
     try {
       const response = await fetch(`/api/receipts/${orderId}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not load the receipt.");
-      if (receiptSettingsRef.current.output === "pdf") {
-        await downloadReceiptPdf(payload.data as ReceiptData, Boolean(options?.reprint), receiptSettingsRef.current.paperWidth);
-        return null;
-      }
-      if (receiptSettingsRef.current.output === "rawbt") {
-        if (!/Android/i.test(navigator.userAgent)) return "RawBT printing works on an Android tablet with the RawBT app. On this device, choose Print or PDF in Account, Settings.";
-        sendReceiptToRawbt(escposReceipt(payload.data as ReceiptData, Boolean(options?.reprint), receiptSettingsRef.current.paperWidth));
-        return null;
-      }
-      setReceiptJob({ receipt: payload.data as ReceiptData, reprint: Boolean(options?.reprint) });
-      return null;
+      return await outputReceipt(payload.data as ReceiptData, Boolean(options?.reprint));
     } catch (error) {
       return error instanceof Error ? error.message : "Could not load the receipt.";
     }
-  }, []);
+  }, [outputReceipt]);
+  // An offline order's receipt, from what the tablet saved (no server needed).
+  const printOffline = useCallback(async (order: OfflineOrder) => {
+    try {
+      return await outputReceipt(offlineReceipt(order), false);
+    } catch (error) {
+      return error instanceof Error ? error.message : "Could not print the receipt.";
+    }
+  }, [outputReceipt]);
   // Once the slip is on the page, open the print window; clear it when printing is done. The page
   // is sized to the roll (its width, and the slip's own height), so the printer does not crop or
   // turn an A4 or Letter page onto it.
@@ -5308,6 +5486,7 @@ export default function App() {
   // Returns this device to the login screen, e.g. after signing out, closing the shift, or when
   // the session was ended elsewhere (shift closed on another tablet, password reset, admin).
   const endLocalSession = useCallback((notice: string) => {
+    forgetSession();
     setPage("pos");
     setLastOrder(null);
     try { window.localStorage.removeItem(LAST_ORDER_STORAGE_KEY); } catch { /* ignore */ }
@@ -5357,8 +5536,15 @@ export default function App() {
       if (!response.ok) return;
       const payload = await response.json() as { data?: CurrentShift | null };
       setShift(payload.data ?? null);
+      rememberShift(payload.data ?? null);
+      setOnline(true);
     } catch (error) {
       console.error("Failed to load the current shift", error);
+      // Offline: the shift as it was last seen, so the counter can keep taking orders.
+      if (isNetworkError(error)) {
+        setOnline(false);
+        setShift((current) => current === undefined ? rememberedShift<CurrentShift>() ?? null : current);
+      }
     }
   }, [endLocalSession]);
 
@@ -5443,14 +5629,86 @@ export default function App() {
   useEffect(() => {
     let active = true;
     (async () => {
-      const response = await fetch("/api/auth/me", { cache: "no-store" });
-      if (active && response.ok) {
-        const payload = await response.json();
-        setUser(payload.data);
+      try {
+        const response = await fetch("/api/auth/me", { cache: "no-store" });
+        if (active && response.ok) {
+          const payload = await response.json();
+          setUser(payload.data);
+          rememberSession(payload.data);
+        } else if (response.status === 401) forgetSession();
+      } catch {
+        // Offline: whoever was signed in on this tablet carries on (only to take counter orders;
+        // the server checks the sign-in again when they are sent).
+        const remembered = rememberedSession<Session>();
+        if (active && remembered) { setUser(remembered); setOnline(false); }
       }
       if (active) setAuthLoading(false);
     })();
     return () => { active = false; };
+  }, []);
+
+  // Offline orders: sent one at a time while the server answers (each with the id the tablet gave
+  // it, so one sent twice is saved once). One the server refuses stays here with its reason.
+  const syncingRef = useRef(false);
+  const syncOutbox = useCallback(async () => {
+    if (syncingRef.current) return;
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      for (const order of readOutbox().filter((entry) => !entry.problem)) {
+        let response: Response;
+        try {
+          response = await fetch("/api/offline-orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+            id: order.id, created_at: order.createdAt, shift_id: order.shiftId, ticket: order.ticket, cashier_id: order.cashierId,
+            items: order.items, service_type: order.serviceType, pickup_mode: order.pickupMode, received_amount: order.received, total: order.total,
+          }) });
+        } catch {
+          setOnline(false);
+          break;
+        }
+        // Signed out, or the server or database is having trouble: try again later.
+        if (response.status === 401 || response.status >= 500) break;
+        const payload = await response.json().catch(() => ({})) as { data?: { queueNumber: number; total: number; menuTotal: number; stockShort: OfflineSynced["stockShort"] }; error?: string };
+        const rest = readOutbox().filter((entry) => entry.id !== order.id);
+        if (response.ok && payload.data) {
+          writeSynced([...readSynced(), { id: order.id, ticket: order.ticket, queueNumber: payload.data.queueNumber, total: payload.data.total, menuTotal: payload.data.menuTotal ?? payload.data.total, stockShort: payload.data.stockShort ?? [], syncedAt: new Date().toISOString() }]);
+          writeOutbox(rest);
+        } else {
+          writeOutbox(readOutbox().map((entry) => entry.id === order.id ? { ...entry, problem: payload.error || "The server could not save this order." } : entry));
+        }
+        setOutbox(readOutbox());
+        setSynced(readSynced());
+      }
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+      setOutbox(readOutbox());
+      setSynced(readSynced());
+    }
+  }, []);
+  // Sent as soon as the server answers again.
+  const waitingToSend = outbox.some((order) => !order.problem);
+  useEffect(() => {
+    if (!user || !online || !waitingToSend) return;
+    const timer = window.setTimeout(() => void syncOutbox(), 500);
+    return () => window.clearTimeout(timer);
+  }, [user, online, waitingToSend, syncOutbox]);
+  // The browser's own online and offline events, besides the checks every 15 seconds.
+  useEffect(() => {
+    const goOffline = () => setOnline(false);
+    const goOnline = () => { void refreshShift(); };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
+    return () => { window.removeEventListener("offline", goOffline); window.removeEventListener("online", goOnline); };
+  }, [refreshShift]);
+  // The app itself is kept on the tablet (public/sw.js), to open without the internet. Only in the
+  // built app: in development it would keep stale code.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready).then((registration) => {
+      const urls = performance.getEntriesByType("resource").map((entry) => entry.name).filter((url) => url.startsWith(window.location.origin) && /\/_next\/static\//.test(url));
+      registration.active?.postMessage({ type: "keep", urls: ["/", ...urls] });
+    }).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -5465,7 +5723,14 @@ export default function App() {
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="min-h-screen" style={{ background: "#F8F9FA" }} />;
-  if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); setUser(session); }} notice={loginNotice} />;
+  if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); setUser(session); rememberSession(session); }} notice={loginNotice} />;
+  const offlineContext: OfflineContextValue = {
+    online, pending: outbox, syncing, shiftId: shift ? shift.shiftId : null, cashierId: user.adminId, cashierName: user.fullName,
+    addOrder: (order) => { const saved = saveOfflineOrder(order); setOutbox(readOutbox()); return saved; },
+    printOffline,
+  };
+  // Closing the shift waits until every offline order is in the system.
+  const requestCloseShift = () => { if (outbox.length > 0) setOfflineReview(true); else setClosingShift(true); };
   const canManageReversals = Boolean(user.canVoidOrders || user.canRefundOrders);
   const queueOnly = isQueueOnlyRole(user.role);
   const allowedPages = limitedPages(user.role);
@@ -5475,5 +5740,8 @@ export default function App() {
     setSigningOut(true);
     await logout();
   }
-  return <SoundContext.Provider value={soundSetting}><KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={() => setClosingShift(true)} onCashDrawer={() => setDrawerOpen(true)} onReportWaste={() => setWasteOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{wasteOpen && shift && <WasteReportDialog onClose={() => setWasteOpen(false)} />}{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider></SoundContext.Provider>;
+  return <OfflineContext.Provider value={offlineContext}><SoundContext.Provider value={soundSetting}><KeypadContext.Provider value={keypadSetting}><ReceiptContext.Provider value={receiptContext}><div className="app-shell flex h-screen overflow-hidden"><Sidebar current={visiblePage} collapsed={collapsed} lastOrder={lastOrder && shift && lastOrder.shiftId === shift.shiftId ? lastOrder : null} queueCounts={queueCounts} deliveryBadge={deliveryBadge} lineCount={lineCount} now={now} shiftOpen={Boolean(shift)} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} onToggle={() => setCollapsed((value) => !value)} /><div className="flex flex-col flex-1 min-w-0 min-h-0"><TopBar page={visiblePage} user={user} shift={shift} onOpenShift={() => setPage("pos")} onCloseShift={requestCloseShift} onCashDrawer={() => setDrawerOpen(true)} onReportWaste={() => setWasteOpen(true)} onAccount={() => setPage("accounts")} onRequestLogout={() => setShowSignOut(true)} /><OfflineBar online={online} pending={outbox} syncing={syncing} synced={synced} onReview={() => setOfflineReview(true)} onDismiss={() => { writeSynced([]); setSynced([]); }} /><div className="flex-1 min-h-0 overflow-auto app-content">{visiblePage === "pos" || visiblePage === "line" ? (shift === null ? (user.canOpenShift ? <OpenShiftPanel userName={user.fullName} onOpened={handleShiftOpened} onSwitchCashier={() => setShowSignOut(true)} /> : <WaitingForShiftPanel userName={user.fullName} onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} />) : shift === undefined ? <div className="p-8" style={{ color: "#9C8278" }}>Checking the current shift…</div> : <POSPage userName={user.fullName} view={visiblePage === "line" ? "line" : "pos"} onView={setPage} onLineChanged={() => void refreshQueueCounts()} onQueueAssigned={recordLastOrder} />) : visiblePage === "queue" ? (queueOnly && shift === null ? <WaitingForShiftPanel userName={user.fullName} queueOnly onCheckAgain={checkForShift} onSwitchCashier={() => setShowSignOut(true)} /> : <QueuePage onCounts={setQueueCounts} />) : visiblePage === "reversals" ? <ReversalsPage user={user} /> : visiblePage === "deliveries" ? <DeliveriesPage user={user} onOpenReversals={() => setPage("reversals")} onChanged={() => void refreshQueueCounts()} /> : <AccountPage user={user} onSignOut={() => setShowSignOut(true)} />}</div></div><MobileTabBar current={visiblePage} queueWaiting={queueCounts?.waiting ?? 0} deliveryBadge={deliveryBadge} lineCount={lineCount} canManageReversals={canManageReversals} allowedPages={allowedPages} onChange={setPage} />{wasteOpen && shift && <WasteReportDialog onClose={() => setWasteOpen(false)} />}{drawerOpen && shift && <CashDrawerDialog userName={user.fullName} onClose={() => { setDrawerOpen(false); void refreshShift(); }} />}{closingShift && shift && <CloseShiftDialog shiftId={shift.shiftId} userName={user.fullName} onCancel={() => setClosingShift(false)} onClosed={handleShiftClosed} />}{showSignOut && <SignOutDialog onCancel={() => setShowSignOut(false)} onConfirm={() => void confirmSignOut()} signingOut={signingOut} />}{offlineReview && <OfflineReviewDialog pending={outbox} synced={synced} online={online} syncing={syncing}
+      onRetry={() => { writeOutbox(readOutbox().map((order) => ({ ...order, problem: null }))); setOutbox(readOutbox()); void syncOutbox(); }}
+      onDiscard={(order) => { writeOutbox(readOutbox().filter((entry) => entry.id !== order.id)); setOutbox(readOutbox()); }}
+      onClose={() => setOfflineReview(false)} />}</div><div className="receipt-print-root" aria-hidden="true">{receiptJob && <ReceiptSlip receipt={receiptJob.receipt} reprint={receiptJob.reprint} paperWidth={receiptSettings.paperWidth} />}</div></ReceiptContext.Provider></KeypadContext.Provider></SoundContext.Provider></OfflineContext.Provider>;
 }

@@ -9,14 +9,28 @@ import { stationOf, type Station } from "@/lib/orders";
 //   served   once every part is ready (queue screen, phone, the rider for deliveries)
 //   flushed  once everything was handed over
 // pickup_mode (store_settings): "together" calls the number once, when every part is ready;
-// "separate" calls and hands over each part on its own.
+// "separate" calls and hands over each part on its own; "per_order" lets each order choose
+// (sales_orders.pickup_mode, see pickup-choice-migration.sql; together when it did not).
 
 type Db = PoolClient | typeof pool;
 export type PickupMode = "together" | "separate";
+export type PickupSetting = PickupMode | "per_order";
 
-export async function pickupMode(db: Db = pool): Promise<PickupMode> {
+export async function pickupSetting(db: Db = pool): Promise<PickupSetting> {
   const result = await db.query("SELECT setting_value FROM store_settings WHERE setting_key = 'pickup_mode'").catch(() => ({ rows: [] as { setting_value: string }[] }));
-  return result.rows[0]?.setting_value === "separate" ? "separate" : "together";
+  const value = result.rows[0]?.setting_value;
+  return value === "separate" || value === "per_order" ? value : "together";
+}
+// The SQL for an order's own pickup (alias: its sales_orders row). The column is only read when
+// each order chooses, so the queue still works before the migration is run.
+export const pickupSql = (setting: PickupSetting, alias = "so") =>
+  setting === "per_order" ? `COALESCE(${alias}.pickup_mode, 'together')` : `'${setting}'`;
+// How this order is picked up.
+export async function orderPickupMode(db: Db, orderId: number): Promise<PickupMode> {
+  const setting = await pickupSetting(db);
+  if (setting !== "per_order") return setting;
+  const result = await db.query(`SELECT ${pickupSql(setting)} AS mode FROM sales_orders so WHERE so.order_id = $1`, [orderId]);
+  return result.rows[0]?.mode === "separate" ? "separate" : "together";
 }
 
 // The station a staff role works at: baristas the bar, kitchen staff the kitchen; cashiers and

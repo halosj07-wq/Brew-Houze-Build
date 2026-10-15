@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import pool from "@/lib/db";
-import { placeOrder, quoteOrder, type OrderItemInput, type OrderSource } from "@/lib/orders";
+import { parsePickupChoice, placeOrder, quoteOrder, type OrderItemInput, type OrderSource, type PickupChoice } from "@/lib/orders";
 import type { IdDiscountInput } from "@/lib/discounts";
 import { claimCounterCart, completeCounterCart } from "@/lib/counter-carts";
 import { markVerificationUsed } from "@/lib/id-verifications";
@@ -55,7 +55,7 @@ export type CheckoutView = {
 type CheckoutRow = {
   checkout_id: number; source_app: OrderSource; status: CheckoutStatus; amount: string; items: OrderItemInput[];
   cashier_admin_id: number | null; public_token: string; intent_id: string | null; payment_id: string | null;
-  cash_amount?: string | null; received_amount?: string | null; customer_id?: number | null; discount_reward_id?: number | null; service_type?: string | null; id_discounts?: IdDiscountInput[] | null; counter_cart_id?: number | null; id_verification_id?: number | null; delivery?: DeliveryPlan | null;
+  cash_amount?: string | null; received_amount?: string | null; customer_id?: number | null; discount_reward_id?: number | null; service_type?: string | null; pickup_mode?: string | null; id_discounts?: IdDiscountInput[] | null; counter_cart_id?: number | null; id_verification_id?: number | null; delivery?: DeliveryPlan | null;
   order_id: number | null; error: string | null; queue_number?: number | null; shift_id?: number | null;
   provider?: CheckoutProvider; reference_number?: string | null; pay_by?: string | null;
 };
@@ -112,7 +112,7 @@ async function loadByToken(token: string): Promise<CheckoutRow | null> {
 
 // Prices the cart (stock, prices and the open shift all checked), opens a PayMongo GCash
 // payment for exactly that amount, and returns where to send the customer.
-export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; rewardsAuthorized?: boolean; discountRewardId?: number | null; idDiscounts?: IdDiscountInput[]; counterCartId?: number | null; idVerificationId?: number | null; delivery?: DeliveryPlan | null; serviceType?: "dine_in" | "take_out" | "delivery" | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
+export async function startCheckout(input: { source: OrderSource; items: OrderItemInput[]; cashierAdminId: number | null; customerId?: number | null; rewardsAuthorized?: boolean; discountRewardId?: number | null; idDiscounts?: IdDiscountInput[]; counterCartId?: number | null; idVerificationId?: number | null; delivery?: DeliveryPlan | null; serviceType?: "dine_in" | "take_out" | "delivery" | null; pickupChoice?: PickupChoice | null; returnUrl: (token: string) => string; split?: { cashAmount: number; receivedAmount: number } | null }) {
   const client = await pool.connect();
   let total: number;
   try {
@@ -146,6 +146,9 @@ export async function startCheckout(input: { source: OrderSource; items: OrderIt
     RETURNING checkout_id
   `, [input.source, amount, JSON.stringify(input.items), input.cashierAdminId, token, cashAmount, receivedAmount, input.customerId ?? null, input.discountRewardId ?? null, input.serviceType ?? null, input.idDiscounts && input.idDiscounts.length > 0 ? JSON.stringify(input.idDiscounts) : null, input.counterCartId ?? null, input.idVerificationId ?? null, input.delivery ? JSON.stringify(input.delivery) : null, direct ? "gcash_direct" : "paymongo"]);
   const checkoutId = Number(inserted.rows[0].checkout_id);
+  // The pickup choice waits with the payment (only sent while the café lets each order choose,
+  // so the column exists: pickup-choice-migration.sql).
+  if (input.pickupChoice) await pool.query("UPDATE payment_checkouts SET pickup_mode = $2 WHERE checkout_id = $1", [checkoutId, input.pickupChoice]);
   // Direct GCash: the customer pays the café's QR and sends the reference number next.
   if (direct) return { token, amount, cashAmount, total, redirectUrl: null as string | null, direct: true };
   try {
@@ -225,6 +228,7 @@ async function finalizePaid(checkoutId: number, paymentId: string | null, fee: n
         // ID discounts the cashier checked when the payment started.
         idDiscounts: Array.isArray(row.id_discounts) ? row.id_discounts : [],
         serviceType: row.service_type === "dine_in" || row.service_type === "take_out" || row.service_type === "delivery" ? row.service_type : null,
+        pickupChoice: parsePickupChoice(row.pickup_mode),
         // A delivery order's address and fee rules, as checked when the payment started.
         delivery: row.delivery ?? null,
         paymentReference: paymentId,

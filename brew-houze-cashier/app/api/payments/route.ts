@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { parseOrderItems, parseServiceType } from "@/lib/orders";
+import { parseOrderItems, parsePickupChoice, parseServiceType } from "@/lib/orders";
 import { startCheckout } from "@/lib/payment-checkouts";
 import { parseIdDiscounts } from "@/lib/discounts";
 import { counterCartProblem, parseCounterCartId } from "@/lib/counter-carts";
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (gcashMethod() === "direct_qr") return NextResponse.json({ error: "GCash is paid to the café's QR here: confirm the payment and its reference number instead." }, { status: 409 });
   if (!paymongoConfigured()) return NextResponse.json({ error: "GCash is not set up on this server." }, { status: 503 });
   try {
-    const body = await request.json() as { items?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; id_discounts?: unknown; counter_cart_id?: unknown; delivery?: unknown };
+    const body = await request.json() as { items?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; pickup_mode?: unknown; id_discounts?: unknown; counter_cart_id?: unknown; delivery?: unknown };
     const items = parseOrderItems(body.items);
     if (items.length === 0) return NextResponse.json({ error: "At least one valid cart item is required." }, { status: 400 });
     const customerId = await linkableCustomerId(body.customer_id);
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const delivery = serviceType === "delivery" ? await planDelivery(pool, customerId ?? null, { ...(body.delivery as object ?? {}), payment: "gcash" }, { staff: true }) : null;
     // The claim stays open (it expires on its own), so a cancelled GCash payment can be retried.
     // The stars are only spent when the payment goes through and the order is placed.
-    const started = await startCheckout({ source: "cashier", items, cashierAdminId: session.adminId, customerId: customerId ?? null, rewardsAuthorized: rewards.authorized, discountRewardId, idDiscounts: parseIdDiscounts(body.id_discounts), counterCartId: parseCounterCartId(body.counter_cart_id), serviceType, delivery, returnUrl: (token) => `${origin}/pay/done?ref=${token}`, split });
+    const started = await startCheckout({ source: "cashier", items, pickupChoice: parsePickupChoice(body.pickup_mode), cashierAdminId: session.adminId, customerId: customerId ?? null, rewardsAuthorized: rewards.authorized, discountRewardId, idDiscounts: parseIdDiscounts(body.id_discounts), counterCartId: parseCounterCartId(body.counter_cart_id), serviceType, delivery, returnUrl: (token) => `${origin}/pay/done?ref=${token}`, split });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
     console.error("POST /api/payments failed:", error);

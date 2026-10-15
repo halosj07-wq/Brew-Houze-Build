@@ -2,7 +2,7 @@ import { customTextSql } from "@/lib/orders";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
-import { canHandOff, handOver, markReady, parseStation, pickupMode, stationForRole, StationError } from "@/lib/stations";
+import { canHandOff, handOver, markReady, orderPickupMode, parseStation, pickupSetting, pickupSql, stationForRole, StationError } from "@/lib/stations";
 import { signalChange } from "@/lib/realtime";
 
 // An order's parts (bar, kitchen) and their progress; an order from before stations is one bar part.
@@ -16,26 +16,28 @@ export async function GET(request: Request) {
 
   try {
     // Counts for this person: what their station has to make, and (at the counter) what is
-    // ready to hand over (whole orders, or parts when drinks and food are picked up separately).
+    // ready to hand over (whole orders, or parts when drinks and food are picked up separately,
+    // by the store's setting or the order's own choice).
     const station = stationForRole(session.role);
-    const mode = await pickupMode();
+    const setting = await pickupSetting();
+    const pickup = pickupSql(setting);
     const handsOff = canHandOff(session.role);
     const signatureResult = await pool.query(`
       WITH open_orders AS (
-        SELECT so.order_id, so.queue_status, so.served_at, so.service_type, ${PARTS_SQL} AS parts
+        SELECT so.order_id, so.queue_status, so.served_at, so.service_type, ${pickup} AS pickup, ${PARTS_SQL} AS parts
         FROM sales_orders so
         WHERE (so.queue_status = 'waiting' OR (so.queue_status = 'served' AND so.service_type IS DISTINCT FROM 'delivery'))
       ), parts AS (
-        SELECT o.order_id, o.queue_status, o.service_type, part->>'station' AS station, part->>'status' AS status FROM open_orders o, json_array_elements(o.parts) part
+        SELECT o.order_id, o.queue_status, o.service_type, o.pickup, part->>'station' AS station, part->>'status' AS status FROM open_orders o, json_array_elements(o.parts) part
       )
       SELECT (SELECT COUNT(*) FROM open_orders)::int AS total,
         (SELECT COALESCE(MAX(order_id), 0) FROM open_orders)::int AS latest_order_id,
         (SELECT COALESCE(MAX(served_at), TIMESTAMP 'epoch') FROM open_orders) AS latest_served_at,
         (SELECT COUNT(DISTINCT order_id) FROM parts WHERE queue_status = 'waiting' AND status = 'waiting' AND ($1::text IS NULL OR station = $1::text))::int AS waiting_count,
         (CASE WHEN NOT $2::boolean THEN 0
-          WHEN $3::text = 'separate' THEN (SELECT COUNT(*) FROM parts WHERE status = 'ready' AND service_type IS DISTINCT FROM 'delivery')
-          ELSE (SELECT COUNT(*) FROM open_orders WHERE queue_status = 'served') END)::int AS ready_count
-    `, [station, handsOff, mode]);
+          ELSE (SELECT COUNT(*) FROM parts WHERE pickup = 'separate' AND status = 'ready' AND service_type IS DISTINCT FROM 'delivery')
+            + (SELECT COUNT(*) FROM open_orders WHERE pickup = 'together' AND queue_status = 'served') END)::int AS ready_count
+    `, [station, handsOff]);
     if (new URL(request.url).searchParams.get("signatureOnly") === "1") {
       // For the Deliveries badge: packed orders waiting for a rider, failed deliveries to void, and
       // cash on delivery not handed in (mine_cash: what this rider still has to hand in).
@@ -66,6 +68,7 @@ export async function GET(request: Request) {
         so.order_source,
         -- Dine in (mug) or take out (cup), and the customer with the café's notes, for the barista.
         so.service_type,
+        ${pickup} AS pickup_mode,
         ${PARTS_SQL} AS parts,
         cu.full_name AS customer_name,
         cu.notes AS customer_notes,
@@ -176,15 +179,15 @@ export async function GET(request: Request) {
     // This person's view: what to make (their station's parts still being made; the counter sees
     // every order with a part being made), and what to hand over (whole ready orders, or ready
     // parts when picked up separately). The kitchen sees what it sent to the counter.
-    const open = result.rows as (Record<string, unknown> & { parts: Part[]; queue_status: string; service_type: string | null })[];
+    const open = result.rows as (Record<string, unknown> & { parts: Part[]; queue_status: string; service_type: string | null; pickup_mode: "together" | "separate" })[];
     const waiting = open.filter((order) => order.queue_status === "waiting" && order.parts.some((part) => part.status === "waiting" && (!station || part.station === station)));
     const ready = !handsOff
       ? open.filter((order) => order.parts.some((part) => part.station === station && part.status === "ready")).map((order) => ({ ...order, handoff_station: station }))
-      : mode === "separate"
-        ? open.filter((order) => order.service_type !== "delivery").flatMap((order) => order.parts.filter((part) => part.status === "ready").map((part) => ({ ...order, handoff_station: order.parts.length > 1 ? part.station : null })))
-        : open.filter((order) => order.queue_status === "served").map((order) => ({ ...order, handoff_station: null }));
+      : open.flatMap((order) => order.pickup_mode === "separate"
+        ? order.service_type === "delivery" ? [] : order.parts.filter((part) => part.status === "ready").map((part) => ({ ...order, handoff_station: order.parts.length > 1 ? part.station : null }))
+        : order.queue_status === "served" ? [{ ...order, handoff_station: null }] : []);
     return NextResponse.json({
-      view: { station, canHandOff: handsOff, pickupMode: mode },
+      view: { station, canHandOff: handsOff, pickupMode: setting },
       data: { waiting, ready, recent: recentResult.rows },
     });
   } catch (error) {
@@ -222,7 +225,7 @@ export async function PATCH(request: Request) {
 
     await client.query("BEGIN");
     if (action === "ready") await markReady(client, orderId, own ?? asked, session.adminId);
-    else await handOver(client, orderId, asked, await pickupMode(client));
+    else await handOver(client, orderId, asked, await orderPickupMode(client, orderId));
     const order = await client.query("SELECT order_id, queue_number, queue_status FROM sales_orders WHERE order_id = $1", [orderId]);
     await client.query("COMMIT");
     return NextResponse.json({ data: order.rows[0] });
