@@ -11,9 +11,10 @@
 --   Ice, water, "optional" sugar, caramel/strawberry "walling" and the cinnamon sprinkle have no
 --   measured amount in the sheet, so they are not taken from stock.
 --
--- BEFORE RUNNING: fill in every price that says NULL in "Sizes and prices" below (search for
--- NULL). The sheet has no prices; the ones filled in come from the printed menu. The script
--- stops and changes nothing while any price is missing.
+-- PRICES: the sheet has no prices. Most come from the printed menu. The 40 marked
+-- "-- placeholder" are not on the menu: each copies the price of the most similar drink. Change
+-- them in Admin > Menu once you've decided. The script stops and changes nothing if a price is
+-- missing.
 --
 -- AFTER RUNNING: every item starts at 0 stock, and the POS refuses an order whose ingredients
 -- are out of stock. Restock the items in Admin > Inventory (with their pack prices, so drink
@@ -160,10 +161,10 @@ INSERT INTO menu_variants VALUES
   ('Spanish Latte', '8 oz', 'hot', 65),
   ('Spanish Latte', '12 oz', 'hot', 90),
   ('Spanish Latte', '16 oz', 'hot', 100),
-  ('Biscoffee', '16 oz', 'cold', NULL),
-  ('Biscoffee', '22 oz', 'cold', NULL),
-  ('Biscoffee', '12 oz', 'hot', NULL),
-  ('Biscoffee', '16 oz', 'hot', NULL),
+  ('Biscoffee', '16 oz', 'cold', 105), -- placeholder
+  ('Biscoffee', '22 oz', 'cold', 115), -- placeholder
+  ('Biscoffee', '12 oz', 'hot', 85), -- placeholder
+  ('Biscoffee', '16 oz', 'hot', 105), -- placeholder
   ('Caramel Macchiato', '16 oz', 'cold', 105),
   ('Caramel Macchiato', '22 oz', 'cold', 115),
   ('Caramel Macchiato', '12 oz', 'hot', 85),
@@ -184,10 +185,10 @@ INSERT INTO menu_variants VALUES
   ('Marocchino', '22 oz', 'cold', 110),
   ('Marocchino', '12 oz', 'hot', 75),
   ('Marocchino', '16 oz', 'hot', 90),
-  ('Matcha', '16 oz', 'cold', NULL),
-  ('Matcha', '22 oz', 'cold', NULL),
-  ('Matcha', '12 oz', 'hot', NULL),
-  ('Matcha', '16 oz', 'hot', NULL),
+  ('Matcha', '16 oz', 'cold', 115), -- placeholder
+  ('Matcha', '22 oz', 'cold', 125), -- placeholder
+  ('Matcha', '12 oz', 'hot', 90), -- placeholder
+  ('Matcha', '16 oz', 'hot', 115), -- placeholder
   ('Mocha', '16 oz', 'cold', 100),
   ('Mocha', '22 oz', 'cold', 115),
   ('Mocha', '12 oz', 'hot', 80),
@@ -202,7 +203,7 @@ INSERT INTO menu_variants VALUES
   ('Strawberry Matcha', '16 oz', 'hot', 115),
   ('Thai Strawberry', '16 oz', 'cold', 110),
   ('Thai Strawberry', '22 oz', 'cold', 130),
-  ('Thai Strawberry', '12 oz', 'hot', NULL),
+  ('Thai Strawberry', '12 oz', 'hot', 90), -- placeholder
   ('Thai Strawberry', '16 oz', 'hot', 110),
   ('Tropical Brew', '16 oz', 'cold', 95),
   ('Tropical Brew', '22 oz', 'cold', 120),
@@ -220,7 +221,7 @@ INSERT INTO menu_variants VALUES
   ('Winter Brew', '22 oz', 'cold', 110),
   ('Winter Brew', '12 oz', 'hot', 75),
   ('Winter Brew', '16 oz', 'hot', 90),
-  ('S''mores', '22 oz', 'cold', NULL),
+  ('S''mores', '22 oz', 'cold', 120), -- placeholder
   ('Espresso Frappe', '16 oz', 'cold', 95),
   ('Espresso Frappe', '22 oz', 'cold', 115),
   ('Cappuccino Frappe', '16 oz', 'cold', 100),
@@ -237,12 +238,12 @@ INSERT INTO menu_variants VALUES
   ('Salted Caramel Frappe', '22 oz', 'cold', 125),
   ('Java Chip Frappe', '16 oz', 'cold', 115),
   ('Java Chip Frappe', '22 oz', 'cold', 130),
-  ('Marocchino Frappe', '16 oz', 'cold', NULL),
-  ('Marocchino Frappe', '22 oz', 'cold', NULL),
+  ('Marocchino Frappe', '16 oz', 'cold', 100), -- placeholder
+  ('Marocchino Frappe', '22 oz', 'cold', 120), -- placeholder
   ('Strawberry Chocolate Frappe', '16 oz', 'cold', 110),
   ('Strawberry Chocolate Frappe', '22 oz', 'cold', 120),
-  ('Vanilla Hazelnut Frappe', '16 oz', 'cold', NULL),
-  ('Vanilla Hazelnut Frappe', '22 oz', 'cold', NULL),
+  ('Vanilla Hazelnut Frappe', '16 oz', 'cold', 115), -- placeholder
+  ('Vanilla Hazelnut Frappe', '22 oz', 'cold', 125), -- placeholder
   ('Vanilla Hazelnut Oreo Frappe', '16 oz', 'cold', 115),
   ('Vanilla Hazelnut Oreo Frappe', '22 oz', 'cold', 130),
   ('Summer Brew Houze Frappe', '16 oz', 'cold', 110),
@@ -251,40 +252,40 @@ INSERT INTO menu_variants VALUES
   ('Cheesecake Tiramisu Frappe', '22 oz', 'cold', 120),
   ('Matcha Frappe', '16 oz', 'cold', 115),
   ('Matcha Frappe', '22 oz', 'cold', 125),
-  ('Strawberry Matcha Frappe', '16 oz', 'cold', NULL),
-  ('Strawberry Matcha Frappe', '22 oz', 'cold', NULL),
-  ('Caramel Matcha Frappe', '16 oz', 'cold', NULL),
-  ('Caramel Matcha Frappe', '22 oz', 'cold', NULL),
-  ('Almond Milk Frappe', '16 oz', 'cold', NULL),
-  ('Almond Milk Frappe', '22 oz', 'cold', NULL),
-  ('Biscoffee Frappe', '16 oz', 'cold', NULL),
-  ('Biscoffee Frappe', '22 oz', 'cold', NULL),
-  ('Strawberry Frappe', '16 oz', 'cold', NULL),
-  ('Strawberry Frappe', '22 oz', 'cold', NULL),
-  ('S''mores Frappe', '22 oz', 'cold', NULL),
-  ('Dark Roast Pastry Frappe', '22 oz', 'cold', NULL),
-  ('Snickers Fudge Frappe', '22 oz', 'cold', NULL),
-  ('Butterscotch Frappe', '22 oz', 'cold', NULL),
-  ('Matcha Cereal Frappe', '22 oz', 'cold', NULL),
-  ('Cereal Cookies Frappe', '22 oz', 'cold', NULL),
+  ('Strawberry Matcha Frappe', '16 oz', 'cold', 115), -- placeholder
+  ('Strawberry Matcha Frappe', '22 oz', 'cold', 125), -- placeholder
+  ('Caramel Matcha Frappe', '16 oz', 'cold', 115), -- placeholder
+  ('Caramel Matcha Frappe', '22 oz', 'cold', 125), -- placeholder
+  ('Almond Milk Frappe', '16 oz', 'cold', 115), -- placeholder
+  ('Almond Milk Frappe', '22 oz', 'cold', 125), -- placeholder
+  ('Biscoffee Frappe', '16 oz', 'cold', 115), -- placeholder
+  ('Biscoffee Frappe', '22 oz', 'cold', 130), -- placeholder
+  ('Strawberry Frappe', '16 oz', 'cold', 110), -- placeholder
+  ('Strawberry Frappe', '22 oz', 'cold', 120), -- placeholder
+  ('S''mores Frappe', '22 oz', 'cold', 130), -- placeholder
+  ('Dark Roast Pastry Frappe', '22 oz', 'cold', 130), -- placeholder
+  ('Snickers Fudge Frappe', '22 oz', 'cold', 130), -- placeholder
+  ('Butterscotch Frappe', '22 oz', 'cold', 130), -- placeholder
+  ('Matcha Cereal Frappe', '22 oz', 'cold', 130), -- placeholder
+  ('Cereal Cookies Frappe', '22 oz', 'cold', 130), -- placeholder
   ('Honey Blend Iced Tea', '16 oz', 'cold', 65),
   ('Honey Blend Iced Tea', '22 oz', 'cold', 85),
   ('Vanilla Fruity Iced Tea', '16 oz', 'cold', 75),
   ('Vanilla Fruity Iced Tea', '22 oz', 'cold', 95),
   ('Peach Mango Iced Tea', '16 oz', 'cold', 75),
   ('Peach Mango Iced Tea', '22 oz', 'cold', 95),
-  ('Lychee Iced Tea', '16 oz', 'cold', NULL),
-  ('Lychee Iced Tea', '22 oz', 'cold', NULL),
-  ('Green Apple Iced Tea', '16 oz', 'cold', NULL),
-  ('Green Apple Iced Tea', '22 oz', 'cold', NULL),
-  ('Citrus Blend Iced Tea', '16 oz', 'cold', NULL),
-  ('Citrus Blend Iced Tea', '22 oz', 'cold', NULL),
+  ('Lychee Iced Tea', '16 oz', 'cold', 75), -- placeholder
+  ('Lychee Iced Tea', '22 oz', 'cold', 95), -- placeholder
+  ('Green Apple Iced Tea', '16 oz', 'cold', 75), -- placeholder
+  ('Green Apple Iced Tea', '22 oz', 'cold', 95), -- placeholder
+  ('Citrus Blend Iced Tea', '16 oz', 'cold', 75), -- placeholder
+  ('Citrus Blend Iced Tea', '22 oz', 'cold', 95), -- placeholder
   ('Strawberry Mojito', '16 oz', 'cold', 95),
   ('Strawberry Mojito', '22 oz', 'cold', 115),
-  ('Virgin Mojito', '16 oz', 'cold', NULL),
-  ('Virgin Mojito', '22 oz', 'cold', NULL),
-  ('Lemon Ginger Mojito', '16 oz', 'cold', NULL),
-  ('Lemon Ginger Mojito', '22 oz', 'cold', NULL),
+  ('Virgin Mojito', '16 oz', 'cold', 85), -- placeholder
+  ('Virgin Mojito', '22 oz', 'cold', 110), -- placeholder
+  ('Lemon Ginger Mojito', '16 oz', 'cold', 85), -- placeholder
+  ('Lemon Ginger Mojito', '22 oz', 'cold', 110), -- placeholder
   ('Lemon Mojito', '16 oz', 'cold', 85),
   ('Lemon Mojito', '22 oz', 'cold', 110),
   ('Passion Fruit Mojito', '16 oz', 'cold', 85),
