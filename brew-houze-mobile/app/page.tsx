@@ -8,6 +8,7 @@ import { PhoneField } from "@/lib/input-format";
 import { downloadReceipt, ReceiptSheet } from "./receipt";
 import { livePollGate, onLive } from "@/lib/live";
 import { DirectGcashPay } from "./gcash-pay";
+import { NewsBell, NewsSheet, NewsStrip, useNews, type NewsPost } from "./news";
 
 type Product = {
   id: number;
@@ -192,6 +193,10 @@ export default function MenuPage() {
   const [addedNote, setAddedNote] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  // The café's news (promotions and events, Objective 9): the sheet, and which post it opens at.
+  const [newsOpen, setNewsOpen] = useState(false);
+  const [newsFocus, setNewsFocus] = useState<number | null>(null);
+  const news = useNews(useCallback((post: NewsPost) => setAddedNote(`New ${post.kind === "event" ? "event" : "promo"}: ${post.title}`), []));
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
@@ -232,6 +237,10 @@ export default function MenuPage() {
   const [discountReward, setDiscountReward] = useState<LoyaltyReward | null>(null);
   // Eaten at the café (usually, from the table QR) or taken away.
   const [serviceType, setServiceType] = useState<"dine_in" | "take_out" | "delivery">("dine_in");
+  // When the café lets each order choose (Admin, Menu, Pickup): an order with drinks and food is
+  // called together, or the drinks and the food each as soon as they are ready.
+  const [pickupSetting, setPickupSetting] = useState<"together" | "separate" | "per_order">("together");
+  const [pickupChoice, setPickupChoice] = useState<"together" | "separate">("together");
   // Delivery: the café's rules and zones, the address chosen in the cart, and GCash or cash on delivery.
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
   const [deliveryAddressId, setDeliveryAddressId] = useState<number | null>(null);
@@ -570,12 +579,13 @@ export default function MenuPage() {
   const loadMenu = useCallback(async (fresh = false): Promise<boolean> => {
     try {
       const response = await fetch("/api/products", { cache: fresh ? "no-store" : "default" });
-      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; error?: string };
+      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; pickup?: "together" | "separate" | "per_order"; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
       const menu = payload.data ?? [];
       setProducts(menu);
       setStoreOpen(payload.storeOpen !== false);
       if (payload.payment) setPaymentConfig(payload.payment);
+      setPickupSetting(payload.pickup ?? "together");
       setError("");
       let changed = false;
       setCart((current) => { const result = reconcileCart(current, menu); changed = result.changed; return result.cart; });
@@ -728,6 +738,25 @@ export default function MenuPage() {
     setEditingKey(line?.key ?? null);
     if (line) setCartOpen(false);
   }
+  // Opens the news sheet (at one post, from a card or an emailed link) and marks the news as seen.
+  function openNews(post: NewsPost | null) {
+    setNewsFocus(post?.id ?? null);
+    setNewsOpen(true);
+    news.markSeen();
+  }
+  // An emailed post links to the menu with ?news=<id>: open it once the news has loaded.
+  useEffect(() => {
+    const id = Number(new URLSearchParams(window.location.search).get("news"));
+    if (!id || news.posts.length === 0) return;
+    const post = news.posts.find((candidate) => candidate.id === id);
+    const params = new URLSearchParams(window.location.search);
+    params.delete("news");
+    window.history.replaceState(null, "", `${window.location.pathname}${params.size ? `?${params}` : ""}`);
+    if (!post) return;
+    const timer = window.setTimeout(() => { setNewsFocus(post.id); setNewsOpen(true); }, 0);
+    return () => window.clearTimeout(timer);
+  }, [news.posts]);
+
   function closeProduct() {
     const wasEditing = editingKey !== null;
     setSelectedProduct(null);
@@ -826,7 +855,7 @@ export default function MenuPage() {
     setPlacingOrder(true);
     setOrderError("");
     try {
-      const response = await fetch("/api/counter-carts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, service_type: serviceType, discount_type_id: claiming ? claimIdType : null }) });
+      const response = await fetch("/api/counter-carts", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, service_type: serviceType, pickup_mode: pickupBody, discount_type_id: claiming ? claimIdType : null }) });
       const payload = await response.json() as { data?: { token: string; code: string; expiresAt: string; discountName: string | null }; error?: string; code?: string };
       if (payload.code === "sold_out") { await handleSoldOut(); return; }
       if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your order to the counter.");
@@ -857,7 +886,7 @@ export default function MenuPage() {
   // Pays an order with an ID discount the café approved (verification_token) or the saved ID
   // (saved_id): GCash when it is set up, otherwise the order goes straight to the café.
   async function payWithIdDiscount(extra: { verification_token: string } | { saved_id: IdCoverage }) {
-    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, delivery: deliveryBody, ...extra });
+    const body = JSON.stringify({ items: idOrderItems(), service_type: serviceType, pickup_mode: pickupBody, delivery: deliveryBody, ...extra });
     if (paymentConfig.method === "gcash" && !payCod) {
       const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const payload = await response.json() as { data?: { token: string; redirectUrl: string | null; direct?: boolean; amount: number }; error?: string; code?: string };
@@ -880,8 +909,8 @@ export default function MenuPage() {
     void refreshAccount();
   }
 
-  async function sendIdPhoto(details: { holderName: string; idNumber: string; coverage: IdCoverage; photo: string; remember: boolean }) {
-    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, coverage: details.coverage, remember: details.remember, consent: true, photo: details.photo }) });
+  async function sendIdPhoto(details: { holderName: string; idNumber: string; photo: string; remember: boolean }) {
+    const response = await fetch("/api/id-verifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: idOrderItems(), service_type: serviceType, pickup_mode: pickupBody, discount_type_id: claimIdType, holder_name: details.holderName, id_number: details.idNumber, remember: details.remember, consent: true, photo: details.photo }) });
     const payload = await response.json() as { data?: { token: string }; error?: string; code?: string };
     if (payload.code === "sold_out") { setIdSheet(null); await handleSoldOut(); return; }
     if (!response.ok || !payload.data) throw new Error(payload.error || "Could not send your ID.");
@@ -983,7 +1012,7 @@ export default function MenuPage() {
     // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
     if (paymentConfig.method === "gcash" && orderTotal > 0 && !payCod) {
       try {
-        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }) });
+        const response = await fetch("/api/payments", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, pickup_mode: pickupBody, delivery: deliveryBody }) });
         const payload = await response.json() as { data?: { token: string; redirectUrl: string | null; direct?: boolean; amount: number }; error?: string; code?: string };
         if (payload.code === "sold_out") { await handleSoldOut(); setPlacingOrder(false); return; }
         if (!response.ok || !payload.data) throw new Error(payload.error || "Could not start the GCash payment.");
@@ -1006,7 +1035,7 @@ export default function MenuPage() {
       const response = await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, delivery: deliveryBody }),
+        body: JSON.stringify({ items: orderItems, discount_reward_id: discountRewardId, service_type: serviceType, pickup_mode: pickupBody, delivery: deliveryBody }),
       });
       const payload = await response.json() as { data?: { trackingToken: string; queueNumber: number }; error?: string; code?: string };
       if (payload.code === "sold_out") { await handleSoldOut(); return; }
@@ -1136,6 +1165,10 @@ export default function MenuPage() {
   const sheetUnit = (sheetVariant?.price ?? selectedProduct?.price ?? 0) + sheetAdditions.reduce((sum, addition) => sum + addition.price, 0);
   const sheetBlocked = Boolean(selectedProduct?.variants?.length && (!sheetVariant?.available || selectedQuantity > sheetLimit));
 
+  // Asked only when the café lets each order choose, and the cart has drinks and food (not for deliveries).
+  const askPickup = pickupSetting === "per_order" && serviceType !== "delivery" && new Set(cart.map((item) => item.product.station === "kitchen" ? "kitchen" : "bar")).size > 1;
+  const pickupBody = askPickup ? pickupChoice : null;
+
   const serviceOptions = [
     { value: "dine_in" as const, label: "Dine in", Icon: IconDineIn, note: "" },
     { value: "take_out" as const, label: "Take Out/Pick Up", Icon: IconTakeOut, note: "" },
@@ -1159,7 +1192,7 @@ export default function MenuPage() {
     ? ({ preparing: "Preparing", ready: "Packed", out: "On the way", delivered: "Delivered", failed: "Not delivered", cancelled: "Cancelled" } as Record<string, string>)[latestOrder.deliveryStatus ?? "preparing"] ?? "Preparing"
     : latestOrder.status === "served" ? "Ready for pickup" : partlyReady(latestOrder) ? `${readyPartNames(latestOrder)} ready` : "Preparing";
   const orderReady = latestOrder ? (latestOrder.delivery ? latestOrder.deliveryStatus === "out" || latestOrder.deliveryStatus === "delivered" : latestOrder.status === "served" || partlyReady(latestOrder)) : false;
-  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck || receiptFor);
+  const sheetOpen = Boolean(selectedProduct || cartOpen || rewardPick || accountOpen || idSheet || sentCart || paymentCheck || receiptFor || newsOpen);
   useEffect(() => {
     document.body.style.overflow = sheetOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
@@ -1233,6 +1266,7 @@ export default function MenuPage() {
     <header className="bh-header">
       <button type="button" className="bh-brand" onClick={() => goTab("menu")} aria-label="Brew Houze Cafe, menu"><Image src="/brand/badge.png" alt="" width={40} height={40} unoptimized priority /><span>Brew Houze Cafe</span></button>
       <div className="bh-header-actions">
+        <NewsBell count={news.unread} onOpen={() => openNews(null)} />
         {activeOrder
           ? <button type="button" className={`bh-orders-button${orderReady ? " is-ready" : ""}`} onClick={() => goTab("orders")} aria-label={`Your order ${latestOrder?.queueNumber ?? ""}: ${orderPillText}`}><i aria-hidden="true" />#{latestOrder?.queueNumber ?? "—"} · {orderPillText}</button>
           : <span className={`bh-open${storeOpen ? "" : " is-closed"}`}><i aria-hidden="true" />{storeOpen ? "Open now" : "Closed"}</span>}
@@ -1257,6 +1291,7 @@ export default function MenuPage() {
             <span className="bh-stars-text"><strong>Earn stars on every order</strong>Join Brew Houze Rewards, it&apos;s free</span>
             <IconNext />
           </button> : null}
+        <NewsStrip posts={news.posts} isNew={news.isNew} onOpen={openNews} />
         <div className="bh-search-row">
           <label className="bh-search"><IconSearch /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search the menu" aria-label="Search the menu" />{search && <button type="button" onClick={() => setSearch("")} aria-label="Clear search">×</button>}</label>
           <button type="button" className={`bh-filter${filtersOn ? " is-on" : ""}`} aria-expanded={filterOpen} aria-label="Filter and sort" onClick={() => setFilterOpen((open) => !open)}><IconFilter />{filtersOn && <i aria-hidden="true" />}</button>
@@ -1337,6 +1372,12 @@ export default function MenuPage() {
         <span className="bh-tab-icon">{customer.account ? <span className="bh-tab-avatar">{accountInitials}</span> : <IconUser />}</span>{customer.account ? "Account" : "Sign in"}
       </button>
     </nav>
+
+    {newsOpen && <NewsSheet posts={news.posts} focusId={newsFocus} onClose={() => setNewsOpen(false)} onSeeItem={(productId) => {
+      const product = products.find((candidate) => candidate.id === productId);
+      setNewsOpen(false);
+      if (product) openProduct(product);
+    }} />}
 
     {selectedProduct && <div className="bh-backdrop" onClick={(event) => { if (event.target === event.currentTarget) closeProduct(); }}>
       <section className="bh-sheet bh-item" role="dialog" aria-modal="true" aria-label={selectedProduct.name}>
@@ -1432,6 +1473,14 @@ export default function MenuPage() {
             <button type="button" className="bh-add-more" onClick={() => setCartOpen(false)}>+ Add more items</button>
 
             <div className="bh-cart-section"><h3>How would you like it?</h3>{serviceSwitch("cart")}
+              {askPickup && <div className="bh-pickup">
+                <p>Your drinks and food</p>
+                <div className="bh-pickup-options" role="radiogroup" aria-label="Pickup of your drinks and food">
+                  {([["together", "Together", "One call, when everything is ready"], ["separate", "Separately", "Each called as soon as it's ready"]] as const).map(([value, label, note]) => (
+                    <button key={value} type="button" role="radio" aria-checked={pickupChoice === value} onClick={() => setPickupChoice(value)}><strong>{label}</strong><small>{note}</small></button>
+                  ))}
+                </div>
+              </div>}
               {isDelivery && <div className="cart-delivery">
                 {isGuest ? <>
                   <div className="cart-guest-form">

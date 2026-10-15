@@ -1188,5 +1188,85 @@
     "expected": "Refused with a message",
     "actual": "{\"status\":400,\"refused\":true}",
     "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-005",
+    "fr": "FR-32",
+    "objective": "9. Notifications",
+    "kind": "Positive",
+    "scenario": "The admin posts the promo \"Buy 1 Take 1 Americano\"; open the Mobile Menu",
+    "expected": "Posted (201) and listed on the menu as a promo",
+    "actual": "{\"status\":201,\"listed\":\"promo\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-006",
+    "fr": "FR-32",
+    "objective": "9. Notifications",
+    "kind": "Positive",
+    "scenario": "The admin posts the event \"Acoustic Night\" for tomorrow at 7:00 PM; open the Mobile Menu",
+    "expected": "Listed first (events before promos), with its start time",
+    "actual": "{\"first\":\"Acoustic Night\",\"hasTime\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-007",
+    "fr": "FR-32",
+    "objective": "9. Notifications",
+    "kind": "Negative",
+    "scenario": "The admin schedules the promo \"Halloween Specials\" to start next week; open the Mobile Menu",
+    "expected": "Saved as scheduled and not shown yet",
+    "actual": "{\"status\":\"scheduled\",\"shown\":false}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-008",
+    "fr": "FR-32",
+    "objective": "9. Notifications",
+    "kind": "Negative",
+    "scenario": "The admin posts an event that ended last week",
+    "expected": "400: That event is already over.",
+    "actual": "{\"status\":400,\"error\":\"That event is already over.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-009",
+    "fr": "FR-32",
+    "objective": "9. Notifications",
+    "kind": "Negative",
+    "scenario": "Post a promotion without signing in to the Admin Portal",
+    "expected": "401: Not authenticated.",
+    "actual": "{\"status\":401,\"error\":\"Not authenticated.\"}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-010",
+    "fr": "FR-33",
+    "objective": "9. Notifications",
+    "kind": "Positive",
+    "scenario": "Ana switches promo emails on (halosj07+promo@gmail.com); the admin posts a promo with email on",
+    "expected": "Emailed once, to 1 customer (only Ana opted in)",
+    "actual": "{\"emailedTo\":1}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-011",
+    "fr": "FR-33",
+    "objective": "9. Notifications",
+    "kind": "Negative",
+    "scenario": "Open the stop-emails link with a forged token",
+    "expected": "Refused (400); Ana stays subscribed",
+    "actual": "{\"status\":400,\"subscribed\":true}",
+    "status": "Passed"
+  },
+  {
+    "id": "TC-NOT-012",
+    "fr": "FR-33",
+    "objective": "9. Notifications",
+    "kind": "Positive",
+    "scenario": "Open the stop-emails link from Ana's email",
+    "expected": "Emails switched off for Ana",
+    "actual": "{\"status\":200,\"subscribed\":false}",
+    "status": "Passed"
   }
 ]

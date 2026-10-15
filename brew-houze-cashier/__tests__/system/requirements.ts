@@ -32,4 +32,6 @@ export const REQUIREMENTS: Record<string, { objective: string; text: string }> =
   "FR-29": { objective: "9. Notifications", text: "The Queue Screen and the customer's phone show order status changes." },
   "FR-30": { objective: "10. Loyalty", text: "Linked orders earn 1 star each, at most 5 a day." },
   "FR-31": { objective: "10. Loyalty", text: "A reward is redeemed only with enough stars and the customer's confirmation." },
+  "FR-32": { objective: "9. Notifications", text: "The admin posts promotions and events; the Mobile Menu shows them to customers while they are scheduled, and refuses events that are already over." },
+  "FR-33": { objective: "9. Notifications", text: "A promotion is emailed once to the customers who switched promo emails on, with a link that stops the emails." },
 };

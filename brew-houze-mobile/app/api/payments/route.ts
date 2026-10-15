@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { parseOrderItems, parseServiceType, isSoldOut } from "@/lib/orders";
+import { parseOrderItems, parsePickupChoice, parseServiceType, isSoldOut } from "@/lib/orders";
 import { startCheckout } from "@/lib/payment-checkouts";
 import { paymongoConfigured } from "@/lib/paymongo";
 import { directGcashReady, gcashMethod } from "@/lib/gcash";
@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   const ready = gcashMethod() === "direct_qr" ? await directGcashReady() : paymongoConfigured();
   if (!ready) return NextResponse.json({ error: "Online payment is not available right now." }, { status: 503 });
   try {
-    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown; verification_token?: unknown; saved_id?: unknown; delivery?: unknown };
+    const body = await request.json() as { items?: unknown; discount_reward_id?: unknown; service_type?: unknown; pickup_mode?: unknown; verification_token?: unknown; saved_id?: unknown; delivery?: unknown };
     const signedIn = await getCustomerSession();
     // An ID discount the café approved (a photo, or the ID remembered on the account).
     const idDiscount = await mobileIdDiscount(body, signedIn?.customerId ?? null);
@@ -33,7 +33,7 @@ export async function POST(request: Request) {
     const serviceType = idDiscount?.serviceType ?? parseServiceType(body.service_type);
     const delivery = serviceType === "delivery" ? await planDelivery(pool, customer?.customerId ?? null, { ...(body.delivery as object ?? {}), payment: "gcash" }) : null;
     // Rewards are the customer's own stars (their signed-in account); they are spent once paid.
-    const started = await startCheckout({ source: "mobile", items, cashierAdminId: null, customerId: idDiscount?.customerId ?? customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, idDiscounts: idDiscount?.idDiscounts ?? [], idVerificationId: idDiscount?.verificationId ?? null, serviceType, delivery, returnUrl: (token) => `${origin}/?payment=${token}` });
+    const started = await startCheckout({ source: "mobile", items, pickupChoice: parsePickupChoice(body.pickup_mode), cashierAdminId: null, customerId: idDiscount?.customerId ?? customer?.customerId ?? null, rewardsAuthorized: Boolean(customer), discountRewardId, idDiscounts: idDiscount?.idDiscounts ?? [], idVerificationId: idDiscount?.verificationId ?? null, serviceType, delivery, returnUrl: (token) => `${origin}/?payment=${token}` });
     return NextResponse.json({ data: started }, { status: 201 });
   } catch (error) {
     if (isSoldOut(error)) return NextResponse.json({ error: "Some items in your cart just sold out.", code: "sold_out" }, { status: 409 });

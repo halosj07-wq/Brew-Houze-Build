@@ -27,7 +27,9 @@ export default async function setup() {
   for (const app of Object.keys(APPS) as AppName[]) {
     const dir = path.join(ROOT_DIR, APPS[app].dir);
     const child = spawn(process.execPath, [path.join(dir, "node_modules", "next", "dist", "bin", "next"), "start", "-p", String(APPS[app].port)], {
-      cwd: dir, env: { ...env, NODE_ENV: "production", PORT: String(APPS[app].port) }, stdio: ["ignore", "pipe", "pipe"],
+      // APP_URL: each app's own address (links in emails); MOBILE_APP_URL: where the admin asks the
+      // Mobile Menu to send due promo emails.
+      cwd: dir, env: { ...env, NODE_ENV: "production", PORT: String(APPS[app].port), APP_URL: urlOf(app), MOBILE_APP_URL: urlOf("mobile") }, stdio: ["ignore", "pipe", "pipe"],
     });
     child.stdout?.on("data", (chunk) => log.write(`[${app}] ${chunk}`));
     child.stderr?.on("data", (chunk) => log.write(`[${app}] ${chunk}`));

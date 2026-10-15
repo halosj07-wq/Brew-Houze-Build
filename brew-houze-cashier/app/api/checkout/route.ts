@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { parseOrderItems, parseServiceType, placeOrder } from "@/lib/orders";
+import { parseOrderItems, parsePickupChoice, parseServiceType, placeOrder } from "@/lib/orders";
 import { parseIdDiscounts } from "@/lib/discounts";
 import { claimCounterCart, completeCounterCart, counterCartProblem, parseCounterCartId } from "@/lib/counter-carts";
 import { getSession, isQueueOnly, QUEUE_ONLY } from "@/lib/sessions";
@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   const client = await pool.connect();
   try {
-    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; gcash_reference?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; id_discounts?: unknown; counter_cart_id?: unknown; delivery?: unknown };
+    const body = await request.json() as { items?: unknown; received_amount?: unknown; payment_method?: unknown; gcash_reference?: unknown; split?: { cash_amount?: unknown; received_amount?: unknown } | null; customer_id?: unknown; claim_id?: unknown; reward_password?: unknown; discount_reward_id?: unknown; service_type?: unknown; pickup_mode?: unknown; id_discounts?: unknown; counter_cart_id?: unknown; delivery?: unknown };
     const directGcash = body.payment_method === "gcash";
     // Cash, or direct GCash on the café's QR. GCash through PayMongo goes through /api/payments.
     if (body.payment_method !== undefined && body.payment_method !== "cash" && body.payment_method !== "cod" && !directGcash) return NextResponse.json({ error: "Only cash orders are punched here. Use GCash for online payments." }, { status: 400 });
@@ -72,6 +72,7 @@ export async function POST(request: Request) {
       // Senior, PWD and other ID discounts: the cashier checked the ID at the counter.
       idDiscounts: parseIdDiscounts(body.id_discounts),
       serviceType,
+      pickupChoice: parsePickupChoice(body.pickup_mode),
       delivery,
       customerToken: counterCartToken,
       paymentReference: reference,

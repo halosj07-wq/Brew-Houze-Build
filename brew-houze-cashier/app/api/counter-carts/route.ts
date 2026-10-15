@@ -15,7 +15,7 @@ export async function GET() {
   try {
     await expireCounterCarts(pool);
     const result = await pool.query(`
-      SELECT cc.counter_cart_id, cc.short_code, cc.items, cc.service_type, cc.discount_type_id, dt.name AS discount_name,
+      SELECT cc.counter_cart_id, cc.short_code, cc.items, cc.service_type, to_jsonb(cc)->>'pickup_mode' AS pickup_mode, cc.discount_type_id, dt.name AS discount_name,
         TO_CHAR(cc.created_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
         TO_CHAR(cc.expires_at AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS expires_at,
         c.customer_id, c.full_name, c.username, c.notes, COALESCE(v.visits, 0) AS visits,
@@ -39,6 +39,8 @@ export async function GET() {
         code: String(row.short_code),
         items: Array.isArray(row.items) ? row.items : [],
         serviceType: row.service_type === "take_out" ? "take_out" : "dine_in",
+        // The customer's pickup choice (pickup-choice-migration.sql; read safely before it is run).
+        pickupMode: row.pickup_mode === "separate" ? "separate" : row.pickup_mode === "together" ? "together" : null,
         discountTypeId: row.discount_type_id === null ? null : Number(row.discount_type_id),
         discountName: (row.discount_name as string | null) ?? null,
         createdAt: String(row.created_at),

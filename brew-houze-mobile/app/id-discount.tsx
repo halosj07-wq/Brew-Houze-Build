@@ -5,7 +5,8 @@ import Image from "next/image";
 
 // Counter-less ID discounts on the mobile menu (senior, PWD and others, see
 // lib/id-verifications.ts on the server):
-//   photo   the customer photographs their ID, the café checks it on the POS, then they pay here
+//   photo   the customer photographs their ID, the café checks it on the POS (and the cashier,
+//           not the customer, picks which items the discount covers), then they pay here
 //   saved   an ID the café already checked and the customer asked to remember: no photo, no wait
 // Either way the barista checks the real ID at pickup. "Send to the counter" stays available.
 
@@ -60,12 +61,13 @@ export async function shrinkPhoto(file: File): Promise<string> {
   }
 }
 
-// Choosing what the discount covers, and for a photo check the name, ID number, photo and consent.
+// A photo check: the name, ID number, photo and consent (the cashier picks what the discount covers
+// when they check it). A saved ID: choosing what the discount covers.
 export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLabel, onSendPhoto, onPaySaved, onClose }: {
   mode: "photo" | "saved"; rule: IdDiscountRule; vat: VatSetting; lines: IdSheetLine[]; saved: SavedId | null; signedIn: boolean;
   // What the button says when paying with a saved ID ("Pay with GCash" or "Send order").
   payLabel: string;
-  onSendPhoto: (details: { holderName: string; idNumber: string; coverage: IdCoverage; photo: string; remember: boolean }) => Promise<void>;
+  onSendPhoto: (details: { holderName: string; idNumber: string; photo: string; remember: boolean }) => Promise<void>;
   onPaySaved: (coverage: IdCoverage) => Promise<void>;
   onClose: () => void;
 }) {
@@ -86,8 +88,8 @@ export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLa
   const amounts = idDiscountAmounts(rule, covered, vat);
   const total = Math.max(0, orderAmount - amounts.vatExempt - amounts.discount);
   const coverage: IdCoverage = shared ? { group_size: people } : { lines: picks.flatMap((quantity, line) => quantity > 0 ? [{ line, quantity }] : []) };
-  const problem = covered <= 0 ? "Tick what you'll eat or drink yourself."
-    : mode === "saved" ? ""
+  const problem = mode === "saved" ? (covered <= 0 ? "Tick what you'll eat or drink yourself." : "")
+    : orderAmount <= 0 ? "Add something to your order first."
       : holderName.trim().length < 2 ? "Enter your full name as it is on the ID."
         : rule.requiresId && idNumber.trim().length < 3 ? `Enter your ${rule.idLabel ?? "ID number"}.`
           : !photo ? "Take a photo of your ID."
@@ -113,7 +115,7 @@ export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLa
     setError("");
     try {
       if (mode === "saved") await onPaySaved(coverage);
-      else await onSendPhoto({ holderName: holderName.trim().replace(/\s+/g, " "), idNumber: idNumber.trim(), coverage, photo: photo!, remember });
+      else await onSendPhoto({ holderName: holderName.trim().replace(/\s+/g, " "), idNumber: idNumber.trim(), photo: photo!, remember });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Something went wrong. Please try again.");
       setWorking(false);
@@ -125,6 +127,7 @@ export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLa
       <div className="cart-modal-heading"><div><p className="eyebrow">{mode === "saved" ? "YOUR SAVED ID" : "ID DISCOUNT"}</p><h2>{mode === "saved" ? `Your ${rule.name} discount` : `Send your ${rule.name} ID`}</h2></div><button className="modal-close inline" disabled={working} onClick={onClose} aria-label="Close">×</button></div>
       {mode === "saved" && saved && <p className="id-sheet-saved">✓ Checked by the café: {saved.holderName}{saved.idEnding ? ` · ID ending ${saved.idEnding}` : ""}</p>}
 
+      {mode === "saved" && <>
       <p className="id-sheet-label">What does the discount cover?</p>
       <div className="service-choice id-sheet-mode" role="radiogroup" aria-label="What the discount covers">
         <button type="button" role="radio" aria-checked={!shared} onClick={() => setShared(false)}><strong>My own items</strong><span>What I&apos;ll eat or drink</span></button>
@@ -140,8 +143,10 @@ export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLa
           {line.qty > 1 && (picks[index] ?? 0) > 0 && <div className="quantity-control"><button type="button" onClick={() => setPicks((current) => current.map((value, at) => at === index ? Math.max(1, value - 1) : value))} aria-label="One fewer">−</button><span>{picks[index]}</span><button type="button" onClick={() => setPicks((current) => current.map((value, at) => at === index ? Math.min(line.qty, value + 1) : value))} aria-label="One more">+</button></div>}
         </div>)}
       </div>}
+      </>}
 
       {mode === "photo" && <>
+        <p className="id-sheet-saved">The cashier chooses which items in your order get the discount when they check your ID. You&apos;ll see the final total before you pay.</p>
         <div className="id-sheet-fields">
           <label><span>Full name (as on the ID)</span><input value={holderName} onChange={(event) => setHolderName(event.target.value)} maxLength={80} autoComplete="name" /></label>
           {(rule.requiresId || rule.idLabel) && <label><span>{rule.idLabel ?? "ID no."}{rule.requiresId ? "" : " (optional)"}</span><input value={idNumber} onChange={(event) => setIdNumber(event.target.value)} maxLength={40} autoComplete="off" /></label>}
@@ -155,15 +160,18 @@ export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLa
         {signedIn && <label className="id-sheet-check"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /><span>Remember my ID on my account, so next time I get the discount without a photo. Only my name and ID number are kept, never the photo.</span></label>}
       </>}
 
-      {covered > 0 && <div className="id-sheet-summary">
+      {mode === "saved" && covered > 0 && <div className="id-sheet-summary">
         <div><span>{shared ? "Your share" : "Your items"}</span><b>{peso(covered)}</b></div>
         {amounts.vatExempt > 0 && <div><span>Less VAT ({vat.rate}%)</span><b>−{peso(amounts.vatExempt)}</b></div>}
         <div><span>Less {rule.discountKind === "percent" ? `${rule.discountValue}%` : "discount"}</span><b>−{peso(amounts.discount)}</b></div>
-        <div className="is-total"><span>{mode === "saved" ? "Order total" : "Order total, once approved"}</span><b>{peso(total)}</b></div>
+        <div className="is-total"><span>Order total</span><b>{peso(total)}</b></div>
+      </div>}
+      {mode === "photo" && orderAmount > 0 && <div className="id-sheet-summary">
+        <div className="is-total"><span>Order total before the discount</span><b>{peso(orderAmount)}</b></div>
       </div>}
       <p className="no-payment-note">Show your ID when you pick up your order. The discount is for your own food and drinks.</p>
       {(error || problem) && <p className={error ? "error-message" : "id-sheet-problem"}>{error || problem}</p>}
-      <button className="add-order-button" disabled={Boolean(problem) || working || photoBusy} onClick={() => void submit()}>{working ? (mode === "saved" ? "Opening payment..." : "Sending your ID...") : mode === "saved" ? payLabel : "Send for checking"} <span>{peso(total)} →</span></button>
+      <button className="add-order-button" disabled={Boolean(problem) || working || photoBusy} onClick={() => void submit()}>{working ? (mode === "saved" ? "Opening payment..." : "Sending your ID...") : mode === "saved" ? payLabel : "Send for checking"} <span>{mode === "saved" ? `${peso(total)} →` : "→"}</span></button>
     </section>
   </div>;
 }

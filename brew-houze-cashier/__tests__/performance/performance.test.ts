@@ -9,7 +9,7 @@ import { AppUser, staff } from "../integration/support/http";
 // the production builds against the test database on one PC, several requests at a time. The
 // target is under 3 seconds per request. Results: __tests__/results/performance-local.json.
 loadTestEnv();
-const TARGET_MS = 3000;
+const TARGET_MS = 2000; // NFR 2: two seconds
 const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 
 async function measure(name: string, total: number, concurrent: number, send: (i: number) => Promise<{ status: number; ms: number }>) {
@@ -37,6 +37,12 @@ it("performance of order submission, queue sync and AI insights", async () => {
     await measure("Queue sync: staff queue (GET /api/queue)", 200, 20, () => cashier.get("/api/queue")),
     await measure("Queue Screen: queue (GET /api/queue)", 200, 20, () => new AppUser("queue").get("/api/queue")),
     await measure("AI insights: one request to Claude (POST /api/insights)", 1, 1, () => admin.post("/api/insights", { action: "generate", start: today, end: today })),
+    // Objective 9: the café's news on the menu (three promotions and an event showing).
+    await (async () => {
+      for (const title of ["Buy 1 Take 1 Americano", "Happy Hour Frappes", "New: Caramel Matcha"]) await admin.post("/api/promotions", { kind: "promo", title, message: "This week only." });
+      await admin.post("/api/promotions", { kind: "event", title: "Acoustic Night", message: "Live music from 7 PM.", eventStartsAt: new Date(Date.now() + 86_400_000).toISOString() });
+      return measure("Mobile Menu: promotions and events (GET /api/promotions)", 200, 20, () => phone.get("/api/promotions"));
+    })(),
   ];
   const dir = path.join(process.cwd(), "__tests__", "results");
   mkdirSync(dir, { recursive: true });

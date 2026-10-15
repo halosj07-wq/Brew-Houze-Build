@@ -29,6 +29,11 @@ export type Station = "bar" | "kitchen";
 export const STATIONS: Station[] = ["bar", "kitchen"];
 export const stationOf = (value: unknown): Station => (value === "kitchen" ? "kitchen" : "bar");
 
+// How an order with drinks and food is picked up, when the café lets each order choose
+// (store_settings.pickup_mode = 'per_order'): called together, or drinks and food separately.
+export type PickupChoice = "together" | "separate";
+export const parsePickupChoice = (value: unknown): PickupChoice | null => (value === "together" || value === "separate" ? value : null);
+
 export type ServiceType = "dine_in" | "take_out" | "delivery";
 export function parseServiceType(value: unknown): ServiceType | null {
   return value === "dine_in" || value === "take_out" || value === "delivery" ? value : null;
@@ -55,16 +60,26 @@ export type PlaceOrderInput = {
   // lines point into items. Not together with a discount reward.
   idDiscounts?: IdDiscountInput[];
   serviceType?: ServiceType | null;
+  // The customer's pickup choice (kept only when the café lets each order choose, and the order
+  // has drinks and food and is not a delivery).
+  pickupChoice?: PickupChoice | null;
   // A delivery order: where it goes and its fee rules (required when serviceType is delivery).
   delivery?: DeliveryPlan | null;
   paymentReference?: string | null;
   paymentProvider?: string | null;
+  // A counter order taken while the cafe was offline (Staff Portal, cash), sent once the internet
+  // is back (see offline-orders-migration.sql): saved at the time it was taken, in the shift it
+  // was taken in, already handed over. It was already sold, so stock it no longer covers is taken
+  // down to zero and reported (stockShort) instead of refusing the order.
+  // chargedTotal: what the customer paid then; a menu price that went up since comes off as a
+  // discount ("Offline price"), so the sale matches the cash taken.
+  offline?: { id: string; createdAt: string; shiftId: number | null; ticket: string; chargedTotal?: number | null } | null;
 };
 // starsEarned: loyalty stars the linked customer got for this order (0 without a customer or campaign).
 // starsRedeemed: stars spent on rewards in this order. total is what the customer pays, after
 // discountAmount and vatExemptAmount (VAT removed for senior and PWD items) are taken off subtotal,
 // and deliveryFee added (delivery orders).
-export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; subtotal: number; discountAmount: number; vatExemptAmount: number; deliveryFee: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
+export type PlacedOrder = { orderId: number; queueNumber: number; shiftId: number; offlineGap: number; stockShort: { item: string; unit: string; short: number }[]; subtotal: number; discountAmount: number; vatExemptAmount: number; deliveryFee: number; total: number; receivedAmount: number; changeAmount: number; createdAt: string; starsEarned: number; starsRedeemed: number };
 
 // Cost of one unit of inventory item `i` (joined with its source as `src`). A bound item costs
 // what it draws from its source, which is the stock actually deducted at checkout.
@@ -171,7 +186,9 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   // Sales belong to the open shift. The share lock keeps the shift from being closed while
   // this order is still being saved.
-  const shiftResult = await client.query("SELECT shift_id FROM shifts WHERE closed_at IS NULL FOR SHARE");
+  const shiftResult = input.offline?.shiftId
+    ? await client.query("SELECT shift_id FROM shifts WHERE shift_id = $1 OR closed_at IS NULL ORDER BY (shift_id = $1) DESC LIMIT 1 FOR SHARE", [input.offline.shiftId])
+    : await client.query("SELECT shift_id FROM shifts WHERE closed_at IS NULL FOR SHARE");
   if (shiftResult.rowCount === 0) {
     throw new Error(input.source === "mobile" ? "Brew Houze isn't taking orders right now. Please order again once the café is open." : "No shift is open. Open a shift before taking orders.");
   }
@@ -183,10 +200,10 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     FROM product_variants pv
     JOIN products p ON p.product_id = pv.product_id
     WHERE pv.product_variant_id = ANY($1::int[])
-      AND pv.is_archived = FALSE AND p.is_archived = FALSE
+      AND ($2::boolean OR (pv.is_archived = FALSE AND p.is_archived = FALSE))
     ORDER BY pv.product_variant_id
     FOR UPDATE OF pv
-  `, [variantIds]);
+  `, [variantIds, Boolean(input.offline)]);
   if (variants.rowCount !== variantIds.length) throw new SoldOutError("One or more selected products are no longer available.");
 
   // Loyalty rewards: checked (and the customer's stars locked) before anything is deducted.
@@ -279,9 +296,22 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   await resolveBoundDeductions(client, deductions);
 
   const deductionDetails = new Map<number, { itemName: string; category: string; unit: string; quantityBefore: number; quantityAfter: number }>();
+  // Offline orders: what the recorded stock did not cover (it goes down to zero instead).
+  const stockShort: { item: string; unit: string; short: number }[] = [];
   // Each guarded UPDATE locks its row; applying them in id order means two concurrent
   // orders sharing inventory always lock in the same sequence and cannot deadlock.
   for (const [inventoryId, deduction] of Array.from(deductions).sort(([a], [b]) => a - b)) {
+    if (input.offline) {
+      const before = await client.query("SELECT item_name, ingredient_category, unit_of_measure, quantity FROM inventory WHERE inventory_id = $1 FOR UPDATE", [inventoryId]);
+      if (before.rowCount !== 1) throw new SoldOutError("An ingredient of this order no longer exists.");
+      const row = before.rows[0];
+      const quantityBefore = Number(row.quantity);
+      const quantityAfter = Math.max(0, Math.round((quantityBefore - deduction) * 10000) / 10000);
+      await client.query("UPDATE inventory SET quantity = $1, updated_at = CURRENT_TIMESTAMP WHERE inventory_id = $2", [quantityAfter, inventoryId]);
+      if (deduction > quantityBefore + 0.00005) stockShort.push({ item: String(row.item_name), unit: String(row.unit_of_measure), short: Math.round((deduction - quantityBefore) * 100) / 100 });
+      deductionDetails.set(inventoryId, { itemName: row.item_name, category: row.ingredient_category, unit: row.unit_of_measure, quantityAfter, quantityBefore });
+      continue;
+    }
     const result = await client.query(`
       UPDATE inventory
       SET quantity = quantity - $1, updated_at = CURRENT_TIMESTAMP
@@ -324,11 +354,16 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   const itemsAfterDiscounts = Math.max(0, Math.round((subtotal - orderDiscount - vatExemptAmount) * 100) / 100);
   if (delivery?.zoneMinOrder && subtotal + 0.005 < delivery.zoneMinOrder) throw new Error(`Delivery to ${delivery.zoneName} starts at ₱${delivery.zoneMinOrder.toFixed(2)} of items. Add a little more to your order.`);
   const deliveryFee = delivery ? deliveryFeeFor(delivery, itemsAfterDiscounts) : 0;
-  const total = Math.round((itemsAfterDiscounts + deliveryFee) * 100) / 100;
+  const listTotal = Math.round((itemsAfterDiscounts + deliveryFee) * 100) / 100;
+  const charged = input.offline?.chargedTotal;
+  const offlineGap = typeof charged === "number" && Number.isFinite(charged) && listTotal - charged > 0.005 ? Math.round((listTotal - charged) * 100) / 100 : 0;
+  const total = Math.round((listTotal - offlineGap) * 100) / 100;
   if (input.paymentMethod === "cod" && (!delivery || delivery.payment !== "cod")) throw new Error("Cash on delivery is only for delivery orders.");
   if (delivery?.payment === "cod" && delivery.codMaxAmount !== null && total > delivery.codMaxAmount + 0.005) throw new Error(`Cash on delivery is for orders up to ₱${delivery.codMaxAmount.toFixed(2)}. Pay with GCash instead.`);
 
-  const { receivedAmount, changeAmount, cashPortion } = settlePayment(input.paymentMethod, total, input.receivedAmount, input.cashAmount);
+  // An offline order was paid already: a total that went up since (a price changed) is taken as paid.
+  const received = input.offline && input.paymentMethod === "cash" ? Math.max(Number(input.receivedAmount ?? 0), total) : input.receivedAmount;
+  const { receivedAmount, changeAmount, cashPortion } = settlePayment(input.paymentMethod, total, received, input.cashAmount);
 
   const order = await client.query(`
     INSERT INTO sales_orders (cashier_admin_id, total_amount, status, queue_number, queue_status, order_source, customer_order_token, received_amount, change_amount, payment_method, shift_id, payment_reference, payment_provider, cash_portion, customer_id,
@@ -337,8 +372,14 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     RETURNING order_id, queue_number,
       TO_CHAR(created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at
   `, [input.cashierAdminId, total, queueNumber, input.source === "mobile" ? "online" : "cashier", input.customerToken ?? null, receivedAmount, changeAmount, input.paymentMethod, shiftId, input.paymentReference ?? null, input.paymentProvider ?? null, cashPortion, input.customerId ?? null,
-    subtotal, orderDiscount, idSummary ? idSummary.label : discount ? `${discount.name} (${discountText(discount)})` : null, idSummary ? idSummary.source : discount ? (discount.kind === "birthday" ? "birthday" : "reward") : null, discount?.id ?? null, input.serviceType ?? null, vatExemptAmount, deliveryFee]);
+    subtotal, Math.round((orderDiscount + offlineGap) * 100) / 100, idSummary ? idSummary.label : discount ? `${discount.name} (${discountText(discount)})` : offlineGap > 0 ? "Offline price (the menu price changed after the sale)" : null, idSummary ? idSummary.source : discount ? (discount.kind === "birthday" ? "birthday" : "reward") : offlineGap > 0 ? "custom" : null, discount?.id ?? null, input.serviceType ?? null, vatExemptAmount, deliveryFee]);
   const orderId = Number(order.rows[0].order_id);
+  if (input.offline) {
+    await client.query(`
+      UPDATE sales_orders SET offline_id = $2::uuid, offline_ticket = $3, created_at = ($4::timestamptz AT TIME ZONE 'UTC'), queue_status = 'flushed', served_at = $4::timestamptz
+      WHERE order_id = $1
+    `, [orderId, input.offline.id, input.offline.ticket, input.offline.createdAt]);
+  }
 
   // The delivery: the address as it is now, the fee, and (cash on delivery) what to collect. An ID
   // discount on a delivery is checked at the door.
@@ -380,8 +421,17 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   }
 
   // The stations that make this order (bar, kitchen): each gets its part in its own queue.
-  for (const station of new Set(variants.rows.map((variant) => stationOf(variant.station)))) {
+  const stations = new Set(variants.rows.map((variant) => stationOf(variant.station)));
+  for (const station of stations) {
     await client.query("INSERT INTO order_stations (order_id, station) VALUES ($1, $2) ON CONFLICT DO NOTHING", [orderId, station]);
+  }
+  // Made and handed over by hand while offline.
+  if (input.offline) await client.query("UPDATE order_stations SET status = 'picked_up', ready_at = $2::timestamptz, picked_up_at = $2::timestamptz WHERE order_id = $1", [orderId, input.offline.createdAt]);
+  // Each order chooses how its drinks and food are picked up (pickup-choice-migration.sql); the
+  // column is only written while the café asks, so ordering works before the migration is run.
+  if (input.pickupChoice && stations.size > 1 && !delivery) {
+    const setting = await client.query("SELECT setting_value FROM store_settings WHERE setting_key = 'pickup_mode'");
+    if (setting.rows[0]?.setting_value === "per_order") await client.query("UPDATE sales_orders SET pickup_mode = $2 WHERE order_id = $1", [orderId, input.pickupChoice]);
   }
 
   // The ID discount register: who, which ID, which sales lines, and the amounts.
@@ -400,7 +450,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
   const starsEarned = input.customerId ? await awardOrderStarsSafely(client, orderId, input.customerId) : 0;
   // Live screens: the queue, the counter line (a served cart, a used ID check) and stock.
   signalChange("queue", "line", "stock");
-  return { orderId, queueNumber, shiftId, subtotal, discountAmount: orderDiscount, vatExemptAmount, deliveryFee, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
+  return { orderId, queueNumber, shiftId, offlineGap, stockShort, subtotal, discountAmount: orderDiscount, vatExemptAmount, deliveryFee, total, receivedAmount, changeAmount, createdAt: order.rows[0].created_at, starsEarned, starsRedeemed };
 }
 
 // The exact total the order would have right now (prices, stock and the open shift all

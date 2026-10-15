@@ -137,7 +137,10 @@ export async function GET() {
       .then((requestsResult) => requestsResult.rows.map((row) => ({ text: String(row.request_text), station: row.station === "kitchen" ? "kitchen" : "bar" })))
       .catch(() => []);
 
-    return NextResponse.json({ data: result.rows, additions: additionsResult.rows, requests });
+    // How orders with drinks and food are picked up: "per_order" asks at checkout (together or separately).
+    const pickup = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'pickup_mode'")
+      .then((pickupResult) => String(pickupResult.rows[0]?.setting_value ?? "together")).catch(() => "together");
+    return NextResponse.json({ data: result.rows, additions: additionsResult.rows, requests, pickup });
   } catch (error) {
     console.error("GET /api/products failed:", error);
     return NextResponse.json({ error: "Unable to load products." }, { status: 500 });

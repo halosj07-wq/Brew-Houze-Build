@@ -236,3 +236,37 @@ export async function insightFacts(start: string, end: string, today: string) {
 }
 
 export type InsightFacts = Awaited<ReturnType<typeof insightFacts>>;
+
+// What Claude compares the trends against (Trends, see app/api/insights): the menu as it is now,
+// each product with its category, whether it is a drink or food, its price range and how many
+// sold in the last 30 days, and the ingredients in stock (so a suggestion can use what is on hand).
+// Only product and item names go out.
+export async function trendMenuFacts(today: string) {
+  const since = addDays(today, -29);
+  const [products, stock] = await Promise.all([
+    pool.query(`
+      WITH ${ordersCte},
+      sold AS (
+        SELECT soi.product_id, SUM(soi.quantity)::int AS sold FROM o JOIN sales_order_items soi ON soi.order_id = o.order_id
+        WHERE NOT o.reversed AND o.bd BETWEEN $1::date AND $2::date GROUP BY soi.product_id
+      )
+      SELECT p.product_name, p.product_category, p.station, MIN(COALESCE(pv.price, p.price)) AS min_price, MAX(COALESCE(pv.price, p.price)) AS max_price, COALESCE(s.sold, 0) AS sold
+      FROM products p LEFT JOIN product_variants pv ON pv.product_id = p.product_id LEFT JOIN sold s ON s.product_id = p.product_id
+      WHERE p.is_archived = FALSE
+      GROUP BY p.product_id, s.sold ORDER BY p.product_category NULLS LAST, p.product_name
+    `, [since, today]),
+    pool.query("SELECT item_name FROM inventory WHERE is_archived = FALSE AND quantity > 0 ORDER BY item_name"),
+  ]);
+  return {
+    cafe: "Brew Houze, a cafe in the Philippines. Prices are in Philippine pesos.",
+    today,
+    sales_window: { from: since, to: today },
+    menu: products.rows.map((row) => ({
+      product: String(row.product_name), category: row.product_category === null ? null : String(row.product_category),
+      kind: row.station === "kitchen" ? "food" : "drink",
+      price: n(row.min_price) === n(row.max_price) ? round(n(row.min_price)) : `${round(n(row.min_price))} to ${round(n(row.max_price))}`,
+      sold_last_30_days: n(row.sold),
+    })),
+    ingredients_in_stock: stock.rows.map((row) => String(row.item_name)),
+  };
+}
