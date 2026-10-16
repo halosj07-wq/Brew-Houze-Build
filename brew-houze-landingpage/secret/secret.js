@@ -17,6 +17,12 @@
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
   };
+  // Ditto is unlocked once per device: after all six aespa themes have been on here, a last quick
+  // tip shows in the café look (see "Ditto: the secret within the secrets" at the end).
+  const VISITED_KEY = "brew-houze-aespa-visited"; // the aespa themes this device has seen, as JSON
+  const DITTO_KEY = "brew-houze-ditto-unlocked";
+  const visited = () => { try { const list = JSON.parse(store.get(VISITED_KEY) ?? "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
+  let onThemeApplied = null; // set by the Ditto unlock once it is ready
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const toast = (message) => { if (typeof window.showToast === "function") window.showToast(message); };
@@ -31,6 +37,22 @@
     ningning: { name: "Ningning", hangul: "닝닝", short: "Main vocalist", real: "Ning Yizhuo (宁艺卓)", born: "October 23, 2002", from: "Harbin, China", role: "Main vocalist · the youngest", about: "The youngest member and a main vocalist, known for her strong live vocals." },
   };
   const memberOrder = Object.keys(MEMBERS);
+  // NewJeans, for Ditto (the one theme that is not aespa's): the five of them as they were in Ditto's
+  // era (December 2022). No positions (the group never named any): the year and city each was born
+  // in, and the line she sings in Ditto (the back of her card).
+  const NJ_MEMBERS = {
+    minji: { name: "Minji", hangul: "민지", short: "2004 · Chuncheon", real: "Kim Min-ji (김민지)", born: "May 7, 2004", from: "Chuncheon, South Korea", line: "Walk in this 미로, 다 아는 건 아니어도" },
+    hanni: { name: "Hanni", hangul: "하니", short: "2004 · Melbourne", real: "Pham Ngoc Han (Hanni Pham)", born: "October 6, 2004", from: "Melbourne, Australia", line: "Stay in the middle, like you a little" },
+    danielle: { name: "Danielle", hangul: "다니엘", short: "2005 · Newcastle", real: "Danielle June Marsh (모지혜)", born: "April 11, 2005", from: "Newcastle, Australia", line: "Not just anybody… 기다렸지 all this time" },
+    haerin: { name: "Haerin", hangul: "해린", short: "2006 · Seoul", real: "Kang Hae-rin (강해린)", born: "May 15, 2006", from: "Seoul, South Korea", line: "훌쩍 커버렸어, 함께한 기억처럼" },
+    hyein: { name: "Hyein", hangul: "혜인", short: "2008 · Incheon", real: "Lee Hye-in (이혜인)", born: "April 21, 2008", from: "Incheon, South Korea", line: "I got no time to lose, 내 길었던 하루" },
+  };
+  // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order.
+  const GROUPS = {
+    aespa: { name: "aespa", members: MEMBERS, order: memberOrder },
+    newjeans: { name: "NewJeans", members: NJ_MEMBERS, order: Object.keys(NJ_MEMBERS) },
+  };
+  const groupOf = (theme) => GROUPS[THEMES[theme]?.group ?? "aespa"];
   const DW_TAROT = {
     // The Dirty Work card backs: a tarot card each, titled from a line she sings in Dirty Work, with
     // the arcana it borrows (XXI the World, VIII Strength, XIII Death, XV the Devil).
@@ -2601,6 +2623,3203 @@
     };
   })();
 
+  // ── Ditto (NewJeans): the secret within the secrets ──
+  // 134 BPM; the intro, track 1 and track 2 are 16 bars each (28.66 s), each played from the
+  // encoder's delay. DT_MS(bar, beat, sixteenth) is where that falls in a part, in ms.
+  const DT_BEAT = 60 / 134;
+  const DT_START = 1105 / 44100;
+  const DT_MS = (bar, beat = 0, sixteenth = 0) => Math.round(((bar - 1) * 4 + beat + sixteenth / 4) * DT_BEAT * 1000);
+  const DT_STICKERS = [18, 14, 11, 19, 21];
+  // The intro: a winter night, an old computer, a folder no one has opened since 2022.
+  //   dark (0)          a bedroom at night (dittoRoom): the monitor off on the desk under the window,
+  //                     snow falling outside, fairy lights over the window, a mug still steaming
+  //   power (1567)      the camera pushes in on the monitor as it comes on (the room grows round it)
+  //                     and the first "woo" swells: the screen comes on, a line opening into the picture,
+  //                     its light on the room
+  //   desktop (1791)    a pastel desktop; the cursor drifts to the folder "ditto (2022)"
+  //   ask (3582)        a double click: "This folder hasn't been opened since 12/19/2022. Open it anyway?"
+  //   open (4478)       Open
+  //   win (5373…8060)   the five of them open as photo windows, a beat and a half apart, a sticker each
+  //   player (8731)     the second swell: ditto.avi plays (the camcorder footage) over them
+  //   beat (14328)      the drums come in: a cat's paw prints walk across the screen, one a beat
+  //   tile (21492)      the five windows line up side by side, "all five · winter 2022"
+  //   us (25074)        us.png: the five of them drawn together
+  //   hit (26865)       the band comes in: the Ditto logo glows over it all, stickers burst, the
+  //                     screen blooms into the chorus
+  // The room round the intro's monitor: a bedroom at night, the desk under the window, the town
+  // under snow outside, fairy lights strung over the window, a mug of coffee still steaming, the desk
+  // calendar on 19 December. Painted round the monitor where it stands before the camera pushes in
+  // (the room grows with it, from the same point; .dt-room in ditto.css), and again on a resize.
+  const DT_BULBS = ["#FF9EC7", "#FFE08A", "#9DF5C2", "#C3B8F3", "#FFC09E", "#9EC2F0"];
+  const dittoRoom = (box) => {
+    const room = box.querySelector(".dt-room"), crt = box.querySelector(".dt-crt");
+    const sky = room.querySelector(".dt-room-sky"), front = room.querySelector(".dt-room-paint");
+    const out = room.querySelector(".dt-room-out"), lights = room.querySelector(".dt-room-lights");
+    const steam = room.querySelector(".dt-room-steam"), glow = room.querySelector(".dt-room-glow");
+    const paint = () => {
+      if (!box.isConnected) return;
+      const vw = window.innerWidth, vh = window.innerHeight, tall = vh > vw;
+      const ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 2);
+      let seed = 1219;
+      const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      // The monitor before the push in (its scale now may be part way; the zoom is about its middle).
+      const at = crt.getBoundingClientRect();
+      const scaled = parseFloat(getComputedStyle(crt).scale) || 1;
+      const s0 = parseFloat(getComputedStyle(box).getPropertyValue("--dt-s0")) || 0.42;
+      const ox = at.left + at.width / 2, oy = at.top + at.height / 2;
+      const bw = (at.width / scaled) * s0, bh = (at.height / scaled) * s0;
+      room.style.transformOrigin = `${ox.toFixed(1)}px ${oy.toFixed(1)}px`;
+      const footY = oy + bh / 2 + bw * 0.085;
+      const deskBack = footY - bw * (tall ? 0.1 : 0.075);
+      const deskFront = Math.min(vh - 4, footY + (vh - footY) * (tall ? 0.7 : 0.62));
+      const winW = tall ? vw * 0.86 : Math.min(vw * 0.84, bw * 2.5);
+      const winL = ox - winW / 2, winR = ox + winW / 2, winT = vh * (tall ? 0.06 : 0.075);
+      const winB = deskBack - (tall ? 12 : vh * 0.03), winH = winB - winT;
+      const ft = Math.max(5, winW * (tall ? 0.022 : 0.016));
+
+      // Outside: the night sky, the moon, the town under the snow (the flakes fall in front of it).
+      Object.assign(out.style, { left: `${winL}px`, top: `${winT}px`, width: `${winW}px`, height: `${winH}px` });
+      out.style.setProperty("--oh", winH.toFixed(0));
+      out.style.setProperty("--fs", `${Math.max(3, bw * 0.011).toFixed(1)}px`);
+      sky.width = Math.round(winW * ratio); sky.height = Math.round(winH * ratio);
+      const k = sky.getContext("2d");
+      k.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const air = k.createLinearGradient(0, 0, 0, winH);
+      air.addColorStop(0, "#0A0E2A"); air.addColorStop(0.5, "#1F275B"); air.addColorStop(0.8, "#454985"); air.addColorStop(1, "#7A6CA4");
+      k.fillStyle = air; k.fillRect(0, 0, winW, winH);
+      for (let n = 0; n < 70; n++) { k.fillStyle = `rgba(255, 255, 255, ${(0.15 + rnd() * 0.5).toFixed(2)})`; k.fillRect(rnd() * winW, rnd() * winH * 0.55, 1.3, 1.3); }
+      const mx = winW * 0.84, my = winH * 0.2, mr = Math.max(6, Math.min(winW, winH) * 0.045);
+      const halo = k.createRadialGradient(mx, my, mr * 0.8, mx, my, mr * 6);
+      halo.addColorStop(0, "rgba(225, 228, 255, 0.4)"); halo.addColorStop(1, "rgba(225, 228, 255, 0)");
+      k.fillStyle = halo; k.fillRect(0, 0, winW, winH);
+      k.fillStyle = "#F6F3FF"; k.beginPath(); k.arc(mx, my, mr, 0, Math.PI * 2); k.fill();
+      k.fillStyle = "rgba(185, 185, 225, 0.35)";
+      [[-0.3, -0.2, 0.22], [0.25, 0.15, 0.16], [-0.05, 0.4, 0.12]].forEach(([dx, dy, r]) => { k.beginPath(); k.arc(mx + dx * mr, my + dy * mr, r * mr, 0, Math.PI * 2); k.fill(); });
+      // the town's light on the low clouds
+      const town = k.createLinearGradient(0, winH * 0.55, 0, winH);
+      town.addColorStop(0, "rgba(244, 154, 193, 0)"); town.addColorStop(1, "rgba(244, 154, 193, 0.22)");
+      k.fillStyle = town; k.fillRect(0, 0, winW, winH);
+      // two rows of roofs, the far one paler; snow on every roof, a window lit here and there
+      [[0.2, 0.11, "#2C2F62", 0.55], [0.3, 0.16, "#161A3A", 0.9]].forEach(([tallest, least, ink, lit]) => {
+        let x = -rnd() * winW * 0.05;
+        while (x < winW) {
+          const w = winW * (0.045 + rnd() * 0.07), h = winH * (least + rnd() * (tallest - least)), y = winH - h, pitched = rnd() < 0.35;
+          k.fillStyle = ink;
+          k.beginPath();
+          if (pitched) { k.moveTo(x, winH); k.lineTo(x, y + w * 0.3); k.lineTo(x + w / 2, y); k.lineTo(x + w, y + w * 0.3); k.lineTo(x + w, winH); }
+          else k.rect(x, y, w, h);
+          k.fill();
+          k.strokeStyle = "rgba(232, 236, 255, 0.85)"; k.lineWidth = Math.max(1.5, winH * 0.008); k.lineCap = "round";
+          k.beginPath();
+          if (pitched) { k.moveTo(x, y + w * 0.3); k.lineTo(x + w / 2, y); k.lineTo(x + w, y + w * 0.3); } else { k.moveTo(x + 1, y); k.lineTo(x + w - 1, y); }
+          k.stroke();
+          const ww = Math.max(2, w * 0.12), wh = ww * 1.3;
+          for (let wy = y + (pitched ? w * 0.36 : h * 0.18); wy < winH - wh; wy += wh * 2.2) {
+            for (let wx = x + w * 0.18; wx < x + w - ww * 1.2; wx += ww * 2) {
+              if (rnd() > lit * 0.32) continue;
+              k.fillStyle = rnd() < 0.7 ? "rgba(255, 214, 160, 0.9)" : "rgba(255, 190, 218, 0.9)";
+              k.fillRect(wx, wy, ww, wh);
+            }
+          }
+          x += w;
+        }
+      });
+
+      // Inside: the wall, the window (its glass cut out of the wall), the curtains, the desk.
+      front.width = Math.round(vw * ratio); front.height = Math.round(vh * ratio);
+      const g = front.getContext("2d");
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const wall = g.createLinearGradient(0, 0, 0, deskBack);
+      wall.addColorStop(0, "#14172E"); wall.addColorStop(1, "#272B50");
+      g.fillStyle = wall; g.fillRect(0, 0, vw, deskBack + 2);
+      g.fillStyle = "rgba(255, 255, 255, 0.022)";
+      for (let x = 0; x < vw; x += 26) g.fillRect(x, 0, 11, deskBack);
+      const spill = g.createRadialGradient(ox, (winT + winB) / 2, winW * 0.3, ox, (winT + winB) / 2, winW * 0.8);
+      spill.addColorStop(0, "rgba(130, 140, 215, 0.2)"); spill.addColorStop(1, "rgba(130, 140, 215, 0)");
+      g.fillStyle = spill; g.fillRect(0, 0, vw, deskBack);
+      g.clearRect(winL, winT, winW, winH);
+      // frost in the corners of each pane, a sheen across the glass
+      const cols = [0, 1 / 3, 2 / 3, 1], rows = [0, 0.36, 1];
+      g.save(); g.beginPath(); g.rect(winL, winT, winW, winH); g.clip();
+      for (let c = 0; c < 3; c++) for (let r = 0; r < 2; r++) {
+        const x0 = winL + winW * cols[c], x1 = winL + winW * cols[c + 1], y0 = winT + winH * rows[r], y1 = winT + winH * rows[r + 1];
+        const size = Math.min(x1 - x0, y1 - y0) * 0.42;
+        [[x0, y1, 0.32], [x1, y1, 0.32], [x0, y0, 0.14], [x1, y0, 0.14]].forEach(([fx, fy, a]) => {
+          const frost = g.createRadialGradient(fx, fy, 0, fx, fy, size);
+          frost.addColorStop(0, `rgba(235, 240, 255, ${a})`); frost.addColorStop(1, "rgba(235, 240, 255, 0)");
+          g.fillStyle = frost; g.fillRect(x0, y0, x1 - x0, y1 - y0);
+        });
+      }
+      g.fillStyle = "rgba(255, 255, 255, 0.045)";
+      g.beginPath(); g.moveTo(winL + winW * 0.08, winB); g.lineTo(winL + winW * 0.3, winT); g.lineTo(winL + winW * 0.38, winT); g.lineTo(winL + winW * 0.16, winB); g.fill();
+      g.restore();
+      // the frame: dark against the snowlight, its inner edges lit
+      const mull = ft * 0.7;
+      const bar = (x, y, w, h) => { g.fillStyle = "#3F4373"; g.fillRect(x, y, w, h); g.fillStyle = "rgba(170, 178, 230, 0.55)"; g.fillRect(x, y, w, 1); g.fillRect(x, y, 1, h); };
+      bar(winL - ft, winT - ft, winW + ft * 2, ft);
+      bar(winL - ft, winT - ft, ft, winH + ft);
+      bar(winR, winT - ft, ft, winH + ft);
+      [1 / 3, 2 / 3].forEach((f) => bar(winL + winW * f - mull / 2, winT, mull, winH));
+      bar(winL, winT + winH * 0.36 - mull / 2, winW, mull);
+      // the sill, a snowman on it and a little plant
+      const sillY = winB, sillH = Math.max(4, ft * 1.1);
+      g.fillStyle = "#5D6194"; g.fillRect(winL - ft * 1.8, sillY, winW + ft * 3.6, sillH);
+      g.fillStyle = "rgba(190, 196, 245, 0.7)"; g.fillRect(winL - ft * 1.8, sillY, winW + ft * 3.6, 1.5);
+      g.fillStyle = "rgba(8, 8, 25, 0.4)"; g.fillRect(winL - ft * 1.8, sillY + sillH, winW + ft * 3.6, 3);
+      const sm = Math.max(8, winH * 0.05), sx = winL + winW * 0.1;
+      g.fillStyle = "#B9BDE2";
+      g.beginPath(); g.arc(sx, sillY - sm * 0.62, sm * 0.62, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(sx, sillY - sm * 1.55, sm * 0.42, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#E58AB4"; g.fillRect(sx - sm * 0.45, sillY - sm * 1.2, sm * 0.9, sm * 0.16); g.fillRect(sx + sm * 0.1, sillY - sm * 1.2, sm * 0.16, sm * 0.45);
+      g.fillStyle = "#2E3350"; g.fillRect(sx - sm * 0.16, sillY - sm * 1.65, sm * 0.08, sm * 0.08); g.fillRect(sx + sm * 0.08, sillY - sm * 1.65, sm * 0.08, sm * 0.08);
+      g.fillStyle = "#F2A65A"; g.beginPath(); g.moveTo(sx, sillY - sm * 1.52); g.lineTo(sx + sm * 0.28, sillY - sm * 1.47); g.lineTo(sx, sillY - sm * 1.42); g.fill();
+      const px = winR - winW * 0.1, ph = Math.max(8, winH * 0.05);
+      g.fillStyle = "#3C6E63";
+      for (let n = 0; n < 7; n++) { const a = -Math.PI / 2 + (n - 3) * 0.36; g.beginPath(); g.ellipse(px + Math.cos(a) * ph * 0.42, sillY - ph * 0.95 + Math.sin(a) * ph * 0.42, ph * 0.16, ph * 0.42, a + Math.PI / 2, 0, Math.PI * 2); g.fill(); }
+      g.fillStyle = "#C98A9E"; g.beginPath(); g.moveTo(px - ph * 0.45, sillY - ph * 0.62); g.lineTo(px + ph * 0.45, sillY - ph * 0.62); g.lineTo(px + ph * 0.34, sillY); g.lineTo(px - ph * 0.34, sillY); g.fill();
+      // the fairy lights' wire, sagging between its hooks (the bulbs are lit in .dt-room-lights)
+      const hooks = tall ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1], per = tall ? 6 : 7;
+      const sag = winW * (tall ? 0.05 : 0.035), wireY = winT + ft * 0.15, bulbs = [];
+      g.strokeStyle = "rgba(24, 22, 46, 0.95)"; g.lineWidth = 1.3; g.beginPath();
+      for (let h = 0; h < hooks.length - 1; h++) {
+        const x0 = winL + winW * hooks[h], x1 = winL + winW * hooks[h + 1];
+        for (let n = 0; n <= 24; n++) { const t = n / 24, x = x0 + (x1 - x0) * t, y = wireY + 4 * sag * t * (1 - t); if (h || n) g.lineTo(x, y); else g.moveTo(x, y); }
+        for (let n = 1; n <= per; n++) { const t = n / (per + 1); bulbs.push([x0 + (x1 - x0) * t, wireY + 4 * sag * t * (1 - t)]); }
+      }
+      g.stroke();
+      lights.innerHTML = bulbs.map(([x, y], n) => `<i style="left: ${x.toFixed(1)}px; top: ${y.toFixed(1)}px; --c: ${DT_BULBS[n % DT_BULBS.length]}; --n: ${n}"></i>`).join("");
+      lights.style.setProperty("--b", `${Math.max(4, bw * 0.015).toFixed(1)}px`);
+      // the curtain rod and the curtains (sheer, the window's light through them where they cover it)
+      const rodY = winT - ft * 2.4, rodL = winL - winW * 0.075, rodR = winR + winW * 0.075;
+      g.fillStyle = "#9C8FC4"; g.fillRect(rodL, rodY - 2, rodR - rodL, 4);
+      [rodL, rodR].forEach((x) => { g.beginPath(); g.arc(x, rodY, Math.max(4, ft * 0.5), 0, Math.PI * 2); g.fill(); });
+      const curtain = (outer, inner) => {
+        const top = rodY, bottom = deskBack - 2, span = inner - outer;
+        const path = new Path2D();
+        path.moveTo(outer, top); path.lineTo(inner, top);
+        path.bezierCurveTo(inner + span * 0.12, top + (bottom - top) * 0.4, inner - span * 0.28, top + (bottom - top) * 0.72, inner - span * 0.12, bottom);
+        path.lineTo(outer, bottom); path.closePath();
+        const folds = g.createLinearGradient(outer, 0, inner, 0);
+        for (let n = 0; n <= 8; n++) folds.addColorStop(n / 8, n % 2 ? "rgba(206, 172, 220, 0.55)" : "rgba(140, 112, 178, 0.72)");
+        g.fillStyle = folds; g.fill(path);
+        g.save(); g.beginPath(); g.rect(winL, winT, winW, winH); g.clip();
+        g.fillStyle = "rgba(255, 228, 250, 0.16)"; g.fill(path);
+        g.restore();
+        g.fillStyle = "#9C8FC4";
+        for (let n = 0; n <= 5; n++) { g.beginPath(); g.arc(outer + (span * n) / 5, rodY, 2.2, 0, Math.PI * 2); g.fill(); }
+      };
+      curtain(rodL + 4, winL + winW * 0.1);
+      curtain(rodR - 4, winR - winW * 0.1);
+      // the desk: lit by the window at the back, darker toward us; its front edge, its front
+      const deskTop = g.createLinearGradient(0, deskBack, 0, deskFront);
+      deskTop.addColorStop(0, "#7B76A8"); deskTop.addColorStop(1, "#4A4673");
+      g.fillStyle = deskTop; g.fillRect(0, deskBack, vw, deskFront - deskBack);
+      const pool = g.createRadialGradient(ox, deskBack, 0, ox, deskBack, winW * 0.6);
+      pool.addColorStop(0, "rgba(195, 200, 250, 0.32)"); pool.addColorStop(1, "rgba(195, 200, 250, 0)");
+      g.fillStyle = pool; g.fillRect(0, deskBack, vw, deskFront - deskBack);
+      g.fillStyle = "rgba(8, 8, 26, 0.4)"; g.fillRect(0, deskBack, vw, 3);
+      g.fillStyle = "#A7A2D0"; g.fillRect(0, deskFront, vw, 2);
+      const apron = g.createLinearGradient(0, deskFront, 0, vh);
+      apron.addColorStop(0, "#2D2950"); apron.addColorStop(1, "#131124");
+      g.fillStyle = apron; g.fillRect(0, deskFront + 2, vw, vh - deskFront);
+      // the monitor's housing, deep behind its screen as old monitors were: its right side, going back
+      const bl = ox - bw / 2, br = ox + bw / 2, bt = oy - bh / 2, bb = oy + bh / 2, deep = bw * 0.11;
+      const side = g.createLinearGradient(br, 0, br + deep, 0);
+      side.addColorStop(0, "#6A6E9E"); side.addColorStop(1, "#4F5383");
+      g.fillStyle = side;
+      g.beginPath(); g.moveTo(br - 6, bt + bh * 0.05); g.lineTo(br + deep, bt + bh * 0.15); g.lineTo(br + deep * 0.92, bb - bh * 0.2); g.lineTo(br - 6, bb - bh * 0.07); g.closePath(); g.fill();
+      g.strokeStyle = "rgba(180, 186, 240, 0.55)"; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(br + deep, bt + bh * 0.15); g.lineTo(br + deep * 0.92, bb - bh * 0.2); g.stroke();
+      g.strokeStyle = "rgba(30, 30, 66, 0.55)"; g.lineWidth = Math.max(1, bw * 0.006);
+      for (let n = 0; n < 5; n++) { const x = br + deep * (0.45 + n * 0.1); g.beginPath(); g.moveTo(x, bt + bh * (0.24 + n * 0.008)); g.lineTo(x, bt + bh * (0.42 - n * 0.006)); g.stroke(); }
+      void bl;
+      // the monitor's shadow, cast toward us by the window behind it
+      const kd = deskFront - footY;
+      const shade = g.createRadialGradient(ox, footY, 0, ox, footY, bw * 0.75);
+      shade.addColorStop(0, "rgba(8, 6, 26, 0.55)"); shade.addColorStop(1, "rgba(8, 6, 26, 0)");
+      g.save(); g.translate(ox, footY); g.scale(1, 0.32); g.translate(-ox, -footY); g.fillStyle = shade; g.fillRect(ox - bw, footY - bw, bw * 2, bw * 2); g.restore();
+      // the keyboard
+      const ky0 = footY + kd * 0.14, ky1 = ky0 + kd * 0.46, kb = bw * 0.84, kf = bw * 0.98;
+      g.fillStyle = "rgba(8, 6, 26, 0.4)"; g.beginPath(); g.ellipse(ox, ky1 + kd * 0.04, kf * 0.53, kd * 0.07, 0, 0, Math.PI * 2); g.fill();
+      const kbody = g.createLinearGradient(0, ky0, 0, ky1);
+      kbody.addColorStop(0, "#A9ACD6"); kbody.addColorStop(1, "#8184B4");
+      g.fillStyle = kbody; g.beginPath(); g.moveTo(ox - kb / 2, ky0); g.lineTo(ox + kb / 2, ky0); g.lineTo(ox + kf / 2, ky1); g.lineTo(ox - kf / 2, ky1); g.closePath(); g.fill();
+      g.fillStyle = "#565989"; g.beginPath(); g.moveTo(ox - kf / 2, ky1); g.lineTo(ox + kf / 2, ky1); g.lineTo(ox + kf / 2 - 2, ky1 + kd * 0.05); g.lineTo(ox - kf / 2 + 2, ky1 + kd * 0.05); g.closePath(); g.fill();
+      const row = (t0, t1, keys) => {
+        const y0 = ky0 + (ky1 - ky0) * t0, y1 = ky0 + (ky1 - ky0) * t1, w0 = kb + (kf - kb) * t0, w1 = kb + (kf - kb) * t1;
+        keys.forEach(([u0, u1]) => {
+          const a = [ox - w0 / 2 + w0 * (0.04 + u0 * 0.92), y0], b = [ox - w0 / 2 + w0 * (0.04 + u1 * 0.92), y0];
+          const c = [ox - w1 / 2 + w1 * (0.04 + u1 * 0.92), y1], d = [ox - w1 / 2 + w1 * (0.04 + u0 * 0.92), y1];
+          g.fillStyle = "#CDD0EE"; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.lineTo(...c); g.lineTo(...d); g.closePath(); g.fill();
+          g.fillStyle = "rgba(60, 62, 110, 0.55)"; g.fillRect(d[0], d[1] - 1, c[0] - d[0], 1.2);
+        });
+      };
+      const even = (count) => Array.from({ length: count }, (_, n) => [n / count + 0.008, (n + 1) / count - 0.008]);
+      for (let r = 0; r < 4; r++) row(0.1 + r * 0.17, 0.23 + r * 0.17, even(14 - (r % 2)));
+      row(0.78, 0.92, [[0, 0.12], [0.13, 0.23], [0.24, 0.76], [0.77, 0.87], [0.88, 1]]);
+      g.strokeStyle = "rgba(30, 28, 60, 0.8)"; g.lineWidth = 1.5;
+      g.beginPath(); g.moveTo(ox + kb * 0.3, ky0); g.bezierCurveTo(ox + kb * 0.32, ky0 - kd * 0.08, ox + bw * 0.12, footY, ox + bw * 0.1, footY - bw * 0.03); g.stroke();
+      // the mouse on its pad (a heart on it)
+      const mpx = Math.min(vw - bw * 0.22, ox + bw * 0.76), mpy = ky0 + (ky1 - ky0) * 0.55, prx = bw * 0.17, pry = kd * 0.2;
+      g.fillStyle = "rgba(226, 130, 178, 0.8)"; g.beginPath(); g.ellipse(mpx, mpy, prx, pry, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "rgba(255, 220, 236, 0.75)"; const hx = mpx - prx * 0.45, hy = mpy + pry * 0.1, hs = prx * 0.12;
+      g.beginPath(); g.moveTo(hx, hy + hs * 0.9); g.bezierCurveTo(hx - hs * 1.4, hy - hs * 0.2, hx - hs * 0.5, hy - hs * 1.2, hx, hy - hs * 0.35); g.bezierCurveTo(hx + hs * 0.5, hy - hs * 1.2, hx + hs * 1.4, hy - hs * 0.2, hx, hy + hs * 0.9); g.fill();
+      g.strokeStyle = "rgba(30, 28, 60, 0.8)"; g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(mpx + prx * 0.12, mpy - pry * 0.5); g.bezierCurveTo(mpx + prx * 0.1, mpy - pry * 1.6, mpx - prx * 0.4, footY - kd * 0.05, ox + bw * 0.2, footY - bw * 0.02); g.stroke();
+      g.fillStyle = "#C3C6E8"; g.beginPath(); g.ellipse(mpx + prx * 0.12, mpy - pry * 0.08, prx * 0.2, pry * 0.42, -0.15, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "rgba(90, 94, 140, 0.8)"; g.lineWidth = 1; g.beginPath(); g.moveTo(mpx + prx * 0.1, mpy - pry * 0.48); g.lineTo(mpx + prx * 0.12, mpy - pry * 0.12); g.stroke();
+      // the mug (Brew Houze's), still steaming
+      const mugX = Math.max(bw * 0.3, ox - bw * 0.8), mh = bh * 0.21, mwid = mh * 0.82, mugB = ky1 - kd * 0.02, ery = mwid * 0.16;
+      g.fillStyle = "rgba(8, 6, 26, 0.45)"; g.beginPath(); g.ellipse(mugX + mwid * 0.08, mugB + ery * 0.4, mwid * 0.62, ery * 1.4, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "#9A9EC8"; g.lineWidth = mwid * 0.13;
+      g.beginPath(); g.ellipse(mugX + mwid * 0.5, mugB - mh * 0.52, mwid * 0.22, mh * 0.24, 0, -Math.PI / 2, Math.PI / 2); g.stroke();
+      const mug = g.createLinearGradient(mugX - mwid / 2, 0, mugX + mwid / 2, 0);
+      mug.addColorStop(0, "#9296C2"); mug.addColorStop(0.32, "#DCDEF3"); mug.addColorStop(1, "#7F83B2");
+      g.fillStyle = mug;
+      g.beginPath(); g.moveTo(mugX - mwid / 2, mugB - mh); g.lineTo(mugX - mwid / 2, mugB); g.ellipse(mugX, mugB, mwid / 2, ery, 0, Math.PI, 0, true); g.lineTo(mugX + mwid / 2, mugB - mh); g.closePath(); g.fill();
+      g.fillStyle = "#E9EAF8"; g.beginPath(); g.ellipse(mugX, mugB - mh, mwid / 2, ery, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#3A2418"; g.beginPath(); g.ellipse(mugX, mugB - mh + ery * 0.15, mwid * 0.42, ery * 0.68, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "rgba(255, 220, 190, 0.25)"; g.beginPath(); g.ellipse(mugX - mwid * 0.12, mugB - mh, mwid * 0.14, ery * 0.25, 0, 0, Math.PI * 2); g.fill();
+      const lr = mwid * 0.17, lx = mugX - mwid * 0.06, ly = mugB - mh * 0.46;
+      g.fillStyle = "#7A4A2A"; g.beginPath(); g.arc(lx, ly, lr, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "rgba(242, 230, 216, 0.85)"; g.lineWidth = Math.max(0.8, lr * 0.12); g.beginPath(); g.arc(lx, ly, lr * 0.8, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = "#F2E6D8"; g.beginPath(); g.moveTo(lx, ly - lr * 0.45); g.lineTo(lx + lr * 0.42, ly - lr * 0.05); g.lineTo(lx + lr * 0.3, ly - lr * 0.05); g.lineTo(lx + lr * 0.3, ly + lr * 0.4); g.lineTo(lx - lr * 0.3, ly + lr * 0.4); g.lineTo(lx - lr * 0.3, ly - lr * 0.05); g.lineTo(lx - lr * 0.42, ly - lr * 0.05); g.closePath(); g.fill();
+      Object.assign(steam.style, { left: `${mugX}px`, top: `${mugB - mh - ery}px` });
+      steam.style.setProperty("--sw", `${mwid.toFixed(1)}px`);
+      // the desk calendar, on Monday 19 December 2022
+      const calX = Math.min(vw - bw * 0.16, ox + bw * 0.68), calB = footY - bw * 0.01, ch = bh * 0.22, cw = ch * 1.05, calT = calB - ch;
+      g.fillStyle = "rgba(8, 6, 26, 0.45)"; g.beginPath(); g.ellipse(calX + cw * 0.06, calB + 1, cw * 0.6, ch * 0.08, 0, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#C9CCE8"; g.beginPath(); g.moveTo(calX - cw * 0.47, calT); g.lineTo(calX + cw * 0.47, calT); g.lineTo(calX + cw / 2, calB); g.lineTo(calX - cw / 2, calB); g.closePath(); g.fill();
+      g.fillStyle = "#D97FAA"; g.beginPath(); g.moveTo(calX - cw * 0.47, calT); g.lineTo(calX + cw * 0.47, calT); g.lineTo(calX + cw * 0.475, calT + ch * 0.28); g.lineTo(calX - cw * 0.475, calT + ch * 0.28); g.closePath(); g.fill();
+      g.fillStyle = "#2E3350"; for (let n = 0; n < 6; n++) { g.beginPath(); g.arc(calX - cw * 0.35 + n * cw * 0.14, calT, Math.max(1.2, cw * 0.025), 0, Math.PI * 2); g.fill(); }
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillStyle = "#FFFFFF"; g.font = `700 ${(ch * 0.17).toFixed(1)}px Tahoma, Verdana, sans-serif`; g.fillText("DEC", calX, calT + ch * 0.15);
+      g.fillStyle = "#2E3350"; g.font = `${(ch * 0.5).toFixed(1)}px Anton, Impact, sans-serif`; g.fillText("19", calX, calT + ch * 0.6);
+      g.fillStyle = "#6F79CF"; g.font = `700 ${(ch * 0.1).toFixed(1)}px Tahoma, Verdana, sans-serif`; g.fillText("MON · 2022", calX, calT + ch * 0.89);
+      // the room in the dark at the edges
+      const dim = g.createRadialGradient(ox, vh * 0.45, Math.min(vw, vh) * 0.35, ox, vh * 0.45, Math.max(vw, vh) * 0.8);
+      dim.addColorStop(0, "rgba(5, 5, 18, 0)"); dim.addColorStop(1, "rgba(5, 5, 18, 0.5)");
+      g.fillStyle = dim; g.fillRect(0, 0, vw, vh);
+      // where the screen's light will fall when it comes on
+      glow.style.setProperty("--gx", `${ox.toFixed(1)}px`); glow.style.setProperty("--gy", `${oy.toFixed(1)}px`);
+      glow.style.setProperty("--gd", `${((ky0 + ky1) / 2).toFixed(1)}px`); glow.style.setProperty("--gr", `${bw.toFixed(1)}px`);
+    };
+    let queued = 0;
+    const onResize = () => {
+      if (!box.isConnected) { window.removeEventListener("resize", onResize); return; }
+      cancelAnimationFrame(queued);
+      queued = requestAnimationFrame(paint);
+    };
+    return () => {
+      paint();
+      window.addEventListener("resize", onResize);
+      // the calendar's numbers are in Anton: again once it has loaded
+      document.fonts?.load("40px Anton").then(() => { if (box.isConnected) paint(); }, () => undefined);
+    };
+  };
+  const dittoIntro = {
+    end: DT_MS(17),
+    video: { wide: "tape.mp4", tall: "tape.mp4" },
+    cues: [
+      [0, "dark"], [DT_MS(1, 3, 2), "power"], [DT_MS(2), "desktop"], [DT_MS(3), "ask"], [DT_MS(3, 2), "open"],
+      ...[0, 1, 2, 3, 4].map((k) => [Math.round(DT_MS(4) + k * 1.5 * DT_BEAT * 1000), "win", k]),
+      [DT_MS(5, 3, 2), "player"], [DT_MS(9), "beat"], [DT_MS(13), "tile"], [DT_MS(15), "us"], [DT_MS(16), "hit"],
+    ],
+    hits: new Set(["power", "open", "win", "player", "tile", "us", "hit"]),
+    mount(box, photos, flashes, film) {
+      const keys = GROUPS.newjeans.order;
+      const sticker = (n) => siteUrl(`ditto/sticker-${n}.webp`);
+      box.innerHTML = `
+        <div class="dt-room">
+          <div class="dt-room-out"><canvas class="dt-room-sky"></canvas>${Array.from({ length: SCENE_LITE ? 36 : 56 }, (_, n) => `<i style="--x: ${(n * 37 + 11) % 100}; --d: ${(n * 13) % 10}; --s: ${(0.35 + ((n * 7) % 7) / 9).toFixed(2)}; --w: ${(n * 5) % 7 - 3}"></i>`).join("")}</div>
+          <canvas class="dt-room-paint"></canvas>
+          <div class="dt-room-lights"></div>
+          <div class="dt-room-steam"><i style="--n: 0"></i><i style="--n: 1"></i><i style="--n: 2"></i></div>
+          <i class="dt-room-dim"></i><i class="dt-room-glow"></i>
+        </div>
+        <div class="dt-snow">${Array.from({ length: 46 }, (_, n) => `<i style="--x: ${(n * 37 + 5) % 100}; --d: ${(n * 13) % 10}; --s: ${0.5 + ((n * 7) % 6) / 6}; --w: ${(n * 11) % 7 - 3}"></i>`).join("")}</div>
+        <div class="dt-crt">
+          <div class="dt-bezel">
+            <div class="dt-screen">
+              <div class="dt-desk">
+                <i class="dt-cloud is-1"></i><i class="dt-cloud is-2"></i><i class="dt-cloud is-3"></i>
+                <div class="dt-icons">
+                  <span class="dt-icon is-folder"><i></i><b>ditto (2022)</b></span>
+                  <span class="dt-icon is-pics"><i></i><b>photos</b></span>
+                  <span class="dt-icon is-avi"><i></i><b>ditto.avi</b></span>
+                </div>
+                <div class="dt-dialog"><p class="dt-bar"><span>ditto (2022)</span><b>×</b></p>
+                  <div class="dt-dialog-body"><i class="dt-dialog-icon">i</i><p>This folder hasn’t been opened since <b>12/19/2022</b>.<br />Open it anyway?</p></div>
+                  <p class="dt-dialog-buttons"><span class="dt-btn is-open">Open</span><span class="dt-btn">Not now</span></p></div>
+                <div class="dt-wins">${keys.map((key, k) => `<div class="dt-win" style="--k: ${k}"><p class="dt-bar"><span>${key}.jpg</span><b>_ □ ×</b></p><div class="dt-win-body"></div><img class="dt-win-sticker" src="${sticker(DT_STICKERS[k])}" alt="" draggable="false" /></div>`).join("")}</div>
+                <div class="dt-player"><p class="dt-bar"><span>ditto.avi · Media Player</span><b>_ □ ×</b></p><div class="dt-player-body"></div>
+                  <p class="dt-player-controls"><span class="dt-play">▶</span><span class="dt-seek"><i></i></span><span class="dt-time">00:00 / 00:43</span></p></div>
+                <div class="dt-paws">${Array.from({ length: 16 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</div>
+                <p class="dt-caption">all five · winter 2022</p>
+                <div class="dt-us"><p class="dt-bar"><span>us.png</span><b>×</b></p><img src="${siteUrl("ditto/all-together.webp")}" alt="" draggable="false" /></div>
+                <div class="dt-cursor"></div>
+                <p class="dt-task"><span class="dt-start">♡ start</span><span class="dt-tray">12:19 AM</span></p>
+              </div>
+              <i class="dt-scan"></i><i class="dt-glare"></i><i class="dt-power"></i>
+            </div>
+            <span class="dt-led"></span>
+          </div>
+          <div class="dt-stand"><i class="dt-neck"></i><i class="dt-foot"></i></div>
+        </div>
+        <div class="dt-logo"></div>
+        <div class="dt-burst">${Array.from({ length: 14 }, (_, n) => `<img src="${sticker([14, 19, 11, 18, 21, 13, 12][n % 7])}" alt="" draggable="false" style="--a: ${n * 25.7}deg; --r: ${32 + ((n * 17) % 22)}vmax; --s: ${0.5 + ((n * 5) % 5) / 8}" />`).join("")}</div>`;
+      // Her photo in her window; the footage in the player.
+      box.querySelectorAll(".dt-win-body").forEach((body, k) => { if (photos[k]) body.append(photos[k]); });
+      const player = box.querySelector(".dt-player-body");
+      if (film) player.append(film);
+      const seek = box.querySelector(".dt-seek i");
+      const time = box.querySelector(".dt-time");
+      const paws = [...box.querySelectorAll(".dt-paws i")];
+      const clock = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+      let opened = -1;
+      let playing = false;
+      let furnished = false;
+      const furnish = dittoRoom(box);
+      const show = (step) => {
+        const [, scene, value] = this.cues[step];
+        if (scene === "win") opened = value;
+        // is-<scene>: the step now; has-<scene>: every step reached so far (what stays on screen).
+        const reached = new Set(this.cues.slice(0, step + 1).map(([, name]) => name));
+        box.className = ["dt-intro", `is-${scene}`, ...[...reached].map((name) => `has-${name}`)].join(" ");
+        box.querySelectorAll(".dt-win").forEach((win, k) => win.classList.toggle("is-open", k <= opened));
+        if (!furnished) { furnished = true; furnish(); }
+        if (scene === "player" && film && !playing) {
+          playing = true;
+          try { film.currentTime = 11.5; } catch { /* not loaded yet: from the start */ }
+          void film.play().catch(() => undefined);
+        }
+        if (this.hits.has(scene)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+      show.tick = (now) => {
+        // A paw print a beat while the drums play (bars 9-12), each fading a few beats later.
+        const step = Math.floor((now - DT_MS(9)) / (DT_BEAT * 1000));
+        paws.forEach((paw, n) => {
+          paw.classList.toggle("is-on", step >= n && step < 16 + 4);
+          paw.classList.toggle("is-old", step >= n + 5);
+        });
+        if (playing && film) {
+          const at = film.currentTime || 0;
+          seek.style.width = `${Math.min(100, (at / (film.duration || 44)) * 100).toFixed(1)}%`;
+          time.textContent = `${clock(at)} / ${clock(film.duration || 44)}`;
+        }
+      };
+      return show;
+    },
+  };
+
+  // Ditto's bridge (track 2, seconds into it; 1.791 s a bar):
+  //   ditto (0)      bars 1-4, "say it ditto": on each of the two big hits (0 and 3.58 s) a window
+  //   ditto2 (3.58)  streaks across the screen leaving a trail of copies of itself, as a dragged
+  //                  window does on a frozen old desktop: the same, again and again
+  //   globe (7.16)   bars 5-8, Danielle's bridge: the page goes quiet as a winter night and a snow
+  //                  globe rises with her in it, a moment kept as it was. Her five lines come one by
+  //                  one under it (and only her words fill the page); on the a cappella bar the snow
+  //                  in the globe settles; on "기다렸지 all this time" the globe glows
+  //   amp (14.33)    bars 9-12, Hyein: DITTO AMP, the old music player, opens (its equalizer and
+  //                  playlist docking under it on the next beats, a button in the taskbar), its
+  //                  spectrum dancing to the song itself (to a made-up music with the sound off),
+  //                  turning into an oscilloscope on each "ooh-whoa"; minimized as her part ends
+  //   heart (21.49)  bars 13-15, Haerin's "Ra-ta-ta-ta 울린 심장": a jelly heart squashes and springs
+  //                  back on every "ta" (the accents on sixteenths 5, 13 and 15 of each bar), heart
+  //                  ripples going out and the page's windows wobbling like jelly after them
+  //   pause (25.97)  "But I don't want to": the page pauses like a tape, ❚❚ and a tracking band (the
+  //                  heart and the wobbling frozen mid-squash)
+  //   play (26.87)   bar 16's hit: ▶, the heart bursts into small hearts, a bloom of light, into the
+  //                  chorus
+  const DT_BRIDGE = 64 * DT_BEAT; // where track 2 starts in the loop
+  // Danielle's lines and when each comes (beats into her part, which starts at 7.16 s).
+  const DT_DANIELLE = [[0, "Not just anybody"], [2, "너를 상상했지"], [4, "항상 닿아있던"], [8, "처음 느낌 그대로 난"], [12, "기다렸지 all this time"]]
+    .map(([beat, text]) => [7.164 + beat * DT_BEAT, text]);
+  const DT_RATATA = new Set([4, 12, 14]);
+  // The bridge's lines, for the page's text.
+  const DT_LINES = ["Oh say it ditto", "I want you so, want you", "So say it ditto", ...DT_DANIELLE.map(([, text]) => text),
+    "I got nothing to lose", "널 좋아한다고 wooah wooah wooah", "Ra-ta-ta-ta 울린 심장", "But I don’t want to", "Say it back"];
+  // ── Ditto's desktop: the page is the computer the intro switched on ──
+  // A taskbar along the bottom: the start menu (the four apps, the photos, the playlist, shut down),
+  // a button for each of the page's windows (pressed in for the one in view), the tray with the sound
+  // and a clock that stopped at 12:19 (click it: December 2022). Snow falls behind the windows,
+  // gusting on the chorus's kicks (beat(), from the stage). On a wide screen the desktop's icons sit
+  // down the left: ditto (2022), photos, ditto.avi (a little player, the camcorder tape), 휴지통.
+  const dittoDesk = (() => {
+    let layer = null, snowFrame = 0, observer = null, gust = 0, soundHome = null, unhook = [];
+    const TASKS = [["Staff apps", "staff_apps"], ["Customers", "customer_screens"], ["Printables", "printables"], ["Devices", "devices"], ["Tips", "quick_tips.txt"]];
+    const APPS = [["Admin Portal", "#staff-grid", 0, "is-amber"], ["Staff Portal", "#staff-grid", 1, ""], ["Mobile Menu", "#customer-grid", 0, "is-teal"], ["Queue Screen", "#customer-grid", 1, "is-purple"]];
+    const ICONS = [["folder", "ditto (2022)"], ["pics", "photos"], ["avi", "ditto.avi"], ["bin", "휴지통"]];
+    // December 2022: it began on a Thursday; the 19th was a Monday.
+    const month = () => {
+      const cells = [...Array(4).fill(""), ...Array.from({ length: 31 }, (_, i) => String(i + 1))];
+      return ["S", "M", "T", "W", "T", "F", "S"].map((d) => `<b>${d}</b>`).join("") + cells.map((d) => `<span${d === "19" ? ' class="is-today"' : ""}>${d}</span>`).join("");
+    };
+    const markup = () => `
+      <canvas class="dt-snowfall" aria-hidden="true"></canvas>
+      <div class="dt-icons-desk" role="group" aria-label="Desktop">${ICONS.map(([kind, label]) => `<button type="button" class="dt-desk-icon is-${kind}" data-icon="${kind}"><i aria-hidden="true"></i><b>${label}</b></button>`).join("")}</div>
+      <div class="dt-startmenu" id="dt-startmenu" role="menu" aria-label="Start" hidden>
+        <div class="dt-startmenu-side" aria-hidden="true"><b>Ditto</b><span>2022</span></div>
+        <ul>
+          ${APPS.map(([name], i) => `<li><a role="menuitem" class="dt-app" data-app="${i}" target="_blank" rel="noopener"><i class="dt-ico ${APPS[i][3]}" aria-hidden="true"></i>${name}</a></li>`).join("")}
+          <li class="dt-sep" role="separator"></li>
+          <li><button type="button" role="menuitem" data-act="photos"><i class="dt-ico is-pics" aria-hidden="true"></i>Photos (5)</button></li>
+          <li><button type="button" role="menuitem" data-act="playlist"><i class="dt-ico is-cd" aria-hidden="true"></i>Playlist…</button></li>
+          <li class="dt-sep" role="separator"></li>
+          <li><button type="button" role="menuitem" data-act="shutdown"><i class="dt-ico is-power" aria-hidden="true"></i>Shut down…</button></li>
+        </ul>
+      </div>
+      <div class="dt-cal" id="dt-cal" role="dialog" aria-label="Date and time" hidden>
+        <p class="dt-bar"><span>Date/Time Properties</span><button type="button" class="dt-x" aria-label="Close">×</button></p>
+        <div class="dt-cal-body"><p class="dt-cal-month">December 2022</p><div class="dt-cal-grid">${month()}</div><p class="dt-cal-note">12:19 AM · Seoul<br />The clock hasn’t moved since.</p></div>
+      </div>
+      <div class="dt-avi" id="dt-avi" hidden>
+        <p class="dt-bar"><span>ditto.avi · Media Player</span><button type="button" class="dt-x" aria-label="Close the player">×</button></p>
+        <video muted playsinline loop preload="none"></video>
+        <div class="dt-avi-seek"><i></i></div>
+        <p class="dt-avi-buttons"><button type="button" data-play aria-label="Play or pause">❚❚</button><button type="button" data-stop aria-label="Stop">■</button><span class="dt-avi-time">00:00</span></p>
+      </div>
+      <nav class="dt-taskbar" aria-label="Ditto desktop">
+        <button type="button" class="dt-startbtn" aria-haspopup="menu" aria-expanded="false" aria-controls="dt-startmenu"><i aria-hidden="true">♥</i><span>start</span></button>
+        <div class="dt-tbtns">${TASKS.map(([label], i) => `<button type="button" class="dt-tbtn" data-task="${i}"><i aria-hidden="true"></i><span>${label}</span></button>`).join("")}</div>
+        <div class="dt-systray"><button type="button" class="dt-systray-clock" aria-label="12:19 AM, December 19, 2022" aria-controls="dt-cal">12<span>:</span>19 AM</button></div>
+      </nav>`;
+    const seededDesk = (seed) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    // Snow: soft flakes behind the windows (nearer ones bigger, faster), the odd sparkle; a gust on a kick.
+    const startSnow = (canvas) => {
+      const g = canvas.getContext("2d");
+      const sprite = document.createElement("canvas");
+      sprite.width = sprite.height = 32;
+      const sg = sprite.getContext("2d"), grad = sg.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grad.addColorStop(0, "rgba(255, 255, 255, 1)"); grad.addColorStop(0.45, "rgba(255, 255, 255, 0.85)"); grad.addColorStop(1, "rgba(255, 255, 255, 0)");
+      sg.fillStyle = grad; sg.fillRect(0, 0, 32, 32);
+      const rnd = seededDesk(1219);
+      const flakes = Array.from({ length: SCENE_LITE ? 46 : 96 }, (_, i) => ({ x: rnd(), y: rnd(), z: 0.25 + rnd() * 0.75, sway: rnd() * 6.28, spark: i % 19 === 0 }));
+      let last = performance.now(), wind = 0;
+      const draw = (now, dt) => {
+        const w = window.innerWidth, h = window.innerHeight, r = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(w * r) || canvas.height !== Math.round(h * r)) { canvas.width = Math.round(w * r); canvas.height = Math.round(h * r); }
+        wind += (gust * 90 - wind) * Math.min(1, dt * 2.5);
+        g.setTransform(r, 0, 0, r, 0, 0);
+        g.clearRect(0, 0, w, h);
+        for (const f of flakes) {
+          f.y += dt * (0.025 + f.z * 0.06) * (1 + gust * 0.9);
+          f.x += dt * ((wind * f.z) / w + Math.sin(now / 1300 + f.sway) * 0.006 * f.z);
+          if (f.y > 1.04) { f.y = -0.04; f.x = rnd(); }
+          if (f.x > 1.04) f.x -= 1.08; else if (f.x < -0.04) f.x += 1.08;
+          const size = 1 + f.z * 3.4, x = f.x * w, y = f.y * h;
+          g.globalAlpha = 0.3 + f.z * 0.6;
+          if (f.spark) {
+            const s = size * 2.6 * (0.7 + 0.3 * Math.sin(now / 300 + f.sway));
+            g.fillStyle = "#FFFFFF";
+            g.beginPath(); g.moveTo(x, y - s); g.quadraticCurveTo(x, y, x + s, y); g.quadraticCurveTo(x, y, x, y + s); g.quadraticCurveTo(x, y, x - s, y); g.quadraticCurveTo(x, y, x, y - s); g.fill();
+          } else g.drawImage(sprite, x - size, y - size, size * 2, size * 2);
+        }
+        g.globalAlpha = 1;
+      };
+      if (!motionOK()) { draw(performance.now(), 0); return; }
+      const loop = (now) => {
+        snowFrame = requestAnimationFrame(loop);
+        if (document.hidden) { last = now; return; }
+        draw(now, Math.min(0.05, (now - last) / 1000));
+        last = now;
+      };
+      snowFrame = requestAnimationFrame(loop);
+    };
+    const on = (target, type, handler, opts) => { target.addEventListener(type, handler, opts); unhook.push(() => target.removeEventListener(type, handler, opts)); };
+    // "Shut down…": the old goodbye screen, in pastels, then back to the café.
+    const shutDown = () => {
+      const bye = document.createElement("div");
+      bye.className = "dt-bye";
+      bye.innerHTML = `<i class="dt-bye-bunny" aria-hidden="true"></i><p>It’s now safe to turn off<br />your computer.</p><small>See you next winter ❄</small>`;
+      document.body.append(bye);
+      window.setTimeout(() => { void switchTo(null); }, 1900);
+      window.setTimeout(() => bye.remove(), 2600);
+    };
+    return {
+      mount() {
+        if (layer) return;
+        layer = document.createElement("div");
+        layer.className = "dt-desktop";
+        layer.innerHTML = markup();
+        document.body.append(layer);
+        startSnow(layer.querySelector(".dt-snowfall"));
+        // the sound button lives in the tray while the desktop is up
+        const sound = document.getElementById("ae-sound");
+        if (sound) { soundHome = sound.parentElement; layer.querySelector(".dt-systray").prepend(sound); }
+        const start = layer.querySelector(".dt-startbtn"), menu = layer.querySelector(".dt-startmenu");
+        const cal = layer.querySelector(".dt-cal"), clock = layer.querySelector(".dt-systray-clock");
+        const player = layer.querySelector(".dt-avi"), video = player.querySelector("video");
+        const openMenu = (open) => { menu.hidden = !open; start.setAttribute("aria-expanded", String(open)); if (open) { cal.hidden = true; menu.querySelector("a, button")?.focus({ preventScroll: true }); } };
+        on(start, "click", (event) => { event.stopPropagation(); openMenu(menu.hidden); });
+        // the four apps: their links, from the page's own cards
+        menu.querySelectorAll(".dt-app").forEach((link) => {
+          const [, grid, index] = APPS[Number(link.dataset.app)];
+          const href = document.querySelectorAll(`${grid} .card a.btn.is-primary`)[index]?.getAttribute("href");
+          if (href && href !== "#") link.href = href; else { link.setAttribute("aria-disabled", "true"); link.removeAttribute("href"); }
+        });
+        on(menu, "click", (event) => {
+          const act = event.target.closest("[data-act]")?.dataset.act;
+          if (event.target.closest(".dt-app") || act) openMenu(false);
+          if (act === "photos") openMember("minji", start);
+          if (act === "playlist") openPicker();
+          if (act === "shutdown") shutDown();
+        });
+        on(clock, "click", (event) => { event.stopPropagation(); cal.hidden = !cal.hidden; if (!cal.hidden) openMenu(false); });
+        on(document, "click", (event) => {
+          if (!menu.hidden && !menu.contains(event.target)) openMenu(false);
+          if (!cal.hidden && !cal.contains(event.target)) cal.hidden = true;
+        });
+        on(document, "keydown", (event) => { if (event.key === "Escape") { if (!menu.hidden) { openMenu(false); start.focus(); } cal.hidden = true; } });
+        layer.querySelectorAll(".dt-x").forEach((x) => on(x, "click", () => { const win = x.closest(".dt-cal, .dt-avi"); win.hidden = true; if (win === player) video.pause(); }));
+        // a button for each of the page's windows: there on a click, pressed in while in view
+        const sections = [...document.querySelectorAll("main .section")];
+        const tasks = [...layer.querySelectorAll(".dt-tbtn")];
+        tasks.forEach((task, i) => on(task, "click", () => {
+          const section = sections[i];
+          if (!section) return;
+          section.scrollIntoView({ behavior: motionOK() ? "smooth" : "auto", block: "start" });
+          section.classList.remove("is-focus"); void section.offsetWidth; section.classList.add("is-focus");
+        }));
+        observer = new IntersectionObserver((entries) => {
+          const seen = new Map(entries.map((entry) => [entry.target, entry.intersectionRatio]));
+          let best = -1, most = 0;
+          sections.forEach((section, i) => { const ratio = seen.get(section) ?? Number(section.dataset.dtSeen || 0); section.dataset.dtSeen = String(ratio); if (ratio > most) { most = ratio; best = i; } });
+          tasks.forEach((task, i) => task.classList.toggle("is-on", i === best));
+        }, { threshold: [0, 0.15, 0.35, 0.6, 0.85] });
+        sections.forEach((section) => observer.observe(section));
+            // the icons: a click picks one, a double click (or a second click, or Enter) opens it
+        const icons = [...layer.querySelectorAll(".dt-desk-icon")];
+        const openIcon = (kind) => {
+          if (kind === "folder") { toast("This folder hasn’t been opened since 12/19/2022."); document.getElementById("ae-lineup")?.scrollIntoView({ behavior: motionOK() ? "smooth" : "auto", block: "center" }); }
+          if (kind === "pics") openMember(["minji", "hanni", "danielle", "haerin", "hyein"][Math.floor(Math.random() * 5)]);
+          if (kind === "avi") { player.hidden = false; if (!video.src) video.src = siteUrl("ditto/tape.mp4"); void video.play().catch(() => undefined); }
+          if (kind === "bin") { const bin = layer.querySelector(".dt-desk-icon.is-bin"); bin.classList.remove("is-shake"); void bin.offsetWidth; bin.classList.add("is-shake"); toast("휴지통 is empty. Nothing from 2022 was thrown away ♡"); }
+        };
+        icons.forEach((icon) => {
+          on(icon, "click", (event) => {
+            if (icon.classList.contains("is-picked") && event.detail < 2) { openIcon(icon.dataset.icon); return; }
+            icons.forEach((other) => other.classList.toggle("is-picked", other === icon));
+          });
+          on(icon, "dblclick", () => openIcon(icon.dataset.icon));
+          on(icon, "keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); openIcon(icon.dataset.icon); } });
+        });
+        // the little player: play / pause, stop, the seek bar, dragged by its title bar
+        const playBtn = player.querySelector("[data-play]"), seek = player.querySelector(".dt-avi-seek i"), stamp = player.querySelector(".dt-avi-time");
+        on(playBtn, "click", () => { if (video.paused) void video.play().catch(() => undefined); else video.pause(); });
+        on(player.querySelector("[data-stop]"), "click", () => { video.pause(); video.currentTime = 0; });
+        on(video, "play", () => { playBtn.textContent = "❚❚"; });
+        on(video, "pause", () => { playBtn.textContent = "▶"; });
+        on(video, "timeupdate", () => {
+          seek.style.width = `${video.duration ? (video.currentTime / video.duration) * 100 : 0}%`;
+          const s = Math.floor(video.currentTime);
+          stamp.textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+        });
+        let drag = null;
+        on(player.querySelector(".dt-bar"), "pointerdown", (event) => {
+          if (event.target.closest(".dt-x")) return;
+          const box = player.getBoundingClientRect();
+          drag = [event.clientX - box.left, event.clientY - box.top];
+          player.setPointerCapture?.(event.pointerId);
+        });
+        on(player, "pointermove", (event) => {
+          if (!drag) return;
+          player.style.left = `${Math.max(0, Math.min(window.innerWidth - player.offsetWidth, event.clientX - drag[0]))}px`;
+          player.style.top = `${Math.max(0, Math.min(window.innerHeight - player.offsetHeight - 44, event.clientY - drag[1]))}px`;
+          player.style.right = "auto"; player.style.bottom = "auto";
+        });
+        on(player, "pointerup", () => { drag = null; });
+      },
+      unmount() {
+        if (!layer) return;
+        cancelAnimationFrame(snowFrame);
+        observer?.disconnect();
+        unhook.forEach((undo) => undo());
+        unhook = [];
+        const sound = document.getElementById("ae-sound");
+        if (sound && soundHome) soundHome.append(sound);
+        document.querySelectorAll("main .section").forEach((section) => { section.classList.remove("is-focus"); delete section.dataset.dtSeen; });
+        layer.remove();
+        layer = null;
+      },
+      beat(level) { gust = level; },
+      // A window of the bridge's (the amp) gets a button in the taskbar while it is open.
+      task(id, label, open) {
+        if (!layer) return;
+        const row = layer.querySelector(".dt-tbtns");
+        row.querySelector(`[data-temp="${id}"]`)?.remove();
+        if (open) row.insertAdjacentHTML("beforeend", `<span class="dt-tbtn is-on is-temp is-${id}" data-temp="${id}" aria-hidden="true"><i></i><span>${label}</span></span>`);
+      },
+    };
+  })();
+
+  const dittoStage = (() => {
+    let fx = null, lines = [], pops = [], amp = null, time = null, plTime = null, vis = null, curve = null, bands = [], seek = null, jelly = null;
+    let last16 = -1, lastTa = -1, pop = 0, lastFocus = -1, lastKick = -1;
+    let ampOpen = false, lastNow = 0, beats = [], wobbles = [], drawnAt = -1;
+    // The amp's spectrum: twenty bars, from the bass up (FFT bins of 43 Hz; 43 Hz to 16 kHz, spread
+    // out evenly in pitch), each falling back slowly, a peak cap held a moment above it.
+    const N = 20;
+    const EDGES = [1];
+    for (let n = 1; n <= N; n++) EDGES.push(Math.max(EDGES[n - 1] + 1, Math.round((40 * 400 ** (n / N)) / 43.07)));
+    const freq = new Uint8Array(512), wave = new Uint8Array(1024);
+    const shown = new Array(N).fill(0), peaks = new Array(N).fill(0), held = new Array(N).fill(0), eq = new Array(11).fill(0.5);
+    // On each "ooh-whoa" (where the MV's plane loops and rolls), beats into Hyein's part: the oscilloscope.
+    const WHOA = [[6, 1.6], [10, 1.2], [13, 1.5]];
+    // The chorus (track 1) on the page: its kicks (none in bars 7 and 15, one more in bar 6) glow
+    // through the page and gust the snow; the five photo windows take the focus in turn, a bar each.
+    const chorusBeat = (at, name) => {
+      let kick = 0, focus = -1;
+      if (at >= 0 && at < DT_BRIDGE && name === "calm") {
+        const six = at / (DT_BEAT / 4), bar = Math.floor(six / 16), inBar = six - bar * 16;
+        if (bar !== 6 && bar !== 14) {
+          const k = [...DT_KICKS, ...(bar === 5 ? [12] : [])].sort((a, b) => a - b).filter((n) => n <= inBar).pop();
+          if (k !== undefined) kick = Math.exp(-(inBar - k) * (DT_BEAT / 4) * 6);
+        }
+        focus = bar % 5;
+      }
+      if (focus !== lastFocus) { lastFocus = focus; document.querySelectorAll(".ae-member").forEach((el, i) => el.classList.toggle("is-focus", i === focus)); }
+      const rounded = Math.round(kick * 40) / 40;
+      if (rounded !== lastKick) { lastKick = rounded; document.documentElement.style.setProperty("--dt-kick", String(rounded)); }
+      dittoDesk.beat(kick);
+    };
+    const restart = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+    // The amp's display: the spectrum bars (mint up to pink, by height, as on the old amps), each with
+    // its peak cap; or the oscilloscope, the song's wave as a glowing line.
+    const paintVis = (scope, live, a) => {
+      const g = vis.getContext("2d"), W = vis.width, H = vis.height;
+      g.clearRect(0, 0, W, H);
+      if (scope) {
+        // (the song's wave turned up to fill the display, as the old scopes did)
+        let boost = 1.6;
+        if (live) { let peak = 1; for (let n = 0; n < 1024; n += 4) peak = Math.max(peak, Math.abs(wave[n] - 128)); boost = Math.min(5, 108 / peak); }
+        g.strokeStyle = "#B8FFD8"; g.lineWidth = 3; g.lineJoin = "round"; g.shadowColor = "#7CF0B4"; g.shadowBlur = 8;
+        g.beginPath();
+        for (let x = 0; x <= W; x += 3) {
+          const v = live ? (wave[Math.floor((x / W) * 1023)] - 128) / 128 : (Math.sin(x * 0.07 + a * 17) * 0.55 + Math.sin(x * 0.23 - a * 9) * 0.22) * (0.4 + shown[Math.floor((x / W) * (N - 1))] * 0.6);
+          const y = H / 2 + Math.max(-1, Math.min(1, v * boost)) * H * 0.44;
+          if (x) g.lineTo(x, y); else g.moveTo(x, y);
+        }
+        g.stroke();
+        g.shadowBlur = 0;
+        return;
+      }
+      const grad = g.createLinearGradient(0, H, 0, 0);
+      grad.addColorStop(0, "#7CF0B4"); grad.addColorStop(0.5, "#F5E59D"); grad.addColorStop(0.8, "#F7A8C8"); grad.addColorStop(1, "#F07AAE");
+      const bw = W / N;
+      for (let n = 0; n < N; n++) {
+        const bh = Math.max(3, Math.round(shown[n] * (H - 4)));
+        g.fillStyle = grad; g.fillRect(Math.round(n * bw) + 1, H - bh, Math.round(bw) - 4, bh);
+        g.fillStyle = "#FFFFFF"; g.fillRect(Math.round(n * bw) + 1, Math.round(H - 3 - peaks[n] * (H - 4)), Math.round(bw) - 4, 3);
+      }
+    };
+    // The equalizer's curve, through its ten sliders.
+    const paintCurve = () => {
+      const g = curve.getContext("2d"), W = curve.width, H = curve.height;
+      g.clearRect(0, 0, W, H);
+      g.strokeStyle = "rgba(157, 245, 194, 0.25)"; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
+      const pts = eq.slice(1).map((v, n) => [(n / 9) * (W - 8) + 4, H - 4 - v * (H - 8)]);
+      g.strokeStyle = "#9DF5C2"; g.lineWidth = 2.5; g.shadowColor = "#7CF0B4"; g.shadowBlur = 5;
+      g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+      for (let n = 1; n < pts.length; n++) { const [x0, y0] = pts[n - 1], [x1, y1] = pts[n]; g.bezierCurveTo((x0 + x1) / 2, y0, (x0 + x1) / 2, y1, x1, y1); }
+      g.stroke(); g.shadowBlur = 0;
+    };
+    // The jelly heart: a glossy Y2K gel heart with "울린 심장" in it. jig ripples its outline.
+    const heartPath = (g, cx, cy, r, jig = 0, phase = 0) => {
+      g.beginPath();
+      for (let n = 0; n <= 72; n++) {
+        const a = (n / 72) * Math.PI * 2, q = r * (1 + jig * Math.sin(a * 3 + phase));
+        const x = cx + q * Math.sin(a) ** 3, y = cy - (q * (13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a))) / 16;
+        if (n) g.lineTo(x, y); else g.moveTo(x, y);
+      }
+      g.closePath();
+    };
+    const drawJelly = (t, burst) => {
+      if (t === drawnAt && burst < 0) return;
+      drawnAt = t;
+      const w = window.innerWidth, h = window.innerHeight, ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+      if (jelly.width !== Math.round(w * ratio) || jelly.height !== Math.round(h * ratio)) { jelly.width = Math.round(w * ratio); jelly.height = Math.round(h * ratio); }
+      const g = jelly.getContext("2d");
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, w, h);
+      const R = Math.min(w * 0.28, h * 0.2), cx = w / 2, cy = h * 0.45;
+      const last = beats.filter((at) => at <= t).pop();
+      const since = last === undefined ? 9 : t - last;
+      const wob = Math.exp(-since * 6.5) * Math.cos(since * 28);
+      const hit = Math.max(0, 1 - since / 0.1);
+      const sx = (1 + 0.16 * wob) * (1 + 0.08 * hit), sy = (1 - 0.13 * wob) * (1 + 0.05 * hit);
+      const breathe = 1 + 0.018 * Math.sin(t * 3.1);
+      const jig = 0.035 * Math.exp(-since * 4) + 0.006, phase = t * 7;
+      // the ripples, heart-shaped, going out from each "ta"
+      beats.forEach((at) => {
+        const q = (t - at) / 0.95;
+        if (q < 0 || q > 1) return;
+        g.save();
+        g.globalAlpha = (1 - q) ** 1.5 * 0.85; g.strokeStyle = "#FFE1EE"; g.lineWidth = 2 + 5 * (1 - q); g.shadowColor = "#F49AC1"; g.shadowBlur = 16;
+        heartPath(g, cx, cy, R * (1.04 + q * 1.7), 0.02, phase); g.stroke();
+        g.restore();
+      });
+      const grow = burst >= 0 ? 1 + burst * 2.6 : 1;
+      const fade = burst >= 0 ? Math.max(0, 1 - burst / 0.32) : 1;
+      if (fade > 0) {
+        g.save();
+        g.translate(cx, cy + R * 1.06); g.scale(sx * breathe * grow, sy * breathe * grow); g.translate(-cx, -(cy + R * 1.06));
+        g.globalAlpha = fade;
+        // the body: gel, lit from the upper left, deeper at the bottom
+        g.shadowColor = "rgba(244, 110, 170, 0.8)"; g.shadowBlur = R * 0.4;
+        const body = g.createRadialGradient(cx - R * 0.3, cy - R * 0.3, R * 0.05, cx, cy + R * 0.1, R * 1.25);
+        body.addColorStop(0, "#FFD0E4"); body.addColorStop(0.38, "#FA88BA"); body.addColorStop(0.78, "#E2559A"); body.addColorStop(1, "#B83578");
+        heartPath(g, cx, cy, R, jig, phase); g.fillStyle = body; g.fill();
+        g.shadowBlur = 0;
+        g.save();
+        heartPath(g, cx, cy, R, jig, phase); g.clip();
+        const deep = g.createLinearGradient(0, cy - R * 0.2, 0, cy + R * 1.1);
+        deep.addColorStop(0, "rgba(130, 20, 80, 0)"); deep.addColorStop(1, "rgba(130, 20, 80, 0.45)");
+        g.fillStyle = deep; g.fillRect(cx - R * 1.4, cy - R * 1.4, R * 2.8, R * 2.8);
+        // light through the gel, pooling at the bottom
+        const pool = g.createRadialGradient(cx + R * 0.15, cy + R * 0.6, 0, cx + R * 0.15, cy + R * 0.6, R * 0.55);
+        pool.addColorStop(0, "rgba(255, 200, 225, 0.55)"); pool.addColorStop(1, "rgba(255, 200, 225, 0)");
+        g.fillStyle = pool; g.fillRect(cx - R * 1.4, cy - R * 1.4, R * 2.8, R * 2.8);
+        // a rim of light along the upper left
+        const rim = g.createLinearGradient(cx - R, cy - R * 0.8, cx + R * 0.4, cy + R * 0.6);
+        rim.addColorStop(0, "rgba(255, 255, 255, 0.75)"); rim.addColorStop(0.5, "rgba(255, 255, 255, 0.1)"); rim.addColorStop(1, "rgba(255, 255, 255, 0)");
+        g.strokeStyle = rim; g.lineWidth = R * 0.07; heartPath(g, cx, cy + R * 0.015, R * 0.965, jig, phase); g.stroke();
+        // bubbles caught in it
+        [[0.38, 0.32, 0.05], [0.5, 0.12, 0.028], [-0.2, 0.62, 0.035], [0.18, 0.78, 0.02]].forEach(([bx, by, br], n) => {
+          const y = cy + R * by - Math.sin(t * 1.4 + n) * R * 0.03;
+          g.strokeStyle = "rgba(255, 255, 255, 0.55)"; g.lineWidth = 1.5; g.beginPath(); g.arc(cx + R * bx, y, R * br, 0, Math.PI * 2); g.stroke();
+          g.fillStyle = "rgba(255, 255, 255, 0.8)"; g.beginPath(); g.arc(cx + R * (bx - br * 0.35), y - R * br * 0.35, R * br * 0.28, 0, Math.PI * 2); g.fill();
+        });
+        // the shine: a soft sheen over the left lobe with a sharp glint in it, a faint one on the right
+        const sheen = (x, y, rx, ry, turn, alpha) => {
+          g.save(); g.translate(x, y); g.rotate(turn); g.scale(1, ry / rx);
+          const glow = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+          glow.addColorStop(0, `rgba(255, 255, 255, ${alpha})`); glow.addColorStop(0.55, `rgba(255, 255, 255, ${alpha * 0.4})`); glow.addColorStop(1, "rgba(255, 255, 255, 0)");
+          g.fillStyle = glow; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill();
+          g.restore();
+        };
+        sheen(cx - R * 0.44, cy - R * 0.34, R * 0.46, R * 0.24, -0.62, 0.75);
+        sheen(cx + R * 0.5, cy - R * 0.4, R * 0.2, R * 0.09, 0.6, 0.4);
+        g.fillStyle = "rgba(255, 255, 255, 0.95)"; g.beginPath(); g.ellipse(cx - R * 0.58, cy - R * 0.42, R * 0.09, R * 0.04, -0.7, 0, Math.PI * 2); g.fill();
+        g.restore();
+        // "울린 심장", written in it
+        g.fillStyle = "#FFFFFF"; g.textAlign = "center"; g.textBaseline = "middle";
+        g.shadowColor = "rgba(150, 30, 90, 0.65)"; g.shadowBlur = R * 0.06; g.shadowOffsetY = R * 0.012;
+        g.font = `700 ${(R * 0.3).toFixed(1)}px Gaegu, cursive`;
+        g.fillText("울린 심장", cx, cy + R * 0.08);
+        g.restore();
+      }
+      // ▶: it bursts into small hearts, flying out and fading
+      if (burst >= 0) {
+        for (let n = 0; n < 22; n++) {
+          const a = (n / 22) * Math.PI * 2 + n * 0.7, q = Math.min(1, burst / 1.1);
+          const d = R * (0.2 + (1 - (1 - q) ** 3) * (2.2 + (n % 5) * 0.45));
+          const hx = cx + Math.cos(a) * d, hy = cy + R * 0.2 + Math.sin(a) * d * 0.85 + q * q * R * 0.6;
+          const hr = R * (0.08 + (n % 3) * 0.035) * (1 - q * 0.4);
+          g.save(); g.globalAlpha = (1 - q) ** 1.3;
+          g.translate(hx, hy); g.rotate(Math.sin(n * 2.3) * 0.5 + q * (n % 2 ? 1.4 : -1.4)); g.translate(-hx, -hy);
+          const small = g.createRadialGradient(hx - hr * 0.3, hy - hr * 0.3, 1, hx, hy, hr * 1.2);
+          small.addColorStop(0, "#FFE1EE"); small.addColorStop(1, ["#F77DB2", "#C3B8F3", "#9EC2F0"][n % 3]);
+          heartPath(g, hx, hy, hr); g.fillStyle = small; g.fill();
+          g.restore();
+        }
+      }
+    };
+    // Each "ta" sends the page's windows wobbling like jelly, out from the heart, after the ripple.
+    const JELLY = ".ae-member, .card, .guide-item, .tips li, main .section, .hero h1, .hero .lead, .status-pill, .dt-poster, .dt-decor-logo, .dt-desk-icon";
+    const jellyPage = () => {
+      if (!motionOK()) return;
+      const mx = window.innerWidth / 2, my = window.innerHeight * 0.5, vh = window.innerHeight;
+      wobbles = wobbles.filter((wobble) => wobble.playState !== "finished");
+      document.querySelectorAll(JELLY).forEach((el) => {
+        const box = el.getBoundingClientRect();
+        if (!box.width || box.bottom < -40 || box.top > vh + 40) return;
+        // the bigger the window, the less it gives
+        const j = Math.min(0.045, 9 / Math.max(box.width, box.height));
+        const far = Math.hypot(box.left + box.width / 2 - mx, box.top + box.height / 2 - my);
+        wobbles.push(el.animate([
+          { scale: "1 1" },
+          { scale: `${1 + j} ${1 - j}`, offset: 0.14 },
+          { scale: `${1 - j * 0.75} ${1 + j * 0.75}`, offset: 0.32 },
+          { scale: `${1 + j * 0.45} ${1 - j * 0.45}`, offset: 0.5 },
+          { scale: `${1 - j * 0.2} ${1 + j * 0.2}`, offset: 0.7 },
+          { scale: "1 1" },
+        ], { duration: 720, delay: 60 + far / 1.3, easing: "ease-out" }));
+      });
+    };
+    // Out of the heart: its canvas wiped, the page let go.
+    const letGo = () => {
+      beats = []; drawnAt = -1;
+      wobbles.forEach((wobble) => wobble.cancel());
+      wobbles = [];
+      jelly?.getContext("2d").clearRect(0, 0, jelly.width, jelly.height);
+    };
+    // A steady, music-like height for spectrum bar i on sixteenth k (no randomness between frames).
+    const level = (i, k) => {
+      const low = 0.55 + 0.45 * Math.abs(Math.sin(k * 1.7 + i * 0.4));
+      const tilt = 1 - i / 26;
+      const kick = k % 4 === 0 ? 0.25 : 0;
+      return Math.max(0.08, Math.min(1, (low * tilt + kick) * (0.75 + 0.25 * Math.sin(k * 0.9 + i * i))));
+    };
+    return {
+      mount(box) {
+        fx = box;
+        lines = [...fx.querySelectorAll(".dtx-lines p")];
+        pops = [...fx.querySelectorAll(".dtx-pops img")];
+        amp = fx.querySelector(".dtx-amp");
+        time = fx.querySelector(".dtx-amp-time");
+        plTime = fx.querySelector(".dtx-pl-time");
+        vis = fx.querySelector(".dtx-vis");
+        curve = fx.querySelector(".dtx-eq-curve");
+        bands = [...fx.querySelectorAll(".dtx-band")];
+        seek = fx.querySelector(".dtx-seek");
+        jelly = fx.querySelector(".dtx-jelly");
+        dittoDesk.mount();
+      },
+      tick(at, name) {
+        if (!fx) return;
+        chorusBeat(at, name);
+        const t = at - DT_BRIDGE;
+        const on = at >= 0 && name !== "calm";
+        fx.classList.toggle("has-a", on && t >= 0);
+        fx.classList.toggle("has-b", on && t >= 3.582);
+        // Danielle's lines, one by one.
+        lines.forEach((line, i) => line.classList.toggle("is-on", on && t >= DT_DANIELLE[i][0]));
+        const inAmp = on && name === "amp", inHeart = on && (name === "heart" || name === "pause" || name === "play");
+        if (inAmp !== ampOpen) { ampOpen = inAmp; dittoDesk.task("amp", "DITTO AMP", inAmp); }
+        if (!inHeart && (beats.length || wobbles.length)) letGo();
+        if (!on) { last16 = -1; lastTa = -1; return; }
+        // Hyein: the amp. Its three windows dock on the first three beats; the spectrum (the
+        // oscilloscope on each "ooh-whoa") and the equalizer follow the song when the sound is on (a
+        // steady made-up music when it is off); it is in the taskbar while it is open, and is
+        // minimized to it as her part ends.
+        if (inAmp) {
+          const a = t - 14.328, b = a / DT_BEAT, k = Math.floor(a / (DT_BEAT / 4));
+          const now = performance.now(), dt = Math.min(0.05, Math.max(0, (now - lastNow) / 1000));
+          lastNow = now;
+          amp.classList.toggle("has-eq", b >= 1);
+          amp.classList.toggle("has-pl", b >= 2);
+          amp.classList.toggle("is-closing", b >= 15.5);
+          const scope = WHOA.some(([from, long]) => b >= from && b < from + long);
+          amp.classList.toggle("is-scope", scope);
+          const player = players.ditto, tapNode = player?.playing() ? player.analyser() : null;
+          let live = false;
+          if (tapNode) { tapNode.getByteFrequencyData(freq); tapNode.getByteTimeDomainData(wave); live = freq.some((v) => v > 0); }
+          for (let n = 0; n < N; n++) {
+            let v = level(n, k);
+            if (live) {
+              let sum = 0;
+              for (let f = EDGES[n]; f < EDGES[n + 1]; f++) sum += freq[f];
+              v = Math.min(1, (sum / (EDGES[n + 1] - EDGES[n]) / 255) * (1 + (n / N) * 0.55));
+            }
+            shown[n] = Math.max(v, shown[n] - dt * 2.2);
+            if (shown[n] >= peaks[n]) { peaks[n] = shown[n]; held[n] = 0.3; }
+            else if ((held[n] -= dt) < 0) peaks[n] = Math.max(0, peaks[n] - dt * 0.8);
+          }
+          paintVis(scope, live, a);
+          // the equalizer's sliders drift with the bands, the curve above them
+          bands.forEach((band, n) => {
+            const target = n ? (shown[(n - 1) * 2] + shown[(n - 1) * 2 + 1]) / 2 : 0.62;
+            eq[n] += (target - eq[n]) * Math.min(1, dt * 9);
+            band.style.setProperty("--v", eq[n].toFixed(3));
+          });
+          paintCurve();
+          if (k !== last16) {
+            last16 = k;
+            const seconds = 102 + Math.floor(a);
+            time.textContent = `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+            plTime.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+            seek.style.setProperty("--p", ((102 + a) / 185).toFixed(4));
+          }
+        }
+        // Haerin: the jelly heart. On every "ta" it squashes and springs back, a heart-shaped ripple
+        // going out, a sticker popping up round it and the page's windows wobbling like jelly after
+        // the ripple; on "But I don't want to" all of it freezes with the tape; on ▶ it bursts.
+        if (inHeart) {
+          const s16 = Math.floor((t - 21.492) / (DT_BEAT / 4));
+          if (name === "heart" && s16 !== lastTa && s16 >= 0 && DT_RATATA.has(s16 % 16)) {
+            lastTa = s16;
+            beats.push(21.492 + s16 * (DT_BEAT / 4));
+            restart(pops[pop++ % pops.length], "is-on");
+            jellyPage();
+          }
+          if (name === "pause") wobbles.forEach((wobble) => wobble.pause());
+          else if (name === "play") wobbles.forEach((wobble) => { if (wobble.playState === "paused") wobble.play(); });
+          drawJelly(name === "pause" ? 25.97 : t, name === "play" ? t - 26.865 : -1);
+        }
+      },
+      unmount() {
+        if (fx) letGo();
+        fx = null; lastFocus = -1; lastKick = -1; ampOpen = false;
+        dittoDesk.unmount();
+        document.documentElement.style.removeProperty("--dt-kick");
+        document.querySelectorAll(".ae-member.is-focus").forEach((el) => el.classList.remove("is-focus"));
+      },
+    };
+  })();
+
+  // Ditto's scene: the MV (80.2 s), track 2, then the chorus, then the intro's "woo" over camcorder
+  // footage. One winter, five girls, each part a memory of it, each member's part her own.
+  // DT_MV(part, bar, beat) is where that falls in the MV (part 0 track 2, 1 track 1, 2 the intro; the
+  // song starts at 0.276 s).
+  //   rewind (0)      "Rewind to that winter": a tear-off calendar on the wall, its days flying back up
+  //                   onto it from today to 12.19.2022, a burst on each hit; the sun sweeping the
+  //                   wall with every day, the clock spinning backward to 4:12
+  //   seasons (7.44)  Danielle's part: she waits under a tree while the year turns around her,
+  //                   spring, summer, autumn, the tree's leaves the MV; the a cappella bar stops time,
+  //                   the leaves hanging in the air; on "기다렸지 all this time" the first snow
+  //   plane (14.61)   Hyein's part, "I got nothing to lose / 널 좋아한다고": she throws a paper plane
+  //                   from a classroom window, her note on its wings and the MV under them; it loops
+  //                   on each "ooh-whoa" over the snowy schoolyard and climbs into the sun
+  //   alarm (21.77)   Haerin's part, "Ra-ta-ta-ta 울린 심장": the alarm clock rings on every "ta", the
+  //                   nightstand rattling; "But I don't want to": a hand slaps it quiet; the hit
+  //                   sets it off again and its face (the MV) fills the screen
+  //   From the chorus on, everything (the page too) is seen through an old camcorder: faded, grainy,
+  //   flickering, a date stamp in the corner.
+  //   cube (28.93)    "Stay in the middle": a cube puzzle, the five on its centres (the pieces that
+  //                   stay in the middle), the MV on its front; scrambled ("don't want no riddle"),
+  //                   it is solved a turn a kick
+  //   scope (36.10)   "Say it ditto": the MV in a kaleidoscope, copies of copies, turning on the
+  //                   kicks; slow in the break (bar 7), whirling into the dark at the end
+  //   maze (43.26)    "I don't want to walk in this 미로": a walk through a maze of school corridors
+  //                   under a snowy night sky, low-res like the old 3D maze screensaver; a cell or a
+  //                   quarter turn on each kick, each corridor ending at the MV with one of the five
+  //                   in front of it, who spins away into snow as she is reached; the spinning bunny
+  //                   heads turn the world upside down as they are passed (and back); the last kick
+  //                   walks into the MV
+  //   block (50.43)   "말해줘 say it back": an apartment block on a snowy night, a girl with a camcorder
+  //                   looking up at it. Its windows become one big screen of the MV, spell SAY, IT,
+  //                   BACK on the kicks and DITTO in the break (bar 15); then a heart (bar 16) that
+  //                   goes out window by window until one is left, and the camera pushes into it
+  //   chalk (57.59)   the camcorder footage: the board at the front of the classroom, a hand drawing
+  //                   on it in chalk: a TV (the MV switching on in it), the date, the five one a bar,
+  //                   each with her own hair and her name, hands joined, hearts, "all five"
+  //   doodle (71.92)  the drums: "say it ditto", a doodle on every hit
+  //   erase (74.61)   the chalk goes down, the eraser comes up and scrubs it all off (the TV and the
+  //                   MV with it), lifting over Danielle; back on the tray, a small pink heart by her,
+  //                   and the camcorder leans in on her for the last of it
+  const DT_MV = (part, bar, beat = 0) => 0.2755 + part * 64 * DT_BEAT + ((bar - 1) * 4 + beat) * DT_BEAT;
+  const DT_ERASE = DT_MV(2, 10, 2);
+  const DT_NAMES = ["Minji", "Hanni", "Danielle", "Haerin", "Hyein"];
+  // The chorus's kicks (sixteenths of each bar; its bar 15 has none, a break), and how hard the last
+  // one still rings (1 on it, then fading).
+  const DT_KICKS = [0, 4, 8, 11, 14];
+  const DT_SIX = DT_BEAT / 4;
+  const dtKickPulse = (now) => {
+    const s = (now - DT_MV(1, 1)) / DT_SIX;
+    const bar = Math.floor(s / 16), inBar = s - bar * 16;
+    if (bar === 14) return 0;
+    const k = DT_KICKS.filter((n) => n <= inBar).pop();
+    return k === undefined ? 0 : Math.exp(-(inBar - k) * DT_SIX * 7);
+  };
+  // The maze: # the school's corridor walls (w with a window, p a notice, g "미로" chalked on it), M
+  // the MV, . open. The walk, one move a kick through bars 9-12: F a cell on, L / R a quarter turn,
+  // E the last: into the MV.
+  const DT_MAZE = [
+    "#############",
+    "########M####",
+    "#######p.w.##",
+    "#####M#....##",
+    "###.#....M###",
+    "###.p.gw#####",
+    "###...w######",
+    "##Mw#.#######",
+    "#w....M######",
+    "#g...########",
+    "#..p.########",
+    "##.##########",
+    "#############",
+  ];
+  const DT_WALK = "FFFRF" + "FFLFF" + "FFRFF" + "FLFFE";
+  // Where the five stand (in front of each corridor's MV) and how near she lets you come; the bunny
+  // heads, floating overhead (the screensaver's sign that flips the world over as it is passed).
+  const DT_MAZE_FIVE = [[2.5, 8.22, 1.35], [5.78, 8.5, 1], [5.5, 4.22, 1], [8.78, 4.5, 1.35], [8.5, 2.22, 1.35]];
+  const DT_MAZE_BUNNIES = [[4.15, 8.5], [5.5, 6.9]];
+  // Each member's figure in her -anime.webp (1100 × 1100): from x, how wide.
+  const DT_ANIME_CROP = [[314, 547], [303, 520], [266, 568], [316, 459], [239, 622]];
+  // The walk as moves: from [x, y, angle] to [x, y, angle] (angle 0 east, -π/2 north), from one kick
+  // to the next; and where it is at any moment (a step eases out like a footfall, a turn in and out,
+  // the last step speeds up into the wall).
+  const dtWalk = (() => {
+    const kicks = [];
+    for (let bar = 9; bar <= 12; bar++) DT_KICKS.forEach((k) => kicks.push(DT_MV(1, bar) + k * DT_SIX));
+    let x = 2.5, y = 11.5, a = -Math.PI / 2;
+    return [...DT_WALK].map((move, n) => {
+      const from = [x, y, a];
+      if (move === "F") { x += Math.round(Math.cos(a)); y += Math.round(Math.sin(a)); }
+      if (move === "E") { x += Math.cos(a) * 0.44; y += Math.sin(a) * 0.44; }
+      if (move === "L") a -= Math.PI / 2;
+      if (move === "R") a += Math.PI / 2;
+      return { move, from, to: [x, y, a], at: kicks[n], until: kicks[n + 1] ?? DT_MV(1, 13) };
+    });
+  })();
+  const dtWalkAt = (t) => {
+    const step = dtWalk.findLast((m) => m.at <= t) ?? dtWalk[0];
+    const p = Math.max(0, Math.min(1, (t - step.at) / (step.until - step.at)));
+    const e = step.move === "E" ? p * p * p : step.move === "F" ? 1 - (1 - p) ** 3 : 0.5 - 0.5 * Math.cos(Math.PI * p);
+    const [x0, y0, a0] = step.from, [x1, y1, a1] = step.to;
+    return { x: x0 + (x1 - x0) * e, y: y0 + (y1 - y0) * e, a: a0 + (a1 - a0) * e, bob: step.move === "F" ? Math.sin(Math.PI * Math.min(1, p * 1.6)) : 0 };
+  };
+  // The apartment block's letters (3 × 5 windows) and its heart.
+  const DT_FONT = {
+    S: ["111", "100", "111", "001", "111"], A: ["010", "101", "111", "101", "101"], Y: ["101", "101", "010", "010", "010"],
+    I: ["1", "1", "1", "1", "1"], T: ["111", "010", "010", "010", "010"], B: ["110", "101", "110", "101", "110"],
+    C: ["011", "100", "100", "100", "011"], K: ["101", "101", "110", "101", "101"], D: ["110", "101", "101", "101", "110"],
+    O: ["010", "101", "101", "101", "010"],
+  };
+  const DT_HEART = ["..111...111..", ".11111.11111.", "1111111111111", "1111111111111", "1111111111111", ".11111111111.",
+    "..111111111..", "...1111111...", "....11111....", ".....111.....", "......1......"];
+  const dittoScene = {
+    src: "ditto/scene.mp4",
+    className: "dt-scene",
+    cues: [[0, "rewind"], [DT_MV(0, 5), "seasons"], [DT_MV(0, 9), "plane"], [DT_MV(0, 13), "alarm"],
+      [DT_MV(1, 1), "cube"], [DT_MV(1, 5), "scope"], [DT_MV(1, 9), "maze"], [DT_MV(1, 13), "block"], [DT_MV(2, 1), "chalk"], [DT_MV(2, 9), "doodle"], [DT_ERASE, "erase"]],
+    mount(box, video) {
+      // The scene starts from the top of the page.
+      window.scrollTo({ top: 0, behavior: "instant" });
+      box.innerHTML = `
+        <div class="dts-wall"></div>
+        <canvas class="dts-stage"></canvas>
+        <div class="dts-maze"><canvas class="dts-maze-view"></canvas></div>
+        <div class="dts-block"><div class="dts-block-cam"><canvas class="dts-block-view"></canvas><canvas class="dts-block-glow"></canvas></div><i class="dts-block-bloom"></i></div>
+        <div class="dts-cam"><i class="dts-grain"></i><span class="dts-cam-sp">SP</span><span class="dts-cam-battery"><i></i></span><span class="dts-cam-date">PM 4:12<br />DEC. 19 2022</span></div>
+        <p class="dts-badge">NewJeans ‘Ditto’ · <span class="dts-time">00:00</span></p>`;
+      // The MV itself (hidden; everything draws from it).
+      const wall = box.querySelector(".dts-wall");
+      video.className = "dts-video";
+      wall.append(video);
+      const time = box.querySelector(".dts-time");
+      const cam = box.querySelector(".dts-cam");
+      const restart = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+
+      // ── The first six parts draw on one canvas in turn (the stage), from the MV's latest frame ──
+      const stage = box.querySelector(".dts-stage");
+      const clamp = (v) => Math.max(0, Math.min(1, v));
+      const mix = (a, b, p) => a + (b - a) * p;
+      const easeIO = (p) => p * p * (3 - 2 * p);
+      const easeOut3 = (p) => 1 - (1 - p) ** 3;
+      const seeded = (seed) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+      const stageRatio = () => (SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5));
+      const prep = () => {
+        const r = stageRatio(), w = window.innerWidth, h = window.innerHeight;
+        const W = Math.round(w * r), H = Math.round(h * r);
+        if (stage.width !== W || stage.height !== H) { stage.width = W; stage.height = H; }
+        const g = stage.getContext("2d");
+        g.setTransform(r, 0, 0, r, 0, 0);
+        g.globalAlpha = 1; g.globalCompositeOperation = "source-over"; g.filter = "none"; g.shadowBlur = 0;
+        g.imageSmoothingEnabled = true; g.textBaseline = "alphabetic";
+        return { g, w, h, r, wide: w >= h };
+      };
+      const mvFrame = document.createElement("canvas");
+      mvFrame.width = SCENE_LITE ? 640 : 960; mvFrame.height = SCENE_LITE ? 360 : 540;
+      let mvStamp = -1;
+      const mv = (now) => {
+        if (video.videoWidth && (mvStamp < 0 || mirrorsDue)) { mvFrame.getContext("2d").drawImage(video, 0, 0, mvFrame.width, mvFrame.height); mvStamp = now; }
+        return mvFrame;
+      };
+      // How bright the MV is just now (0-1), looked at a few times a second, so a dark shot can be lifted.
+      const levelCanvas = document.createElement("canvas");
+      levelCanvas.width = 16; levelCanvas.height = 9;
+      let mvLevelAt = -9, mvLevelNow = 0.5;
+      const mvLevel = (now) => {
+        if (Math.abs(now - mvLevelAt) > 0.25 && mvStamp >= 0) {
+          const tg = levelCanvas.getContext("2d", { willReadFrequently: true });
+          tg.drawImage(mvFrame, 0, 0, 16, 9);
+          const d = tg.getImageData(0, 0, 16, 9).data;
+          let sum = 0;
+          for (let i = 0; i < d.length; i += 4) sum += d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
+          mvLevelNow = sum / (144 * 255); mvLevelAt = now;
+        }
+        return mvLevelNow;
+      };
+      // A picture drawn over a box as cover, from a point of it (cx, cy: 0-1), zoomed in.
+      const cover = (g, img, x, y, w, h, cx = 0.5, cy = 0.5, zoom = 1) => {
+        const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+        if (!iw || !ih || w <= 0 || h <= 0) return;
+        const s = Math.max(w / iw, h / ih) * zoom, sw = w / s, sh = h / s;
+        g.drawImage(img, Math.max(0, Math.min(iw - sw, cx * iw - sw / 2)), Math.max(0, Math.min(ih - sh, cy * ih - sh / 2)), sw, sh, x, y, w, h);
+      };
+      const roundRect = (g, x, y, w, h, r) => { g.beginPath(); if (g.roundRect) g.roundRect(x, y, w, h, r); else g.rect(x, y, w, h); };
+      const pics = new Map();
+      const pic = (path) => {
+        if (!pics.has(path)) { const img = new Image(); img.src = siteUrl(`ditto/${path}`); pics.set(path, img); }
+        const img = pics.get(path);
+        return img.complete && img.naturalWidth ? img : null;
+      };
+      // A wall, a desk, a sky: anything painted once for the screen's size, kept until it changes.
+      const painted = new Map();
+      const paintOnce = (key, w, h, r, paint) => {
+        const id = `${key}:${w}x${h}@${r}`;
+        if (!painted.has(id)) {
+          const c = document.createElement("canvas");
+          c.width = Math.round(w * r); c.height = Math.round(h * r);
+          const g = c.getContext("2d");
+          g.scale(r, r);
+          paint(g, w, h);
+          painted.set(id, c);
+        }
+        return painted.get(id);
+      };
+
+      // ── rewind: the tear-off calendar on the wall (일력), its days flying back up onto it ──
+      // From today back to 12.19.2022: a burst of days on each hit of bars 1 and 3, a drift between,
+      // then the last days one at a time, the last page landing on the last beat of bar 4. The sun
+      // through the window sweeps the wall with every day that goes back, the clock spins backward,
+      // and it all comes to rest at 4:12 in the afternoon.
+      const DAY_KR = ["일요일", "월요일", "화요일", "수요일", "목요일", "금요일", "토요일"];
+      const DAY_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
+      const MONTH_EN = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+      const HOLIDAYS = { "1-1": "신정", "3-1": "삼일절", "5-5": "어린이날", "6-6": "현충일", "8-15": "광복절", "10-3": "개천절", "10-9": "한글날", "12-25": "성탄절" };
+      const DAY_MS = 86400000;
+      const rewindTo = Date.UTC(2022, 11, 19);
+      const rewindFrom = (() => { const d = new Date(); return Math.max(rewindTo + 400 * DAY_MS, Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())); })();
+      const rewindDays = Math.round((rewindFrom - rewindTo) / DAY_MS);
+      const REWIND_HITS = [...[0, 1, 2, 3, 4, 5, 6, 7].map((k) => [DT_MV(0, 1, k / 4), 0.075]), ...[0, 2, 6, 7, 8, 9].map((k) => [DT_MV(0, 3, k / 4), 0.04])];
+      const REWIND_DRIFTS = [[DT_MV(0, 1, 2), DT_MV(0, 2), 0.04], [DT_MV(0, 2), DT_MV(0, 3), 0.06], [DT_MV(0, 3, 2.5), DT_MV(0, 4), 0.02]];
+      const REWIND_LAND = DT_MV(0, 4, 3);
+      const woundBack = (t) => {
+        let f = 0;
+        for (const [at, weight] of REWIND_HITS) f += weight * easeIO(clamp((t - at) / 0.1));
+        for (const [a, b, weight] of REWIND_DRIFTS) f += weight * clamp((t - a) / (b - a));
+        if (t > DT_MV(0, 4)) f += 0.04 * (1 - (1 - clamp((t - DT_MV(0, 4)) / (REWIND_LAND - DT_MV(0, 4)))) ** 4);
+        return Math.min(1, f) * rewindDays;
+      };
+      const woundDay = (t) => Math.min(rewindDays, Math.floor(woundBack(t) + 1e-6));
+      // The pages seen flying: one for each of the last twelve days, otherwise a few a second (more in a burst).
+      const rewindPages = (() => {
+        const pages = [], rnd = seeded(1219);
+        let last = 0, spawned = -1;
+        for (let t = 0; t <= REWIND_LAND + 0.01; t += 1 / 240) {
+          const day = woundDay(t);
+          if (day === last) continue;
+          last = day;
+          const final = day >= rewindDays - 12;
+          const rate = (woundBack(t + 0.05) - woundBack(t - 0.05)) / 0.1;
+          if (!final && t - spawned < 1 / Math.max(4, Math.min(30, rate * 0.03))) continue;
+          spawned = t;
+          pages.push({ land: t, day, dur: final ? 0.8 : 0.45 + rnd() * 0.25, x0: rnd() * 2 - 1, rot: (rnd() * 2 - 1) * 1.4, flip: (rnd() < 0.5 ? -1 : 1) * (1 + rnd() * 1.6) * Math.PI, sway: rnd() * 2 - 1 });
+        }
+        return pages;
+      })();
+      const calDate = (day) => { const d = new Date(rewindFrom - day * DAY_MS); return { Y: d.getUTCFullYear(), M: d.getUTCMonth(), D: d.getUTCDate(), wd: d.getUTCDay() }; };
+      // One day's page: the year and month, the day's photo (the MV), the big number (red on Sundays
+      // and holidays, blue on Saturdays), the weekday, the holiday's name.
+      const calPage = (g, day, x, y, pw, ph, photo) => {
+        const { Y, M, D, wd } = calDate(day);
+        const holiday = HOLIDAYS[`${M + 1}-${D}`];
+        const ink = wd === 0 || holiday ? "#D23B47" : wd === 6 ? "#3A66CF" : "#24283B";
+        g.fillStyle = "#FBF8F1"; g.fillRect(x, y, pw, ph);
+        g.fillStyle = "rgba(60, 50, 40, 0.16)";
+        for (let i = 0; i < 18; i++) g.fillRect(x + ((i + 0.25) * pw) / 18, y + ph * 0.014, pw / 40, Math.max(1, ph * 0.008));
+        g.fillStyle = "#6B6F86"; g.font = `700 ${(ph * 0.05).toFixed(1)}px Inter, system-ui, sans-serif`;
+        g.textAlign = "left"; g.fillText(String(Y), x + pw * 0.08, y + ph * 0.09);
+        g.textAlign = "right"; g.fillText(`${M + 1}월 ${MONTH_EN[M]}`, x + pw * 0.92, y + ph * 0.09);
+        const px = x + pw * 0.08, py = y + ph * 0.12, pw2 = pw * 0.84, ph2 = ph * 0.36;
+        if (photo) { g.save(); roundRect(g, px, py, pw2, ph2, pw * 0.03); g.clip(); cover(g, photo, px, py, pw2, ph2); g.restore(); }
+        else { g.fillStyle = "#E4E0D6"; roundRect(g, px, py, pw2, ph2, pw * 0.03); g.fill(); }
+        g.fillStyle = ink; g.textAlign = "center";
+        g.font = `800 ${(ph * 0.32).toFixed(1)}px Inter, system-ui, sans-serif`;
+        g.fillText(String(D), x + pw / 2, y + ph * 0.8);
+        g.font = `700 ${(ph * 0.048).toFixed(1)}px Inter, system-ui, sans-serif`;
+        g.fillText(`${DAY_KR[wd]} · ${DAY_EN[wd]}`, x + pw / 2, y + ph * 0.885);
+        if (holiday) { g.font = `700 ${(ph * 0.04).toFixed(1)}px Inter, system-ui, sans-serif`; g.fillText(holiday, x + pw / 2, y + ph * 0.945); }
+      };
+      const paintWallpaper = (g, w, h) => {
+        g.fillStyle = "#EDE3D2"; g.fillRect(0, 0, w, h);
+        g.fillStyle = "rgba(255, 255, 255, 0.32)";
+        for (let x = 0; x < w; x += 30) g.fillRect(x, 0, 13, h);
+        const rnd = seeded(77);
+        for (let i = 0; i < (w * h) / 2400; i++) {
+          const fx = rnd() * w, fy = rnd() * h;
+          g.fillStyle = rnd() < 0.5 ? "rgba(232, 150, 184, 0.42)" : "rgba(140, 172, 228, 0.42)";
+          for (let k = 0; k < 5; k++) { const a = (k / 5) * Math.PI * 2; g.beginPath(); g.arc(fx + Math.cos(a) * 2.3, fy + Math.sin(a) * 2.3, 1.6, 0, Math.PI * 2); g.fill(); }
+          g.fillStyle = "rgba(236, 196, 110, 0.6)"; g.beginPath(); g.arc(fx, fy, 1.1, 0, Math.PI * 2); g.fill();
+        }
+        const shade = g.createRadialGradient(w * 0.45, h * 0.45, Math.min(w, h) * 0.2, w * 0.5, h * 0.5, Math.max(w, h) * 0.78);
+        shade.addColorStop(0, "rgba(0, 0, 0, 0)"); shade.addColorStop(1, "rgba(60, 40, 30, 0.38)");
+        g.fillStyle = shade; g.fillRect(0, 0, w, h);
+      };
+      const drawRewind = (now) => {
+        const { g, w, h, r, wide } = prep();
+        const frame = mv(now);
+        const back = woundBack(now), day = woundDay(now);
+        const rate = (woundBack(now + 0.02) - woundBack(now - 0.02)) / 0.04;
+        const pw = wide ? Math.min(h * 0.44, w * 0.3) : w * 0.6, ph = pw * 1.3;
+        const headH = ph * 0.2;
+        const padX = (wide ? w * 0.4 : w / 2) - pw / 2, padY = (wide ? h * 0.5 : h * 0.54) - (ph + headH) / 2 + headH;
+        // The push-in on the last page, once it has landed.
+        const push = 1 + 0.14 * easeIO(clamp((now - REWIND_LAND) / (DT_MV(0, 5) - REWIND_LAND)));
+        const fx = padX + pw / 2, fy = padY + ph * 0.3;
+        g.translate(fx, fy); g.scale(push, push); g.translate(-fx, -fy);
+        g.drawImage(paintOnce("wallpaper", w, h, r, paintWallpaper), 0, 0, w, h);
+        // The sun through the window: by the hour of the day being wound back (a blur of days at speed).
+        const hour = (((16.2 - back * 24) % 24) + 24) % 24;
+        let sun = clamp((hour - 6.5) / 1.5) * clamp((18.5 - hour) / 1.5);
+        sun = mix(sun, 0.5 + 0.18 * Math.sin(now * 53) * Math.sin(now * 31), clamp(rate / 25));
+        const lx = w * mix(0.98, 0.18, clamp((hour - 6) / 12)), ly = h * 0.08;
+        g.save();
+        g.globalAlpha = 0.34 * sun;
+        g.fillStyle = "#FFE7B0";
+        const paneW = Math.min(w, h) * 0.2, paneH = Math.min(w, h) * 0.34, skew = paneW * 0.55;
+        [0, 1].forEach((col) => [0, 1].forEach((row) => {
+          const x = lx + col * (paneW + 10) + row * skew * 0.5, y = ly + row * (paneH / 2 + 8);
+          g.beginPath(); g.moveTo(x, y); g.lineTo(x + paneW, y); g.lineTo(x + paneW + skew * 0.5, y + paneH / 2); g.lineTo(x + skew * 0.5, y + paneH / 2); g.closePath(); g.fill();
+        }));
+        g.restore();
+        // The wall clock, spinning backward (its hands a blur at speed), stopping at 4:12.
+        const [cx, cy, cr] = wide ? [w * 0.75, h * 0.3, Math.min(w, h) * 0.12] : [w * 0.8, h * 0.115, w * 0.11];
+        g.save();
+        g.fillStyle = "rgba(60, 40, 30, 0.18)"; g.beginPath(); g.arc(cx + cr * 0.06, cy + cr * 0.1, cr * 1.06, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#F4B6C8"; g.beginPath(); g.arc(cx, cy, cr * 1.06, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#FFFDF8"; g.beginPath(); g.arc(cx, cy, cr * 0.92, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#2D3148"; g.font = `700 ${(cr * 0.24).toFixed(1)}px Inter, system-ui, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+        [12, 3, 6, 9].forEach((n) => { const a = (n / 12) * Math.PI * 2 - Math.PI / 2; g.fillText(String(n), cx + Math.cos(a) * cr * 0.7, cy + Math.sin(a) * cr * 0.7); });
+        g.textBaseline = "alphabetic";
+        const blur = clamp(rate / 3);
+        const hand = (angle, len, width, color) => {
+          const copies = blur > 0.05 ? 7 : 1;
+          for (let k = 0; k < copies; k++) {
+            const a = angle + (copies > 1 ? (k / (copies - 1) - 0.5) * blur * 2.2 : 0);
+            g.globalAlpha = copies > 1 ? 0.28 : 1;
+            g.strokeStyle = color; g.lineWidth = width; g.lineCap = "round";
+            g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len); g.stroke();
+          }
+          g.globalAlpha = 1;
+        };
+        hand(((hour % 12) / 12) * Math.PI * 2 - Math.PI / 2, cr * 0.48, cr * 0.075, "#2D3148");
+        hand(((hour % 1) * Math.PI * 2) - Math.PI / 2, cr * 0.72, cr * 0.05, "#2D3148");
+        g.fillStyle = "#E06A92"; g.beginPath(); g.arc(cx, cy, cr * 0.06, 0, Math.PI * 2); g.fill();
+        g.restore();
+        // The calendar: its nail and string, the shop's card with the year, the pad (thicker the
+        // earlier in the year), the day on top. It jolts as each page lands.
+        const { Y, M, D } = calDate(day);
+        const left = (Date.UTC(Y, 11, 31) - Date.UTC(Y, M, D)) / DAY_MS;
+        const landed = rewindPages.findLast((p) => p.land <= now);
+        const jolt = landed ? Math.max(0, 1 - (now - landed.land) / 0.12) * ph * 0.012 : 0;
+        g.save();
+        g.translate(0, jolt);
+        g.strokeStyle = "rgba(70, 50, 40, 0.6)"; g.lineWidth = 1.5;
+        g.beginPath(); g.moveTo(padX + pw * 0.2, padY - headH); g.lineTo(padX + pw / 2, padY - headH - ph * 0.12); g.lineTo(padX + pw * 0.8, padY - headH); g.stroke();
+        g.fillStyle = "#8D8D96"; g.beginPath(); g.arc(padX + pw / 2, padY - headH - ph * 0.12, ph * 0.012, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "rgba(60, 40, 30, 0.25)"; g.fillRect(padX + pw * 0.03, padY - headH + ph * 0.03, pw, headH + ph + ph * 0.07);
+        const card = g.createLinearGradient(0, padY - headH, 0, padY);
+        card.addColorStop(0, "#D9414D"); card.addColorStop(1, "#B5303B");
+        g.fillStyle = card; g.fillRect(padX - pw * 0.03, padY - headH, pw * 1.06, headH);
+        g.textAlign = "center";
+        g.fillStyle = "#F6CE72"; g.font = `800 ${(headH * 0.42).toFixed(1)}px Inter, system-ui, sans-serif`;
+        g.fillText(String(Y), padX + pw / 2, padY - headH * 0.42);
+        g.fillStyle = "rgba(255, 245, 235, 0.92)"; g.font = `700 ${(headH * 0.17).toFixed(1)}px Inter, system-ui, sans-serif`;
+        g.fillText("토끼 문구 · ☎ 1219-2022", padX + pw / 2, padY - headH * 0.13);
+        const thick = 2 + (left / 365) * ph * 0.08;
+        for (let i = Math.ceil(thick / 2); i >= 1; i--) { g.fillStyle = i % 2 ? "#E9E3D6" : "#D9D2C2"; g.fillRect(padX, padY + ph + i * 2 - 2, pw, 2); }
+        calPage(g, day, padX, padY, pw, ph, frame);
+        g.restore();
+        // The days flying back up onto it from the floor, turning over and over, flat as they land.
+        for (const p of rewindPages) {
+          const start = p.land - p.dur;
+          if (now < start || now >= p.land) continue;
+          const q = (now - start) / p.dur, e = easeOut3(q);
+          const x = mix(padX + pw / 2 + p.x0 * w * 0.45, padX + pw / 2, e) + Math.sin(q * Math.PI) * p.sway * w * 0.08;
+          const y = mix(h + ph * 0.75, padY + ph / 2, e);
+          const turn = Math.cos(p.flip * (1 - e));
+          g.save();
+          const near = mix(1.3, 1, e);
+          g.translate(x, y); g.rotate(p.rot * (1 - e)); g.scale(near, near * turn);
+          if (!SCENE_LITE) { g.shadowColor = "rgba(60, 40, 30, 0.25)"; g.shadowBlur = 10; g.shadowOffsetY = 6; }
+          if (turn >= 0) calPage(g, p.day, -pw / 2, -ph / 2, pw, ph, SCENE_LITE ? null : frame);
+          else {
+            g.fillStyle = "#EEE9DE"; g.fillRect(-pw / 2, -ph / 2, pw, ph);
+            g.scale(-1, 1); g.globalAlpha = 0.09; g.fillStyle = "#24283B"; g.textAlign = "center";
+            g.font = `800 ${(ph * 0.32).toFixed(1)}px Inter, system-ui, sans-serif`; g.fillText(String(calDate(p.day).D), 0, ph * 0.3);
+          }
+          g.restore();
+        }
+        // Night falls and lifts on the wall with every day; the start fades up from black.
+        g.setTransform(r, 0, 0, r, 0, 0);
+        g.fillStyle = `rgba(20, 26, 60, ${(0.32 * (1 - sun)).toFixed(3)})`; g.fillRect(0, 0, w, h);
+        if (now < 0.3) { g.fillStyle = `rgba(6, 8, 20, ${(1 - now / 0.3).toFixed(3)})`; g.fillRect(0, 0, w, h); }
+      };
+      // ── seasons: Danielle under a tree while the year turns round her ──
+      // Bar 5 spring (the tree blossoms), bar 6 summer, bar 7 autumn: the a cappella bar stops time,
+      // the leaves hanging in the air, the sun standing still; bar 8 "기다렸지 all this time": the
+      // leaves come down, the tree goes bare, the first snow. She does not change ("처음 느낌 그대로").
+      // The tree's leaves are the MV, in the season's colour; some of the falling leaves carry it too.
+      const SEASON = {
+        skyTop: [[178, 214, 243], [104, 176, 236], [226, 160, 112], [176, 187, 208]],
+        skyLow: [[252, 228, 238], [218, 241, 255], [250, 218, 180], [232, 236, 243]],
+        hill: [[165, 204, 156], [104, 166, 100], [208, 158, 88], [214, 222, 236]],
+        far: [[196, 222, 214], [150, 196, 186], [222, 190, 150], [200, 208, 224]],
+        ground: [[150, 202, 138], [104, 168, 90], [214, 172, 82], [238, 242, 248]],
+        leaf: [[248, 176, 204], [92, 166, 90], [244, 188, 52], [244, 188, 52]],
+      };
+      const seasonAt = (key, s) => { const i = Math.min(2, Math.floor(s)), f = s - i, a = SEASON[key][i], b = SEASON[key][i + 1]; return a.map((v, k) => v + (b[k] - v) * f); };
+      const rgba = (c, a = 1) => `rgba(${c[0] | 0}, ${c[1] | 0}, ${c[2] | 0}, ${a})`;
+      const SEASON_TURNS = [[3.7, 4.3], [7.7, 8.3], [11.9, 12.6]];
+      const SEASON_NAMES = ["2023 봄 · spring", "여름 · summer", "가을 · autumn", "겨울 · 첫눈"];
+      // Time as the leaves feel it: stopped (almost) through the a cappella bar.
+      const leafTime = (b) => (b < 9.5 ? b : b < 12 ? 9.5 + (b - 9.5) * 0.03 : 9.575 + (b - 12));
+      const frozen = document.createElement("canvas");
+      let frozenAt = -1;
+      const treeShape = (w, h, wide) => {
+        const rnd = seeded(11);
+        const base = [wide ? w * 0.4 : w * 0.36, wide ? h * 0.8 : h * 0.77];
+        const len0 = wide ? h * 0.19 : h * 0.14, width0 = wide ? Math.min(w, h) * 0.05 : w * 0.06;
+        const segs = [], tips = [];
+        const grow = (x, y, angle, len, width, depth) => {
+          const x2 = x + Math.cos(angle) * len, y2 = y + Math.sin(angle) * len;
+          segs.push([x, y, x2, y2, width]);
+          if (depth >= 2) tips.push([x2, y2, len * (depth >= 6 ? 0.95 : depth === 2 ? 0.7 : 0.8)]);
+          if (depth >= 6) return;
+          const n = depth < 2 ? 2 : rnd() < 0.35 ? 3 : 2;
+          for (let k = 0; k < n; k++) {
+            const spread = (k / (n - 1) - 0.5) * (0.7 + rnd() * 0.35);
+            grow(x2, y2, angle + spread + (rnd() - 0.5) * 0.25, len * (0.72 + rnd() * 0.12), width * 0.66, depth + 1);
+          }
+        };
+        grow(base[0], base[1], -Math.PI / 2 + (rnd() - 0.5) * 0.06, len0, width0, 0);
+        // Lean it so the crown sits over the trunk (the higher, the more it moves).
+        const top = Math.min(...tips.map(([, y]) => y)), mid = tips.reduce((sum, [x]) => sum + x, 0) / tips.length;
+        const lean = (y) => (base[0] - mid) * clamp((base[1] - y) / (base[1] - top));
+        segs.forEach((sg) => { sg[0] += lean(sg[1]); sg[2] += lean(sg[3]); });
+        tips.forEach((tp) => { tp[0] += lean(tp[1]); });
+        const box = tips.reduce((b, [x, y, r]) => [Math.min(b[0], x - r), Math.min(b[1], y - r), Math.max(b[2], x + r), Math.max(b[3], y + r)], [Infinity, Infinity, -Infinity, -Infinity]);
+        const dots = tips.flatMap(([x, y, r], i) => [0, 1, 2].map((k) => { const a = rnd() * Math.PI * 2; return [x + Math.cos(a) * r * 0.95, y + Math.sin(a) * r * 0.95, r * (0.16 + rnd() * 0.14), rnd(), i]; }));
+        return { base, segs, tips, box, dots };
+      };
+      let tree = null;
+      const drawSeasons = (now) => {
+        const { g, w, h, wide } = prep();
+        const b = (now - DT_MV(0, 5)) / DT_BEAT, tau = leafTime(b), tSec = tau * DT_BEAT;
+        const s = SEASON_TURNS.reduce((sum, [a, c]) => sum + easeIO(clamp((b - a) / (c - a))), 0);
+        const winter = clamp(s - 2);
+        if (!tree || tree.w !== w || tree.h !== h) tree = { ...treeShape(w, h, wide), w, h };
+        const ground = tree.base[1];
+        // The sky; the sun crossing it once a bar (stopped in the a cappella), gone behind the snow clouds.
+        const sky = g.createLinearGradient(0, 0, 0, ground);
+        sky.addColorStop(0, rgba(seasonAt("skyTop", s))); sky.addColorStop(1, rgba(seasonAt("skyLow", s)));
+        g.fillStyle = sky; g.fillRect(0, 0, w, h);
+        const arc = Math.PI * ((tau / 4) % 1);
+        const sunX = w * (0.08 + 0.84 * ((tau / 4) % 1)), sunY = ground * 0.78 - Math.sin(arc) * ground * 0.62;
+        if (winter < 1) {
+          const glow = g.createRadialGradient(sunX, sunY, 0, sunX, sunY, Math.min(w, h) * 0.22);
+          glow.addColorStop(0, `rgba(255, 250, 225, ${0.95 * (1 - winter)})`); glow.addColorStop(0.18, `rgba(255, 240, 200, ${0.7 * (1 - winter)})`); glow.addColorStop(1, "rgba(255, 240, 200, 0)");
+          g.fillStyle = glow; g.fillRect(0, 0, w, h);
+        }
+        if (winter > 0) {
+          const rnd = seeded(3);
+          for (let i = 0; i < 14; i++) {
+            const cx = rnd() * w * 1.2 - w * 0.1, cy = rnd() * ground * 0.45, cr = Math.min(w, h) * (0.12 + rnd() * 0.12);
+            const cloud = g.createRadialGradient(cx, cy, 0, cx, cy, cr);
+            cloud.addColorStop(0, `rgba(206, 212, 226, ${0.85 * winter})`); cloud.addColorStop(1, "rgba(206, 212, 226, 0)");
+            g.fillStyle = cloud; g.fillRect(cx - cr, cy - cr, cr * 2, cr * 2);
+          }
+        }
+        // Far hills with their own little trees, a nearer hill, the ground.
+        const hill = (y0, amp, color, phase) => {
+          g.fillStyle = color; g.beginPath(); g.moveTo(0, h);
+          for (let x = 0; x <= w; x += 8) g.lineTo(x, y0 + Math.sin(x / w * Math.PI * 2 + phase) * amp + Math.sin(x / w * 9 + phase * 2) * amp * 0.25);
+          g.lineTo(w, h); g.closePath(); g.fill();
+        };
+        hill(ground - h * 0.16, h * 0.035, rgba(seasonAt("far", s)), 1.2);
+        const leafC = seasonAt("leaf", s);
+        const rf = seeded(21);
+        for (let i = 0; i < 16; i++) {
+          const x = rf() * w, y = ground - h * 0.15 + Math.sin(x / w * Math.PI * 2 + 1.2) * h * 0.035, rr = h * (0.012 + rf() * 0.012);
+          g.fillStyle = "rgba(90, 70, 60, 0.5)"; g.fillRect(x - 1, y - rr * 0.4, 2, rr * 1.6);
+          if (winter < 1) { g.fillStyle = rgba(leafC, 0.75 * (1 - winter)); g.beginPath(); g.arc(x, y - rr, rr, 0, Math.PI * 2); g.fill(); }
+        }
+        hill(ground - h * 0.06, h * 0.02, rgba(seasonAt("hill", s)), 2.4);
+        g.fillStyle = rgba(seasonAt("ground", s)); g.fillRect(0, ground - h * 0.01, w, h);
+        // The shadows of the tree and of her, swinging round with the sun (soft and round under cloud).
+        const lean = Math.cos(arc) * (1 - winter);
+        const shade = (x, rx, ry) => {
+          g.save(); g.translate(x, ground + ry * 0.4); g.transform(1, 0, -lean * 1.6, 1, 0, 0);
+          const sh = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+          sh.addColorStop(0, "rgba(40, 50, 60, 0.32)"); sh.addColorStop(1, "rgba(40, 50, 60, 0)");
+          g.scale(1, ry / rx); g.fillStyle = sh; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill(); g.restore();
+        };
+        const [bx0, by0, bx1, by1] = tree.box;
+        shade(tree.base[0], (bx1 - bx0) * 0.55, h * 0.05);
+        // The fallen leaves on the ground (autumn), going under the snow.
+        const fallen = clamp((tau - 8.5) / 3) * (1 - clamp((b - 13) / 2.5));
+        if (fallen > 0) {
+          const rg = seeded(41);
+          for (let i = 0; i < 90; i++) {
+            const x = tree.base[0] + (rg() - 0.5) * (bx1 - bx0) * 1.4, y = ground + rg() * h * 0.08;
+            if (rg() > fallen) continue;
+            g.fillStyle = rgba(seasonAt("leaf", 2).map((v) => v * (0.8 + rg() * 0.3)), 0.85);
+            g.beginPath(); g.ellipse(x, y, h * 0.008, h * 0.004, rg() * 3, 0, Math.PI * 2); g.fill();
+          }
+        }
+        // The tree: its branches, snow settling along them.
+        g.lineCap = "round"; g.strokeStyle = "#4A3A33";
+        for (const [x1, y1, x2, y2, width] of tree.segs) { g.lineWidth = width; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke(); }
+        if (winter > 0) {
+          g.strokeStyle = `rgba(250, 252, 255, ${0.9 * clamp((b - 13) / 2)})`;
+          for (const [x1, y1, x2, y2, width] of tree.segs) { if (width < 1.5) continue; g.lineWidth = width * 0.35; g.beginPath(); g.moveTo(x1, y1 - width * 0.35); g.lineTo(x2, y2 - width * 0.35); g.stroke(); }
+        }
+        // The crown: the MV through the leaves, coloured by the season; it blossoms in, thins as the
+        // leaves fall, and is gone by winter. In the stopped bar the picture stops too.
+        const bloom = easeOut3(clamp(b / 2.2));
+        const crown = bloom * (1 - 0.35 * clamp((tau - 8.6) / 1)) * (1 - clamp((tau - 9.8) / 1.6));
+        if (crown > 0.01) {
+          let leaves = mv(now);
+          if (b >= 9.5 && b < 12) {
+            if (frozenAt < 0) { frozen.width = leaves.width; frozen.height = leaves.height; frozen.getContext("2d").drawImage(leaves, 0, 0); frozenAt = now; }
+            leaves = frozen;
+          } else frozenAt = -1;
+          const sway = Math.sin(tSec * 1.3) * h * 0.004;
+          g.save();
+          g.globalAlpha = Math.min(1, crown * 1.2);
+          g.beginPath();
+          for (const [x, y, r] of tree.tips) { const rr = r * (0.35 + 0.65 * bloom) * (0.75 + 0.25 * crown); g.moveTo(x + sway + rr, y); g.arc(x + sway, y, rr, 0, Math.PI * 2); }
+          g.clip();
+          cover(g, leaves, bx0, by0, bx1 - bx0, by1 - by0);
+          g.globalCompositeOperation = "screen"; g.fillStyle = "rgba(255, 255, 255, 0.38)"; g.fillRect(bx0, by0, bx1 - bx0, by1 - by0);
+          g.globalCompositeOperation = "color"; g.fillStyle = rgba(leafC); g.fillRect(bx0, by0, bx1 - bx0, by1 - by0);
+          g.globalCompositeOperation = "soft-light";
+          const lit = g.createLinearGradient(0, by0, 0, by1);
+          lit.addColorStop(0, "rgba(255, 255, 255, 0.55)"); lit.addColorStop(1, "rgba(0, 0, 0, 0.45)");
+          g.fillStyle = lit; g.fillRect(bx0, by0, bx1 - bx0, by1 - by0);
+          g.restore();
+          // the leaves round its edge
+          g.save(); g.globalAlpha = Math.min(1, crown * 1.1);
+          for (const [x, y, r, v] of tree.dots) {
+            const rr = r * (0.35 + 0.65 * bloom);
+            g.fillStyle = s < 0.5 && v > 0.6 ? "rgba(255, 246, 250, 0.95)" : rgba(leafC.map((c) => Math.min(255, c * (0.82 + v * 0.36))));
+            g.beginPath(); g.arc(x + sway, y, rr, 0, Math.PI * 2); g.fill();
+          }
+          g.restore();
+        }
+        // Her, the same through it all.
+        const doll = pic("danielle-anime.webp");
+        if (doll) {
+          const fh = wide ? h * 0.47 : h * 0.33, fw = fh * (568 / 1100);
+          const fx = wide ? tree.base[0] + (bx1 - bx0) * 0.3 : w * 0.7;
+          shade(fx, fw * 0.5, h * 0.018);
+          g.drawImage(doll, 266, 0, 568, 1100, fx - fw / 2, ground + h * 0.01 - fh, fw, fh);
+        }
+        // What falls: blossom petals in spring, leaves in autumn (some of them carrying the MV), the
+        // first snow on "기다렸지 all this time".
+        const fall = (count, seed, from, to, draw) => {
+          const rp = seeded(seed);
+          for (let i = 0; i < count; i++) {
+            const tip = tree.tips[Math.floor(rp() * tree.tips.length)];
+            const start = from + rp() * (to - from), speed = h * (0.05 + rp() * 0.05), drift = (rp() - 0.5) * w * 0.05, spin = rp() * 6, size = 0.7 + rp() * 0.6;
+            const age = (tau - start) * DT_BEAT;
+            if (age < 0) continue;
+            const y = tip[1] + age * speed;
+            if (y > ground + h * 0.06) continue;
+            const x = tip[0] + drift * age + Math.sin(age * 2.2 + spin) * w * 0.012;
+            draw(x, y, age * 3 + spin, size, i);
+          }
+        };
+        if (b < 6) fall(46, 7, 0.8, 4.5, (x, y, a, size) => {
+          g.save(); g.translate(x, y); g.rotate(a); g.scale(1, Math.abs(Math.cos(a * 0.7)) + 0.2);
+          g.fillStyle = "rgba(255, 214, 228, 0.95)"; g.beginPath(); g.ellipse(0, 0, h * 0.007 * size, h * 0.0045 * size, 0, 0, Math.PI * 2); g.fill(); g.restore();
+        });
+        const autumnLeaf = seasonAt("leaf", 2);
+        if (tau > 8.4) fall(96, 9, 8.5, 13.3, (x, y, a, size, i) => {
+          const r = h * (i % 4 === 0 ? 0.034 : 0.02) * size;
+          g.save(); g.translate(x, y); g.rotate(a); g.scale(1, Math.abs(Math.cos(a * 0.6)) * 0.8 + 0.2);
+          g.beginPath(); g.moveTo(0, r * 0.5); g.arc(0, r * 0.5, r, -Math.PI * 0.85, -Math.PI * 0.15); g.closePath();
+          if (i % 4 === 0) { g.save(); g.clip(); cover(g, mv(now), -r, -r * 0.5, r * 2, r * 1.2); g.globalCompositeOperation = "color"; g.fillStyle = rgba(autumnLeaf); g.fillRect(-r, -r * 0.6, r * 2, r * 1.3); g.restore(); }
+          else { g.fillStyle = rgba(autumnLeaf.map((c) => c * (0.85 + (i % 3) * 0.08))); g.fill(); }
+          g.restore();
+        });
+        if (b > 12.2) {
+          const rs = seeded(13);
+          g.fillStyle = "#FFFFFF";
+          for (let i = 0; i < 150; i++) {
+            const start = 12.2 + rs() * 3, x0 = rs() * w, size = 1 + rs() * 2.4, speed = h * (0.06 + rs() * 0.06);
+            const age = (b - start) * DT_BEAT;
+            if (age < 0) continue;
+            const y = -10 + age * speed + rs() * h * 0.2;
+            if (y > h) continue;
+            g.globalAlpha = 0.85;
+            g.beginPath(); g.arc(x0 + Math.sin(age * 1.4 + i) * 12, y, size, 0, Math.PI * 2); g.fill();
+          }
+          g.globalAlpha = 1;
+        }
+        // While time stands still (the a cappella bar), a faint haze over it all.
+        const still = clamp((b - 9.5) / 0.4) * (1 - clamp((b - 11.8) / 0.3));
+        if (still > 0) { g.fillStyle = `rgba(236, 240, 255, ${(0.14 * still).toFixed(3)})`; g.fillRect(0, 0, w, h); }
+        // The season, written in the corner like a photo album's caption.
+        const name = SEASON_NAMES[Math.min(3, Math.round(s))];
+        g.font = `700 ${Math.round(Math.min(w, h) * 0.045)}px Gaegu, cursive`; g.textAlign = "left";
+        g.fillStyle = "rgba(40, 44, 70, 0.55)"; g.fillText(name, w * 0.05 + 2, h * 0.1 + 2);
+        g.fillStyle = "rgba(255, 255, 255, 0.95)"; g.fillText(name, w * 0.05, h * 0.1);
+        const vig = g.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.35, w / 2, h / 2, Math.max(w, h) * 0.75);
+        vig.addColorStop(0, "rgba(0, 0, 0, 0)"); vig.addColorStop(1, "rgba(20, 20, 40, 0.3)");
+        g.fillStyle = vig; g.fillRect(0, 0, w, h);
+      };
+      // ── plane: Hyein's paper plane over the snowy schoolyard ──
+      // "I got nothing to lose": from the camera close on her classroom window, she throws it (beat 3)
+      // and the camera pulls back and follows it; "널 좋아한다고 ooh-whoa ×3": a loop, a barrel roll,
+      // a loop, then it climbs into the sun. Her note is on its wings (in pencil, on lined paper); the
+      // MV is under them, seen whenever it rolls or loops.
+      const PLANE_PTS = { N: [1, 0, 0], T: [-0.75, 0, 0], L: [-0.75, 0.07, -0.52], R: [-0.75, 0.07, 0.52], K: [-0.75, -0.24, 0] };
+      const PLANE_UV = { N: [1, 0.5], T: [0, 0.5], L: [0, 0], R: [0, 1], K: [0, 0.5] };
+      const PLANE_FACES = [["N", "T", "L", true], ["N", "R", "T", true], ["N", "K", "T", false], ["N", "T", "K", false]];
+      let noteTex = null;
+      const makeNote = () => {
+        const c = document.createElement("canvas");
+        c.width = 512; c.height = 256;
+        const g = c.getContext("2d");
+        g.fillStyle = "#FCFBF6"; g.fillRect(0, 0, 512, 256);
+        g.strokeStyle = "rgba(120, 160, 220, 0.55)"; g.lineWidth = 1.5;
+        for (let y = 16; y < 256; y += 21) { g.beginPath(); g.moveTo(0, y); g.lineTo(512, y); g.stroke(); }
+        g.strokeStyle = "rgba(232, 110, 140, 0.6)"; g.beginPath(); g.moveTo(18, 0); g.lineTo(18, 256); g.stroke();
+        g.fillStyle = "#34406A"; g.font = "700 36px Gaegu, cursive"; g.fillText("널 좋아한다고 ♡", 22, 182);
+        g.font = "700 26px Gaegu, cursive"; g.fillText("- 혜인", 40, 220);
+        g.fillStyle = "rgba(226, 104, 150, 0.85)"; g.font = "700 26px Gaegu, cursive"; g.fillText("☆ say it ditto", 46, 98);
+        return c;
+      };
+      // A picture mapped onto a triangle: the affine map from three points of it (u, v in pixels) to
+      // three points on the screen.
+      const texTri = (g, img, p0, p1, p2, t0, t1, t2) => {
+        const du1 = t1[0] - t0[0], dv1 = t1[1] - t0[1], du2 = t2[0] - t0[0], dv2 = t2[1] - t0[1];
+        const det = du1 * dv2 - du2 * dv1;
+        if (Math.abs(det) < 1e-6) return;
+        const dx1 = p1[0] - p0[0], dy1 = p1[1] - p0[1], dx2 = p2[0] - p0[0], dy2 = p2[1] - p0[1];
+        const a = (dx1 * dv2 - dx2 * dv1) / det, b = (dy1 * dv2 - dy2 * dv1) / det;
+        const c = (dx2 * du1 - dx1 * du2) / det, d = (dy2 * du1 - dy1 * du2) / det;
+        g.save();
+        g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.lineTo(p2[0], p2[1]); g.closePath(); g.clip();
+        g.transform(a, b, c, d, p0[0] - a * t0[0] - c * t0[1], p0[1] - b * t0[0] - d * t0[1]);
+        g.drawImage(img, 0, 0);
+        g.restore();
+      };
+      // The plane's turns: roll about its length, pitch its nose up, yaw it toward us, and the view
+      // from a little above.
+      const turnPoint = ([x, y, z], { yaw, pitch, roll }) => {
+        const y1 = y * Math.cos(roll) - z * Math.sin(roll), z1 = y * Math.sin(roll) + z * Math.cos(roll);
+        const x2 = x * Math.cos(pitch) - y1 * Math.sin(pitch), y2 = x * Math.sin(pitch) + y1 * Math.cos(pitch);
+        const x3 = x2 * Math.cos(yaw) + z1 * Math.sin(yaw), z3 = -x2 * Math.sin(yaw) + z1 * Math.cos(yaw);
+        const tilt = 0.42;
+        return [x3, y2 * Math.cos(tilt) - z3 * Math.sin(tilt), y2 * Math.sin(tilt) + z3 * Math.cos(tilt)];
+      };
+      // Where it is (on the screen) and how it is turned, b beats into the part.
+      const planePose = (b, w, h, hand) => {
+        let px = w * 0.42, py = h * 0.42 + Math.sin(b * 1.3) * h * 0.03, s = Math.min(w, h) * 0.3;
+        let yaw = -0.4 + Math.sin(b * 0.7) * 0.12, pitch = Math.sin(b * 1.3 + 1) * 0.09, roll = Math.sin(b * 0.9) * 0.2;
+        if (b < 4) {
+          const q = easeOut3(clamp((b - 2) / 2));
+          px = mix(hand[0], px, q); py = mix(hand[1], py, q); s = mix(s * 0.16, s, q);
+          yaw = mix(-1.2, yaw, q); pitch = mix(0.3, pitch, q); roll = mix(0, roll, q);
+        }
+        const loop = (start, dur, radius) => {
+          const q = clamp((b - start) / dur);
+          if (q <= 0 || q >= 1) return;
+          const a = easeIO(q) * Math.PI * 2;
+          px += Math.sin(a) * radius * 0.7; py -= (1 - Math.cos(a)) * radius; pitch += a;
+        };
+        loop(6, 1.6, h * 0.2);
+        const rq = clamp((b - 10) / 1.2);
+        if (rq > 0 && rq < 1) { roll += easeIO(rq) * Math.PI * 2; py -= Math.sin(rq * Math.PI) * h * 0.07; }
+        loop(13, 1.5, h * 0.22);
+        const sq = easeIO(clamp((b - 14.5) / 1.4));
+        px = mix(px, w * 0.82, sq); py = mix(py, h * 0.13, sq); s *= 1 - 0.88 * sq; pitch += sq * 0.5;
+        return { px, py, s, yaw, pitch, roll };
+      };
+      const drawPaperPlane = (g, pose, mvPic) => {
+        noteTex ??= makeNote();
+        const pts = {};
+        for (const [name, p] of Object.entries(PLANE_PTS)) {
+          const [x, y, z] = turnPoint(p, pose);
+          const persp = 1 / (1 - z * 0.12);
+          pts[name] = [pose.px + pose.s * x * persp, pose.py - pose.s * y * persp, z];
+        }
+        const faces = PLANE_FACES.map(([a, b2, c, wing]) => ({ a, b: b2, c, wing, z: (pts[a][2] + pts[b2][2] + pts[c][2]) / 3 })).sort((f1, f2) => f1.z - f2.z);
+        for (const f of faces) {
+          const p0 = pts[f.a], p1 = pts[f.b], p2 = pts[f.c];
+          const area = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]);
+          const front = area > 0;
+          if (f.wing) {
+            const img = front ? noteTex : mvPic;
+            const uv = (n) => [PLANE_UV[n][0] * (img.width - 1), PLANE_UV[n][1] * (img.height - 1)];
+            texTri(g, img, p0, p1, p2, uv(f.a), uv(f.b), uv(f.c));
+          } else {
+            g.fillStyle = front ? "#ECE9E0" : "#DAD6CB";
+            g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.lineTo(p2[0], p2[1]); g.closePath(); g.fill();
+          }
+          // shading by how it faces the light, and the fold's edge
+          const shadeA = Math.max(0, Math.min(0.35, (front ? 0.06 : 0.22) + (f.wing ? 0 : 0.08) - Math.abs(area) / (pose.s * pose.s * 6)));
+          g.fillStyle = `rgba(30, 40, 70, ${shadeA.toFixed(3)})`;
+          g.beginPath(); g.moveTo(p0[0], p0[1]); g.lineTo(p1[0], p1[1]); g.lineTo(p2[0], p2[1]); g.closePath(); g.fill();
+          g.strokeStyle = "rgba(60, 70, 100, 0.35)"; g.lineWidth = 1; g.stroke();
+        }
+      };
+      // The school: four floors of classroom windows, the clock and the name over the door, snow on
+      // every ledge. Drawn at the camera's zoom, so it stays sharp close up.
+      const SCHOOL_WINDOW = [11, 1];
+      const drawSchool = (g, w, h, ground, hyein, b) => {
+        const left = -w * 0.06, right = w * 1.06, floors = 4, floorH = h * 0.085, top = ground - floors * floorH - h * 0.03;
+        g.fillStyle = "#E9DFCF"; g.fillRect(left, top, right - left, ground - top);
+        g.fillStyle = "#F4EDE2"; g.fillRect(left, top - h * 0.012, right - left, h * 0.014);
+        g.fillStyle = "rgba(255, 255, 255, 0.95)"; g.fillRect(left, top - h * 0.018, right - left, h * 0.007);
+        const tower = [w * 0.42, w * 0.58];
+        g.fillStyle = "#EFE6D8"; g.fillRect(tower[0], top - h * 0.09, tower[1] - tower[0], ground - top + h * 0.09);
+        g.fillStyle = "rgba(255, 255, 255, 0.95)"; g.fillRect(tower[0], top - h * 0.096, tower[1] - tower[0], h * 0.008);
+        const clockR = h * 0.032, ccx = (tower[0] + tower[1]) / 2, ccy = top - h * 0.045;
+        g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(ccx, ccy, clockR, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#3A4466"; g.lineWidth = Math.max(1, clockR * 0.12); g.stroke();
+        g.lineWidth = Math.max(1, clockR * 0.1); g.lineCap = "round";
+        g.beginPath(); g.moveTo(ccx, ccy); g.lineTo(ccx, ccy - clockR * 0.7); g.moveTo(ccx, ccy); g.lineTo(ccx + clockR * 0.42, ccy + clockR * 0.25); g.stroke();
+        g.fillStyle = "#3A4466"; g.font = `800 ${(h * 0.026).toFixed(1)}px Inter, system-ui, sans-serif`; g.textAlign = "center";
+        g.fillText("버니 고등학교", ccx, ground - floorH * 1.35);
+        const cols = 24, colW = (right - left) / cols;
+        for (let f = 0; f < floors; f++) {
+          const y = top + f * floorH + floorH * 0.18, wh = floorH * 0.58;
+          for (let c = 0; c < cols; c++) {
+            const x = left + c * colW + colW * 0.12, ww = colW * 0.76;
+            if (x + ww > tower[0] && x < tower[1] && f === floors - 1) continue;
+            const open = c === SCHOOL_WINDOW[0] && f === SCHOOL_WINDOW[1];
+            const glass = g.createLinearGradient(0, y, 0, y + wh);
+            glass.addColorStop(0, open ? "#2B2F45" : "#8FA9D2"); glass.addColorStop(1, open ? "#3B3A55" : "#5C6F98");
+            g.fillStyle = glass; g.fillRect(x, y, ww, wh);
+            if (open && hyein) {
+              g.save(); g.beginPath(); g.rect(x, y, ww, wh); g.clip();
+              const fh = wh * 2.4, fw = fh * (622 / 1100);
+              g.drawImage(hyein, 239, 0, 622, 1100, x + ww * 0.5 - fw / 2, y + wh * 0.08, fw, fh);
+              g.restore();
+            }
+            g.strokeStyle = "#F7F4EE"; g.lineWidth = Math.max(1, colW * 0.05);
+            g.strokeRect(x, y, ww, wh);
+            if (!open) { g.beginPath(); g.moveTo(x + ww / 2, y); g.lineTo(x + ww / 2, y + wh); g.stroke(); }
+            g.fillStyle = "rgba(255, 255, 255, 0.95)"; g.fillRect(x - colW * 0.04, y + wh, ww + colW * 0.08, Math.max(1.5, floorH * 0.06));
+          }
+        }
+        g.fillStyle = "#9C8F80"; g.fillRect(left, ground - floorH * 0.05, right - left, floorH * 0.05);
+        // the door
+        g.fillStyle = "#5E6E92"; g.fillRect(ccx - colW * 0.9, ground - floorH * 0.9, colW * 1.8, floorH * 0.9);
+        g.strokeStyle = "#F7F4EE"; g.strokeRect(ccx - colW * 0.9, ground - floorH * 0.9, colW * 1.8, floorH * 0.9);
+        return { x: left + SCHOOL_WINDOW[0] * colW + colW * 0.5, y: top + SCHOOL_WINDOW[1] * floorH + floorH * 0.47, colW };
+      };
+      const drawPlane = (now) => {
+        const { g, w, h, r, wide } = prep();
+        const b = (now - DT_MV(0, 9)) / DT_BEAT;
+        const frame = mv(now);
+        const ground = h * (wide ? 0.74 : 0.7);
+        // The camera: close on her window, pulling back as she throws, then following the plane.
+        const pull = easeIO(clamp((b - 1.8) / 2.4));
+        const zoom = mix(wide ? 3.4 : 4.2, 1, pull);
+        const cam = Math.max(0, b - 2.2) * 0.2 * w;
+        const anchor = [w * 0.4767, ground - h * 0.245];
+        const sx0 = mix(w / 2, anchor[0], pull), sy0 = mix(h * 0.5, anchor[1], pull);
+        const layer = (k) => g.setTransform(r * zoom, 0, 0, r * zoom, r * (sx0 - (anchor[0] + cam * k) * zoom), r * (sy0 - anchor[1] * zoom));
+        // The winter sky and the sun it will fly into; clouds.
+        g.setTransform(r, 0, 0, r, 0, 0);
+        const sky = g.createLinearGradient(0, 0, 0, h);
+        sky.addColorStop(0, "#8DB8E8"); sky.addColorStop(0.7, "#DCE9F7"); sky.addColorStop(1, "#EEF3FA");
+        g.fillStyle = sky; g.fillRect(0, 0, w, h);
+        const sun = [w * 0.82, h * 0.13];
+        const sunGlow = g.createRadialGradient(sun[0], sun[1], 0, sun[0], sun[1], Math.min(w, h) * 0.3);
+        sunGlow.addColorStop(0, "rgba(255, 252, 235, 1)"); sunGlow.addColorStop(0.12, "rgba(255, 246, 215, 0.85)"); sunGlow.addColorStop(1, "rgba(255, 246, 215, 0)");
+        g.fillStyle = sunGlow; g.fillRect(0, 0, w, h);
+        layer(0.05);
+        const rc = seeded(31);
+        for (let i = 0; i < 9; i++) {
+          const cx = rc() * w * 2.2 - w * 0.2, cy = h * (0.08 + rc() * 0.28), cr = Math.min(w, h) * (0.06 + rc() * 0.08);
+          for (let k = 0; k < 4; k++) {
+            const px = cx + k * cr * 0.7, py = cy + Math.sin(k * 2) * cr * 0.15, pr = cr * (0.6 + (k % 2) * 0.3);
+            const puff = g.createRadialGradient(px - pr * 0.3, py - pr * 0.35, pr * 0.1, px, py, pr);
+            puff.addColorStop(0, "rgba(255, 255, 255, 0.95)"); puff.addColorStop(0.7, "rgba(246, 249, 255, 0.85)"); puff.addColorStop(1, "rgba(236, 242, 252, 0)");
+            g.fillStyle = puff; g.beginPath(); g.arc(px, py, pr, 0, Math.PI * 2); g.fill();
+          }
+        }
+        // Mountains, snow on top; far apartment blocks.
+        layer(0.1);
+        g.fillStyle = "#AFC0DA"; g.beginPath(); g.moveTo(-w, ground);
+        for (let x = -w; x <= w * 4; x += 20) g.lineTo(x, ground - h * 0.2 - Math.sin(x / w * 3.1) * h * 0.06 - Math.sin(x / w * 7.3) * h * 0.025);
+        g.lineTo(w * 4, ground); g.closePath(); g.fill();
+        g.fillStyle = "rgba(255, 255, 255, 0.8)";
+        for (let x = -w; x <= w * 4; x += 20) { const y = ground - h * 0.2 - Math.sin(x / w * 3.1) * h * 0.06 - Math.sin(x / w * 7.3) * h * 0.025; if (y < ground - h * 0.24) g.fillRect(x, y, 20, h * 0.012); }
+        layer(0.2);
+        const ra = seeded(8);
+        for (let i = 0; i < 22; i++) {
+          const x = -w * 0.5 + i * w * 0.2 + ra() * w * 0.08, bw = w * (0.05 + ra() * 0.05), bh = h * (0.08 + ra() * 0.1);
+          g.fillStyle = "#C3CDDF"; g.fillRect(x, ground - bh, bw, bh);
+          g.fillStyle = "rgba(255, 255, 255, 0.85)"; g.fillRect(x, ground - bh, bw, h * 0.006);
+        }
+        // The school, and her at the window.
+        layer(0.45);
+        const win = drawSchool(g, w, h, ground, pic("hyein-anime.webp"), b);
+        const handScreen = [sx0 + (win.x - anchor[0] - cam * 0.45) * zoom, sy0 + (win.y - anchor[1]) * zoom];
+        // The schoolyard under snow: the track, a goal, a snowman, bare trees, the fence going by.
+        layer(0.8);
+        g.fillStyle = "#EEF2F9"; g.fillRect(-w, ground, w * 6, h);
+        g.strokeStyle = "rgba(170, 186, 214, 0.7)"; g.lineWidth = 2;
+        [0.06, 0.13].forEach((d) => { g.beginPath(); g.moveTo(-w, ground + h * d); g.bezierCurveTo(w, ground + h * (d + 0.05), w * 2.5, ground + h * (d + 0.07), w * 5, ground + h * d); g.stroke(); });
+        const gx = w * 1.5;
+        g.strokeStyle = "#FFFFFF"; g.lineWidth = Math.max(2, w * 0.004);
+        g.strokeRect(gx, ground - h * 0.02, w * 0.18, h * 0.09);
+        g.strokeStyle = "rgba(200, 210, 230, 0.6)"; g.lineWidth = 1;
+        for (let k = 1; k < 8; k++) { g.beginPath(); g.moveTo(gx + (w * 0.18 * k) / 8, ground - h * 0.02); g.lineTo(gx + (w * 0.18 * k) / 8 + w * 0.01, ground + h * 0.07); g.stroke(); }
+        const sm = [w * 2.3, ground + h * 0.11];
+        g.fillStyle = "#FFFFFF";
+        [[0, 0.05], [-0.075, 0.035], [-0.13, 0.024]].forEach(([dy, rr]) => { g.beginPath(); g.arc(sm[0], sm[1] + dy * h, rr * h, 0, Math.PI * 2); g.fill(); });
+        g.fillStyle = "#E86A92"; g.fillRect(sm[0] - h * 0.03, sm[1] - h * 0.105, h * 0.06, h * 0.012);
+        g.fillStyle = "#2E3350"; [[-0.008, -0.135], [0.008, -0.135]].forEach(([dx, dy]) => { g.beginPath(); g.arc(sm[0] + dx * h, sm[1] + dy * h, h * 0.003, 0, Math.PI * 2); g.fill(); });
+        g.strokeStyle = "#5A4A42"; g.lineCap = "round";
+        const rt = seeded(17);
+        for (let i = 0; i < 14; i++) {
+          const tx = -w * 0.2 + i * w * 0.36 + rt() * w * 0.1, th = h * (0.1 + rt() * 0.05);
+          g.lineWidth = Math.max(2, w * 0.004); g.beginPath(); g.moveTo(tx, ground + h * 0.02); g.lineTo(tx, ground + h * 0.02 - th); g.stroke();
+          g.lineWidth = Math.max(1, w * 0.0018);
+          for (let k = 0; k < 5; k++) { const y = ground + h * 0.02 - th * (0.45 + k * 0.12); g.beginPath(); g.moveTo(tx, y); g.lineTo(tx + (k % 2 ? 1 : -1) * th * 0.25, y - th * 0.18); g.stroke(); }
+        }
+        layer(1.25);
+        g.fillStyle = "#6F7FA6";
+        for (let i = 0; i < 60; i++) { const x = -w * 0.2 + i * w * 0.09; g.fillRect(x, ground + h * 0.17, Math.max(2, w * 0.004), h * 0.07); }
+        g.fillRect(-w, ground + h * 0.18, w * 8, Math.max(2, h * 0.004));
+        g.fillStyle = "rgba(255, 255, 255, 0.95)"; g.fillRect(-w, ground + h * 0.176, w * 8, Math.max(2, h * 0.005));
+        // Falling snow.
+        g.setTransform(r, 0, 0, r, 0, 0);
+        const rs = seeded(23);
+        g.fillStyle = "#FFFFFF";
+        for (let i = 0; i < (SCENE_LITE ? 50 : 100); i++) {
+          const x0 = rs() * w, y0 = rs() * h, size = 1 + rs() * 2.2, speed = 30 + rs() * 40;
+          g.globalAlpha = 0.85;
+          g.beginPath(); g.arc(((x0 - cam * (0.3 + size * 0.2)) % w + w) % w, (y0 + (now - DT_MV(0, 9)) * speed) % h, size, 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+        // The plane: its shadow on the snow, a faint trail through its loops, sparkles on the claps.
+        const pose = planePose(b, w, h, handScreen);
+        if (b > 2) {
+          const air = clamp((ground + h * 0.12 - pose.py) / (h * 0.6));
+          g.fillStyle = `rgba(80, 100, 140, ${(0.18 * (1 - air) * clamp((b - 2.5) / 1)).toFixed(3)})`;
+          g.beginPath(); g.ellipse(pose.px, ground + h * 0.12, pose.s * 0.7, pose.s * 0.08, 0, 0, Math.PI * 2); g.fill();
+          g.lineCap = "round";
+          for (let k = 1; k < 14; k++) {
+            const a = planePose(b - k * 0.05, w, h, handScreen), c = planePose(b - (k - 1) * 0.05, w, h, handScreen);
+            g.strokeStyle = `rgba(255, 255, 255, ${(0.5 * (1 - k / 14)).toFixed(3)})`; g.lineWidth = pose.s * 0.05 * (1 - k / 14);
+            g.beginPath(); g.moveTo(a.px - a.s * 0.6, a.py); g.lineTo(c.px - c.s * 0.6, c.py); g.stroke();
+          }
+        }
+        drawPaperPlane(g, pose, frame);
+        const clap = b % 2 > 1 ? (b % 2) - 1 : -1;
+        if (b > 4 && clap >= 0 && clap < 0.35) {
+          g.fillStyle = `rgba(255, 255, 255, ${(0.9 * (1 - clap / 0.35)).toFixed(3)})`;
+          for (let k = 0; k < 6; k++) {
+            const a = (k / 6) * Math.PI * 2 + b, d = pose.s * (0.7 + clap * 2);
+            g.beginPath(); g.arc(pose.px + Math.cos(a) * d, pose.py + Math.sin(a) * d, pose.s * 0.025, 0, Math.PI * 2); g.fill();
+          }
+        }
+        // Into the sun: it all goes white.
+        const white = clamp((b - 15.1) / 0.9);
+        if (white > 0) { g.fillStyle = `rgba(255, 252, 240, ${white.toFixed(3)})`; g.fillRect(0, 0, w, h); }
+      };
+      // ── alarm: Haerin's alarm clock (울린 = rang) ──
+      // Dawn on the nightstand. 7:00 on the first "ta" and it rings: on every "ta" (bars 13-15) it hops
+      // and 따르릉 pops off its bells, the frame, the glass and her little cat rattling with it. "But I
+      // don't want to": a hand slaps it quiet (it twitches under it on the next two). The hit: it goes
+      // off again, flinging the hand away and everything into the air, slowing; the camera pushes into
+      // its face, which is the MV, until it fills the screen.
+      const ALARM_TAS = [];
+      for (let bar = 0; bar < 3; bar++) [1, 3, 3.5].forEach((beat) => ALARM_TAS.push(bar * 4 + beat));
+      const drawAlarm = (now) => {
+        const { g, w, h, r, wide } = prep();
+        const b = (now - DT_MV(0, 13)) / DT_BEAT;
+        const frame = mv(now);
+        // After the hit, time slows for everything but the push-in.
+        const slow = b < 12.3 ? b : 12.3 + (b - 12.3) * 0.22;
+        const SLAP = 10, HIT = 12;
+        const ringing = (b >= 1 && b < SLAP) || b >= HIT;
+        const lastTa = ALARM_TAS.filter((t) => t <= b && t < SLAP).pop();
+        const sinceTa = lastTa === undefined ? 9 : b - lastTa;
+        const hop = (t) => { const q = (b - t) / 0.4; return q > 0 && q < 1 ? Math.sin(q * Math.PI) : 0; };
+        const hops = ALARM_TAS.filter((t) => t < SLAP).reduce((sum, t) => sum + hop(t), 0);
+        const steps = ALARM_TAS.filter((t) => t < SLAP && t <= b).length;
+        // The push into the clock's face after the hit.
+        const R = wide ? Math.min(w, h) * 0.16 : w * 0.26;
+        const home = [w * 0.5 + steps * R * 0.035, wide ? h * 0.5 : h * 0.47];
+        const air = b >= HIT ? easeOut3(clamp((slow - HIT) / 1.2)) : 0;
+        const clock = [home[0] + air * R * 0.15, home[1] - air * R * 0.7 - hops * R * 0.16];
+        const push = b >= HIT ? (clamp((b - 12.4) / 3.6)) ** 2.4 : 0;
+        const zoom = 1 + push * ((Math.hypot(w, h) / (R * 1.6)) - 1);
+        const shake = b >= HIT ? Math.max(0, 1 - (b - HIT) / 1.2) * R * 0.08 : 0;
+        g.translate(mix(clock[0], w / 2, push) + Math.sin(now * 61) * shake, mix(clock[1], h / 2, push) + Math.cos(now * 47) * shake);
+        g.scale(zoom, zoom);
+        g.translate(-clock[0], -clock[1]);
+        // The wall at dawn, the window (snow drifting past, the sky going pink), the curtains.
+        const wall = g.createLinearGradient(0, 0, 0, h);
+        wall.addColorStop(0, "#2B3357"); wall.addColorStop(1, "#4A4C78");
+        g.fillStyle = wall; g.fillRect(-w, -h, w * 3, h * 3);
+        const win = wide ? [w * 0.07, h * 0.07, w * 0.27, h * 0.48] : [w * 0.1, h * 0.06, w * 0.5, h * 0.3];
+        const dawn = g.createLinearGradient(0, win[1], 0, win[1] + win[3]);
+        dawn.addColorStop(0, "#6F86C6"); dawn.addColorStop(0.65, "#C9B5DC"); dawn.addColorStop(1, "#F2C7D6");
+        g.fillStyle = dawn; g.fillRect(win[0], win[1], win[2], win[3]);
+        const roofs = seeded(71);
+        g.save(); g.beginPath(); g.rect(win[0], win[1], win[2], win[3]); g.clip();
+        for (let x = win[0]; x < win[0] + win[2]; ) {
+          const bw = win[2] * (0.12 + roofs() * 0.16), top = win[1] + win[3] * (0.58 + roofs() * 0.24);
+          g.fillStyle = "#3A416C"; g.fillRect(x, top, bw - 2, win[3]);
+          g.fillStyle = "rgba(255, 214, 160, 0.75)";
+          for (let k = 0; k < 4; k++) if (roofs() < 0.35) g.fillRect(x + bw * (0.2 + roofs() * 0.5), top + win[3] * (0.05 + roofs() * 0.25), Math.max(2, bw * 0.12), Math.max(2, bw * 0.1));
+          x += bw;
+        }
+        g.restore();
+        g.fillStyle = "#FFFFFF";
+        const rs = seeded(51);
+        for (let i = 0; i < 26; i++) { const x = win[0] + ((rs() * win[2] + now * 9) % win[2]), y = win[1] + ((rs() * win[3] + now * (20 + rs() * 20)) % win[3]); g.globalAlpha = 0.8; g.fillRect(x, y, 2, 2); }
+        g.globalAlpha = 1;
+        g.strokeStyle = "#E8E6F2"; g.lineWidth = Math.max(4, w * 0.006);
+        g.strokeRect(win[0], win[1], win[2], win[3]);
+        g.beginPath(); g.moveTo(win[0] + win[2] / 2, win[1]); g.lineTo(win[0] + win[2] / 2, win[1] + win[3]); g.moveTo(win[0], win[1] + win[3] / 2); g.lineTo(win[0] + win[2], win[1] + win[3] / 2); g.stroke();
+        [[win[0] - win[2] * 0.12, 1], [win[0] + win[2] * 0.95, -1]].forEach(([x]) => {
+          const cur = g.createLinearGradient(x, 0, x + win[2] * 0.17, 0);
+          cur.addColorStop(0, "#C98BA6"); cur.addColorStop(0.5, "#EBB3C8"); cur.addColorStop(1, "#B97A96");
+          g.fillStyle = cur; g.fillRect(x, win[1] - h * 0.03, win[2] * 0.17, win[3] + h * 0.08);
+        });
+        const morning = g.createRadialGradient(win[0] + win[2] / 2, win[1] + win[3], 0, win[0] + win[2] / 2, win[1] + win[3], w * 0.6);
+        morning.addColorStop(0, "rgba(242, 199, 214, 0.25)"); morning.addColorStop(1, "rgba(242, 199, 214, 0)");
+        g.fillStyle = morning; g.fillRect(-w, -h, w * 3, h * 3);
+        // The nightstand.
+        const top = wide ? h * 0.66 : h * 0.62, edge = wide ? h * 0.86 : h * 0.8;
+        g.fillStyle = "#B88C66";
+        g.beginPath(); g.moveTo(-w * 0.1, top); g.lineTo(w * 1.1, top); g.lineTo(w * 1.3, edge); g.lineTo(-w * 0.3, edge); g.closePath(); g.fill();
+        const grain = g.createLinearGradient(0, top, 0, edge);
+        grain.addColorStop(0, "rgba(255, 230, 200, 0.18)"); grain.addColorStop(1, "rgba(60, 30, 10, 0.2)");
+        g.fillStyle = grain; g.fill();
+        g.fillStyle = "#8E6141"; g.fillRect(-w, edge, w * 3, h);
+        g.fillStyle = "#6E4A33"; g.fillRect(-w, edge, w * 3, h * 0.012);
+        g.fillStyle = "#D9B48A"; g.beginPath(); g.arc(w * 0.5, edge + (h - edge) * 0.5, Math.min(w, h) * 0.012, 0, Math.PI * 2); g.fill();
+        // The things on it: her photo in a frame, a glass of water, her little black cat.
+        const objT = b >= HIT ? slow - HIT : 0;
+        const wobble = (t0) => ALARM_TAS.filter((t) => t < SLAP && t <= b).reduce((sum, t) => sum + Math.sin((b - t) * 9) * Math.exp(-(b - t) * 3), 0) + t0;
+        const rattle = ringing && b < SLAP ? Math.sin(now * 80) * 0.012 : 0;
+        // the frame: falls flat back at the hit
+        const fr = wide ? [w * 0.26, top + (edge - top) * 0.32, h * 0.13] : [w * 0.2, top + (edge - top) * 0.3, w * 0.2];
+        g.save();
+        g.translate(fr[0], fr[1] - (b >= HIT ? Math.sin(Math.min(Math.PI, objT * 2.4)) * h * 0.08 : 0));
+        g.rotate(wobble(0) * 0.05 + rattle - (b >= HIT ? Math.min(1.35, objT * 1.6) : 0));
+        g.fillStyle = "rgba(20, 20, 40, 0.3)"; g.fillRect(-fr[2] * 0.45, -fr[2] * 1.28, fr[2] * 0.98, fr[2] * 1.3);
+        g.fillStyle = "#F4F0F6"; g.fillRect(-fr[2] * 0.5, -fr[2] * 1.32, fr[2], fr[2] * 1.32);
+        const face = pic("haerin.webp");
+        if (face) { g.save(); g.beginPath(); g.rect(-fr[2] * 0.42, -fr[2] * 1.24, fr[2] * 0.84, fr[2] * 1.16); g.clip(); cover(g, face, -fr[2] * 0.42, -fr[2] * 1.24, fr[2] * 0.84, fr[2] * 1.16, 0.48, 0.32); g.restore(); }
+        g.restore();
+        // the glass: its water rocking and rippling on every ring, splashing up at the hit
+        const gl = wide ? [w * 0.7, top + (edge - top) * 0.38, h * 0.06, h * 0.15] : [w * 0.8, top + (edge - top) * 0.36, w * 0.1, w * 0.24];
+        const slosh = wobble(0) * 0.25 + (ringing && b < SLAP ? Math.sin(now * 40) * 0.05 : 0);
+        g.save(); g.translate(gl[0], gl[1]);
+        g.fillStyle = "rgba(160, 200, 240, 0.35)";
+        g.beginPath(); g.moveTo(-gl[2] / 2, -gl[3] * 0.55 + slosh * gl[2] * 0.4); g.lineTo(gl[2] / 2, -gl[3] * 0.55 - slosh * gl[2] * 0.4); g.lineTo(gl[2] * 0.42, 0); g.lineTo(-gl[2] * 0.42, 0); g.closePath(); g.fill();
+        g.strokeStyle = "rgba(235, 240, 255, 0.7)"; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(-gl[2] / 2, -gl[3]); g.lineTo(-gl[2] * 0.42, 0); g.lineTo(gl[2] * 0.42, 0); g.lineTo(gl[2] / 2, -gl[3]); g.stroke();
+        g.fillStyle = "rgba(255, 255, 255, 0.35)"; g.fillRect(-gl[2] * 0.36, -gl[3] * 0.9, gl[2] * 0.08, gl[3] * 0.8);
+        if (b >= HIT) {
+          const rd = seeded(61);
+          g.fillStyle = "rgba(200, 225, 255, 0.85)";
+          for (let i = 0; i < 18; i++) { const vx = (rd() - 0.5) * gl[2] * 3, vy = -(0.6 + rd()) * gl[3] * 2.2; const t = objT * 1.4; g.beginPath(); g.arc(vx * t, -gl[3] * 0.55 + vy * t + gl[3] * 2.6 * t * t, gl[2] * (0.05 + rd() * 0.05), 0, Math.PI * 2); g.fill(); }
+        }
+        g.restore();
+        // the cat: hops with every ring, somersaults at the hit
+        const ct = wide ? [w * 0.84, top + (edge - top) * 0.3, h * 0.1] : [w * 0.86, top + (edge - top) * 0.2, w * 0.14];
+        g.save();
+        g.translate(ct[0], ct[1] - hops * ct[2] * 0.12 - (b >= HIT ? Math.sin(Math.min(Math.PI, objT * 2)) * h * 0.12 : 0));
+        g.rotate(rattle * 2 + (b >= HIT ? Math.min(Math.PI * 2, objT * 5) : 0));
+        g.fillStyle = "#1E1C2A";
+        g.beginPath(); g.ellipse(0, -ct[2] * 0.32, ct[2] * 0.3, ct[2] * 0.34, 0, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.arc(0, -ct[2] * 0.78, ct[2] * 0.2, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.moveTo(-ct[2] * 0.18, -ct[2] * 0.86); g.lineTo(-ct[2] * 0.14, -ct[2] * 1.06); g.lineTo(-ct[2] * 0.03, -ct[2] * 0.94); g.closePath(); g.fill();
+        g.beginPath(); g.moveTo(ct[2] * 0.18, -ct[2] * 0.86); g.lineTo(ct[2] * 0.14, -ct[2] * 1.06); g.lineTo(ct[2] * 0.03, -ct[2] * 0.94); g.closePath(); g.fill();
+        g.strokeStyle = "#1E1C2A"; g.lineWidth = ct[2] * 0.07; g.lineCap = "round";
+        g.beginPath(); g.moveTo(ct[2] * 0.25, -ct[2] * 0.1); g.quadraticCurveTo(ct[2] * 0.55, -ct[2] * 0.2, ct[2] * 0.45, -ct[2] * 0.55); g.stroke();
+        g.fillStyle = "#F6D46B"; [-0.075, 0.075].forEach((x) => { g.beginPath(); g.ellipse(x * ct[2], -ct[2] * 0.8, ct[2] * 0.035, ct[2] * 0.05, 0, 0, Math.PI * 2); g.fill(); });
+        g.restore();
+        // The clock: two bells and the hammer between them, a mint body, its face the MV, the hands
+        // at seven; trembling and hopping as it rings.
+        const shakeA = ringing ? (b >= HIT ? 1 : 0.55 + 0.45 * Math.exp(-sinceTa * 3)) : 0;
+        g.save();
+        g.translate(clock[0] + Math.sin(now * 95) * R * 0.014 * shakeA, clock[1]);
+        g.rotate(Math.sin(now * 70) * 0.03 * shakeA + (b >= HIT ? air * 0.18 : 0) + (b >= SLAP && b < HIT ? [11, 11.5].reduce((sum, t) => sum + (b > t ? Math.sin((b - t) * 30) * Math.exp(-(b - t) * 8) * 0.04 : 0), 0) : 0));
+        const squash = b >= SLAP && b < HIT ? 1 - 0.08 * Math.exp(-(b - SLAP) * 10) : 1;
+        g.scale(1 / squash, squash);
+        g.fillStyle = "rgba(20, 20, 40, 0.28)"; g.beginPath(); g.ellipse(R * 0.05, R * 1.12 + hops * R * 0.16 + air * R * 0.7, R * 0.9 * (1 - air * 0.4), R * 0.12, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#3E4560"; [-0.55, 0.55].forEach((x) => { g.beginPath(); g.ellipse(x * R, R * 1.0, R * 0.12, R * 0.14, 0, 0, Math.PI * 2); g.fill(); });
+        const bell = (x, blurX) => {
+          for (let k = 0; k < (shakeA ? 3 : 1); k++) {
+            const dx = shakeA ? (k - 1) * R * 0.03 * shakeA + blurX : 0;
+            g.globalAlpha = shakeA ? 0.45 : 1;
+            const metal = g.createLinearGradient(x - R * 0.4, -R * 1.3, x + R * 0.4, -R * 0.75);
+            metal.addColorStop(0, "#FBE3EC"); metal.addColorStop(0.5, "#E7B3C6"); metal.addColorStop(1, "#A97E95");
+            g.fillStyle = metal; g.beginPath(); g.arc(x + dx, -R * 0.88, R * 0.4, Math.PI, 0); g.closePath(); g.fill();
+            g.fillStyle = "#C995AA"; g.beginPath(); g.arc(x + dx, -R * 1.3, R * 0.06, 0, Math.PI * 2); g.fill();
+          }
+          g.globalAlpha = 1;
+        };
+        g.strokeStyle = "#8C7487"; g.lineWidth = R * 0.05;
+        [-0.62, 0.62].forEach((x) => { g.beginPath(); g.moveTo(x * R * 0.6, -R * 0.75); g.lineTo(x * R, -R * 0.9); g.stroke(); });
+        bell(-R * 0.62, 0); bell(R * 0.62, 0);
+        const hammer = shakeA ? Math.sin(now * 110) * R * 0.42 : 0;
+        g.strokeStyle = "#6F6077"; g.lineWidth = R * 0.05;
+        g.beginPath(); g.moveTo(0, -R * 0.95); g.lineTo(hammer * 0.9, -R * 1.18); g.stroke();
+        g.fillStyle = "#6F6077"; g.beginPath(); g.arc(hammer, -R * 1.2, R * 0.08, 0, Math.PI * 2); g.fill();
+        const body = g.createRadialGradient(-R * 0.3, -R * 0.35, R * 0.1, 0, 0, R * 1.05);
+        body.addColorStop(0, "#C5EEE0"); body.addColorStop(0.7, "#93D3BF"); body.addColorStop(1, "#5FA894");
+        g.fillStyle = body; g.beginPath(); g.arc(0, 0, R, 0, Math.PI * 2); g.fill();
+        g.save(); g.beginPath(); g.arc(0, 0, R * 0.8, 0, Math.PI * 2); g.clip();
+        cover(g, frame, -R * 0.8, -R * 0.8, R * 1.6, R * 1.6);
+        g.fillStyle = `rgba(255, 255, 255, ${(0.16 * (1 - push)).toFixed(3)})`; g.fillRect(-R, -R, R * 2, R * 2);
+        g.restore();
+        const ink = `rgba(40, 46, 80, ${(1 - push * 0.9).toFixed(3)})`;
+        g.strokeStyle = ink; g.fillStyle = ink;
+        for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; g.lineWidth = k % 3 ? R * 0.015 : R * 0.035; g.beginPath(); g.moveTo(Math.cos(a) * R * 0.72, Math.sin(a) * R * 0.72); g.lineTo(Math.cos(a) * R * 0.78, Math.sin(a) * R * 0.78); g.stroke(); }
+        g.font = `800 ${(R * 0.13).toFixed(1)}px Inter, system-ui, sans-serif`; g.textAlign = "center";
+        g.fillText("HAERIN", 0, -R * 0.38);
+        const secs = 6 * 3600 + 59 * 60 + 59 + Math.min(b, HIT + (b - HIT) * 0.2);
+        const handAt = (frac, len, width, color) => { const a = frac * Math.PI * 2 - Math.PI / 2; g.strokeStyle = color; g.lineWidth = width; g.lineCap = "round"; g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(a) * len, Math.sin(a) * len); g.stroke(); };
+        if (push < 0.7) {
+          handAt(((secs / 3600) % 12) / 12, R * 0.42, R * 0.06, ink);
+          handAt(((secs / 60) % 60) / 60, R * 0.62, R * 0.04, ink);
+          handAt((Math.floor(secs) % 60) / 60, R * 0.66, R * 0.015, "#E0628E");
+          g.fillStyle = "#E0628E"; g.beginPath(); g.arc(0, 0, R * 0.04, 0, Math.PI * 2); g.fill();
+        }
+        g.strokeStyle = "rgba(255, 255, 255, 0.55)"; g.lineWidth = R * 0.05;
+        g.beginPath(); g.arc(0, 0, R * 0.7, Math.PI * 1.1, Math.PI * 1.45); g.stroke();
+        g.restore();
+        // The ring: rings of sound off the bells, and 따르릉 popping off them on every "ta".
+        if (ringing) {
+          g.strokeStyle = "rgba(255, 236, 246, 0.55)"; g.lineWidth = R * 0.03;
+          for (let k = 0; k < 3; k++) {
+            const q = ((now * 2.2 + k / 3) % 1);
+            [-1, 1].forEach((side) => { g.globalAlpha = (1 - q) * shakeA; g.beginPath(); g.arc(clock[0] + side * R * 0.62, clock[1] - R * 0.9, R * (0.5 + q * 0.9), side < 0 ? Math.PI * 0.9 : Math.PI * 1.6, side < 0 ? Math.PI * 1.4 : Math.PI * 2.1); g.stroke(); });
+          }
+          g.globalAlpha = 1;
+        }
+        const pops = [...ALARM_TAS.filter((t) => t < SLAP), HIT];
+        pops.forEach((t, n) => {
+          const q = (b - t) / (t === HIT ? 1.6 : 0.6);
+          if (q < 0 || q > 1) return;
+          const big = t === HIT ? 2.2 : 1;
+          const side = n % 2 ? 1 : -1;
+          g.save();
+          g.translate(clock[0] + side * R * (1.1 + q * 0.4), clock[1] - R * (1.2 + q * 0.5));
+          g.rotate(side * 0.2);
+          g.globalAlpha = 1 - q * q;
+          g.font = `700 ${(R * 0.32 * big * (0.8 + easeOut3(Math.min(1, q * 4)) * 0.2)).toFixed(1)}px Gaegu, cursive`;
+          g.textAlign = "center"; g.lineWidth = R * 0.06 * big; g.strokeStyle = "#2B3357"; g.strokeText("따르릉!", 0, 0);
+          g.fillStyle = "#FFE3EE"; g.fillText("따르릉!", 0, 0);
+          g.restore();
+        });
+        // The hand that slaps it quiet ("But I don't want to"), flung off at the hit.
+        const handIn = easeOut3(clamp((b - (SLAP - 0.35)) / 0.35)), handOut = b >= HIT ? easeOut3(clamp((b - HIT) / 0.5)) : 0;
+        if (handIn > 0 && handOut < 1) {
+          const hx = mix(w * 1.1, clock[0] + R * 0.1, handIn) + handOut * w * 0.6, hy = mix(-h * 0.2, clock[1] - R * 1.45, handIn) - handOut * h * 0.6;
+          g.save(); g.translate(hx, hy); g.rotate(-0.5 + handOut * 0.8);
+          g.fillStyle = "#AFC6EC"; g.fillRect(R * 0.3, -R * 0.32, R * 1.8, R * 0.64);
+          g.fillStyle = "rgba(255, 255, 255, 0.75)"; for (let k = 0; k < 5; k++) g.fillRect(R * (0.42 + k * 0.32), -R * 0.32, R * 0.1, R * 0.64);
+          g.fillStyle = "#F3D2BF";
+          g.beginPath(); g.ellipse(0, 0, R * 0.48, R * 0.36, 0, 0, Math.PI * 2); g.fill();
+          g.beginPath(); g.ellipse(-R * 0.1, R * 0.32, R * 0.14, R * 0.1, -0.4, 0, Math.PI * 2); g.fill();
+          g.strokeStyle = "rgba(170, 120, 100, 0.5)"; g.lineWidth = R * 0.02;
+          for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(-R * 0.36, -R * 0.16 + k * R * 0.14); g.lineTo(-R * 0.1, -R * 0.18 + k * R * 0.14); g.stroke(); }
+          g.restore();
+        }
+        // The hit's flash.
+        g.setTransform(r, 0, 0, r, 0, 0);
+        if (b >= HIT && b < HIT + 0.4) { g.fillStyle = `rgba(255, 250, 245, ${(0.85 * (1 - (b - HIT) / 0.4)).toFixed(3)})`; g.fillRect(0, 0, w, h); }
+      };
+      // ── cube: "Stay in the middle" ──
+      // A cube puzzle on the desk under the lamp: the MV on its front; on the other five faces, the five,
+      // each on her centre piece (centres never move: they stay in the middle) in her colour. It starts
+      // scrambled ("don't want no riddle") and is solved one quarter turn a kick, turning in the lamp
+      // light so each face comes round; solved on "say it back", it turns its MV face to us.
+      // Faces: F front (+z) the MV, U Minji, R Hanni, B Danielle, L Haerin, D Hyein.
+      const CUBE_FACES = {
+        F: { n: [0, 0, 1], right: [1, 0, 0], up: [0, 1, 0] }, B: { n: [0, 0, -1], right: [-1, 0, 0], up: [0, 1, 0] },
+        R: { n: [1, 0, 0], right: [0, 0, -1], up: [0, 1, 0] }, L: { n: [-1, 0, 0], right: [0, 0, 1], up: [0, 1, 0] },
+        U: { n: [0, 1, 0], right: [1, 0, 0], up: [0, 0, -1] }, D: { n: [0, -1, 0], right: [1, 0, 0], up: [0, 0, 1] },
+      };
+      const CUBE_MEMBER = { U: ["minji", "#6E9DF4", 0.425, 0.13], R: ["hanni", "#F57FB6", 0.46, 0.21], B: ["danielle", "#F7CB45", 0.465, 0.27], L: ["haerin", "#4FCDA9", 0.5, 0.28], D: ["hyein", "#A880F2", 0.465, 0.315] };
+      const axisOfFace = (f) => (f === "R" || f === "L" ? 0 : f === "U" || f === "D" ? 1 : 2);
+      // 20 quarter turns to scramble it (never the same axis twice running); it is solved by undoing them.
+      const CUBE_SCRAMBLE = (() => {
+        const rnd = seeded(2022), out = [];
+        let last = -1;
+        while (out.length < 20) { const f = "UDLRFB"[Math.floor(rnd() * 6)]; if (axisOfFace(f) === last) continue; last = axisOfFace(f); out.push([f, rnd() < 0.5 ? 1 : -1]); }
+        return out;
+      })();
+      const CUBE_SOLVE = [...CUBE_SCRAMBLE].reverse().map(([f, dir]) => [f, -dir]);
+      const CUBE_KICKS = [];
+      for (let bar = 1; bar <= 4; bar++) DT_KICKS.forEach((k) => CUBE_KICKS.push(DT_MV(1, bar) + k * DT_SIX));
+      const mat = (m, v) => [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+      const matMul = (a, b) => [0, 1, 2].flatMap((i) => [0, 1, 2].map((j) => a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j]));
+      const rotAxis = (axis, angle) => {
+        const c = Math.cos(angle), s = Math.sin(angle);
+        return axis === 0 ? [1, 0, 0, 0, c, -s, 0, s, c] : axis === 1 ? [c, 0, s, 0, 1, 0, -s, 0, c] : [c, -s, 0, s, c, 0, 0, 0, 1];
+      };
+      const ID3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+      // A turn of a face: its layer, and the angle (clockwise as you look at that face).
+      const turnOf = ([f, dir]) => { const n = CUBE_FACES[f].n, axis = axisOfFace(f), sign = n[axis]; return { axis, layer: sign, angle: (-Math.PI / 2) * sign * dir }; };
+      // The pieces as they start (solved): position, orientation, and their stickers (corners and
+      // picture coordinates as seen when solved).
+      const cubeSolved = () => {
+        const pieces = [];
+        for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+          if (!x && !y && !z) continue;
+          const p = [x, y, z], stickers = [];
+          for (const [f, face] of Object.entries(CUBE_FACES)) {
+            const axis = axisOfFace(f);
+            if (p[axis] !== face.n[axis]) continue;
+            const center = p.map((v, k) => v + face.n[k] * 0.5);
+            const corners = [[-1, 1], [1, 1], [1, -1], [-1, -1]].map(([a, b2]) => face.n.map((v, k) => v * 0.51 + face.right[k] * a * 0.43 + face.up[k] * b2 * 0.43));
+            const isCenter = p.filter((v) => v !== 0).length === 1;
+            const uv = corners.map((c) => {
+              const at = p.map((v, k) => v + c[k]);
+              const u = at[0] * face.right[0] + at[1] * face.right[1] + at[2] * face.right[2];
+              const v = at[0] * face.up[0] + at[1] * face.up[1] + at[2] * face.up[2];
+              return f === "F" ? [(u + 1.5) / 3, (1.5 - v) / 3] : [(u + 0.5), (0.5 - v)];
+            });
+            stickers.push({ f, corners, uv, isCenter, center });
+          }
+          pieces.push({ p, O: ID3, stickers });
+        }
+        return pieces;
+      };
+      const applyTurn = (pieces, turn) => {
+        const R = rotAxis(turn.axis, turn.angle);
+        for (const piece of pieces) {
+          if (piece.p[turn.axis] !== turn.layer) continue;
+          piece.p = mat(R, piece.p).map(Math.round);
+          piece.O = matMul(R, piece.O).map(Math.round);
+        }
+      };
+      const cubeScrambled = (() => { const pieces = cubeSolved(); CUBE_SCRAMBLE.forEach((m) => applyTurn(pieces, turnOf(m))); return pieces.map((pc) => ({ ...pc })); })();
+      const drawCube = (now) => {
+        const { g, w, h, r, wide } = prep();
+        const b = (now - DT_MV(1, 1)) / DT_BEAT;
+        const frame = mv(now);
+        // the state: the scramble, with the turns done so far undone, and the one under way
+        const pieces = cubeScrambled.map((pc) => ({ ...pc }));
+        const k = CUBE_KICKS.filter((t) => t <= now).length - 1;
+        for (let i = 0; i < k; i++) applyTurn(pieces, turnOf(CUBE_SOLVE[i]));
+        let moving = null;
+        if (k >= 0 && k < CUBE_SOLVE.length) {
+          const turn = turnOf(CUBE_SOLVE[k]);
+          const until = CUBE_KICKS[k + 1] ?? DT_MV(1, 5) - DT_SIX;
+          const q = easeIO(clamp((now - CUBE_KICKS[k]) / Math.max(0.08, (until - CUBE_KICKS[k]) * 0.85)));
+          if (q >= 1) applyTurn(pieces, turn); else moving = { ...turn, R: rotAxis(turn.axis, turn.angle * q) };
+        }
+        // The room: dark, the desk lamp's warm pool, fairy lights out of focus behind.
+        const room = g.createLinearGradient(0, 0, 0, h);
+        room.addColorStop(0, "#17131F"); room.addColorStop(1, "#2B2132");
+        g.fillStyle = room; g.fillRect(0, 0, w, h);
+        const rf = seeded(4);
+        for (let i = 0; i < 26; i++) {
+          const x = (i / 25) * w * 1.1 - w * 0.05, y = h * 0.16 + Math.sin((i / 25) * Math.PI) * h * 0.12 + rf() * h * 0.02;
+          const glow = g.createRadialGradient(x, y, 0, x, y, Math.min(w, h) * 0.035);
+          const warm = i % 3 ? "255, 196, 140" : "255, 170, 200";
+          glow.addColorStop(0, `rgba(${warm}, ${(0.55 + 0.25 * Math.sin(now * 2 + i)).toFixed(3)})`); glow.addColorStop(1, `rgba(${warm}, 0)`);
+          g.fillStyle = glow; g.fillRect(x - 40, y - 40, 80, 80);
+        }
+        const deskY = h * (wide ? 0.72 : 0.68);
+        g.fillStyle = "#33241F"; g.fillRect(0, deskY, w, h);
+        const pool = g.createRadialGradient(w * 0.5, deskY + h * 0.06, 0, w * 0.5, deskY + h * 0.06, Math.max(w, h) * 0.55);
+        pool.addColorStop(0, "rgba(255, 200, 140, 0.42)"); pool.addColorStop(1, "rgba(255, 200, 140, 0)");
+        g.fillStyle = pool; g.fillRect(0, 0, w, h);
+        // The cube: turning in the light (once round over the solve, then its front to us), a bump on
+        // each kick.
+        const spin = mix(-0.62, Math.PI * 2, easeIO(clamp(b / 15.2)));
+        const tilt = mix(0.5 * Math.cos(b * 0.45), 0, easeIO(clamp((b - 13.2) / 2.4)));
+        const G = matMul(rotAxis(0, tilt), rotAxis(1, spin));
+        const kickBump = dtKickPulse(now) * 0.035;
+        const unit = Math.min(w, h) * (wide ? 0.13 : 0.165);
+        const size = unit * (1 + kickBump) * (1 + 0.6 * easeIO(clamp((b - 14.5) / 1.5)) ** 2);
+        const cx = w / 2, cy = deskY - unit * 1.75 + Math.sin(b * 0.8) * h * 0.006, D = 10;
+        const project = (v) => { const s = D / (D - v[2]); return [cx + v[0] * size * s, cy - v[1] * size * s, v[2]]; };
+        g.fillStyle = "rgba(10, 6, 14, 0.5)";
+        g.beginPath(); g.ellipse(cx, deskY + h * 0.03, size * 2.3, size * 0.35, 0, 0, Math.PI * 2); g.fill();
+        const L = [0.38, 0.68, 0.62];
+        const quads = [];
+        for (const piece of pieces) {
+          const M = moving && piece.p[moving.axis] === moving.layer ? matMul(G, moving.R) : G;
+          const place = (local) => { const o = mat(piece.O, local); return project(mat(M, [piece.p[0] + o[0], piece.p[1] + o[1], piece.p[2] + o[2]])); };
+          // its black body
+          for (let axis = 0; axis < 3; axis++) for (const sgn of [-1, 1]) {
+            const n = [0, 0, 0]; n[axis] = sgn;
+            const nw = mat(M, mat(piece.O, n));
+            if (nw[2] < 0.02) continue;
+            const a = [0, 0, 0], c = [0, 0, 0]; a[(axis + 1) % 3] = 0.5; c[(axis + 2) % 3] = 0.5;
+            const pts = [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([s1, s2]) => place(n.map((v, i) => v * 0.5 + a[i] * s1 + c[i] * s2)));
+            quads.push({ pts, z: pts.reduce((sum, p) => sum + p[2], 0) / 4 - 0.01, body: true, light: Math.max(0, nw[0] * L[0] + nw[1] * L[1] + nw[2] * L[2]) });
+          }
+          for (const st of piece.stickers) {
+            const nw = mat(M, mat(piece.O, CUBE_FACES[st.f].n));
+            if (nw[2] < 0.02) continue;
+            const pts = st.corners.map(place);
+            quads.push({ pts, z: pts.reduce((sum, p) => sum + p[2], 0) / 4, st, light: Math.max(0, nw[0] * L[0] + nw[1] * L[1] + nw[2] * L[2]) });
+          }
+        }
+        quads.sort((q1, q2) => q1.z - q2.z);
+        const path = (pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < 4; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); };
+        for (const q of quads) {
+          if (q.body) { path(q.pts); g.fillStyle = `rgb(${(14 + q.light * 26) | 0}, ${(12 + q.light * 22) | 0}, ${(20 + q.light * 30) | 0})`; g.fill(); continue; }
+          const { f, uv, isCenter } = q.st;
+          const member = CUBE_MEMBER[f];
+          if (f === "F" || isCenter) {
+            let img = frame, sx = 0, sy = 0, side = 0;
+            if (f === "F") { side = Math.min(img.width, img.height); sx = (img.width - side) / 2; sy = (img.height - side) / 2; }
+            else {
+              const photo = pic(`${member[0]}.webp`);
+              if (!photo) { path(q.pts); g.fillStyle = member[1]; g.fill(); continue; }
+              img = photo; side = photo.naturalWidth * 0.5; sx = photo.naturalWidth * member[2] - side / 2; sy = Math.max(0, photo.naturalHeight * member[3] - side / 2);
+            }
+            const tex = uv.map(([u, v]) => [sx + u * side, sy + v * side]);
+            texTri(g, img, q.pts[0], q.pts[1], q.pts[2], tex[0], tex[1], tex[2]);
+            texTri(g, img, q.pts[0], q.pts[2], q.pts[3], tex[0], tex[2], tex[3]);
+          } else { path(q.pts); g.fillStyle = member[1]; g.fill(); }
+          // the plastic's sheen and the lamp's light
+          path(q.pts);
+          const sheen = g.createLinearGradient(q.pts[0][0], q.pts[0][1], q.pts[2][0], q.pts[2][1]);
+          sheen.addColorStop(0, `rgba(255, 255, 255, ${(0.12 + q.light * 0.18).toFixed(3)})`); sheen.addColorStop(0.5, "rgba(255, 255, 255, 0)"); sheen.addColorStop(1, `rgba(0, 0, 0, ${(0.32 - q.light * 0.28).toFixed(3)})`);
+          g.fillStyle = sheen; g.fill();
+          if (isCenter && f !== "F" && b < 4) { g.strokeStyle = `rgba(255, 240, 250, ${(0.6 * (1 - b / 4) * (0.6 + 0.4 * Math.sin(now * 6))).toFixed(3)})`; g.lineWidth = 3; g.stroke(); }
+        }
+        // the lamp light across it all, and the room's edges in shadow
+        const lamp = g.createRadialGradient(w * 0.3, -h * 0.1, 0, w * 0.3, -h * 0.1, Math.max(w, h) * 1.1);
+        lamp.addColorStop(0, "rgba(255, 210, 160, 0.16)"); lamp.addColorStop(1, "rgba(255, 210, 160, 0)");
+        g.fillStyle = lamp; g.fillRect(0, 0, w, h);
+      };
+      // ── scope: "say it ditto" in a kaleidoscope ──
+      // The MV through the mirrors of a kaleidoscope (copies of copies: ditto), its beads (the stickers,
+      // bits of coloured glass) tumbling in the end of the tube. A twist on every kick, a punch in;
+      // 6 mirrors in bar 5, 8 in bar 6, 12 in the break (bar 7), turning slowly; bar 8 back to 6 and
+      // whirling into the dark for the maze.
+      const scopeWedge = document.createElement("canvas");
+      const SCOPE_BEADS = [3, 8, 12, 16, 21, 5];
+      const SCOPE_TWISTS = [];
+      for (let bar = 5; bar <= 8; bar++) (bar === 7 ? [] : bar === 6 ? [...DT_KICKS, 12] : DT_KICKS).forEach((k) => SCOPE_TWISTS.push(DT_MV(1, bar) + k * DT_SIX));
+      const drawScope = (now) => {
+        const { g, w, h, r } = prep();
+        const b = (now - DT_MV(1, 5)) / DT_BEAT;
+        const frame = mv(now);
+        const bar = Math.min(3, Math.floor(b / 4));
+        const N = [6, 8, 12, 6][bar];
+        const R = Math.hypot(w, h) / 2, cx = w / 2, cy = h / 2;
+        // The turning: slow, a twist on each kick (none in the break), faster and faster at the end.
+        const twists = SCOPE_TWISTS.reduce((sum, t) => sum + 0.22 * easeOut3(clamp((now - t) / 0.22)), 0);
+        const end = clamp((b - 14) / 2);
+        const turn = b * 0.05 + twists + end * end * 6;
+        const punch = 1 + dtKickPulse(now) * 0.06;
+        const shrink = 1 - easeIO(clamp((b - 15) / 1));
+        // The wedge (one mirror's worth): the MV, panning and turning inside it, the beads over it.
+        const q = SCENE_LITE ? 0.55 : Math.min(1, 900 / R);
+        const size = Math.ceil(R * q);
+        if (scopeWedge.width !== size) { scopeWedge.width = size; scopeWedge.height = size; }
+        const wg = scopeWedge.getContext("2d");
+        wg.setTransform(1, 0, 0, 1, 0, 0);
+        wg.clearRect(0, 0, size, size);
+        wg.save();
+        wg.translate(size * (0.42 + 0.12 * Math.sin(b * 0.37)), size * (0.2 + 0.08 * Math.cos(b * 0.29)));
+        wg.rotate(b * 0.11 + bar * 0.8);
+        const zoom = size * (1.6 + 0.3 * Math.sin(b * 0.23)) / frame.height;
+        wg.scale(zoom, zoom);
+        wg.filter = `brightness(${Math.min(2.6, Math.max(1, 0.42 / Math.max(0.05, mvLevel(now)))).toFixed(2)}) saturate(1.2)`;
+        wg.drawImage(frame, -frame.width / 2 + Math.sin(b * 0.31) * frame.width * 0.05, -frame.height / 2);
+        wg.filter = "none";
+        wg.globalCompositeOperation = "screen"; wg.globalAlpha = 0.5;
+        wg.drawImage(frame, -frame.width / 2 + Math.sin(b * 0.31) * frame.width * 0.05, -frame.height / 2);
+        wg.restore();
+        wg.globalAlpha = 1;
+        wg.globalCompositeOperation = "screen";
+        SCOPE_BEADS.forEach((n, i) => {
+          const sticker = pic(`sticker-${n}.webp`);
+          const a = (0.15 + ((i * 0.37 + b * 0.04 + twists * 0.3) % 0.7)) * (Math.PI / N);
+          const d = size * (0.18 + ((i * 0.61 + b * 0.05) % 0.75));
+          const s = size * (0.06 + (i % 3) * 0.02);
+          wg.save(); wg.translate(Math.cos(a) * d, Math.sin(a) * d); wg.rotate(b * (0.3 + i * 0.07) + twists * (i % 2 ? 1 : -1));
+          if (sticker && i % 2 === 0) { wg.globalAlpha = 0.9; wg.drawImage(sticker, -s / 2, -s / 2, s, s); }
+          else {
+            wg.globalAlpha = 0.55;
+            wg.fillStyle = ["#F49AC1", "#9EC2F0", "#C9C1F2", "#F6D674", "#86D9C2"][i % 5];
+            wg.beginPath();
+            if (i % 3 === 0) wg.arc(0, 0, s * 0.4, 0, Math.PI * 2);
+            else { wg.moveTo(0, -s * 0.45); wg.lineTo(s * 0.4, s * 0.3); wg.lineTo(-s * 0.4, s * 0.3); wg.closePath(); }
+            wg.fill();
+          }
+          wg.restore();
+        });
+        wg.globalCompositeOperation = "source-over"; wg.globalAlpha = 1;
+        // The mirrors: the wedge, and its reflection, all the way round.
+        g.fillStyle = "#05040A"; g.fillRect(0, 0, w, h);
+        const slice = Math.PI / N;
+        for (let k = 0; k < 2 * N; k++) {
+          g.save();
+          g.translate(cx, cy); g.scale(punch * shrink, punch * shrink); g.rotate(turn + (k + (k % 2)) * slice);
+          if (k % 2) g.scale(1, -1);
+          g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, R * 1.02, -0.003, slice + 0.003); g.closePath(); g.clip();
+          g.drawImage(scopeWedge, 0, 0, size, size, 0, 0, R, R);
+          g.restore();
+        }
+        // The tube: dark round the edge, the glass catching the light.
+        g.setTransform(r, 0, 0, r, 0, 0);
+        const tube = g.createRadialGradient(cx, cy, Math.min(w, h) * 0.32, cx, cy, R);
+        tube.addColorStop(0, "rgba(5, 4, 10, 0)"); tube.addColorStop(0.75, "rgba(5, 4, 10, 0.35)"); tube.addColorStop(1, "rgba(5, 4, 10, 0.92)");
+        g.fillStyle = tube; g.fillRect(0, 0, w, h);
+        const shine = g.createLinearGradient(0, 0, w, h);
+        shine.addColorStop(0, "rgba(255, 255, 255, 0.08)"); shine.addColorStop(0.4, "rgba(255, 255, 255, 0)"); shine.addColorStop(1, "rgba(255, 255, 255, 0.04)");
+        g.fillStyle = shine; g.fillRect(0, 0, w, h);
+        if (end > 0) { g.fillStyle = `rgba(5, 4, 10, ${(end ** 3).toFixed(3)})`; g.fillRect(0, 0, w, h); }
+      };
+      // ── chalk: the board at the front of the classroom, on the camcorder ──
+      // A hand draws it all in chalk as the outro plays, stroke by stroke, dust falling from the tip:
+      // a chalk TV (bar 1), the MV switching on in it on the first "woo"; the date; the five, one a bar
+      // (bars 2-6), each her own hair, then her name; their hands joined and hearts between (bar 7);
+      // "all five" (bar 8); on the drums (bars 9-10) "say it ditto" and a doodle on each hit. Then the
+      // chalk goes down, the eraser comes up, and it scrubs the board (the TV and the MV with it) the
+      // way a hand does: a patch at a time, forward and a little back, dust in the afternoon sun,
+      // lifting over Danielle. It goes back on the tray, the hand leaves her one small pink heart, and
+      // the camcorder leans in on her. The date and the day's 주번 are up the right edge, the class
+      // motto (급훈) over the board, old lessons ghosting through the slate.
+      // b: beats into the outro (DT_MV(2, 1)); the erasing from DT_ERASE (b 38).
+      const CH_ERASE = (DT_ERASE - DT_MV(2, 1)) / DT_BEAT, CH_ERASED = CH_ERASE + 8.5;
+      const CH_HITS = [33.5, 34.75, 35.5, 36, 37.5];
+      const chalkInk = { w: "#F3F4EE", p: "#F6B3CF", y: "#F3DF8C", b: "#B3D0F4" };
+      let chalk = null;
+      const chalkLayerCv = document.createElement("canvas");
+      const chalkGrain = (color, seed) => {
+        const c = document.createElement("canvas");
+        c.width = c.height = 128;
+        const g = c.getContext("2d");
+        g.fillStyle = color; g.fillRect(0, 0, 128, 128);
+        g.globalCompositeOperation = "destination-out";
+        const rnd = seeded(seed);
+        for (let i = 0; i < 1100; i++) { g.globalAlpha = 0.25 + rnd() * 0.75; g.fillRect(rnd() * 128, rnd() * 128, 1 + rnd() * 2, 1); }
+        for (let i = 0; i < 70; i++) { g.globalAlpha = 0.45; g.fillRect(rnd() * 128, rnd() * 128, 5 + rnd() * 12, 1); }
+        return c;
+      };
+      const chalkGrains = Object.fromEntries(Object.entries(chalkInk).map(([k, color], i) => [k, chalkGrain(color, 101 + i)]));
+      const chalkPatterns = new WeakMap();
+      const patternFor = (g, ink) => {
+        if (!chalkPatterns.has(g)) chalkPatterns.set(g, {});
+        const cache = chalkPatterns.get(g);
+        cache[ink] ??= g.createPattern(chalkGrains[ink], "repeat");
+        return cache[ink];
+      };
+      const chalkLayout = (w, h) => {
+        const wide = w >= h;
+        const bx = w * 0.04, bw = w * 0.92, by = h * (wide ? 0.16 : 0.12), bh = h * (wide ? 0.64 : 0.7);
+        const u = Math.min(bw, bh);
+        const tv = wide ? { x: bx + bw * 0.37, y: by + bh * 0.15, w: bw * 0.25, h: bh * 0.28 } : { x: bx + bw * 0.16, y: by + bh * 0.12, w: bw * 0.58, h: bh * 0.2 };
+        const figH = wide ? bh * 0.3 : bh * 0.15;
+        const feet = by + bh * (wide ? 0.83 : 0.85);
+        const xs = (wide ? [0.15, 0.325, 0.5, 0.675, 0.85] : [0.12, 0.305, 0.49, 0.675, 0.86]).map((f) => bx + bw * f);
+        const nameSize = figH * (wide ? 0.17 : 0.19);
+        return {
+          w, h, wide, bx, by, bw, bh, u, tv, figH, feet, xs, nameSize,
+          tray: by + bh, trayH: u * 0.045,
+          date: wide ? [bx + bw * 0.035, by + bh * 0.12, u * 0.075] : [bx + bw * 0.04, by + bh * 0.05, u * 0.06],
+          notes: [bx + bw * (wide ? 0.962 : 0.945), by + bh * 0.07, u * (wide ? 0.042 : 0.042)],
+          say: wide ? [bx + bw * 0.68, by + bh * 0.31, u * 0.1] : [bx + bw * 0.24, by + bh * 0.47, u * 0.12],
+          all: wide ? [bx + bw * 0.06, by + bh * 0.47, u * 0.085] : [bx + bw * 0.07, by + bh * 0.6, u * 0.085],
+          doodles: (wide ? [[0.3, 0.22], [0.8, 0.13], [0.93, 0.42], [0.13, 0.3], [0.71, 0.45]] : [[0.08, 0.37], [0.9, 0.37], [0.82, 0.6], [0.5, 0.62], [0.56, 0.38]]).map(([x, y]) => [bx + bw * x, by + bh * y]),
+          eraserRest: [bx + bw * 0.8, by + bh + u * 0.012], chalkRest: [bx + bw * 0.74, by + bh + u * 0.012], pinkRest: [bx + bw * 0.69, by + bh + u * 0.012],
+        };
+      };
+      // The drawing, as timed strokes (points on the screen) and timed writing; and the eraser's plan.
+      const buildChalk = (L) => {
+        const items = [];
+        const len = (pts) => pts.reduce((sum, p, i) => sum + (i ? Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) : 0), 0);
+        const arc = (cx, cy, rx, ry, a0, a1, n = 20) => Array.from({ length: n + 1 }, (_, i) => { const a = a0 + ((a1 - a0) * i) / n; return [cx + Math.cos(a) * rx, cy + Math.sin(a) * ry]; });
+        const wobble = (pts, amount, seed) => { const rnd = seeded(seed); return pts.map(([x, y]) => [x + (rnd() - 0.5) * amount, y + (rnd() - 0.5) * amount]); };
+        // A group of strokes, spread over [a, b] beats by their lengths, a short lift between each.
+        const group = (strokes, a, b, width, ink = "w") => {
+          const total = strokes.reduce((sum, s) => sum + len(s) + 1, 0), lift = Math.min(0.08, ((b - a) * 0.25) / strokes.length);
+          let t = a;
+          const span = b - a - lift * (strokes.length - 1);
+          strokes.forEach((pts) => { const d = span * ((len(pts) + 1) / total); items.push({ kind: "line", pts, len: len(pts), t0: t, t1: t + d, width, ink }); t += d + lift; });
+        };
+        const meas = document.createElement("canvas").getContext("2d");
+        const write = (text, x, y, size, a, b, ink = "w", angle = 0, align = "left") => {
+          meas.font = `700 ${size.toFixed(1)}px Gaegu, cursive`;
+          items.push({ kind: "text", text, x, y, size, t0: a, t1: b, ink, angle, align, tw: meas.measureText(text).width });
+        };
+        const { tv, figH: H, feet, xs, u } = L;
+        const lw = Math.max(2, u * 0.0065);
+        // the TV: its body, the screen, rabbit ears, two knobs, its legs
+        const m = tv.w * 0.05;
+        const body = { x: tv.x - m, y: tv.y - m, w: tv.w + m * 4.2, h: tv.h + m * 2.1 };
+        const rr = m * 1.2;
+        const roundBox = (x, y, bw2, bh2, rad) => [...arc(x + rad, y + rad, rad, rad, Math.PI, Math.PI * 1.5, 5), ...arc(x + bw2 - rad, y + rad, rad, rad, -Math.PI / 2, 0, 5), ...arc(x + bw2 - rad, y + bh2 - rad, rad, rad, 0, Math.PI / 2, 5), ...arc(x + rad, y + bh2 - rad, rad, rad, Math.PI / 2, Math.PI, 5), [x, y + rad]];
+        const tvTop = [body.x + body.w * (L.wide ? 0.45 : 0.62), body.y];
+        group([
+          wobble(roundBox(body.x, body.y, body.w, body.h, rr), 1.5, 3),
+          wobble(roundBox(tv.x, tv.y, tv.w, tv.h, rr * 0.6), 1.2, 4),
+          [tvTop, [tvTop[0] - body.w * 0.18, tvTop[1] - body.h * 0.26]], [tvTop, [tvTop[0] + body.w * 0.15, tvTop[1] - body.h * 0.29]],
+          arc(tvTop[0] - body.w * 0.18, tvTop[1] - body.h * 0.26 - m * 0.4, m * 0.4, m * 0.4, 0, Math.PI * 2, 10),
+          arc(tvTop[0] + body.w * 0.15, tvTop[1] - body.h * 0.29 - m * 0.4, m * 0.4, m * 0.4, 0, Math.PI * 2, 10),
+          arc(tv.x + tv.w + m * 1.6, tv.y + tv.h * 0.25, m * 0.55, m * 0.55, 0, Math.PI * 2, 12),
+          arc(tv.x + tv.w + m * 1.6, tv.y + tv.h * 0.55, m * 0.55, m * 0.55, 0, Math.PI * 2, 12),
+          [[body.x + body.w * 0.18, body.y + body.h], [body.x + body.w * 0.12, body.y + body.h + m * 1.4]],
+          [[body.x + body.w * 0.82, body.y + body.h], [body.x + body.w * 0.88, body.y + body.h + m * 1.4]],
+        ], 0.35, 3.0, lw * 1.15);
+        write("2022. 12. 19", L.date[0], L.date[1], L.date[2], 3.0, 4.0);
+        // the five: a girl in her uniform, each with her own hair
+        const HAIR = [
+          // Minji: long and straight
+          (f) => [f([[-0.07, -0.92], [-0.115, -0.86], [-0.125, -0.74], [-0.13, -0.6]]), f([[0.07, -0.92], [0.115, -0.86], [0.125, -0.74], [0.13, -0.6]]), f([[-0.07, -0.92], [0, -0.935], [0.07, -0.92]])],
+          // Hanni: long, with a fringe
+          (f) => [f([[-0.08, -0.9], [-0.12, -0.82], [-0.125, -0.7], [-0.135, -0.58]]), f([[0.08, -0.9], [0.12, -0.82], [0.125, -0.7], [0.135, -0.58]]), f([[-0.085, -0.875], [-0.05, -0.85], [-0.02, -0.875], [0.015, -0.85], [0.05, -0.875], [0.085, -0.85]])],
+          // Danielle: two curly pigtails
+          (f) => [-1, 1].map((side) => f(Array.from({ length: 16 }, (_, i) => { const t = i / 15; return [side * (0.1 + t * 0.09 + Math.sin(t * Math.PI * 4) * 0.025), -0.86 + t * 0.3]; }))).concat([f([[-0.09, -0.89], [0, -0.935], [0.09, -0.89]])]),
+          // Haerin: cat ears
+          (f) => [f([[-0.085, -0.88], [-0.075, -0.99], [-0.025, -0.915]]), f([[0.085, -0.88], [0.075, -0.99], [0.025, -0.915]]), f([[-0.1, -0.86], [-0.115, -0.75], [-0.11, -0.66]]), f([[0.1, -0.86], [0.115, -0.75], [0.11, -0.66]])],
+          // Hyein: a bobble hat
+          (f) => [f(arc(0, -0.85, 0.115, 0.1, Math.PI, Math.PI * 2, 14)), f([[-0.12, -0.855], [0.12, -0.855]]), f(arc(0, -0.975, 0.028, 0.028, 0, Math.PI * 2, 10)), f([[-0.105, -0.84], [-0.12, -0.72], [-0.125, -0.62]]), f([[0.105, -0.84], [0.12, -0.72], [0.125, -0.62]])],
+        ];
+        L.hands = [];
+        DT_NAMES.forEach((name, k) => {
+          const f = (pts) => pts.map(([x, y]) => [xs[k] + x * H, feet + y * H]);
+          const start = 4 + k * 4;
+          L.hands.push([f([[-0.23, -0.47]])[0], f([[0.23, -0.47]])[0]]);
+          group([
+            f(arc(0, -0.82, 0.1, 0.1, -Math.PI / 2, Math.PI * 1.5, 22)),
+            ...HAIR[k](f),
+            f([[-0.04, -0.835], [-0.036, -0.83]]), f([[0.036, -0.835], [0.04, -0.83]]),
+            f(arc(0, -0.805, 0.035, 0.025, 0.15 * Math.PI, 0.85 * Math.PI, 8)),
+            f([[-0.07, -0.7], [-0.15, -0.36], [0.15, -0.36], [0.07, -0.7]]),
+            f([[-0.045, -0.7], [0, -0.64], [0.045, -0.7]]),
+            f([[-0.08, -0.66], [-0.23, -0.47]]), f([[0.08, -0.66], [0.23, -0.47]]),
+            f([[-0.06, -0.36], [-0.07, -0.05], [-0.11, -0.04]]), f([[0.06, -0.36], [0.07, -0.05], [0.11, -0.04]]),
+          ], start + 0.15, start + 2.95, lw);
+          write(name, xs[k], feet + L.nameSize * 1.15, L.nameSize, start + 3.0, start + 3.85, "w", 0, "center");
+        });
+        // hands joined, a heart between each, then "all five"
+        group(L.hands.slice(0, 4).map(([, right], k) => { const left = L.hands[k + 1][0]; return [right, [(right[0] + left[0]) / 2, right[1] + H * 0.03], left]; }), 24.2, 25.6, lw);
+        const heartAt = (cx, cy, s) => arc(0, 0, 1, 1, 0, Math.PI * 2, 28).map((_, i) => { const t = (i / 28) * Math.PI * 2; return [cx + s * 16 * Math.sin(t) ** 3 / 16, cy - (s * (13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t))) / 16]; });
+        L.hands.slice(0, 4).forEach(([, right], k) => { const t = 25.8 + k * 0.45; group([heartAt((right[0] + L.hands[k + 1][0][0]) / 2, right[1] - H * 0.2, H * 0.06)], t, t + 0.4, lw, "p"); });
+        write("all five", L.all[0], L.all[1], L.all[2], 28.2, 30.0, "w", -0.06);
+        group([Array.from({ length: 24 }, (_, i) => { const t = i / 23; return [L.all[0] + t * L.all[2] * 3.6, L.all[1] + L.all[2] * 0.35 + Math.sin(t * Math.PI) * L.all[2] * 0.12 - t * L.all[2] * 0.2]; })], 30.0, 30.6, lw);
+        // the drums: "say it ditto", and a doodle on each hit (a heart, a star, the bunny, a snowflake, a heart)
+        write("say it ditto", L.say[0], L.say[1], L.say[2], 32.0, 33.4, "p", 0.05);
+        const star = (cx, cy, s) => Array.from({ length: 11 }, (_, i) => { const a = -Math.PI / 2 + (i * Math.PI) / 5, r = i % 2 ? s * 0.45 : s; return [cx + Math.cos(a) * r, cy + Math.sin(a) * r]; });
+        const flake = (cx, cy, s) => Array.from({ length: 6 }, (_, i) => { const a = (i * Math.PI) / 3; return [[cx, cy], [cx + Math.cos(a) * s, cy + Math.sin(a) * s]]; }).concat(Array.from({ length: 6 }, (_, i) => { const a = (i * Math.PI) / 3, mx = cx + Math.cos(a) * s * 0.6, my = cy + Math.sin(a) * s * 0.6; return [[mx + Math.cos(a + 0.8) * s * 0.25, my + Math.sin(a + 0.8) * s * 0.25], [mx, my], [mx + Math.cos(a - 0.8) * s * 0.25, my + Math.sin(a - 0.8) * s * 0.25]]; }));
+        const bunny = (cx, cy, s) => [arc(cx, cy, s * 0.55, s * 0.45, 0, Math.PI * 2, 20), arc(cx - s * 0.22, cy - s * 0.85, s * 0.14, s * 0.42, 0, Math.PI * 2, 16), arc(cx + s * 0.22, cy - s * 0.85, s * 0.14, s * 0.42, 0, Math.PI * 2, 16), [[cx - s * 0.2, cy - s * 0.05], [cx - s * 0.18, cy - s * 0.02]], [[cx + s * 0.18, cy - s * 0.05], [cx + s * 0.2, cy - s * 0.02]], arc(cx, cy + s * 0.08, s * 0.12, s * 0.08, 0.1 * Math.PI, 0.9 * Math.PI, 8)];
+        const ds = u * 0.045;
+        [[[heartAt(...L.doodles[0], ds)], "p"], [[star(...L.doodles[1], ds)], "y"], [bunny(L.doodles[2][0], L.doodles[2][1], ds * 1.2), "w"], [flake(...L.doodles[3], ds), "b"], [[heartAt(...L.doodles[4], ds * 0.8)], "p"]]
+          .forEach(([strokes, ink], i) => group(strokes, CH_HITS[i], CH_HITS[i] + (i === 2 || i === 3 ? 0.55 : 0.35), lw, ink));
+        // up the right edge, already there: the date and the day's 주번
+        ["12.19", "(월)", "", "주번", "민지", "하니"].forEach((line, i) => { if (line) write(line, L.notes[0], L.notes[1] + i * L.notes[2] * 1.25, L.notes[2], -2, -1.5, "w", 0, "center"); });
+        // and at the end, a small pink heart by her
+        group([heartAt(xs[2] + H * 0.24, feet - H * 0.93, H * 0.07)], CH_ERASED + 1.1, CH_ERASED + 1.85, lw, "p");
+        // The eraser: patches (the top, then either side of her), row by row, forward and a little back.
+        const brush = u * 0.15, reach = brush / 2 + u * 0.02;
+        const her = { l: xs[2] - H * 0.26 - reach, r: xs[2] + H * 0.26 + reach, t: feet - H * 1.02 - reach };
+        const step = brush * 0.72;
+        const rnd = seeded(19);
+        const patch = (x0, x1, y0, y1) => {
+          const n = Math.max(1, Math.round(Math.abs(y1 - y0) / step) + 1), rows = [];
+          for (let r = 0; r < n; r++) {
+            const y = n === 1 ? (y0 + y1) / 2 : y0 + ((y1 - y0) * r) / (n - 1);
+            const [a, b2] = r % 2 ? [x1, x0] : [x0, x1], dir = Math.sign(b2 - a);
+            const wob = () => y + (rnd() - 0.5) * step * 0.4;
+            const pts = [[a, wob()]];
+            let x = a;
+            while (dir * (b2 - x) > 2) {
+              const go = L.bw * (0.11 + rnd() * 0.08);
+              x = dir > 0 ? Math.min(b2, x + go) : Math.max(b2, x - go);
+              pts.push([x, wob()]);
+              if (dir * (b2 - x) > 2) { x -= dir * go * (0.3 + rnd() * 0.2); pts.push([x, wob()]); }
+            }
+            rows.push(pts);
+          }
+          return rows;
+        };
+        const left = L.bx + L.bw * 0.03, right = L.bx + L.bw * 0.97, top = L.by + L.bh * 0.08, bottom = L.by + L.bh * 0.94;
+        const patches = [patch(left, right, top, Math.max(top, her.t))];
+        if (her.l > left + 4) patches.push(patch(left, her.l, her.t + step, bottom));
+        if (her.r < right - 4) patches.push(patch(her.r, right, bottom, her.t + step));
+        const moves = [];
+        let at = L.eraserRest, key = 0;
+        patches.forEach((rows) => {
+          moves.push({ from: at, to: rows[0][0], lifted: true });
+          rows.forEach((pts, r) => { key += 1; if (r) moves.push({ from: at, to: pts[0], row: key }); pts.slice(1).forEach((pt, n) => moves.push({ from: pts[n], to: pt, row: key, turn: true })); at = pts[pts.length - 1]; });
+        });
+        moves.push({ from: at, to: L.eraserRest, lifted: true, home: true });
+        const HOP = 0.55;
+        const raw = moves.map((mv2) => (mv2.lifted ? 0 : 0.05 + Math.hypot(mv2.to[0] - mv2.from[0], mv2.to[1] - mv2.from[1]) / 900));
+        const hops = moves.filter((mv2) => mv2.lifted).length * HOP;
+        const scale = (CH_ERASED + 0.7 - CH_ERASE - hops) / raw.reduce((a2, b2) => a2 + b2, 0);
+        let t = CH_ERASE;
+        moves.forEach((mv2, n) => { mv2.t0 = t; t += mv2.lifted ? HOP : raw[n] * scale; mv2.t1 = t; mv2.seed = n * 7919; });
+        return { items: items.sort((a, b) => a.t0 - b.t0), moves, brush, her };
+      };
+      const paintClassroom = (g, w, h, L) => {
+        const { bx, by, bw, bh, u } = L;
+        // the wall, cream above the board, the school's mint green below it
+        const wall = g.createLinearGradient(0, 0, 0, h);
+        wall.addColorStop(0, "#E6DECC"); wall.addColorStop(1, "#D8CFBB");
+        g.fillStyle = wall; g.fillRect(0, 0, w, h);
+        g.fillStyle = "#82AE97"; g.fillRect(0, L.tray + L.trayH * 1.2, w, h);
+        g.fillStyle = "#8A6747"; g.fillRect(0, L.tray + L.trayH * 1.2, w, Math.max(3, u * 0.008));
+        // the board: green slate, old lessons ghosting through, old swipes of the eraser
+        const slate = g.createLinearGradient(bx, by, bx + bw, by + bh);
+        slate.addColorStop(0, "#36524A"); slate.addColorStop(1, "#2A443A");
+        g.fillStyle = slate; g.fillRect(bx, by, bw, bh);
+        const rnd = seeded(99);
+        for (let i = 0; i < (bw * bh) / 350; i++) { g.fillStyle = rnd() < 0.5 ? "rgba(255, 255, 255, 0.035)" : "rgba(0, 0, 0, 0.05)"; g.fillRect(bx + rnd() * bw, by + rnd() * bh, 1 + rnd() * 2, 1 + rnd()); }
+        for (let i = 0; i < 9; i++) { g.save(); g.translate(bx + rnd() * bw, by + rnd() * bh); g.rotate((rnd() - 0.5) * 0.3); const sw = g.createRadialGradient(0, 0, 0, 0, 0, u * 0.25); sw.addColorStop(0, "rgba(255, 255, 255, 0.05)"); sw.addColorStop(1, "rgba(255, 255, 255, 0)"); g.scale(2.4, 0.5); g.fillStyle = sw; g.beginPath(); g.arc(0, 0, u * 0.25, 0, Math.PI * 2); g.fill(); g.restore(); }
+        g.fillStyle = "rgba(255, 255, 255, 0.06)"; g.textAlign = "left";
+        [["x² − 5x + 6 = 0", 0.08, 0.3, 0.07], ["Unit 7 · Past Perfect", 0.5, 0.7, 0.06], ["기말고사 D-7", 0.7, 0.9, 0.065], ["(x − 2)(x − 3)", 0.12, 0.42, 0.06]].forEach(([text, x, y, s]) => { g.font = `700 ${(u * s).toFixed(1)}px Gaegu, cursive`; g.fillText(text, bx + bw * x, by + bh * y); });
+        // its wooden frame and the chalk tray, dust gathered along it
+        const fw = Math.max(6, u * 0.022);
+        g.fillStyle = "#A9825A";
+        g.fillRect(bx - fw, by - fw, bw + fw * 2, fw); g.fillRect(bx - fw, by, fw, bh); g.fillRect(bx + bw, by, fw, bh);
+        g.fillStyle = "rgba(0, 0, 0, 0.18)"; g.fillRect(bx, by, bw, fw * 0.5); g.fillRect(bx, by, fw * 0.4, bh);
+        const tray = g.createLinearGradient(0, L.tray, 0, L.tray + L.trayH);
+        tray.addColorStop(0, "#C39C6C"); tray.addColorStop(0.45, "#A57D52"); tray.addColorStop(1, "#7E5D3B");
+        g.fillStyle = tray; g.fillRect(bx - fw * 1.6, L.tray, bw + fw * 3.2, L.trayH);
+        g.fillStyle = "rgba(255, 255, 255, 0.5)";
+        for (let i = 0; i < 160; i++) g.fillRect(bx + rnd() * bw, L.tray + rnd() * L.trayH * 0.3, 1 + rnd() * 2, 1);
+        // above it: the class motto in its frame, the clock (4:12), the speaker
+        const mw = Math.min(w * 0.3, by * 2.4), mh = by * 0.5, mx = w / 2 - mw / 2, my = by * 0.22;
+        g.fillStyle = "#7B5A3C"; g.fillRect(mx - 4, my - 4, mw + 8, mh + 8);
+        g.fillStyle = "#FBF7EC"; g.fillRect(mx, my, mw, mh);
+        g.fillStyle = "#3A3D52"; g.textAlign = "center"; g.font = `700 ${(mh * 0.22).toFixed(1)}px Gaegu, cursive`; g.fillText("급훈", w / 2, my + mh * 0.32);
+        g.font = `700 ${(mh * 0.36).toFixed(1)}px Gaegu, cursive`; g.fillText("함께라서 좋아", w / 2, my + mh * 0.78);
+        const cr = by * 0.3, cx = w * 0.14, cy = by * 0.5;
+        g.fillStyle = "#3A3D52"; g.beginPath(); g.arc(cx, cy, cr * 1.08, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#FBF8F1"; g.beginPath(); g.arc(cx, cy, cr, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#3A3D52"; g.lineCap = "round";
+        for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; g.lineWidth = k % 3 ? 1 : 2; g.beginPath(); g.moveTo(cx + Math.cos(a) * cr * 0.8, cy + Math.sin(a) * cr * 0.8); g.lineTo(cx + Math.cos(a) * cr * 0.92, cy + Math.sin(a) * cr * 0.92); g.stroke(); }
+        const hand = (frac, len, width) => { const a = frac * Math.PI * 2 - Math.PI / 2; g.lineWidth = width; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len); g.stroke(); };
+        hand((4 + 12 / 60) / 12, cr * 0.5, Math.max(2, cr * 0.1)); hand(12 / 60, cr * 0.75, Math.max(1.5, cr * 0.06));
+        const sx = w * 0.76, sy = by * 0.18, sw2 = by * 0.7, sh = by * 0.56;
+        g.fillStyle = "#EEE8DA"; g.fillRect(sx - sw2 / 2, sy, sw2, sh);
+        g.fillStyle = "rgba(60, 60, 80, 0.5)";
+        for (let i = 0; i < 5; i++) g.fillRect(sx - sw2 * 0.35, sy + sh * (0.2 + i * 0.14), sw2 * 0.7, Math.max(1, sh * 0.05));
+      };
+      const drawChalkStroke = (g, it, p, ink) => {
+        const pts = it.pts;
+        let left = it.len * p;
+        g.beginPath(); g.moveTo(pts[0][0], pts[0][1]);
+        let head = pts[0];
+        for (let i = 1; i < pts.length && left > 0; i++) {
+          const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+          if (seg <= left) { g.lineTo(pts[i][0], pts[i][1]); head = pts[i]; left -= seg; }
+          else { const f = left / seg; head = [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f]; g.lineTo(head[0], head[1]); left = 0; }
+        }
+        g.strokeStyle = ink; g.lineWidth = it.width * 1.9; g.globalAlpha = 0.22; g.stroke();
+        g.lineWidth = it.width; g.globalAlpha = 0.95; g.stroke();
+        g.globalAlpha = 1;
+        return head;
+      };
+      // Where the hand's tip is between strokes: from where it left off to where it starts next (the
+      // tray at either end of the drawing); after the erasing, from the eraser to the pink chalk, to
+      // the heart, and away.
+      const chalkHand = (b, C, L) => {
+        const drawn = C.items.filter((it) => it.t0 >= 0);
+        const start = (it) => (it.kind === "line" ? it.pts[0] : [it.align === "center" ? it.x - it.tw / 2 : it.x, it.y - it.size * 0.3]);
+        const end = (it) => (it.kind === "line" ? it.pts[it.pts.length - 1] : [it.align === "center" ? it.x + it.tw / 2 : it.x + it.tw, it.y - it.size * 0.3]);
+        const go = (from, to, a, c) => { const q = easeIO(clamp((b - a) / Math.max(0.05, c - a))); return [mix(from[0], to[0], q), mix(from[1], to[1], q)]; };
+        const heart = drawn[drawn.length - 1];
+        if (b >= CH_ERASED + 0.7) {
+          if (b < CH_ERASED + 1.0) return go(L.eraserRest, L.pinkRest, CH_ERASED + 0.7, CH_ERASED + 1.0);
+          if (b < heart.t0) return go(L.pinkRest, start(heart), CH_ERASED + 1.0, heart.t0);
+          return go(end(heart), [L.w * 1.25, L.h * 1.35], heart.t1, heart.t1 + 0.7);
+        }
+        const early = drawn.filter((it) => it.t0 < CH_ERASE);
+        const before = early.filter((it) => it.t1 <= b).pop(), after = early.find((it) => it.t0 > b);
+        return go(before ? end(before) : L.chalkRest, after ? start(after) : L.chalkRest, before ? before.t1 : -0.2, after ? after.t0 : CH_ERASE);
+      };
+      // Her arm: from the shoulder (below the frame, to the right) to the elbow, bent out, to the wrist
+      // (a navy cardigan, the shirt's cuff), her hand, and the chalk in her fingers.
+      const drawChalkHand = (g, tip, L, holding) => {
+        const { u, w, h } = L;
+        const shoulder = [tip[0] + w * 0.16, h * 1.32];
+        const reach = Math.hypot(shoulder[0] - tip[0], shoulder[1] - tip[1]);
+        const dx = (shoulder[0] - tip[0]) / reach, dy = (shoulder[1] - tip[1]) / reach;
+        const wrist = [tip[0] + dx * u * 0.065, tip[1] + dy * u * 0.065];
+        const fore = Math.min(reach * 0.5, h * 0.4), bend = -0.38;
+        const elbow = [wrist[0] + (Math.cos(bend) * dx - Math.sin(bend) * dy) * fore, wrist[1] + (Math.sin(bend) * dx + Math.cos(bend) * dy) * fore];
+        g.save();
+        g.lineCap = "round"; g.lineJoin = "round";
+        g.shadowColor = "rgba(10, 20, 15, 0.38)"; g.shadowBlur = u * 0.035; g.shadowOffsetX = u * 0.02; g.shadowOffsetY = u * 0.025;
+        g.strokeStyle = "#2C3354"; g.lineWidth = u * 0.13;
+        g.beginPath(); g.moveTo(elbow[0], elbow[1]); g.lineTo(shoulder[0], shoulder[1]); g.stroke();
+        g.lineWidth = u * 0.095;
+        g.beginPath(); g.moveTo(wrist[0] + dx * u * 0.03, wrist[1] + dy * u * 0.03); g.lineTo(elbow[0], elbow[1]); g.stroke();
+        g.shadowColor = "transparent";
+        // the cardigan's knit: a few lines down the sleeve, and its ribbed cuff, the shirt under it
+        g.strokeStyle = "rgba(255, 255, 255, 0.08)"; g.lineWidth = Math.max(1, u * 0.004);
+        for (let k = -1; k <= 1; k++) { const ox = -dy * k * u * 0.025, oy = dx * k * u * 0.025; g.beginPath(); g.moveTo(wrist[0] + dx * u * 0.06 + ox, wrist[1] + dy * u * 0.06 + oy); g.lineTo(elbow[0] + ox, elbow[1] + oy); g.stroke(); }
+        g.strokeStyle = "#252B48"; g.lineWidth = u * 0.1;
+        g.beginPath(); g.moveTo(wrist[0] + dx * u * 0.03, wrist[1] + dy * u * 0.03); g.lineTo(wrist[0] + dx * u * 0.055, wrist[1] + dy * u * 0.055); g.stroke();
+        g.strokeStyle = "#F4F1EA"; g.lineWidth = u * 0.07;
+        g.beginPath(); g.moveTo(wrist[0] + dx * u * 0.012, wrist[1] + dy * u * 0.012); g.lineTo(wrist[0] + dx * u * 0.028, wrist[1] + dy * u * 0.028); g.stroke();
+        if (holding !== "none") {
+          g.strokeStyle = holding; g.lineWidth = u * 0.015;
+          g.beginPath(); g.moveTo(tip[0], tip[1]); g.lineTo(tip[0] + dx * u * 0.05, tip[1] + dy * u * 0.05); g.stroke();
+        }
+        g.shadowColor = "rgba(10, 20, 15, 0.3)"; g.shadowBlur = u * 0.02; g.shadowOffsetX = u * 0.012; g.shadowOffsetY = u * 0.016;
+        g.fillStyle = "#F2D3BF";
+        g.beginPath(); g.ellipse(wrist[0] - dx * u * 0.006, wrist[1] - dy * u * 0.006, u * 0.045, u * 0.034, Math.atan2(dy, dx), 0, Math.PI * 2); g.fill();
+        g.shadowColor = "transparent";
+        g.beginPath(); g.ellipse(tip[0] + dx * u * 0.034, tip[1] + dy * u * 0.034, u * 0.019, u * 0.013, Math.atan2(dy, dx), 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "rgba(170, 120, 100, 0.45)"; g.lineWidth = Math.max(1, u * 0.003);
+        for (let k = 0; k < 3; k++) { const ox = -dy * (k - 1) * u * 0.013, oy = dx * (k - 1) * u * 0.013; g.beginPath(); g.moveTo(wrist[0] - dx * u * 0.034 + ox, wrist[1] - dy * u * 0.034 + oy); g.lineTo(wrist[0] - dx * u * 0.014 + ox, wrist[1] - dy * u * 0.014 + oy); g.stroke(); }
+        g.restore();
+      };
+      const drawBoardEraser = (g, at, angle, lifted, L, withHand) => {
+        const { u } = L;
+        const ew = u * 0.13, eh = u * 0.05;
+        g.save();
+        g.translate(at[0], at[1] - (lifted ? u * 0.02 : 0)); g.rotate(angle); g.scale(lifted ? 1.12 : 1, lifted ? 1.12 : 1);
+        g.shadowColor = "rgba(10, 20, 15, 0.4)"; g.shadowBlur = u * (lifted ? 0.04 : 0.015); g.shadowOffsetY = u * (lifted ? 0.03 : 0.008);
+        g.fillStyle = "#2B3352"; roundRect(g, -ew / 2, -eh * 0.1, ew, eh * 0.55, eh * 0.12); g.fill();
+        g.shadowColor = "transparent";
+        const top = g.createLinearGradient(0, -eh * 0.6, 0, 0);
+        top.addColorStop(0, "#F7C3D7"); top.addColorStop(1, "#E89AB9");
+        g.fillStyle = top; roundRect(g, -ew / 2, -eh * 0.62, ew, eh * 0.56, eh * 0.18); g.fill();
+        g.fillStyle = "rgba(255, 255, 255, 0.55)"; g.fillRect(-ew * 0.42, -eh * 0.5, ew * 0.84, eh * 0.08);
+        g.fillStyle = "rgba(255, 255, 255, 0.4)"; g.fillRect(-ew / 2, eh * 0.38, ew, eh * 0.06);
+        g.restore();
+        if (withHand) drawChalkHand(g, [at[0] + u * 0.01, at[1] - u * 0.045], L, "none");
+      };
+      const drawChalk = (now) => {
+        const { g, w, h, r } = prep();
+        const b = (now - DT_MV(2, 1)) / DT_BEAT;
+        if (!chalk || chalk.w !== w || chalk.h !== h) { const L = chalkLayout(w, h); chalk = { w, h, L, C: buildChalk(L) }; }
+        const { L, C } = chalk;
+        const frame = mv(now);
+        // The camcorder, handheld; at the very end it leans in on her.
+        const lean = easeIO(clamp((b - (CH_ERASED + 1.7)) / 2.3));
+        const herAt = [L.xs[2], L.feet - L.figH * 0.6];
+        const zoom = 1.015 + 0.4 * lean;
+        g.translate(mix(herAt[0], w / 2, lean * 0.5) + Math.sin(now * 0.7) * 2.5 + Math.sin(now * 1.9), mix(herAt[1], h * 0.55, lean * 0.5) + Math.cos(now * 0.8) * 2);
+        g.scale(zoom, zoom);
+        g.translate(-herAt[0], -herAt[1]);
+        g.drawImage(paintOnce("classroom", w, h, r, (pg, pw, ph) => paintClassroom(pg, pw, ph, L)), 0, 0, w, h);
+        // The chalk, drawn so far, on its own layer (so the eraser can take it off again).
+        if (chalkLayerCv.width !== stage.width || chalkLayerCv.height !== stage.height) { chalkLayerCv.width = stage.width; chalkLayerCv.height = stage.height; }
+        const lg = chalkLayerCv.getContext("2d");
+        lg.setTransform(r, 0, 0, r, 0, 0);
+        lg.clearRect(0, 0, w, h);
+        lg.lineCap = "round"; lg.lineJoin = "round";
+        let tip = null, tipInk = null;
+        for (const it of C.items) {
+          if (b < it.t0) continue;
+          const p = clamp((b - it.t0) / (it.t1 - it.t0));
+          const ink = patternFor(lg, it.ink);
+          if (it.kind === "line") { const head = drawChalkStroke(lg, it, p, ink); if (p < 1) { tip = head; tipInk = it.ink; } }
+          else {
+            lg.save(); lg.translate(it.x, it.y); lg.rotate(it.angle);
+            lg.font = `700 ${it.size.toFixed(1)}px Gaegu, cursive`; lg.textAlign = it.align;
+            const tw = lg.measureText(it.text).width, x0 = it.align === "center" ? -tw / 2 : 0;
+            if (p < 1) { lg.beginPath(); lg.rect(x0 - 4, -it.size * 1.2, (tw + 8) * p, it.size * 1.6); lg.clip(); }
+            lg.fillStyle = ink; lg.globalAlpha = 0.95; lg.fillText(it.text, 0, 0); lg.globalAlpha = 1;
+            lg.restore();
+            if (p < 1) { const c = Math.cos(it.angle), sn = Math.sin(it.angle), lx = x0 + tw * p; tip = [it.x + lx * c, it.y - it.size * 0.3 + lx * sn]; tipInk = it.ink; }
+          }
+        }
+        // the MV in the chalk TV, switching on (a line, then the picture) on the first "woo"
+        const on = clamp((b - 3.4) / 0.5);
+        if (on > 0) {
+          const { tv } = L;
+          lg.save(); roundRect(lg, tv.x + 2, tv.y + 2, tv.w - 4, tv.h - 4, tv.w * 0.03); lg.clip();
+          const open = easeOut3(on), lineH = Math.max(2, tv.h * open);
+          lg.beginPath(); lg.rect(tv.x, tv.y + (tv.h - lineH) / 2, tv.w, lineH); lg.clip();
+          cover(lg, frame, tv.x, tv.y, tv.w, tv.h);
+          lg.fillStyle = `rgba(255, 255, 255, ${(0.85 * (1 - open)).toFixed(3)})`; lg.fillRect(tv.x, tv.y, tv.w, tv.h);
+          lg.fillStyle = "rgba(0, 0, 0, 0.12)";
+          for (let y = tv.y; y < tv.y + tv.h; y += 3) lg.fillRect(tv.x, y, tv.w, 1);
+          const vg = lg.createRadialGradient(tv.x + tv.w / 2, tv.y + tv.h / 2, tv.h * 0.3, tv.x + tv.w / 2, tv.y + tv.h / 2, tv.w * 0.65);
+          vg.addColorStop(0, "rgba(0, 0, 0, 0)"); vg.addColorStop(1, "rgba(0, 0, 0, 0.45)");
+          lg.fillStyle = vg; lg.fillRect(tv.x, tv.y, tv.w, tv.h);
+          lg.restore();
+        }
+        // The eraser takes it off again, row by row (a ghost left where it passed once), and smears
+        // the board under it.
+        const rows = new Map();
+        let pen = null, mvNow = null;
+        for (const mv2 of C.moves) {
+          if (b < mv2.t0) break;
+          const p = clamp((b - mv2.t0) / (mv2.t1 - mv2.t0));
+          const ease = 0.5 - 0.5 * Math.cos(Math.PI * p);
+          const to = [mix(mv2.from[0], mv2.to[0], ease), mix(mv2.from[1], mv2.to[1], ease)];
+          if (p < 1) { pen = to; mvNow = mv2; }
+          if (mv2.lifted) continue;
+          if (!rows.has(mv2.row)) rows.set(mv2.row, [mv2.from]);
+          rows.get(mv2.row).push(to);
+        }
+        lg.globalCompositeOperation = "destination-out"; lg.strokeStyle = "#000000";
+        rows.forEach((pts) => {
+          lg.beginPath(); pts.forEach(([x, y], n) => (n ? lg.lineTo(x, y) : lg.moveTo(x, y)));
+          lg.globalAlpha = 0.45; lg.lineWidth = C.brush * 1.3; lg.stroke();
+          lg.globalAlpha = 0.88; lg.lineWidth = C.brush; lg.stroke();
+        });
+        lg.globalCompositeOperation = "source-over"; lg.globalAlpha = 1;
+        g.lineCap = "round"; g.lineJoin = "round";
+        rows.forEach((pts) => {
+          const path = () => { g.beginPath(); pts.forEach(([x, y], n) => (n ? g.lineTo(x, y) : g.moveTo(x, y))); };
+          path(); g.strokeStyle = "rgba(235, 245, 238, 0.045)"; g.lineWidth = C.brush; g.stroke();
+          g.strokeStyle = "rgba(235, 245, 238, 0.05)"; g.lineWidth = Math.max(1, C.brush * 0.03);
+          [-0.34, -0.12, 0.1, 0.32].forEach((off) => { g.save(); g.translate(0, off * C.brush); path(); g.stroke(); g.restore(); });
+        });
+        g.drawImage(chalkLayerCv, 0, 0, w, h);
+        // the tray: the chalks, and the eraser while it rests there
+        const inUse = b >= CH_ERASE && b < CH_ERASED + 0.7;
+        [[L.chalkRest, "#F3F4EE", b < 0 || b >= CH_ERASE - 0.05], [L.pinkRest, "#F6B3CF", b < CH_ERASED + 1.0], [[L.bx + L.bw * 0.56, L.chalkRest[1]], "#F3DF8C", true], [[L.bx + L.bw * 0.52, L.chalkRest[1]], "#B3D0F4", true]].forEach(([at2, color, there]) => {
+          if (!there) return;
+          g.save(); g.translate(at2[0], at2[1]); g.rotate(-0.05);
+          g.fillStyle = "rgba(0, 0, 0, 0.25)"; g.fillRect(-L.u * 0.03, L.u * 0.004, L.u * 0.06, L.u * 0.01);
+          g.fillStyle = color; roundRect(g, -L.u * 0.03, -L.u * 0.007, L.u * 0.06, L.u * 0.014, L.u * 0.006); g.fill(); g.restore();
+        });
+        if (!inUse) drawBoardEraser(g, L.eraserRest, 0, false, L, false);
+        // chalk dust: off the tip as it draws, and off the eraser where it turns
+        g.fillStyle = "#F4F6F1";
+        for (const it of C.items) {
+          if (it.kind !== "line" || b < it.t0 || b > it.t1 + 3) continue;
+          const rd = seeded(Math.round(it.t0 * 1000) + 7);
+          for (let k = 0; k < 6; k++) {
+            const f = rd(), born = it.t0 + (it.t1 - it.t0) * f, age = (b - born) * DT_BEAT;
+            if (age < 0 || age > 1.3) continue;
+            const pt = it.pts[Math.min(it.pts.length - 1, Math.floor(f * it.pts.length))];
+            g.globalAlpha = (1 - age / 1.3) * 0.7;
+            g.fillRect(pt[0] + (rd() - 0.5) * 6 + (rd() - 0.5) * age * 14, pt[1] + age * age * L.u * 0.12 + rd() * 3, 1.5, 1.5);
+          }
+        }
+        for (const mv2 of C.moves) {
+          if (!mv2.turn || b < mv2.t1) continue;
+          const since = (b - mv2.t1) * DT_BEAT;
+          if (since > 1.6) continue;
+          const rd = seeded(mv2.seed + 3);
+          for (let k = 0; k < 7; k++) {
+            g.globalAlpha = (1 - since / 1.6) * (0.3 + rd() * 0.5);
+            g.fillRect(mv2.to[0] + (rd() - 0.5) * C.brush * 0.9 + (rd() - 0.5) * since * 30, mv2.to[1] + C.brush * 0.3 + since * since * L.u * 0.18 + rd() * since * 20, 1.5, 1.5);
+          }
+        }
+        g.globalAlpha = 1;
+        // the hand: with the chalk (white, then the pink one at the end), or on the eraser
+        if (inUse && pen) {
+          const tilt = mvNow && !mvNow.lifted ? Math.sign(mvNow.to[0] - mvNow.from[0]) * 0.08 + Math.sin(now * 23) * 0.02 : 0;
+          drawBoardEraser(g, pen, tilt, !!mvNow?.lifted, L, true);
+        } else if (!inUse) {
+          const lastInk = C.items.filter((it) => it.t0 >= 0 && it.t0 <= b).pop()?.ink ?? "w";
+          const hold = chalkInk[b > CH_ERASED + 0.9 ? "p" : tipInk ?? lastInk];
+          const at2 = tip ?? chalkHand(b, C, L);
+          if (at2 && b < CH_ERASED + 2.6) drawChalkHand(g, at2, L, hold);
+        }
+        // the afternoon sun from the windows on the left, and the dust floating in it
+        g.globalCompositeOperation = "screen";
+        [[0.1, 0.12], [0.42, 0.08]].forEach(([x, a]) => {
+          const band = g.createLinearGradient(w * x, 0, w * (x + 0.28), h);
+          band.addColorStop(0, "rgba(255, 228, 180, 0)"); band.addColorStop(0.5, `rgba(255, 228, 180, ${a})`); band.addColorStop(1, "rgba(255, 228, 180, 0)");
+          g.fillStyle = band; g.beginPath(); g.moveTo(w * (x - 0.05), 0); g.lineTo(w * (x + 0.12), 0); g.lineTo(w * (x + 0.42), h); g.lineTo(w * (x + 0.2), h); g.closePath(); g.fill();
+        });
+        g.globalCompositeOperation = "source-over";
+        g.fillStyle = "#FFF8EA";
+        const motes = 50 + (b > CH_ERASE ? 50 : 0);
+        for (let i = 0; i < motes; i++) {
+          const rx = (i * 0.618034) % 1, ry = (i * 0.754877) % 1;
+          const x = w * ((rx + Math.sin(now * 0.13 + i) * 0.03 + now * 0.004) % 1), y = h * ((ry + now * 0.01 * (0.5 + (i % 3) * 0.3)) % 1);
+          g.globalAlpha = 0.25 + 0.35 * Math.abs(Math.sin(now * 0.8 + i));
+          g.fillRect(x, y, 1.6, 1.6);
+        }
+        g.globalAlpha = 1;
+      };
+      const STAGE_PARTS = { rewind: drawRewind, seasons: drawSeasons, plane: drawPlane, alarm: drawAlarm, cube: drawCube, scope: drawScope, chalk: drawChalk, doodle: drawChalk, erase: drawChalk };
+
+      // ── The maze: a raycaster drawn at a quarter of the screen's size and blown up, pixels and all ──
+      const mazeView = box.querySelector(".dts-maze-view");
+      const animeImgs = DT_NAMES.map((name) => { const img = new Image(); img.src = siteUrl(`ditto/${name.toLowerCase()}-anime.webp`); return img; });
+      const bunnyImg = new Image();
+      bunnyImg.src = siteUrl("ditto/bunny.webp");
+      const mvSquare = document.createElement("canvas");
+      mvSquare.width = mvSquare.height = 192;
+      let mazeTex = null, zbuf = new Float32Array(0);
+      // When each of the five is reached (she spins away), and when each bunny head is passed (the
+      // world turns over), found along the walk.
+      const mazeMoments = (() => {
+        const gone = DT_MAZE_FIVE.map(() => Infinity), flips = DT_MAZE_BUNNIES.map(() => Infinity);
+        for (let t = DT_MV(1, 9); t < DT_MV(1, 13); t += 1 / 120) {
+          const { x, y } = dtWalkAt(t);
+          DT_MAZE_FIVE.forEach(([sx, sy, reach], k) => { if (gone[k] === Infinity && Math.hypot(sx - x, sy - y) < reach) gone[k] = t; });
+          DT_MAZE_BUNNIES.forEach(([sx, sy], k) => { if (flips[k] === Infinity && Math.hypot(sx - x, sy - y) < 0.3) flips[k] = t; });
+        }
+        return { gone, flips };
+      })();
+      const makeMazeTex = () => {
+        let seed = 5;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        const make = (draw) => { const c = document.createElement("canvas"); c.width = c.height = 64; draw(c.getContext("2d")); return c; };
+        // The school's corridor wall: cream above a wooden rail, mint green below, a dark skirting.
+        const wall = (g) => {
+          g.fillStyle = "#E4DCC6"; g.fillRect(0, 0, 64, 35);
+          g.fillStyle = "#84B199"; g.fillRect(0, 38, 64, 22);
+          g.fillStyle = "#8A6747"; g.fillRect(0, 35, 64, 3);
+          g.fillStyle = "#AD8A62"; g.fillRect(0, 35, 64, 1);
+          g.fillStyle = "#4E6A5D"; g.fillRect(0, 60, 64, 4);
+          for (let i = 0; i < 300; i++) { g.fillStyle = `rgba(50, 40, 20, ${0.03 + rnd() * 0.07})`; g.fillRect(Math.floor(rnd() * 64), Math.floor(rnd() * 60), 1, 1); }
+          g.fillStyle = "rgba(0, 0, 0, 0.14)"; g.fillRect(0, 0, 1, 64); g.fillRect(63, 0, 1, 64);
+        };
+        const heart = [".11.11.", "1111111", "1111111", ".11111.", "..111..", "...1..."];
+        const pixels = (g, rows, x, y, color) => { g.fillStyle = color; rows.forEach((row, j) => [...row].forEach((v, i) => { if (v === "1") g.fillRect(x + i, y + j, 1, 1); })); };
+        return {
+          "#": make(wall),
+          // A window onto the snowy night, frost in its corner.
+          w: make((g) => {
+            wall(g);
+            g.fillStyle = "#F3EFE5"; g.fillRect(11, 4, 42, 28);
+            const glass = g.createLinearGradient(0, 6, 0, 30);
+            glass.addColorStop(0, "#131C44"); glass.addColorStop(1, "#33437A");
+            g.fillStyle = glass; g.fillRect(13, 6, 38, 24);
+            const frostCorner = g.createRadialGradient(14, 30, 0, 14, 30, 15);
+            frostCorner.addColorStop(0, "rgba(236, 242, 255, 0.85)"); frostCorner.addColorStop(1, "rgba(236, 242, 255, 0)");
+            g.fillStyle = frostCorner; g.fillRect(13, 6, 38, 24);
+            g.fillStyle = "#F3EFE5"; g.fillRect(31, 6, 2, 24);
+            g.fillStyle = "#FFFFFF"; [[18, 10], [26, 15], [38, 9], [45, 18], [41, 25], [22, 23]].forEach(([x, y]) => g.fillRect(x, y, 1, 1));
+          }),
+          // A pink notice pinned up, a heart on it.
+          p: make((g) => {
+            wall(g);
+            g.fillStyle = "rgba(0, 0, 0, 0.2)"; g.fillRect(21, 8, 26, 25);
+            g.fillStyle = "#F7CBDC"; g.fillRect(19, 6, 26, 25);
+            pixels(g, heart, 28, 10, "#E5609A");
+            g.fillStyle = "#C88FA8"; g.fillRect(23, 19, 18, 1); g.fillRect(23, 22, 14, 1); g.fillRect(23, 25, 16, 1);
+            g.fillStyle = "#5B7BE0"; g.fillRect(31, 5, 2, 2);
+          }),
+          // "미로" chalked on the green, a heart drawn in pink marker above it.
+          g: make((g) => {
+            wall(g);
+            pixels(g, heart, 40, 14, "#E5609A");
+            g.save(); g.translate(9, 56); g.rotate(-0.08);
+            g.font = "700 15px Gaegu, cursive"; g.fillStyle = "rgba(255, 255, 255, 0.9)"; g.fillText("미로", 0, 0);
+            g.restore();
+          }),
+        };
+      };
+      // The MV as a wall: a square from the middle of the frame, in a white frame.
+      const drawMvSquare = () => {
+        if (!video.videoWidth) return;
+        const g = mvSquare.getContext("2d");
+        const side = Math.min(video.videoWidth, video.videoHeight);
+        g.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 10, 10, 172, 172);
+        g.fillStyle = "#F3F0FF"; g.fillRect(0, 0, 192, 10); g.fillRect(0, 182, 192, 10); g.fillRect(0, 0, 10, 192); g.fillRect(182, 0, 10, 192);
+        g.strokeStyle = "#F5A9CB"; g.lineWidth = 2; g.strokeRect(11, 11, 170, 170);
+      };
+      const drawMaze = (now) => {
+        const scale = window.innerWidth >= 900 ? 4 : 3;
+        const W = Math.max(80, Math.round(window.innerWidth / scale)), H = Math.max(60, Math.round(window.innerHeight / scale));
+        if (mazeView.width !== W || mazeView.height !== H) { mazeView.width = W; mazeView.height = H; }
+        if (zbuf.length !== W) zbuf = new Float32Array(W);
+        mazeTex ??= makeMazeTex();
+        if (mirrorsDue) drawMvSquare();
+        const g = mazeView.getContext("2d");
+        g.imageSmoothingEnabled = false;
+        const at = dtWalkAt(now);
+        const pulse = dtKickPulse(now);
+        // The lens: a fixed height of view (wider on a tall screen), punching in a little on the kick.
+        const vfov = ((W >= H ? 58 : 74) * Math.PI) / 180;
+        const focal = (H / 2 / Math.tan(vfov / 2)) * (1 + pulse * 0.05);
+        const plane = W / 2 / focal;
+        const dirX = Math.cos(at.a), dirY = Math.sin(at.a), planeX = -dirY * plane, planeY = dirX * plane;
+        const horizon = H / 2 - at.bob * H * 0.014;
+        // The night sky, its stars turning with the view; snow on the ground.
+        const sky = g.createLinearGradient(0, 0, 0, horizon);
+        sky.addColorStop(0, "#060A1C"); sky.addColorStop(1, "#28305E");
+        g.fillStyle = sky; g.fillRect(0, 0, W, H);
+        g.fillStyle = "#FFFFFF";
+        for (let i = 0; i < 80; i++) {
+          let d = ((i * 2.39996) % (Math.PI * 2)) - at.a;
+          d = Math.atan2(Math.sin(d), Math.cos(d));
+          if (Math.abs(d) > 1.3) continue;
+          g.globalAlpha = 0.3 + ((i * 0.37) % 1) * 0.6;
+          g.fillRect(Math.round(W / 2 + Math.tan(d) * focal), Math.round(horizon * (1 - ((i * 0.618) % 1) * 0.95)), 1, 1);
+        }
+        g.globalAlpha = 1;
+        const ground = g.createLinearGradient(0, horizon, 0, H);
+        ground.addColorStop(0, "#2A3258"); ground.addColorStop(1, "#C9D1EC");
+        g.fillStyle = ground; g.fillRect(0, Math.floor(horizon), W, H);
+        // The walls, a column at a time: fogged with distance, the MV's walls glowing through it
+        // (and flaring on the kick).
+        for (let x = 0; x < W; x++) {
+          const cx = (2 * (x + 0.5)) / W - 1;
+          const rx = dirX + planeX * cx || 1e-9, ry = dirY + planeY * cx || 1e-9;
+          let mx = Math.floor(at.x), my = Math.floor(at.y);
+          const ddx = Math.abs(1 / rx), ddy = Math.abs(1 / ry), stepX = rx < 0 ? -1 : 1, stepY = ry < 0 ? -1 : 1;
+          let sdx = rx < 0 ? (at.x - mx) * ddx : (mx + 1 - at.x) * ddx;
+          let sdy = ry < 0 ? (at.y - my) * ddy : (my + 1 - at.y) * ddy;
+          let side = 0, cell = "#";
+          for (let n = 0; n < 40; n++) {
+            if (sdx < sdy) { sdx += ddx; mx += stepX; side = 0; } else { sdy += ddy; my += stepY; side = 1; }
+            cell = DT_MAZE[my]?.[mx] ?? "#";
+            if (cell !== ".") break;
+          }
+          const dist = Math.max(0.02, side === 0 ? sdx - ddx : sdy - ddy);
+          zbuf[x] = dist;
+          let hit = side === 0 ? at.y + dist * ry : at.x + dist * rx;
+          hit -= Math.floor(hit);
+          const tex = cell === "M" ? mvSquare : mazeTex[cell] ?? mazeTex["#"];
+          let tx = Math.min(tex.width - 1, Math.floor(hit * tex.width));
+          if ((side === 0 && rx < 0) || (side === 1 && ry > 0)) tx = tex.width - tx - 1;
+          const lineH = focal / dist, top = horizon - lineH / 2;
+          g.drawImage(tex, tx, 0, 1, tex.height, x, top, 1, lineH);
+          const y0 = Math.max(0, top), y1 = Math.min(H, top + lineH);
+          const fog = Math.min(0.82, Math.max(0, (dist - 0.8) / 7)) * (cell === "M" ? 0.45 : 1);
+          if (fog > 0.01) { g.fillStyle = `rgba(16, 21, 46, ${fog.toFixed(3)})`; g.fillRect(x, y0, 1, y1 - y0); }
+          if (side === 1 && cell !== "M") { g.fillStyle = "rgba(10, 12, 30, 0.16)"; g.fillRect(x, y0, 1, y1 - y0); }
+          if (cell === "M" && pulse > 0.02) { g.fillStyle = `rgba(255, 236, 246, ${(pulse * 0.3).toFixed(3)})`; g.fillRect(x, y0, 1, y1 - y0); }
+        }
+        // The five and the bunny heads, farthest first, hidden where a wall is nearer.
+        g.imageSmoothingEnabled = true;
+        g.imageSmoothingQuality = "high";
+        const invDet = 1 / (planeX * dirY - dirX * planeY);
+        const sprites = [
+          ...DT_MAZE_FIVE.map(([x, y], k) => ({ x, y, img: animeImgs[k], crop: [DT_ANIME_CROP[k][0], 0, DT_ANIME_CROP[k][1], 1100], size: 0.74, lift: 0, gone: mazeMoments.gone[k], seed: k + 1 })),
+          ...DT_MAZE_BUNNIES.map(([x, y], k) => ({ x, y, img: bunnyImg, crop: [0, 0, 700, 551], size: 0.3, lift: 0.62, spin: now * 3.2 + k * 1.7, seed: 9 + k })),
+        ].map((sp) => ({ ...sp, tx: invDet * (dirY * (sp.x - at.x) - dirX * (sp.y - at.y)), ty: invDet * (-planeY * (sp.x - at.x) + planeX * (sp.y - at.y)) }))
+          .filter((sp) => sp.ty > 0.22 && sp.img.complete && sp.img.naturalWidth)
+          .sort((a, b) => b.ty - a.ty);
+        for (const sp of sprites) {
+          const v = sp.gone === undefined ? 0 : clamp((now - sp.gone) / 0.4);
+          if (v >= 1) continue;
+          const unitPx = focal / sp.ty, hPx = unitPx * sp.size;
+          const bottom = horizon + unitPx * (0.5 - sp.lift - v * 0.12) + (sp.gone === undefined ? 0 : Math.sin(now * 2.2 + sp.seed) * unitPx * 0.008);
+          const [cx0, cy0, cw, ch] = sp.crop;
+          const wPx = hPx * (cw / ch) * Math.max(0.04, Math.abs(sp.spin !== undefined ? Math.cos(sp.spin) : Math.cos(v * Math.PI * 3)));
+          const sx = (W / 2) * (1 + sp.tx / sp.ty), left = sx - wPx / 2;
+          g.globalAlpha = (1 - Math.min(0.5, Math.max(0, (sp.ty - 3.5) / 9))) * (1 - v);
+          const mid = Math.round(Math.min(W - 1, Math.max(0, sx)));
+          if (sp.gone !== undefined && sp.ty < zbuf[mid]) {
+            const halo = g.createRadialGradient(sx, bottom - hPx * 0.5, 0, sx, bottom - hPx * 0.5, hPx * 0.62);
+            halo.addColorStop(0, "rgba(255, 244, 250, 0.55)"); halo.addColorStop(0.6, "rgba(246, 196, 222, 0.22)"); halo.addColorStop(1, "rgba(246, 196, 222, 0)");
+            g.fillStyle = halo; g.fillRect(sx - hPx * 0.62, bottom - hPx * 1.12, hPx * 1.24, hPx * 1.24);
+          }
+          // in runs of the columns the walls leave open
+          let run = -1;
+          const x0 = Math.max(0, Math.floor(left)), x1 = Math.min(W, Math.ceil(left + wPx));
+          for (let x = x0; x <= x1; x++) {
+            const open = x < x1 && sp.ty < zbuf[x];
+            if (open && run < 0) run = x;
+            if (!open && run >= 0) {
+              const a = (run - left) / wPx, b = (x - left) / wPx;
+              g.drawImage(sp.img, cx0 + a * cw, cy0, (b - a) * cw, ch, run, bottom - hPx, x - run, hPx);
+              run = -1;
+            }
+          }
+          // ...and as she is reached, she spins away into snow.
+          if (v > 0) {
+            let seed = sp.seed * 977 + 3;
+            const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+            const size = hPx > 60 ? 2 : 1;
+            for (let i = 0; i < 24; i++) {
+              const px = sx + (rnd() - 0.5) * hPx * 0.4 + (rnd() - 0.5) * hPx * 0.9 * v;
+              const py = bottom - hPx * (0.15 + rnd() * 0.8) - (0.1 + rnd() * 0.5) * hPx * v;
+              g.globalAlpha = (1 - v) * (0.6 + rnd() * 0.4);
+              g.fillStyle = i % 3 ? "#FFFFFF" : "#F7B6D2";
+              g.fillRect(Math.round(px), Math.round(py), size, size);
+            }
+          }
+          g.globalAlpha = 1;
+        }
+        g.imageSmoothingEnabled = false;
+        // Snow falling past, swept sideways as the view turns.
+        const sweep = at.a * focal * 0.9;
+        g.fillStyle = "#FFFFFF";
+        for (let i = 0; i < (SCENE_LITE ? 45 : 90); i++) {
+          const r1 = (i * 0.618034) % 1, r2 = (i * 0.754877) % 1, r3 = (i * 0.56984) % 1, near = r3 > 0.78;
+          const y = ((r2 * (H + 6) + now * H * (near ? 0.42 : 0.16 + r3 * 0.18)) % (H + 6)) - 3;
+          const x = (((r1 * W + Math.sin(now * 1.2 + i) * 2 - sweep * (near ? 1.5 : 0.7)) % W) + W) % W;
+          g.globalAlpha = near ? 0.95 : 0.45 + r2 * 0.35;
+          g.fillRect(Math.round(x), Math.round(y), near ? 2 : 1, near ? 2 : 1);
+        }
+        g.globalAlpha = 1;
+        // Passing a bunny head turns the world over (the next turns it back), the picture growing as
+        // it turns so the screen stays covered.
+        const flip = (start) => { const q = clamp((now - start) / 0.36); return q * q * (3 - 2 * q); };
+        const over = (flip(mazeMoments.flips[0]) - flip(mazeMoments.flips[1])) * 180;
+        if (over > 0.01) {
+          const rad = (over * Math.PI) / 180, cs = Math.abs(Math.cos(rad)), sn = Math.abs(Math.sin(rad));
+          const vw = window.innerWidth, vh = window.innerHeight;
+          mazeView.style.transform = `rotate(${over.toFixed(2)}deg) scale(${Math.max((vw * cs + vh * sn) / vw, (vw * sn + vh * cs) / vh).toFixed(4)})`;
+        } else mazeView.style.transform = "";
+      };
+
+      // ── The apartment block: its windows a screen, words and a heart ──
+      const blockCam = box.querySelector(".dts-block-cam");
+      const blockView = box.querySelector(".dts-block-view");
+      const blockGlow = box.querySelector(".dts-block-glow");
+      const bloom = box.querySelector(".dts-block-bloom");
+      const mvTiny = document.createElement("canvas");
+      let lay = null, blockBg = null, mvLight = null;
+      const hash = (c, r) => { let n = Math.imul(c + 1, 73856093) ^ Math.imul(r + 1, 19349663); n = Math.imul(n ^ (n >>> 13), 1274126177); return ((n ^ (n >>> 16)) >>> 0) / 4294967296; };
+      const blockLayout = () => {
+        const w = window.innerWidth, h = window.innerHeight, wide = w >= h, cols = wide ? 29 : 17;
+        const unit = (w * (wide ? 0.82 : 0.9)) / cols, floorH = unit * (wide ? 1 : 1.18);
+        const ground = h * (wide ? 0.85 : 0.87);
+        const floors = Math.max(12, Math.min(26, Math.floor((ground - h * (wide ? 0.2 : 0.16) - floorH * 1.3) / floorH)));
+        const left = (w - cols * unit) / 2, top = ground - floorH * 1.3 - floors * floorH;
+        // The words and the heart as the windows they light (column + row × 100), in the middle.
+        const word = (text) => {
+          const glyphs = [...text].map((ch) => DT_FONT[ch]);
+          const on = new Map();
+          let c = Math.floor((cols - glyphs.reduce((n, rows) => n + rows[0].length + 1, -1)) / 2);
+          const r0 = Math.floor((floors - 5) / 2);
+          glyphs.forEach((rows, i) => { rows.forEach((row, y) => [...row].forEach((v, x) => { if (v === "1") on.set(c + x + (r0 + y) * 100, i); })); c += rows[0].length + 1; });
+          return on;
+        };
+        const heart = new Set();
+        const hc = Math.floor((cols - DT_HEART[0].length) / 2), hr = Math.floor((floors - DT_HEART.length) / 2);
+        DT_HEART.forEach((row, y) => [...row].forEach((v, x) => { if (v === "1") heart.add(hc + x + (hr + y) * 100); }));
+        const tip = hc + DT_HEART[DT_HEART.length - 1].indexOf("1") + (hr + DT_HEART.length - 1) * 100;
+        return { w, h, wide, cols, floors, unit, floorH, ground, left, top, heart, tip, ratio: SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5),
+          words: { SAY: word("SAY"), IT: word("IT"), BACK: word("BACK"), DITTO: word("DITTO") } };
+      };
+      // Everything that stays put, painted once for the screen: the night, 101, the snow, the lamp
+      // post, the trees, and her.
+      const paintBlock = (L) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(L.w * L.ratio); canvas.height = Math.round(L.h * L.ratio);
+        const g = canvas.getContext("2d");
+        g.scale(L.ratio, L.ratio);
+        const { w, h, wide, cols, floors, unit, floorH, ground, left, top } = L;
+        let seed = 17;
+        const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+        // The night: stars, a city glow low down, a thin moon.
+        const sky = g.createLinearGradient(0, 0, 0, ground);
+        sky.addColorStop(0, "#060A1C"); sky.addColorStop(0.75, "#1B2249"); sky.addColorStop(1, "#3B3562");
+        g.fillStyle = sky; g.fillRect(0, 0, w, h);
+        for (let i = 0; i < 110; i++) { const size = rnd() < 0.15 ? 1.6 : 1; g.fillStyle = `rgba(255, 255, 255, ${(0.2 + rnd() * 0.6).toFixed(2)})`; g.fillRect(rnd() * w, rnd() * ground * 0.75, size, size); }
+        const mr = Math.max(10, Math.min(w, h) * 0.032), moon = document.createElement("canvas");
+        moon.width = moon.height = Math.ceil(mr * 6);
+        const mg = moon.getContext("2d"), o = mr * 3;
+        mg.fillStyle = "#FFF5DA"; mg.beginPath(); mg.arc(o, o, mr, 0, Math.PI * 2); mg.fill();
+        mg.globalCompositeOperation = "destination-out"; mg.beginPath(); mg.arc(o + mr * 0.48, o - mr * 0.22, mr * 0.9, 0, Math.PI * 2); mg.fill();
+        g.save(); g.shadowColor = "rgba(255, 236, 196, 0.9)"; g.shadowBlur = mr; g.drawImage(moon, w * (wide ? 0.16 : 0.18) - o, h * (wide ? 0.1 : 0.075) - o); g.restore();
+        // Other blocks, far off, a few windows still lit.
+        (wide ? [[0, 0.47, 0.13], [0.86, 0.43, 0.14], [0.72, 0.53, 0.1]] : [[-0.08, 0.36, 0.2], [0.86, 0.31, 0.22]]).forEach(([x, y, fw]) => {
+          g.fillStyle = "#121736"; g.fillRect(x * w, y * h, fw * w, ground - y * h);
+          for (let i = 0; i < 30; i++) {
+            if (rnd() < 0.55) continue;
+            g.fillStyle = rnd() < 0.7 ? "rgba(255, 206, 150, 0.5)" : "rgba(150, 185, 255, 0.45)";
+            g.fillRect(x * w + 4 + rnd() * (fw * w - 10), y * h + 8 + rnd() * (ground - y * h - 24), Math.max(2, unit * 0.18), Math.max(1.5, unit * 0.12));
+          }
+        });
+        // The block: a slab and a railing on every floor, snow on every ledge.
+        const bx = left - unit * 0.55, bw = cols * unit + unit * 1.1, roof = top - floorH * 0.4;
+        const body = g.createLinearGradient(0, roof, 0, ground);
+        body.addColorStop(0, "#2B3152"); body.addColorStop(1, "#1C2139");
+        g.fillStyle = body; g.fillRect(bx, roof, bw, ground - roof);
+        for (let r = 0; r <= floors; r++) {
+          const y = top + r * floorH;
+          g.fillStyle = "#363E63"; g.fillRect(bx, y - floorH * 0.07, bw, Math.max(1.5, floorH * 0.09));
+          g.fillStyle = "rgba(232, 238, 255, 0.7)"; g.fillRect(bx, y - floorH * 0.085, bw, Math.max(1, floorH * 0.03));
+          if (r < floors) { g.fillStyle = "rgba(130, 140, 190, 0.28)"; g.fillRect(bx, y + floorH * 0.8, bw, Math.max(1, floorH * 0.035)); }
+        }
+        // On the roof: the parapet, the lift's machine room with 101 painted on it, a water tank,
+        // aerials, and the warning light's mast.
+        g.fillStyle = "#262C4C"; g.fillRect(bx, roof - floorH * 0.18, bw, floorH * 0.18);
+        g.fillStyle = "rgba(232, 238, 255, 0.75)"; g.fillRect(bx, roof - floorH * 0.2, bw, Math.max(1, floorH * 0.04));
+        const room = { x: left + unit * (wide ? 2 : 1), y: roof - floorH * 1.6, w: unit * (wide ? 5 : 5.5), h: floorH * 1.42 };
+        g.fillStyle = "#2E3557"; g.fillRect(room.x, room.y, room.w, room.h);
+        g.fillStyle = "rgba(232, 238, 255, 0.75)"; g.fillRect(room.x - 2, room.y - 2, room.w + 4, Math.max(1.5, floorH * 0.06));
+        g.save();
+        g.fillStyle = "rgba(240, 242, 255, 0.92)"; g.font = `800 ${Math.round(room.h * 0.62)}px Inter, system-ui, sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+        g.fillText("101", room.x + room.w / 2, room.y + room.h * 0.56);
+        g.restore();
+        const tank = { x: left + cols * unit - unit * (wide ? 6 : 4.5), y: roof - floorH * 1.1, w: unit * (wide ? 3 : 3.2), h: floorH * 0.92 };
+        g.fillStyle = "#2A3050"; g.fillRect(tank.x, tank.y, tank.w, tank.h);
+        g.fillStyle = "rgba(232, 238, 255, 0.7)"; g.beginPath(); g.ellipse(tank.x + tank.w / 2, tank.y, tank.w / 2, floorH * 0.16, 0, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#3A4268"; g.lineWidth = 1.5;
+        [[0.55, 2.2], [0.62, 1.6], [0.86, 1.9]].forEach(([x, high]) => {
+          g.beginPath(); g.moveTo(bx + bw * x, roof - floorH * 0.18); g.lineTo(bx + bw * x, roof - floorH * high);
+          g.moveTo(bx + bw * x - unit * 0.4, roof - floorH * (high - 0.4)); g.lineTo(bx + bw * x + unit * 0.4, roof - floorH * (high - 0.4)); g.stroke();
+        });
+        L.beacon = [room.x + room.w / 2, room.y - floorH * 0.3];
+        g.fillStyle = "#3A4268"; g.fillRect(L.beacon[0] - 1, L.beacon[1], 2, floorH * 0.3);
+        // The ground floor, the entrance lit.
+        const base = top + floors * floorH;
+        g.fillStyle = "#161A2E"; g.fillRect(bx, base + floorH * 0.02, bw, ground - base);
+        const door = { x: w / 2 - unit * 1.3, y: ground - floorH * 1.05, w: unit * 2.6, h: floorH * 1.05 };
+        const lobby = g.createLinearGradient(0, door.y, 0, ground);
+        lobby.addColorStop(0, "#FFE2B4"); lobby.addColorStop(1, "#E9A86C");
+        g.save(); g.shadowColor = "rgba(255, 200, 140, 0.8)"; g.shadowBlur = unit; g.fillStyle = lobby; g.fillRect(door.x, door.y, door.w, door.h); g.restore();
+        g.fillStyle = "#1C2036"; g.fillRect(door.x + door.w / 2 - 1, door.y, 2, door.h); g.fillRect(door.x - unit * 0.3, door.y - floorH * 0.12, door.w + unit * 0.6, floorH * 0.12);
+        // Snow on the ground, bare trees, a lamp post and its cone of light.
+        const snow = g.createLinearGradient(0, ground, 0, h);
+        snow.addColorStop(0, "#7F88B0"); snow.addColorStop(1, "#D2D9F0");
+        g.fillStyle = snow; g.fillRect(0, ground, w, h - ground);
+        const tree = (x, y, len, angle, depth) => {
+          const x2 = x + Math.cos(angle) * len, y2 = y + Math.sin(angle) * len;
+          g.lineWidth = Math.max(0.6, depth * 0.9); g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
+          if (depth > 1) { tree(x2, y2, len * 0.72, angle - 0.35 - rnd() * 0.3, depth - 1); tree(x2, y2, len * 0.72, angle + 0.35 + rnd() * 0.3, depth - 1); }
+        };
+        g.strokeStyle = "#0E1227"; g.lineCap = "round";
+        (wide ? [0.08, 0.36, 0.64, 0.75, 0.95] : [0.06, 0.72, 0.96]).forEach((x) => tree(w * x, ground + (h - ground) * 0.12, floorH * (1.1 + rnd() * 0.4), -Math.PI / 2 + (rnd() - 0.5) * 0.2, 6));
+        const lampFoot = ground + (h - ground) * 0.5, lamp = [w * (wide ? 0.87 : 0.84), lampFoot - floorH * (wide ? 2.4 : 2.8)];
+        L.lamp = [lamp[0] - unit * 0.7, lamp[1], (unit * 3) / (h - lamp[1])];
+        const cone = g.createLinearGradient(0, lamp[1], 0, h);
+        cone.addColorStop(0, "rgba(255, 214, 150, 0.32)"); cone.addColorStop(1, "rgba(255, 214, 150, 0.03)");
+        g.fillStyle = cone; g.beginPath(); g.moveTo(L.lamp[0] - unit * 0.15, lamp[1] + 2); g.lineTo(L.lamp[0] + unit * 0.15, lamp[1] + 2); g.lineTo(L.lamp[0] + unit * 3, h); g.lineTo(L.lamp[0] - unit * 3, h); g.closePath(); g.fill();
+        g.strokeStyle = "#141830"; g.lineWidth = Math.max(2, unit * 0.1);
+        g.beginPath(); g.moveTo(lamp[0], lampFoot); g.lineTo(lamp[0], lamp[1]); g.lineTo(L.lamp[0] - unit * 0.1, lamp[1]); g.stroke();
+        g.fillStyle = "#FFE6B8"; g.fillRect(L.lamp[0] - unit * 0.25, lamp[1], unit * 0.5, Math.max(2, floorH * 0.1));
+        // Her, from behind: footprints to where she stands, a beanie, a scarf, the camcorder held up
+        // over her head, its screen flipped open toward us.
+        const gh = h * (wide ? 0.15 : 0.11), gx = w * (wide ? 0.27 : 0.3), gy = h * (wide ? 0.955 : 0.93);
+        g.fillStyle = "rgba(86, 96, 136, 0.5)";
+        for (let i = 1; i < 9; i++) {
+          const t = i / 9;
+          g.beginPath(); g.ellipse(gx - t * (gx + w * 0.04) + (i % 2 ? -1 : 1) * gh * 0.04, gy + t * (h - gy) * 0.95, gh * 0.03 * (1 + t), gh * 0.012 * (1 + t), 0, 0, Math.PI * 2); g.fill();
+        }
+        g.fillStyle = "#0B0F20";
+        g.fillRect(gx - gh * 0.07, gy - gh * 0.3, gh * 0.05, gh * 0.3); g.fillRect(gx + gh * 0.02, gy - gh * 0.3, gh * 0.05, gh * 0.3);
+        g.fillRect(gx - gh * 0.09, gy - gh * 0.05, gh * 0.08, gh * 0.05); g.fillRect(gx + gh * 0.01, gy - gh * 0.05, gh * 0.08, gh * 0.05);
+        g.beginPath(); g.moveTo(gx - gh * 0.12, gy - gh * 0.74); g.lineTo(gx + gh * 0.12, gy - gh * 0.74); g.lineTo(gx + gh * 0.17, gy - gh * 0.27); g.lineTo(gx - gh * 0.17, gy - gh * 0.27); g.closePath(); g.fill();
+        g.beginPath(); g.ellipse(gx, gy - gh * 0.72, gh * 0.13, gh * 0.05, 0, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = "#0B0F20"; g.lineWidth = gh * 0.05;
+        g.beginPath(); g.moveTo(gx + gh * 0.1, gy - gh * 0.71); g.lineTo(gx + gh * 0.07, gy - gh * 1.05); g.stroke();
+        g.beginPath(); g.moveTo(gx - gh * 0.1, gy - gh * 0.71); g.lineTo(gx - gh * 0.03, gy - gh * 1.05); g.stroke();
+        g.fillStyle = "#151022"; g.beginPath(); g.ellipse(gx, gy - gh * 0.8, gh * 0.1, gh * 0.14, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#E7A6C2"; g.beginPath(); g.arc(gx, gy - gh * 0.87, gh * 0.088, Math.PI, 0); g.fill();
+        g.fillRect(gx - gh * 0.095, gy - gh * 0.875, gh * 0.19, gh * 0.03);
+        g.beginPath(); g.arc(gx, gy - gh * 0.965, gh * 0.03, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#CFE0F7"; g.fillRect(gx - gh * 0.1, gy - gh * 0.75, gh * 0.2, gh * 0.04); g.fillRect(gx + gh * 0.04, gy - gh * 0.72, gh * 0.045, gh * 0.16);
+        g.fillStyle = "#2A2F44"; g.fillRect(gx - gh * 0.02, gy - gh * 1.13, gh * 0.18, gh * 0.075);
+        L.lcd = [gx - gh * 0.17, gy - gh * 1.14, gh * 0.14, gh * 0.095];
+        g.fillStyle = "#3A3F58"; g.fillRect(L.lcd[0] - 1.5, L.lcd[1] - 1.5, L.lcd[2] + 3, L.lcd[3] + 3);
+        L.rec = [gx + gh * 0.135, gy - gh * 1.105, gh];
+        return canvas;
+      };
+      const drawBlock = (now) => {
+        const s = (now - DT_MV(1, 13)) / DT_SIX; // sixteenths into "say it back"
+        if (!lay || lay.w !== window.innerWidth || lay.h !== window.innerHeight) {
+          lay = blockLayout();
+          blockBg = paintBlock(lay);
+          blockView.width = Math.round(lay.w * lay.ratio); blockView.height = Math.round(lay.h * lay.ratio);
+          mvTiny.width = blockGlow.width = lay.cols; mvTiny.height = blockGlow.height = lay.floors;
+          Object.assign(blockGlow.style, { left: `${lay.left}px`, top: `${lay.top}px`, width: `${lay.cols * lay.unit}px`, height: `${lay.floors * lay.floorH}px`, filter: `blur(${(lay.unit * 0.45).toFixed(1)}px)` });
+          mvLight = null;
+        }
+        const L = lay, { cols, floors, unit, floorH, left, top } = L;
+        // The MV at the windows: its colours, the levels stretched so a dark shot still shows.
+        if ((mirrorsDue || !mvLight) && video.videoWidth) {
+          const mg = mvTiny.getContext("2d", { willReadFrequently: true });
+          const aspect = (cols * unit) / (floors * floorH), va = video.videoWidth / video.videoHeight;
+          const sw = aspect < va ? video.videoHeight * aspect : video.videoWidth, sh = aspect < va ? video.videoHeight : video.videoWidth / aspect;
+          mg.drawImage(video, (video.videoWidth - sw) / 2, (video.videoHeight - sh) / 2, sw, sh, 0, 0, cols, floors);
+          const data = mg.getImageData(0, 0, cols, floors).data;
+          let lo = 255, hi = 0;
+          for (let i = 0; i < data.length; i += 4) { const l = data[i] * 0.3 + data[i + 1] * 0.59 + data[i + 2] * 0.11; lo = Math.min(lo, l); hi = Math.max(hi, l); }
+          mvLight = { data, lo, span: Math.max(40, hi - lo) };
+        }
+        const mvAt = (c, r) => {
+          if (!mvLight) return null;
+          const i = (r * cols + c) * 4, d = mvLight.data;
+          const l = (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11 - mvLight.lo) / mvLight.span;
+          if (l < 0.22) return null;
+          const k = ((0.55 + l * 0.6) * 255) / Math.max(60, d[i], d[i + 1], d[i + 2]);
+          return [d[i] * k * 0.8 + 50 * l, d[i + 1] * k * 0.8 + 38 * l, d[i + 2] * k * 0.8 + 22 * l];
+        };
+        // As it is: some rooms dark, some lamps, a TV flickering blue here and there.
+        const life = (c, r) => {
+          const v = hash(c, r);
+          if (v < 0.45) return null;
+          if (v < 0.57) { const f = 0.7 + 0.3 * Math.sin(now * 11 + c * 7 + r * 3); return [140 * f, 178 * f, 255 * f]; }
+          return v < 0.86 ? [255, 206, 140] : [255, 236, 210];
+        };
+        const PASTEL = [[255, 178, 210], [214, 196, 255], [176, 206, 255], [214, 196, 255], [255, 178, 210]];
+        const bar = Math.floor(s / 16), k = s - bar * 16;
+        const word = bar === 1 ? (k < 4 ? [L.words.SAY, 0] : k < 8 ? [L.words.IT, 4] : k < 11 ? [L.words.BACK, 8] : null) : null;
+        const lit = new Array(cols * floors).fill(null);
+        for (let r = 0; r < floors; r++) for (let c = 0; c < cols; c++) {
+          const n = c + r * 100;
+          let col = null;
+          // Bar 13: the block as it is, then the MV filling it from the ground up.
+          if (bar <= 0) col = s < 4 + ((floors - 1 - r) / floors) * 3.5 ? life(c, r) : mvAt(c, r);
+          // Bar 14: SAY, IT, BACK on the kicks (a quick wipe across each), then the MV again.
+          else if (bar === 1) col = word ? (word[0].has(n) && k - word[1] >= (c / cols) * 0.8 ? [255, 240, 216] : null) : mvAt(c, r);
+          // Bar 15, the break: DITTO, a letter an eighth, each flashing as it lights.
+          else if (bar === 2) { const i = L.words.DITTO.get(n); if (i !== undefined && k >= i * 2) col = PASTEL[i].map((v) => v * (1 + 0.6 * Math.max(0, 1 - (k - i * 2)))); }
+          // Bar 16: the heart, beating on the kicks, then going out window by window, all but one.
+          else if (L.heart.has(n) && (n === L.tip || k < 8.5 + hash(c, r) * 3)) col = n === L.tip && k > 11.5 ? [255, 244, 226] : [255, 172, 206];
+          // Each kick a ripple out from the middle.
+          if (col && bar !== 2) {
+            const p = dtKickPulse(now - Math.hypot(c - cols / 2, (r - floors / 2) * 1.2) / cols * 0.3);
+            if (p > 0.01) col = col.map((v) => v * (1 + p * 0.45));
+          }
+          lit[r * cols + c] = col && col.map((v) => Math.min(255, v));
+        }
+        // Paint: the still parts, then the windows (a curtain half drawn, the frame's middle bar),
+        // their light into the glow over them.
+        const g = blockView.getContext("2d");
+        g.setTransform(L.ratio, 0, 0, L.ratio, 0, 0);
+        g.drawImage(blockBg, 0, 0, L.w, L.h);
+        const gw = blockGlow.getContext("2d");
+        const glow = gw.createImageData(cols, floors);
+        for (let r = 0; r < floors; r++) for (let c = 0; c < cols; c++) {
+          const col = lit[r * cols + c], v = hash(c, r);
+          const x = left + c * unit + unit * 0.17, y = top + r * floorH + floorH * 0.2, ww = unit * 0.66, wh = floorH * 0.52;
+          if (!col) { g.fillStyle = v < 0.5 ? "#131930" : "#171E38"; g.fillRect(x, y, ww, wh); continue; }
+          g.fillStyle = `rgb(${col[0] | 0}, ${col[1] | 0}, ${col[2] | 0})`; g.fillRect(x, y, ww, wh);
+          g.fillStyle = "rgba(110, 50, 40, 0.2)"; g.fillRect(v < 0.5 ? x : x + ww * 0.6, y, ww * 0.4, wh);
+          g.fillStyle = "rgba(24, 28, 46, 0.6)"; g.fillRect(x + ww / 2 - 0.5, y, 1, wh);
+          const i = (r * cols + c) * 4;
+          glow.data[i] = col[0]; glow.data[i + 1] = col[1]; glow.data[i + 2] = col[2]; glow.data[i + 3] = 255;
+        }
+        gw.putImageData(glow, 0, 0);
+        // The warning light on the roof, on every beat.
+        if (((now - DT_MV(1, 13)) / DT_BEAT) % 1 < 0.35) {
+          g.save(); g.fillStyle = "#FF5A6E"; g.shadowColor = "#FF4060"; g.shadowBlur = unit * 0.8;
+          g.beginPath(); g.arc(L.beacon[0], L.beacon[1], Math.max(2, unit * 0.09), 0, Math.PI * 2); g.fill(); g.restore();
+        }
+        // Her camcorder's screen shows what she is filming; its REC light blinks.
+        const [lx, ly, lw, lh] = L.lcd;
+        g.fillStyle = "#0D1426"; g.fillRect(lx, ly, lw, lh);
+        g.imageSmoothingEnabled = false; g.drawImage(blockGlow, lx, ly, lw, lh); g.imageSmoothingEnabled = true;
+        g.fillStyle = "rgba(160, 196, 255, 0.22)"; g.fillRect(lx, ly, lw, lh);
+        if (now % 1 < 0.55) { g.fillStyle = "#FF3B4E"; g.beginPath(); g.arc(L.rec[0], L.rec[1], Math.max(1.5, L.rec[2] * 0.013), 0, Math.PI * 2); g.fill(); }
+        // Snow, near flakes bigger and faster, bright where they fall through the lamp's light.
+        const t = now - DT_MV(1, 13);
+        g.fillStyle = "#F4F6FF";
+        for (let i = 0; i < (SCENE_LITE ? 70 : 140); i++) {
+          const r1 = (i * 0.618034) % 1, r2 = (i * 0.754877) % 1, depth = 0.25 + ((i * 0.56984) % 1) * 0.75;
+          const y = ((r2 * (L.h + 40) + t * (24 + depth * 80)) % (L.h + 40)) - 20;
+          const x = ((((r1 * L.w + Math.sin(t * (0.5 + depth) + i) * 16 * depth + t * 14 * depth) % L.w) + L.w) % L.w);
+          const inLight = y > L.lamp[1] && Math.abs(x - L.lamp[0]) < (y - L.lamp[1]) * L.lamp[2] + unit * 0.2;
+          g.globalAlpha = Math.min(1, (0.25 + depth * 0.55) * (inLight ? 1.8 : 1));
+          g.beginPath(); g.arc(x, y, (0.7 + depth * depth * 3.2) * (L.wide ? 1 : 0.85), 0, Math.PI * 2); g.fill();
+        }
+        g.globalAlpha = 1;
+        // The camera: handheld, pushing in slowly; at the end into the last window, its light
+        // filling the screen.
+        const push = 1 + 0.05 * clamp(s / 60);
+        let S = push, tx = ((1 - push) * L.w) / 2 + Math.sin(now * 1.1) * 3 + Math.sin(now * 2.6) * 1.2, ty = ((1 - push) * L.h) / 2 + Math.cos(now * 1.3) * 2;
+        const zoom = clamp((s - 60) / 4);
+        let wx = 0, wy = 0;
+        if (zoom > 0) {
+          wx = S * (left + ((L.tip % 100) + 0.5) * unit) + tx; wy = S * (top + (Math.floor(L.tip / 100) + 0.46) * floorH) + ty;
+          const S2 = 1 + 60 * zoom ** 3;
+          S *= S2; tx = S2 * tx + (1 - S2) * wx; ty = S2 * ty + (1 - S2) * wy;
+        }
+        blockCam.style.transform = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${S.toFixed(4)})`;
+        blockGlow.style.opacity = String(1 - clamp(zoom * 3));
+        bloom.style.opacity = (zoom ** 2 * 0.95).toFixed(3);
+        if (zoom > 0) { bloom.style.setProperty("--x", `${wx.toFixed(0)}px`); bloom.style.setProperty("--y", `${wy.toFixed(0)}px`); }
+      };
+
+      return {
+        show(cue, now) {
+          box.dataset.cue = cue;
+          if (cue === "cube" || cue === "scope" || cue === "maze" || cue === "block" || cue === "chalk") restart(cam, "is-tape");
+        },
+        tick(now) {
+          const s = Math.floor(now);
+          time.textContent = `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+          const cue = box.dataset.cue;
+          STAGE_PARTS[cue]?.(now);
+          if (cue === "maze") drawMaze(now);
+          if (cue === "block") drawBlock(now);
+        },
+        unmount() { video.remove(); },
+      };
+    },
+  };
+
   // ── The themes ──
   const THEMES = {
     whiplash: {
@@ -2878,6 +6097,54 @@
       extras: ["logo-black.webp", "kiss.svg", "phone.webp", "heart.webp", "hearts.webp", "doodle-hearts.webp", "doodle-bows.webp", "doodle-sparkle.webp", "teddy.webp", "ribbon.webp", "lightstick.webp", "lightstick-head.webp",
         ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-booth.webp`, `${key}-back.webp`])],
     },
+    // Ditto: NewJeans, the one theme that is not aespa's, and not in the playlist until found (the
+    // word "same" in the last quick tip opens it; see the end of this file). A winter, a Y2K desktop,
+    // the five of them as they were in 2022. The intro (16 bars at 134 BPM) runs straight into
+    // track 1; tracks 1 and 2 (16 bars each) then take turns. The page is a pastel desktop in the
+    // snow (ditto.css); the members' cards turn over to a chat window where she says her own line.
+    ditto: {
+      group: "newjeans",
+      era: "Ditto", folder: "ditto/", tag: "DITTO", back: "chat", scheme: "light",
+      title: "Brew Houze × NewJeans · Ditto", toast: "Brew Houze × NewJeans · Ditto ❄",
+      sub: "Ditto · System portal", h1: "Every Brew Houze app. Say it ditto.", footer: "Brew Houze × NewJeans · Ditto · café management system",
+      introClip: "ditto/intro.mp3", introStart: DT_START, introLength: 64 * DT_BEAT,
+      loops: [{ src: "ditto/track-1.mp3", start: DT_START, length: 64 * DT_BEAT }, { src: "ditto/track-2.mp3", start: DT_START, length: 64 * DT_BEAT }],
+      joined: true, intro: dittoIntro, introClass: "dt-intro",
+      // The bridge (track 2; see dittoStage above). The page's text turns into the bridge's lines,
+      // selected as on an old computer (a blue highlight sweeping over each); during Danielle's
+      // part, only hers.
+      stage: {
+        beat: DT_BEAT, parts: [64 * DT_BEAT, 64 * DT_BEAT], grid: DT_BRIDGE,
+        lyrics: (t) => (t >= 7.164 && t < 14.328 ? DT_DANIELLE.map(([, text]) => text) : DT_LINES),
+        fx: `<i class="dtx-night"></i>`
+          + `<div class="dtx-trail is-a"><div class="dtx-copy" style="--i: 0; --x: 4.0; --y: 12.0"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 1; --x: 9.4; --y: 19.2"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 2; --x: 14.8; --y: 25.9"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 3; --x: 20.2; --y: 31.9"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 4; --x: 25.6; --y: 36.7"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 5; --x: 31.0; --y: 40.1"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 6; --x: 36.4; --y: 41.8"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 7; --x: 41.8; --y: 41.8"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 8; --x: 47.2; --y: 40.1"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 9; --x: 52.6; --y: 36.7"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 10; --x: 58.0; --y: 31.9"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 11; --x: 63.4; --y: 25.9"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 12; --x: 68.8; --y: 19.2"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 13; --x: 74.2; --y: 12.0"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div></div><div class="dtx-trail is-b"><div class="dtx-copy" style="--i: 0; --x: 78.0; --y: 60.0"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 1; --x: 72.6; --y: 53.8"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 2; --x: 67.2; --y: 47.9"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 3; --x: 61.8; --y: 42.8"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 4; --x: 56.4; --y: 38.6"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 5; --x: 51.0; --y: 35.7"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 6; --x: 45.6; --y: 34.2"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 7; --x: 40.2; --y: 34.2"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 8; --x: 34.8; --y: 35.7"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 9; --x: 29.4; --y: 38.6"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 10; --x: 24.0; --y: 42.8"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 11; --x: 18.6; --y: 47.9"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 12; --x: 13.2; --y: 53.8"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div><div class="dtx-copy" style="--i: 13; --x: 7.8; --y: 60.0"><p class="dt-bar"><span>say_it_ditto.txt</span><b>_ □ ×</b></p><div class="dtx-copy-body"><i></i><b>ditto</b></div></div></div>`
+          + `<div class="dtx-flakes">${Array.from({ length: 30 }, (_, n) => `<i style="--x: ${(n * 41 + 7) % 100}; --d: ${(n * 17) % 10}; --s: ${0.6 + ((n * 7) % 6) / 5}"></i>`).join("")}</div>`
+          + `<div class="dtx-globe"><div class="dtx-glass"><img src="${siteUrl("ditto/danielle-anime.webp")}" alt="" draggable="false" /><div class="dtx-inside">${Array.from({ length: 26 }, (_, n) => `<i style="--x: ${(n * 37 + 11) % 86 + 7}; --y: ${(n * 53 + 5) % 70 + 6}; --d: ${(n * 13) % 10}"></i>`).join("")}</div><i class="dtx-shine"></i></div><div class="dtx-base"><span>Danielle · 다니엘 · 2022</span></div></div>`
+          + `<div class="dtx-lines">${DT_DANIELLE.map(([, text]) => `<p>${escapeHtml(text)}</p>`).join("")}</div>`
+          + `<div class="dtx-amp">`
+            + `<div class="dtx-win dtx-main"><p class="dtx-tbar"><i></i><span>DITTO AMP</span><b>_ □ ×</b></p><div class="dtx-main-body">`
+              + `<div class="dtx-lcd"><div class="dtx-lcd-left"><p><span class="dtx-state">▶</span><b class="dtx-amp-time">01:42</b></p><canvas class="dtx-vis" width="300" height="76"></canvas></div>`
+              + `<div class="dtx-lcd-right"><div class="dtx-marquee"><span>1. NewJeans · Ditto (3:05) *** 혜인 · I got nothing to lose · 널 좋아한다고 wooah wooah wooah ***&nbsp;</span><span>1. NewJeans · Ditto (3:05) *** 혜인 · I got nothing to lose · 널 좋아한다고 wooah wooah wooah ***&nbsp;</span></div>`
+              + `<p class="dtx-info"><b>134</b> kbps <b>44</b> kHz <em>mono</em> <em class="is-on">stereo</em></p><div class="dtx-sliders"><i class="dtx-vol"><b></b></i><i class="dtx-bal"><b></b></i><em class="is-on">EQ</em><em class="is-on">PL</em></div></div></div>`
+              + `<div class="dtx-seek"><i></i><b></b></div>`
+              + `<div class="dtx-controls"><span>⏮</span><span class="is-on">▶</span><span>❚❚</span><span>■</span><span>⏭</span><span>⏏</span><em>SHUFFLE</em><em class="is-on">↻</em></div>`
+            + `</div></div>`
+            + `<div class="dtx-win dtx-eq"><p class="dtx-tbar"><i></i><span>DITTO AMP EQUALIZER</span><b>×</b></p><div class="dtx-eq-body"><div class="dtx-eq-top"><em class="is-on">ON</em><em>AUTO</em><canvas class="dtx-eq-curve" width="300" height="48"></canvas><em>PRESETS</em></div>`
+              + `<div class="dtx-eq-bands">${["PRE", "60", "170", "310", "600", "1K", "3K", "6K", "12K", "14K", "16K"].map((hz, n) => `<div class="dtx-band${n ? "" : " is-pre"}"><i></i><span>${hz}</span></div>`).join("")}</div></div></div>`
+            + `<div class="dtx-win dtx-pl"><p class="dtx-tbar"><i></i><span>DITTO AMP PLAYLIST</span><b>×</b></p><ol class="dtx-pl-list">${[["Ditto", "3:05"], ["OMG", "3:32"], ["Attention", "3:00"], ["Hype Boy", "2:59"], ["Cookie", "3:55"], ["Hurt", "2:57"]].map(([song, time], n) => `<li${n ? "" : ' class="is-on"'}><span>${n + 1}. NewJeans · ${song}</span><b>${time}</b></li>`).join("")}</ol>`
+              + `<p class="dtx-pl-foot"><span>+ADD</span><span>−REM</span><span>SEL</span><span>MISC</span><b><span class="dtx-pl-time">1:42</span>/19:28</b></p></div>`
+          + `</div>`
+          + `<i class="dtx-blush"></i><canvas class="dtx-jelly"></canvas>`
+          + `<div class="dtx-pops">${Array.from({ length: 12 }, (_, n) => `<img src="${siteUrl(`ditto/sticker-${[14, 21, 12, 13][n % 4]}.webp`)}" alt="" draggable="false" style="--a: ${n * 137.5}deg; --r: ${22 + ((n * 7) % 5) * 4}vmin; --s: ${0.6 + ((n * 3) % 4) / 6}" />`).join("")}</div>`
+          + `<div class="dtx-vhs"><b class="dtx-pause">❚❚ PAUSE</b><b class="dtx-play">▶ PLAY</b><i class="dtx-track"></i></div><i class="dtx-bloom"></i>`,
+        sections: [[0, "calm"], ...[[0, "ditto"], [3.582, "ditto2"], [7.164, "globe"], [14.328, "amp"], [21.492, "heart"], [25.970, "pause"], [26.865, "play"]].map(([at, name]) => [DT_BRIDGE + at, name])],
+        ...dittoStage,
+      },
+      scene: dittoScene,
+      decor: `<div class="dt-decor" aria-hidden="true"><i class="dt-decor-cd"></i><div class="dt-poster"><i class="dt-poster-tape"></i><div class="dt-poster-photo"></div><p class="dt-poster-title">DITTO<small>2022</small></p><p class="dt-poster-meta">NEWJEANS I 121922</p><p class="dt-poster-meta">OMG</p><p class="dt-poster-meta">MINJI I HANNI I DANIELLE I HAERIN I HYEIN</p></div><i class="dt-decor-logo"></i><i class="dt-decor-bunny"></i><i class="dt-decor-s is-1"></i><i class="dt-decor-s is-2"></i><i class="dt-decor-s is-3"></i><i class="dt-decor-s is-4"></i></div>`,
+      extras: ["tape.mp4", "logo-ditto.webp", "sticker-16.webp", "all-together.webp", "cd.webp", "bunny.webp", ...DT_STICKERS.map((n) => `sticker-${n}.webp`), "sticker-12.webp", "sticker-13.webp",
+        ...["minji", "hanni", "danielle", "haerin", "hyein"].flatMap((key) => [`${key}-back.webp`, `${key}-anime.webp`])].filter((file) => !file.endsWith(".mp4")),
+    },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
   // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
@@ -2925,12 +6192,14 @@
 
   function renderLineup(theme) {
     const t = THEMES[theme];
-    lineup.innerHTML = `<p class="ae-collab"><b>Brew Houze × aespa</b> · ${escapeHtml(t.era)}</p><ol>${memberOrder.map((key, index) => {
-      const m = MEMBERS[key];
+    const group = groupOf(theme);
+    lineup.innerHTML = `<p class="ae-collab"><b>Brew Houze × ${escapeHtml(group.name)}</b> · ${escapeHtml(t.era)}</p><ol>${group.order.map((key, index) => {
+      const m = group.members[key];
       return `<li class="ae-member" style="--delay: ${index * 0.35}s" data-member="${key}" role="button" tabindex="0" aria-label="Open ${escapeHtml(m.name)}’s photo card">`
         + `<img draggable="false" class="ae-photo" src="${photoOf(theme, key)}" alt="" loading="lazy" onerror="this.remove()" />`
         + (t.back === "signature" ? `<span class="am-plate-sign" aria-hidden="true" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.svg`)}')"></span>` : "")
         + (t.back === "emblem" ? `<span class="dr-plate-emblem" aria-hidden="true" style="--emblem: url('${siteUrl(`${t.folder}${key}-emblem.webp`)}')"></span>` : "")
+        + (t.back === "chat" ? `<span class="dt-still" aria-hidden="true"><b><span>▶ PLAY</span><span>● REC</span></b><i>DEC 19 2022</i></span>` : "")
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
@@ -2945,6 +6214,7 @@
     drama: { kicker: "Scene 00 · Take 01", label: "Action" },
     richman: { kicker: "● Live · Rich Man", label: "Plug in. Play it loud." },
     kissntell: { kicker: "🎟 Admit one", label: "Enter Kiss N Tell Park" },
+    ditto: { kicker: "❄ 12.19.2022", label: "Rewind to that winter" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
   // page and lights up there during the bridge.
@@ -2994,7 +6264,8 @@
   }
   // ── The lyrics: through the bridge, the page's text turns into lines of the song ──
   // Every two bars the lines are dealt again over the headings, notes, cards, guide, tips, plates
-  // and footer (the buttons, links, status and QR codes stay as they are); each theme brings its
+  // and footer (the buttons, links, status and QR codes stay as they are; a theme's lines may be a
+  // function of the seconds into the bridge, for lines that belong to one part); each theme brings its
   // lines in its own way (.ae-lyric, styled in its stylesheet). The real text stays for screen
   // readers, and it all comes back when the bridge ends.
   const LYRIC_TARGETS = ".hero h1, .hero .lead, .ae-collab, .ae-name, .ae-role, .section .eyebrow, .section h2, .section-note, .card h3, .card .who, .card .desc, .guide-item strong, .guide-item span, .tips li, footer .wrap > span:first-child";
@@ -3061,7 +6332,7 @@
         setStage(name, begins === 0 && name === "calm" ? 0 : ((at - grid) % bar + bar) % bar);
         stage.tick?.(at, name);
         if (name === "calm" || !stage.lyrics) restoreLyrics();
-        else dealLyrics(stage.lyrics, Math.floor((at - grid) / (bar * 2)));
+        else dealLyrics(typeof stage.lyrics === "function" ? stage.lyrics(at - grid) : stage.lyrics, Math.floor((at - grid) / (bar * 2)));
       }
     }
     stageFrame = requestAnimationFrame(stageTick);
@@ -3098,16 +6369,18 @@
     if (theme) startStage(theme); else stopStage();
     const t = theme ? THEMES[theme] : null;
     if (t) { root.dataset.theme = theme; root.dataset.secret = ""; } else { delete root.dataset.theme; delete root.dataset.secret; }
-    brandName.innerHTML = t ? "Brew Houze <b>×</b> aespa" : cafe.brand;
+    brandName.innerHTML = t ? `Brew Houze <b>×</b> ${escapeHtml(groupOf(theme).name)}` : cafe.brand;
     brandSub.textContent = t ? t.sub : cafe.sub;
     heading.textContent = t ? t.h1 : cafe.h1;
     footerText.textContent = t ? t.footer : cafe.footer;
     document.title = t ? t.title : cafe.title;
-    footerYear.textContent = t ? `${yearText} × aespa` : yearText;
+    footerYear.textContent = t ? `${yearText} × ${groupOf(theme).name}` : yearText;
     document.querySelector('meta[name="color-scheme"]').setAttribute("content", t ? (t.scheme ?? "dark") : "light");
     decor.innerHTML = t?.decor ?? "";
     if (t) renderLineup(theme); else { lineup.innerHTML = ""; closeMember(); }
     renderCta(theme);
+    if (ORDER.includes(theme) && !visited().includes(theme)) store.set(VISITED_KEY, JSON.stringify([...visited(), theme]));
+    onThemeApplied?.();
   }
 
   // ── Sound ──
@@ -3130,6 +6403,7 @@
     let timer = null;
     let generation = 0;
     let hiddenSuspend = false;
+    let tap = null;
     const context = () => {
       if (!ctx) {
         const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -3273,6 +6547,17 @@
         ramp(0, 450);
         setTimeout(() => { if (mine === generation) { halt(); ctx.suspend(); } }, 480);
       },
+      // What it plays, as an AnalyserNode (put in after the volume the first time it is asked for;
+      // null before the music has started).
+      analyser() {
+        if (!ctx) return null;
+        if (!tap) {
+          tap = ctx.createAnalyser();
+          tap.fftSize = 1024; tap.smoothingTimeConstant = 0.5; tap.minDecibels = -90; tap.maxDecibels = -22;
+          gain.disconnect(); gain.connect(tap); tap.connect(ctx.destination);
+        }
+        return tap;
+      },
       hide() { if (ctx && timer && ctx.state === "running") { hiddenSuspend = true; ctx.suspend(); } },
       show() { if (!hiddenSuspend) return Promise.resolve(true); hiddenSuspend = false; return running(); },
     };
@@ -3308,7 +6593,7 @@
     if (THEMES[theme].joined) playerFor(theme).preload(); else clipFor(theme);
     if (warmed[theme]) return;
     const t = THEMES[theme];
-    warmed[theme] = [...memberOrder.map((key) => photoOf(theme, key)), ...flashesOf(theme), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
+    warmed[theme] = [...groupOf(theme).order.map((key) => photoOf(theme, key)), ...flashesOf(theme), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
   }
 
   const soundButton = document.getElementById("ae-sound");
@@ -3347,7 +6632,7 @@
       box.setAttribute("aria-hidden", "true");
       // The members' and the group photos, loaded now (one not ready in time is skipped).
       const image = (src) => { const img = new Image(); img.alt = ""; img.draggable = false; img.src = src; return img; };
-      const photos = memberOrder.map((key) => image(photoOf(theme, key)));
+      const photos = groupOf(theme).order.map((key) => image(photoOf(theme, key)));
       const film = introVideo(theme);
       const show = spec.mount(box, photos, flashesOf(theme).map(image), film);
       document.body.appendChild(box);
@@ -3439,6 +6724,7 @@
     drama: { logo: "drama/logo.webp", tint: "#F30306", mask: false },
     richman: { logo: "richman/logo-black.webp", tint: "#D9FF2E", mask: true },
     kissntell: { logo: "kiss-n-tell/logo-black.webp", tint: "#FF8CC6", mask: true },
+    ditto: { logo: "ditto/logo-ditto.webp", tint: "#9AA6E8", mask: true },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -3451,15 +6737,16 @@
   const pickCard = (theme) => {
     if (!theme) return `<button type="button" class="ae-pick is-cafe" data-pick="cafe" role="radio" style="--i: 0"><span class="ae-pick-no">01</span><span class="ae-pick-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M17 10.5h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8-.6 1.7 0 2.5M11.5 3.5c-.6.8-.6 1.7 0 2.5M15 3.5c-.6.8-.6 1.7 0 2.5"/></svg></span><span class="ae-pick-text"><span class="ae-pick-name">Café</span><span class="ae-pick-by">Brew Houze · the everyday look</span></span>${EQ}</button>`;
     const p = PICKS[theme];
-    const n = ORDER.indexOf(theme) + 2;
-    return `<button type="button" class="ae-pick" data-pick="${theme}" role="radio" style="--i: ${n - 1}; --tint: ${p.tint}">`
+    const bonus = !ORDER.includes(theme);
+    const n = bonus ? ORDER.length + 2 : ORDER.indexOf(theme) + 2;
+    return `<button type="button" class="ae-pick${bonus ? " is-bonus" : ""}" data-pick="${theme}" role="radio" style="--i: ${n - 1}; --tint: ${p.tint}"${bonus ? " hidden" : ""}>`
       + `<span class="ae-pick-no">${String(n).padStart(2, "0")}</span>`
       + `<span class="ae-pick-art" data-src="${flashesOf(theme)[0]}"></span>`
-      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">aespa</span></span>`
+      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">${escapeHtml(groupOf(theme).name)}${bonus ? " · hidden track" : ""}</span></span>`
       + `<i class="ae-pick-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')" aria-hidden="true"></i>${EQ}</button>`;
   };
-  picker.innerHTML = `<div class="ae-picker-head"><i class="ae-picker-cover" aria-hidden="true"></i><p><small>Playlist</small><b>Brew Houze × aespa</b><span>${ORDER.length + 1} tracks · pick an era</span></p></div>`
-    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER].map(pickCard).join("")}</div>`;
+  picker.innerHTML = `<div class="ae-picker-head"><i class="ae-picker-cover" aria-hidden="true"></i><p><small>Playlist</small><b>Brew Houze × aespa</b><span class="ae-picker-count">${ORDER.length + 1} tracks · pick an era</span></p></div>`
+    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER, "ditto"].map(pickCard).join("")}</div>`;
   document.body.appendChild(picker);
   footerYear.setAttribute("aria-haspopup", "dialog");
   footerYear.setAttribute("aria-controls", "ae-picker");
@@ -3516,13 +6803,15 @@
     if (event.key === "Escape") { event.preventDefault(); closePicker(true); return; }
     if (event.key === "Tab") { closePicker(); return; }
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    const home = { Home: 0, End: pickButtons.length - 1 }[event.key];
+    // (A hidden track not found yet is skipped.)
+    const shown = pickButtons.filter((button) => !button.hidden);
+    const home = { Home: 0, End: shown.length - 1 }[event.key];
     if (step === undefined && home === undefined) return;
     event.preventDefault();
-    const now = pickButtons.indexOf(document.activeElement);
-    const next = home ?? (now + step + pickButtons.length) % pickButtons.length;
-    pickButtons.forEach((button, index) => { button.tabIndex = index === next ? 0 : -1; });
-    pickButtons[next].focus();
+    const now = shown.indexOf(document.activeElement);
+    const next = home ?? (now + step + shown.length) % shown.length;
+    shown.forEach((button, index) => { button.tabIndex = index === next ? 0 : -1; });
+    shown[next].focus();
   });
   document.addEventListener("pointerdown", (event) => { if (!picker.hidden && !picker.contains(event.target) && event.target !== footerYear) closePicker(); });
 
@@ -3692,16 +6981,18 @@
     if (!current) return;
     calmStorm();
     const t = THEMES[current];
-    pcIndex = (index + memberOrder.length) % memberOrder.length;
-    const key = memberOrder[pcIndex];
-    const member = MEMBERS[key];
+    const group = groupOf(current);
+    pcIndex = (index + group.order.length) % group.order.length;
+    const key = group.order[pcIndex];
+    const member = group.members[key];
+    const count = `0${pcIndex + 1} / ${String(group.order.length).padStart(2, "0")}`;
     pcCard.classList.remove("is-flipped");
     document.getElementById("ae-pc-img").src = photoOf(current, key);
-    document.getElementById("ae-pc-img").alt = `${member.name} of aespa`;
+    document.getElementById("ae-pc-img").alt = `${member.name} of ${group.name}`;
     document.getElementById("ae-pc-title").textContent = member.name;
     document.getElementById("ae-pc-hangul").textContent = member.hangul;
     document.getElementById("ae-pc-tag").textContent = t.tag;
-    document.getElementById("ae-pc-count").textContent = `0${pcIndex + 1} / 04`;
+    document.getElementById("ae-pc-count").textContent = count;
     const back = document.getElementById("ae-pc-back");
     back.classList.toggle("is-signature", t.back === "signature");
     back.classList.toggle("is-spec", t.back === "spec");
@@ -3709,7 +7000,20 @@
     back.classList.toggle("is-image", t.back === "image");
     back.classList.toggle("is-tarot", t.back === "tarot");
     back.classList.toggle("is-kiss", t.back === "kiss");
-    back.innerHTML = t.back === "tarot" ? dirtyTarotBack(member, key, t) : t.back === "kiss" ? `
+    back.classList.toggle("is-chat", t.back === "chat");
+    back.innerHTML = t.back === "chat" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">♡</button>
+      <div class="dt-chat">
+        <p class="dt-bar"><span>${key}@ditto · Conversation</span><b>_ □ ×</b></p>
+        <div class="dt-chat-who"><span class="dt-chat-pic" style="background-image: url('${siteUrl(`${t.folder}${key}-anime.webp`)}')"></span><p><b>${escapeHtml(member.name)}</b> <span>${escapeHtml(member.hangul)}</span><small class="dt-chat-status">● online · 12/19/2022</small></p></div>
+        <div class="dt-chat-log">
+          <p class="dt-msg"><span>${escapeHtml(member.name)} says:</span>${escapeHtml(member.line)}</p>
+          <div class="dt-msg-photo" role="img" aria-label="${escapeHtml(member.name)}, a photo she sent" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"><small>${key}_2022.jpg</small></div>
+          <p class="dt-msg is-me"><span>you say:</span><i class="dt-me-text">say it ditto ♡</i></p>
+        </div>
+        <form class="dt-chat-input" data-member="${key}"><input type="text" maxlength="60" autocomplete="off" enterkeyhint="send" placeholder="Type a message…" aria-label="Message ${escapeHtml(member.name)}" /><button type="submit">Send</button></form>
+      </div>
+      <p class="dt-chat-foot">${count} · ${escapeHtml(member.real)} · born ${escapeHtml(member.born)}, ${escapeHtml(member.from)}</p>` : t.back === "tarot" ? dirtyTarotBack(member, key, t) : t.back === "kiss" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">æ</button>
       <i class="kt-back-holo" aria-hidden="true"></i>
       <i class="kt-back-logo" aria-hidden="true"></i>
@@ -3811,7 +7115,7 @@
   function openMember(key, opener) {
     startTilt();
     pcOpener = opener;
-    showMember(memberOrder.indexOf(key));
+    showMember(groupOf(current).order.indexOf(key));
     pcModal.hidden = false;
     document.body.style.overflow = "hidden";
     document.getElementById("ae-pc-close").focus();
@@ -3840,9 +7144,156 @@
   document.addEventListener("keydown", (event) => {
     if (pcModal.hidden) return;
     if (event.key === "Escape") closeMember();
+    else if (event.target.matches?.("input, textarea")) return; // typing in Ditto's chat
     else if (event.key === "ArrowLeft") showMember(pcIndex - 1);
     else if (event.key === "ArrowRight") showMember(pcIndex + 1);
   });
+  // ── Ditto: the chat on the back of each card ──
+  // Anything sent shows as "you say" and the window glows. "ditto" echoes, the window gets a nudge
+  // and she answers "ditto ♡". A member's name (in English or Hangul) brings her Powerpuff Girl
+  // flying across the card on a streak of her colour; on her own card, she answers too.
+  const PPG_COLORS = { minji: "#5B7BE0", hanni: "#D23C9A", danielle: "#F2C230", haerin: "#E8892E", hyein: "#E04A6E" };
+  const plain = (text) => text.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  pcModal.addEventListener("submit", (event) => {
+    const form = event.target.closest(".dt-chat-input");
+    if (!form) return;
+    event.preventDefault();
+    const input = form.querySelector("input");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    chatSend(form.closest(".dt-chat"), form.dataset.member, text);
+  });
+  function chatSend(chat, key, text) {
+    const me = chat.querySelector(".dt-me-text");
+    me.textContent = text;
+    restartClass(me, "is-new");
+    restartClass(chat, "is-glow");
+    const said = plain(text);
+    const who = NJ_MEMBERS[key];
+    if (said === "ditto") {
+      dittoEcho(chat, text);
+      chatReply(chat, who, "ditto ♡", 900);
+      return;
+    }
+    const named = Object.keys(NJ_MEMBERS).find((k) => said === plain(NJ_MEMBERS[k].name) || said === plain(NJ_MEMBERS[k].hangul));
+    if (named) {
+      ppgFly(chat.closest(".ae-pc-back"), named);
+      if (named === key) chatReply(chat, who, "that’s me! ♡", 2300);
+    }
+  }
+  function restartClass(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+  // Her answer: "… is typing" under her name, then a little pop-up in the corner, the way the old
+  // messengers did.
+  function chatReply(chat, who, text, delay) {
+    const status = chat.querySelector(".dt-chat-status");
+    window.setTimeout(() => {
+      if (!chat.isConnected) return;
+      status.textContent = `✎ ${who.name} is typing…`;
+      window.setTimeout(() => {
+        if (!chat.isConnected) return;
+        status.textContent = "● online · 12/19/2022";
+        chat.querySelector(".dt-toast")?.remove();
+        const toastEl = document.createElement("div");
+        toastEl.className = "dt-toast";
+        toastEl.setAttribute("role", "status");
+        toastEl.innerHTML = `<p><b></b> says:<br /><span></span></p>`;
+        toastEl.querySelector("b").textContent = who.name;
+        toastEl.querySelector("span").textContent = text;
+        chat.append(toastEl);
+        window.setTimeout(() => toastEl.classList.add("is-leaving"), 2800);
+        window.setTimeout(() => toastEl.remove(), 3300);
+      }, 700);
+    }, delay);
+  }
+  // "ditto": the word said back, again and again, each one fainter and further up (the same, the
+  // same…), and the window nudged.
+  function dittoEcho(chat, text) {
+    chat.querySelector(".dt-echo")?.remove();
+    restartClass(chat, "is-nudge");
+    if (!motionOK()) return;
+    const echo = document.createElement("div");
+    echo.className = "dt-echo";
+    echo.setAttribute("aria-hidden", "true");
+    for (let i = 0; i < 7; i++) {
+      const word = document.createElement("b");
+      word.textContent = text.toLowerCase();
+      word.style.setProperty("--i", String(i));
+      echo.append(word);
+    }
+    echo.insertAdjacentHTML("beforeend", Array.from({ length: 10 }, (_, n) => `<i style="--n: ${n}">${n % 2 ? "♡" : "❄"}</i>`).join(""));
+    chat.append(echo);
+    window.setTimeout(() => echo.remove(), 2600);
+  }
+  // A member's name: her Powerpuff Girl swoops in from the bottom, loops round the card trailing a
+  // streak of her colour, stops in the middle with a sparkle, then zips off the top.
+  function ppgFly(back, key) {
+    back.querySelector(".dt-ppg")?.remove();
+    const fly = document.createElement("div");
+    fly.className = "dt-ppg";
+    fly.setAttribute("aria-hidden", "true");
+    fly.style.setProperty("--ppg", PPG_COLORS[key]);
+    fly.innerHTML = `<canvas></canvas><img src="${siteUrl(`ditto/${key}-ppg.webp`)}" alt="" draggable="false" /><span class="dt-ppg-spark">${Array.from({ length: 8 }, (_, n) => `<i style="--n: ${n}"></i>`).join("")}</span>`;
+    back.append(fly);
+    const canvas = fly.querySelector("canvas"), img = fly.querySelector("img");
+    if (!motionOK()) { fly.classList.add("is-still"); window.setTimeout(() => fly.remove(), 1800); return; }
+    const rect = back.getBoundingClientRect();
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(rect.width * ratio); canvas.height = Math.round(rect.height * ratio);
+    const g = canvas.getContext("2d");
+    // The flight, as fractions of the card: in from the bottom left, a loop, then the middle.
+    const path = [[-0.4, 1.15], [0.15, 0.82], [0.72, 0.7], [0.86, 0.36], [0.55, 0.14], [0.2, 0.3], [0.32, 0.52], [0.5, 0.5]];
+    const along = (u) => {
+      const seg = Math.min(path.length - 2, Math.floor(u * (path.length - 1)));
+      const f = u * (path.length - 1) - seg;
+      const p0 = path[Math.max(0, seg - 1)], p1 = path[seg], p2 = path[seg + 1], p3 = path[Math.min(path.length - 1, seg + 2)];
+      const cr = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * f + (2 * a - 5 * b + 4 * c - d) * f * f + (-a + 3 * b - 3 * c + d) * f * f * f);
+      return [cr(p0[0], p1[0], p2[0], p3[0]), cr(p0[1], p1[1], p2[1], p3[1])];
+    };
+    const FLY = 1.5, HOVER = 0.9, ZIP = 0.45, TRAIL = 0.55;
+    const trail = [];
+    const start = performance.now();
+    let was = null;
+    const frame = (stamp) => {
+      if (!fly.isConnected) return;
+      const t = (stamp - start) / 1000;
+      let at, tilt = 0;
+      if (t < FLY) {
+        const u = t / FLY;
+        at = along(u < 0.5 ? 2 * u * u : 1 - (-2 * u + 2) ** 2 / 2);
+      } else if (t < FLY + HOVER) {
+        at = [0.5, 0.5 + Math.sin((t - FLY) * 9) * 0.012];
+        if (!fly.classList.contains("is-hover")) fly.classList.add("is-hover");
+      } else {
+        const q = (t - FLY - HOVER) / ZIP;
+        at = [0.5 + q * q * 0.7, 0.5 - q * q * 1.25];
+      }
+      if (was) tilt = Math.max(-24, Math.min(24, (at[0] - was[0]) * rect.width * 1.4));
+      was = at;
+      if (t < FLY + HOVER + ZIP) trail.push({ x: at[0], y: at[1], t });
+      while (trail.length && t - trail[0].t > TRAIL) trail.shift();
+      img.style.left = `${at[0] * 100}%`;
+      img.style.top = `${at[1] * 100}%`;
+      img.style.rotate = `${tilt}deg`;
+      // The streak: a white edge, her colour inside, narrowing to nothing at its tail. The edge is
+      // drawn whole first, then the colour, so the pieces join into one ribbon.
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.lineCap = "round"; g.lineJoin = "round";
+      const wide = rect.width * 0.2 * ratio;
+      [["#FFFFFF", 6 * ratio], [PPG_COLORS[key], 0]].forEach(([color, edge]) => {
+        g.strokeStyle = color;
+        for (let i = 1; i < trail.length; i++) {
+          const a = trail[i - 1], b = trail[i], life = 1 - (t - b.t) / TRAIL;
+          g.beginPath(); g.moveTo(a.x * canvas.width, a.y * canvas.height); g.lineTo(b.x * canvas.width, b.y * canvas.height);
+          g.lineWidth = Math.max(0, wide * life + edge * life); g.stroke();
+        }
+      });
+      if (t < FLY + HOVER + ZIP + TRAIL) requestAnimationFrame(frame);
+      else fly.remove();
+    };
+    requestAnimationFrame(frame);
+  }
+
   // Flipping: the card turns over; the face turned away is hidden halfway through the turn (see
   // secret.css), so it never shows through on phones.
   function flipCard() {
@@ -3974,4 +7425,61 @@
   }
   footerYear.addEventListener("click", togglePicker);
   footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); togglePicker(); } });
+
+  // ── Ditto: the secret within the secrets ──
+  // Once this device has had all six aespa themes on, one more quick tip shows under the last one,
+  // in Ditto's colours, and only in the café look: "One more thing:". Clicking it types the rest
+  // ("say it ditto <3") and switches to Ditto. That unlocks it for good: the tip goes, and Ditto
+  // shows in the playlist as its hidden track, to be picked again any time like the others.
+  function revealDitto() {
+    const bonus = picker.querySelector('.ae-pick[data-pick="ditto"]');
+    if (!bonus || !bonus.hidden) return;
+    bonus.hidden = false;
+    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 2} tracks · one was hidden`;
+  }
+  if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
+  const tips = document.querySelector(".tips");
+  let more = null, typing = false;
+  const unlockDitto = () => {
+    if (typing) return;
+    typing = true;
+    more.classList.add("is-typing");
+    const typed = more.querySelector(".dt-more-typed");
+    const text = " say it ditto <3";
+    let n = 0;
+    const next = () => {
+      if (n < text.length) {
+        n += motionOK() ? 1 : text.length;
+        typed.textContent = text.slice(0, n);
+        window.setTimeout(next, text[n - 1] === " " ? 140 : 70 + Math.random() * 60);
+        return;
+      }
+      window.setTimeout(() => {
+        store.set(DITTO_KEY, new Date().toISOString());
+        revealDitto();
+        closePicker();
+        void switchTo("ditto");
+        window.setTimeout(() => { more?.remove(); more = null; }, 400);
+      }, 750);
+    };
+    window.setTimeout(next, 260);
+  };
+  const showMore = () => {
+    const due = !store.get(DITTO_KEY) && ORDER.every((theme) => visited().includes(theme));
+    if (due && !more && tips) {
+      more = document.createElement("li");
+      more.className = "dt-more";
+      more.setAttribute("role", "button");
+      more.setAttribute("tabindex", "0");
+      more.setAttribute("aria-label", "One more thing");
+      more.innerHTML = `<b class="dt-more-lead">One more thing:</b><span class="dt-more-typed"></span><i class="dt-more-caret" aria-hidden="true"></i>`;
+      more.addEventListener("pointerover", () => warm("ditto"), { once: true });
+      more.addEventListener("click", unlockDitto);
+      more.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); unlockDitto(); } });
+      tips.append(more);
+    }
+    if (more && !typing) more.hidden = !due || current !== null;
+  };
+  onThemeApplied = showMore;
+  showMore();
 })();

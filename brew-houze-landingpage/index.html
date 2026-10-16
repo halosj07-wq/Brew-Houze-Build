@@ -17,6 +17,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Grenze+Gotisch:wght@700;800;900&family=UnifrakturMaguntia&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Instrument+Serif:ital@0;1&family=Anton&family=Courier+Prime:wght@400;700&display=swap" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@1,700;1,900&family=Pinyon+Script&family=Silkscreen&family=Caveat:wght@600;700&family=Yomogi&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Cormorant+Garamond:ital,wght@1,500;1,600;1,700&family=Gaegu:wght@400;700&display=swap" rel="stylesheet" />
   <script>
     // The secret themes are Brew Houze Build's only (the thesis defense): at the café's own address
     // (CAFE_SITES, the same list as CAFE_HOSTS below) none of them load, and the page is the plain
@@ -25,11 +26,11 @@
     window.BREW_HOUZE_CAFE = ["brew-houze-cafe.vercel.app"].includes(location.hostname);
     if (!window.BREW_HOUZE_CAFE) {
       try {
-        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama", richman: "richman", kissntell: "kissntell" }[localStorage.getItem("brew-houze-theme")];
+        const theme = { aespa: "whiplash", whiplash: "whiplash", dirtywork: "dirtywork", armageddon: "armageddon", drama: "drama", richman: "richman", kissntell: "kissntell", ditto: "ditto" }[localStorage.getItem("brew-houze-theme")];
         if (theme) { document.documentElement.dataset.theme = theme; document.documentElement.dataset.secret = ""; }
       } catch { /* storage blocked: default theme */ }
       // (Written in while the head is read, so they hold the first paint like ordinary links.)
-      document.write(["secret", "whiplash", "dirtywork", "armageddon", "drama", "richman", "kissntell"].map((name) => `<link rel="stylesheet" href="secret/${name}.css" />`).join(""));
+      document.write(["secret", "whiplash", "dirtywork", "armageddon", "drama", "richman", "kissntell", "ditto"].map((name) => `<link rel="stylesheet" href="secret/${name}.css" />`).join(""));
     }
   </script>
   <style>
@@ -252,7 +253,7 @@
           <li><b>Bar and kitchen:</b> each menu item is made at the bar or in the kitchen (set in Admin → Menu). An order with both is ready once both parts are; the Pickup button in Admin → Menu sets whether customers pick up drinks and food together or separately.</li>
           <li><b>Voids and refunds</b> only work for orders in the current shift, and need the cashier’s password.</li>
           <li><b>Status dots</b> at the top check that each app is reachable from this device. Red means that app or this device’s internet is down.</li>
-          <li><b>Add this page to the home screen</b> of each tablet and phone (Share → Add to Home Screen) so it opens like an app.</li>
+          <li><b>Add this page to the home screen</b> of each tablet and phone (Share → Add to Home Screen) so it opens like an app, the same way on every device.</li>
         </ul>
       </section>
     </div>
