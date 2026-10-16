@@ -7440,9 +7440,70 @@
   if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
   const tips = document.querySelector(".tips");
   let more = null, typing = false;
+  // Its typing's sound, when the visitor has the sound on: an old keyboard (each key a click, its
+  // body knocking, then the key coming back up; the space bar deeper, the Enter firmer), made here
+  // (no sound file). "wake" only gets it ready: the click on the tip lets it play.
+  let keysCtx = null, keysNoise = null;
+  function keySound(kind) {
+    if (!soundWanted()) return;
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return;
+    keysCtx ??= new AudioContextClass();
+    const ctx = keysCtx;
+    void ctx.resume();
+    if (!keysNoise) {
+      keysNoise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.3), ctx.sampleRate);
+      const data = keysNoise.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    if (kind === "wake") return;
+    const now = ctx.currentTime + 0.005;
+    const out = ctx.createGain();
+    out.gain.value = kind === "enter" ? 0.5 : 0.36;
+    out.connect(ctx.destination);
+    const vary = () => 0.88 + Math.random() * 0.24;
+    // a burst of noise through a band: a click
+    const tick = (at, freq, level, decay) => {
+      const source = ctx.createBufferSource();
+      source.buffer = keysNoise;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass"; band.frequency.value = freq; band.Q.value = 0.9;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(level, at + 0.001);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2, decay + 0.02);
+    };
+    // the key's body: a low knock, falling in pitch
+    const knock = (at, freq, level, decay) => {
+      const osc = ctx.createOscillator();
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, at);
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.6, at + decay);
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(level, at + 0.002);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      osc.connect(env).connect(out);
+      osc.start(at);
+      osc.stop(at + decay + 0.02);
+    };
+    if (kind === "key") {
+      tick(now, 3200 * vary(), 0.9, 0.022);
+      knock(now, 210 * vary(), 0.5, 0.04);
+      tick(now + 0.05 + Math.random() * 0.025, 4200 * vary(), 0.3, 0.014);
+    } else {
+      tick(now, (kind === "enter" ? 2400 : 1600) * vary(), 1, 0.045);
+      knock(now, kind === "enter" ? 170 : 125, 0.8, 0.08);
+      tick(now + 0.012, 900, 0.35, 0.03);
+      tick(now + 0.075 + Math.random() * 0.02, 2800 * vary(), 0.35, 0.02);
+    }
+  }
   const unlockDitto = () => {
     if (typing) return;
     typing = true;
+    keySound("wake");
     more.classList.add("is-typing");
     const typed = more.querySelector(".dt-more-typed");
     const text = " say it ditto <3";
@@ -7451,9 +7512,12 @@
       if (n < text.length) {
         n += motionOK() ? 1 : text.length;
         typed.textContent = text.slice(0, n);
+        keySound(text[n - 1] === " " ? "space" : "key");
         window.setTimeout(next, text[n - 1] === " " ? 140 : 70 + Math.random() * 60);
         return;
       }
+      // a moment, then Enter
+      window.setTimeout(() => keySound("enter"), 380);
       window.setTimeout(() => {
         store.set(DITTO_KEY, new Date().toISOString());
         revealDitto();
@@ -7472,7 +7536,7 @@
       more.setAttribute("role", "button");
       more.setAttribute("tabindex", "0");
       more.setAttribute("aria-label", "One more thing");
-      more.innerHTML = `<b class="dt-more-lead">One more thing:</b><span class="dt-more-typed"></span><i class="dt-more-caret" aria-hidden="true"></i>`;
+      more.innerHTML = `<span class="dt-more-pill"><b class="dt-more-lead">One more thing:</b><span class="dt-more-typed"></span><i class="dt-more-caret" aria-hidden="true"></i></span>`;
       more.addEventListener("pointerover", () => warm("ditto"), { once: true });
       more.addEventListener("click", unlockDitto);
       more.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); unlockDitto(); } });
