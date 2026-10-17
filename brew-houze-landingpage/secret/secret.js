@@ -1,6 +1,6 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
-// dirtywork.css, armageddon.css, drama.css, richman.css and kissntell.css; photos and sound in
-// whiplash/, dirty-work/, armageddon/, drama/, richman/ and kiss-n-tell/).
+// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css and breed.css; photos
+// and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/, kiss-n-tell/, ditto/ and breed/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
 // Armageddon, Drama, Rich Man or Kiss N Tell, straight from any of them. Each
@@ -21,6 +21,10 @@
   // tip shows in the café look (see "Ditto: the secret within the secrets" at the end).
   const VISITED_KEY = "brew-houze-aespa-visited"; // the aespa themes this device has seen, as JSON
   const DITTO_KEY = "brew-houze-ditto-unlocked";
+  // Breed, the next one, is found under a corner of the café's page once Ditto has been (see "Breed:
+  // the secret after the secret" at the end).
+  const BREED_KEY = "brew-houze-breed-unlocked";
+  const BONUS = ["ditto", "breed"]; // the hidden tracks, after the six, in the order they are found
   const visited = () => { try { const list = JSON.parse(store.get(VISITED_KEY) ?? "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
   let onThemeApplied = null; // set by the Ditto unlock once it is ready
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -47,10 +51,18 @@
     haerin: { name: "Haerin", hangul: "해린", short: "2006 · Seoul", real: "Kang Hae-rin (강해린)", born: "May 15, 2006", from: "Seoul, South Korea", line: "훌쩍 커버렸어, 함께한 기억처럼" },
     hyein: { name: "Hyein", hangul: "혜인", short: "2008 · Incheon", real: "Lee Hye-in (이혜인)", born: "April 21, 2008", from: "Incheon, South Korea", line: "I got no time to lose, 내 길었던 하루" },
   };
+  // The Guy She Was Interested in Wasn't a Guy at All (気になってる人が男じゃなかった, Sumiko Arai), for
+  // Breed: its two girls, as their character sheets have them (the back of each card), the voices on
+  // their key visuals, and the panel her plate turns to (alt: a page's panel, with what it shows).
+  const KN_CAST = {
+    aya: { name: "Aya", hangul: "大沢 綾", short: "Aya Osawa · 17 · CV. Akari Kito", real: "Aya Osawa (大沢 綾), 17", cv: "Akari Kito", alt: "her own beat" },
+    mitsuki: { name: "Mitsuki", hangul: "古賀 美月", short: "Mitsuki Koga · 17 · CV. Mariya Ise", real: "Mitsuki Koga (古賀 美月), 17", cv: "Mariya Ise", alt: "…the girl next to you" },
+  };
   // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order.
   const GROUPS = {
     aespa: { name: "aespa", members: MEMBERS, order: memberOrder },
     newjeans: { name: "NewJeans", members: NJ_MEMBERS, order: Object.keys(NJ_MEMBERS) },
+    kininao: { name: "Aya & Mitsuki", members: KN_CAST, order: Object.keys(KN_CAST) },
   };
   const groupOf = (theme) => GROUPS[THEMES[theme]?.group ?? "aespa"];
   const DW_TAROT = {
@@ -5821,6 +5833,999 @@
   };
 
   // ── The themes ──
+  // ── Breed (Nirvana) × The Guy She Was Interested in Wasn't a Guy at All ──
+  // The second hidden track: Breed as the theme song of 気になってる人が男じゃなかった (Sumiko Arai). Its
+  // intro, track 1 and track 2 are the band as recorded (no click track: about 158 BPM, the intro
+  // pushing on to 164), so their beats are where they were heard, not on a grid. BR_INTRO_BEATS: the
+  // intro's (found by a beat tracker over the clip): a pickup, then 12 bars (bar n starts on beat
+  // 4n - 3); the next downbeat is track 1's first. Each part plays from the encoder's delay for its
+  // measured length.
+  const BR_START = 1105 / 44100;
+  const BR_INTRO = 785025 / 44100, BR_TRACK1 = 1578512 / 44100, BR_TRACK2 = 536098 / 44100;
+  const BR_INTRO_BEATS = [0.003, 0.383, 0.731, 1.068, 1.405, 1.736, 2.084, 2.447, 2.815, 3.164, 3.509, 3.869, 4.238, 4.606, 4.978, 5.358, 5.721, 6.063, 6.429, 6.801,
+    7.181, 7.57, 7.944, 8.316, 8.667, 9.044, 9.41, 9.778, 10.141, 10.516, 10.884, 11.247, 11.607, 11.976, 12.333, 12.716, 13.076, 13.441, 13.81, 14.182, 14.547, 14.913,
+    15.279, 15.639, 16.001, 16.367, 16.733, 17.102, 17.473];
+  const BR_MS = (beat) => Math.round(BR_INTRO_BEATS[beat] * 1000);
+  const BR_BAR = (bar) => BR_MS(4 * bar - 3);
+  // The manga's pages the intro reads (their size in pixels), and its shots: a page and the part of it
+  // in view, as fractions of the page (x, y, w, h), what to keep in view when the panel is bigger than
+  // its place on the screen (fx, fy), and whether all of it must be seen (whole). a3x is page A-3 again,
+  // so the clerk can stay on her side of the seam while Aya looks (bar 10).
+  const BR_PAGES = { a2: ["breed/page-a-2.webp", 1200, 1703], a3: ["breed/page-a-3.webp", 2255, 1600], a3x: ["breed/page-a-3.webp", 2255, 1600], b2: ["breed/page-b-2.webp", 1200, 1702] };
+  const BR_SHOTS = {
+    page: ["a2", 0, 0, 1, 1, 0.5, 0.5, true], bell: ["a2", 0.11, 0, 0.82, 0.43, 0.7], eyes: ["a2", 0.02, 0.42, 0.91, 0.19, 0.3], beat: ["a2", 0, 0.58, 0.44, 0.42],
+    store: ["a2", 0.3, 0.56, 0.63, 0.38, 0.55], door: ["a2", 0.38, 0.61, 0.2, 0.27],
+    kacha: ["a3", 0.06, 0, 0.38, 0.58], shop: ["a3", 0, 0, 1, 1, 0.3], pan: ["a3", 0.47, 0.3, 0.51, 0.6, 0.45], clerk: ["a3", 0.53, 0, 0.44, 0.4, 0.42],
+    aya: ["a3", 0, 0.5, 0.48, 0.5, 0.42], same: ["b2", 0.03, 0.72, 0.39, 0.28], reveal: ["b2", 0, 0.44, 1, 0.56, 0.45, 0.5],
+    pair: ["a3x", 0.53, 0, 0.44, 0.4, 0.42],
+  };
+  // The shots on Mitsuki's side of the seam (their shadow lime, as on her black paper).
+  const BR_HER_SIDE = new Set(["shop", "pan", "clerk", "pair", "same", "reveal"]);
+  // The torn seam between the two worlds (the header's, the MV's), standing and lying down: a lime band
+  // under the black paper's torn edge, the edge's white core along it.
+  const BR_TEAR_V = `<polygon class="br-tear-lime" points="17.7,0 23.6,40 21.4,80 22.5,120 13.6,160 28.8,200 26.3,240 21.5,280 20.1,320 16.2,360 10.2,400 15.9,440 24.7,480 11.7,520 28.0,560 14.4,600 19.0,640 15.1,680 31.5,720 26.9,760 28.2,800 24.5,840 10.3,880 17.8,920 22.9,960 12.3,1000 30.1,1000 37.0,960 33.9,920 28.6,880 39.1,840 43.8,800 41.3,760 46.0,720 28.8,680 32.2,640 32.2,600 42.3,560 29.2,520 38.5,480 34.7,440 28.1,400 32.2,360 37.1,320 37.2,280 42.5,240 42.3,200 31.9,160 36.6,120 39.4,80 40.4,40 31.0,0"/><polygon class="br-tear-black" points="28.0,0 37.4,40 36.4,80 33.6,120 28.9,160 39.3,200 39.5,240 34.2,280 34.1,320 29.2,360 25.1,400 31.7,440 35.5,480 26.2,520 39.3,560 29.2,600 29.2,640 25.8,680 43.0,720 38.3,760 40.8,800 36.1,840 25.6,880 30.9,920 34.0,960 27.1,1000 64,1000 64,0"/><polyline class="br-tear-shade" points="17.7,0 23.6,40 21.4,80 22.5,120 13.6,160 28.8,200 26.3,240 21.5,280 20.1,320 16.2,360 10.2,400 15.9,440 24.7,480 11.7,520 28.0,560 14.4,600 19.0,640 15.1,680 31.5,720 26.9,760 28.2,800 24.5,840 10.3,880 17.8,920 22.9,960 12.3,1000"/><polyline class="br-tear-core" points="28.0,0 37.4,40 36.4,80 33.6,120 28.9,160 39.3,200 39.5,240 34.2,280 34.1,320 29.2,360 25.1,400 31.7,440 35.5,480 26.2,520 39.3,560 29.2,600 29.2,640 25.8,680 43.0,720 38.3,760 40.8,800 36.1,840 25.6,880 30.9,920 34.0,960 27.1,1000"/>`;
+  const BR_TEAR_H = `<polygon class="br-tear-lime" points="0,44.7 40,47.5 80,52.5 120,37.7 160,32.8 200,48.2 240,38.8 280,42.2 320,51.3 360,39.0 400,50.6 440,40.9 480,36.5 520,49.1 560,47.3 600,33.5 640,51.9 680,45.0 720,49.0 760,44.9 800,52.3 840,33.7 880,50.4 920,45.2 960,40.4 1000,44.1 1000,29.0 960,22.6 920,29.6 880,35.5 840,18.2 800,35.9 760,29.8 720,31.3 680,31.9 640,33.1 600,19.4 560,28.3 520,34.5 480,19.3 440,26.8 400,34.4 360,21.3 320,32.7 280,24.7 240,24.0 200,32.8 160,19.2 120,21.5 80,35.2 40,30.6 0,29.7"/><polygon class="br-tear-black" points="0,0 1000,0 1000,32.0 960,25.6 920,32.6 880,38.5 840,21.2 800,38.9 760,32.8 720,34.3 680,34.9 640,36.1 600,22.4 560,31.3 520,37.5 480,22.3 440,29.8 400,37.4 360,24.3 320,35.7 280,27.7 240,27.0 200,35.8 160,22.2 120,24.5 80,38.2 40,33.6 0,32.7"/><polyline class="br-tear-shade" points="0,44.7 40,47.5 80,52.5 120,37.7 160,32.8 200,48.2 240,38.8 280,42.2 320,51.3 360,39.0 400,50.6 440,40.9 480,36.5 520,49.1 560,47.3 600,33.5 640,51.9 680,45.0 720,49.0 760,44.9 800,52.3 840,33.7 880,50.4 920,45.2 960,40.4 1000,44.1"/><polyline class="br-tear-core" points="0,32.7 40,33.6 80,38.2 120,24.5 160,22.2 200,35.8 240,27.0 280,27.7 320,35.7 360,24.3 400,37.4 440,29.8 480,22.3 520,37.5 560,31.3 600,22.4 640,36.1 680,34.9 720,34.3 760,32.8 800,38.9 840,21.2 880,38.5 920,32.6 960,25.6 1000,32.0"/>`;
+  // A panel torn out of its page: a ragged outline round its part of the page (x, y, w, h: fractions),
+  // grown by `grow` and jagged by `rough` (px on the screen at the camera's scale k), moved by (dx, dy)
+  // px; nine points a side, so any two outlines morph into each other. Where the part meets the page's
+  // own edge, the edge stays straight. In page pixels; as a CSS polygon of a box `margin` px bigger
+  // than the page all round.
+  const brTear = ([x, y, w, h], [PW, PH], k, grow, rough, seed, dx = 0, dy = 0) => {
+    const rnd = (n) => { const r = Math.sin(n * 12.9898 + seed * 78.233) * 43758.5453; return (r - Math.floor(r)) * 2 - 1; };
+    const free = [y > 0.001, x + w < 0.999, y + h < 0.999, x > 0.001], g = grow / k, j = rough / k, N = 9;
+    const x0 = x * PW - (free[3] ? g : 0), y0 = y * PH - (free[0] ? g : 0), x1 = (x + w) * PW + (free[1] ? g : 0), y1 = (y + h) * PH + (free[2] ? g : 0);
+    const pts = [];
+    for (let i = 0; i < N; i++) pts.push([x0 + ((x1 - x0) * i) / N, y0 + (free[0] ? rnd(i) * j : 0)]);
+    for (let i = 0; i < N; i++) pts.push([x1 + (free[1] ? rnd(N + i) * j : 0), y0 + ((y1 - y0) * i) / N]);
+    for (let i = 0; i < N; i++) pts.push([x1 - ((x1 - x0) * i) / N, y1 + (free[2] ? rnd(2 * N + i) * j : 0)]);
+    for (let i = 0; i < N; i++) pts.push([x0 + (free[3] ? rnd(3 * N + i) * j : 0), y1 - ((y1 - y0) * i) / N]);
+    return pts.map(([px, py]) => [px + dx / k, py + dy / k]);
+  };
+  const BR_MARGIN = 180;
+  const brPolygon = (pts, [PW, PH], margin) => `polygon(${pts.map(([x, y]) => `${(((x + margin) / (PW + 2 * margin)) * 100).toFixed(2)}% ${(((y + margin) / (PH + 2 * margin)) * 100).toFixed(2)}%`).join(", ")})`;
+  // The stickers slapped on the hits (breed/page/st-*.webp): from one cue until another, where (left and
+  // top in % of the screen, width in vmin, turn) on a wide screen and on a tall one, and their shape.
+  const BR_SLAPS = [
+    ["padlock", "kacha", "shop", [58, 9, 11, 14], [64, 21, 17, 14], "220 / 206"],
+    ["pick", "shop", "clerk", [4, 7, 10, -18], [5, 5, 15, -18], "193 / 220"],
+    ["chrome-star", "shop", "clerk", [87, 79, 12, 12], [78, 86, 17, 12], "220 / 158"],
+    ["safety-pin", "clerk", "aya", [80, 8, 15, 30], [66, 5, 22, 30], "220 / 150"],
+    ["glossy-heart", "aya", "same", [36, 76, 10, -12], [78, 88, 14, -12], "220 / 214"],
+    ["question-heart", "reveal", "title", [5, 68, 11, -10], [5, 80, 15, -10], "157 / 220"],
+  ];
+  // The intro: chapter one, read panel by panel over the song (the camera on the manga's own pages,
+  // each panel torn out of its page), the music as Aya hears it, and her world and the clerk's either
+  // side of the seam (white hers, black the store's, as on the page and in the MV):
+  //   page (0)         the page the café turned over to: page A-2, grey, on Aya's white paper; at the
+  //                    edge a crack in it, lime, the store's black behind it
+  //   bell … store     bars 1-4, the riff muffled, as through a shop door: school's out, her earbuds
+  //                    come out; "or so I thought"; "…hm? This beat…"; a CD store she never noticed.
+  //                    The music leaks out of the crack (the notes, ズン, the crack thumping on the beat)
+  //   door (6.06)      bar 5, the sound opening up: the camera goes to the green door, the colour back,
+  //                    the crack wider
+  //   kacha (7.57)     bar 6: ガチャ, she pushes it open (page A-3, the door from inside): the seam tears in
+  //   shop (9.04)      bar 7, the band crashes in (ジャーン): the seam rips across, the store's black all
+  //                    round her, the whole shop at once, a jolt on each kick
+  //   pan (10.52)      bar 8: over the checkered floor to the counter, the clerk in a hood and a mask
+  //   clerk (11.98)    bar 9: the masked clerk, close
+  //   aya (13.44)      bar 10: the seam back to the middle: Aya on her white, stunned ("…could it be",
+  //                    ドキッ), the clerk on the black
+  //   same (14.91)     bar 11 (page B-2), across the seam: the clerk, "sorry for touching it without
+  //   reveal (15.64)   asking", the same person… as the girl who sits next to her, glasses on (!?)
+  //   title (16.37)    bar 12, a beat at a time: the page's own header, built: the seam slides to where
+  //                    the header's is, the art and its burst, the title (Japanese and English, the
+  //                    English where the headline is), the song's tag, the stickers, the volume's art
+  //                    where the plates are (only where the header has its art: elsewhere the title on
+  //                    the two worlds)
+  //   turn (17.47)     the last beat: the English and the volume torn off (and elsewhere the black world
+  //                    with them); on the downbeat the page takes over, its header where the title was
+  const breedIntro = {
+    end: Math.round(BR_INTRO * 1000),
+    cues: [
+      [0, "page"], [BR_BAR(1), "bell"], [BR_BAR(2), "eyes"], [BR_BAR(3), "beat"], [BR_BAR(4), "store"], [BR_BAR(5), "door"], [BR_BAR(6), "kacha"],
+      [BR_BAR(7), "shop"], [BR_BAR(8), "pan"], [BR_BAR(9), "clerk"], [BR_BAR(10), "aya"], [BR_BAR(11), "same"], [BR_MS(43), "reveal"],
+      [BR_BAR(12), "title"], [BR_MS(46), "title2"], [BR_MS(47), "title3"], [BR_MS(48), "turn"],
+    ],
+    hits: new Set(["kacha", "shop", "clerk", "aya", "same", "reveal", "title"]),
+    mount(box) {
+      const EN = "The guy she was interested in wasn’t a guy at all";
+      box.innerHTML = `
+        <div class="br-worlds"><i class="br-world"></i><svg class="br-seam is-v" viewBox="0 0 64 1000" preserveAspectRatio="none">${BR_TEAR_V}</svg><svg class="br-seam is-h" viewBox="0 0 1000 64" preserveAspectRatio="none">${BR_TEAR_H}</svg></div>
+        <div class="br-stage">${Object.entries(BR_PAGES).map(([key, [src, w, h]]) => `<div class="br-cam is-${key}" style="width: ${w}px; height: ${h}px"><i class="br-cam-shade"></i><i class="br-cam-paper"></i><img src="${siteUrl(src)}" alt="" draggable="false" /></div>`).join("")}</div>
+        <div class="br-worlds is-over"><svg class="br-seam is-v" viewBox="0 0 64 1000" preserveAspectRatio="none">${BR_TEAR_V}</svg><svg class="br-seam is-h" viewBox="0 0 1000 64" preserveAspectRatio="none">${BR_TEAR_H}</svg></div>
+        <div class="br-notes">${["♪", "♫", "♪", "♬", "♪", "♫"].map((note, n) => `<i style="--n: ${n}">${note}</i>`).join("")}</div>
+        <canvas class="br-lines"></canvas>
+        <div class="br-slaps">${BR_SLAPS.map(([name, , , [x, y, w, r], [tx, ty, tw, tr], ratio]) => `<i class="br-slap is-${name}" style="--st: url('${siteUrl(`breed/page/st-${name}.webp`)}'); --x: ${x}%; --y: ${y}%; --w: ${w}vmin; --r: ${r}deg; --tx: ${tx}%; --ty: ${ty}%; --tw: ${tw}vmin; --tr: ${tr}deg; --ratio: ${ratio}"></i>`).join("")}</div>
+        <div class="br-sfx">${[0, 1, 2, 3].map((n) => `<b class="is-zun" style="--n: ${n}">ズン</b>`).join("")}<b class="is-kacha">ガチャ</b><b class="is-jaan">ジャーン!!</b><b class="is-doki">ドキッ</b><b class="is-what">!?</b></div>
+        <p class="br-chapter"><b>第1話</b><span>Breed</span></p><i class="br-peek"></i>
+        <div class="br-title"></div>
+        <i class="br-flash"></i>`;
+      const cams = Object.fromEntries([...box.querySelectorAll(".br-cam")].map((cam) => [cam.classList[1].slice(3), cam]));
+      const slaps = [...box.querySelectorAll(".br-slap")];
+      const title = box.querySelector(".br-title");
+      let scene = "page";
+      const isTall = () => window.innerHeight > window.innerWidth;
+      // Where a shot's panel goes: Aya's side (all of the screen but the crack, or the strip torn in),
+      // the whole screen (the store all round her; across the seam), or one half of it (bar 10).
+      const areaOf = (name) => {
+        const W = window.innerWidth, H = window.innerHeight, tall = isTall(), L = tall ? H : W;
+        const hers = (e) => (tall ? { x: 0, y: e, w: W, h: H - e } : { x: 0, y: 0, w: W - e, h: H });
+        const store = (e) => (tall ? { x: 0, y: 0, w: W, h: e } : { x: W - e, y: 0, w: e, h: H });
+        if (name === "kacha") return hers(L * 0.18);
+        if (name === "aya") return hers(L * 0.5);
+        if (name === "pair") return store(L * 0.5);
+        if (["shop", "pan", "clerk", "same", "reveal"].includes(name)) return { x: 0, y: 0, w: W, h: H };
+        return hers(70);
+      };
+      // The camera: the shot's panel in the middle of its place, as big as fits (and a little bigger on
+      // a place of another shape, keeping its focus in view), torn out of its page.
+      const aimShot = (name) => {
+        const shot = BR_SHOTS[name];
+        if (!shot) return;
+        const [key, x, y, w, h, fx = 0.5, fy = 0.5, whole = false] = shot;
+        const [, PW, PH] = BR_PAGES[key], area = areaOf(name);
+        const contain = Math.min((area.w * 0.92) / (w * PW), (area.h * 0.88) / (h * PH));
+        const cover = Math.max(area.w / (w * PW), area.h / (h * PH));
+        const k = whole ? contain : Math.min(cover, Math.max(contain, Math.min(cover * 0.62, contain * 1.8)));
+        const place = (view, offset, start, size, focus, length) => {
+          if (size * length * k <= view) return offset + view / 2 - (start + size / 2) * length * k;
+          const t = offset + view / 2 - (start + size * focus) * length * k;
+          return Math.max(offset + view - (start + size) * length * k, Math.min(offset - start * length * k, t));
+        };
+        const cam = cams[key], part = [x, y, w, h], size = [PW, PH], seed = Object.keys(BR_SHOTS).indexOf(name) + 3;
+        cam.style.transform = `translate(${place(area.w, area.x, x, w, fx, PW).toFixed(1)}px, ${place(area.h, area.y, y, h, fy, PH).toFixed(1)}px) scale(${k.toFixed(4)})`;
+        cam.style.setProperty("--br-in", brPolygon(brTear(part, size, k, 0, 4.5, seed), size, 0));
+        cam.style.setProperty("--br-out", brPolygon(brTear(part, size, k, 9, 6, seed + 50), size, BR_MARGIN));
+        cam.style.setProperty("--br-drop", brPolygon(brTear(part, size, k, 9, 6, seed + 50, 7, 10), size, BR_MARGIN));
+        cam.style.setProperty("--br-shade", BR_HER_SIDE.has(name) ? "#B1F700" : "rgba(17, 17, 17, 0.34)");
+      };
+      // Each page starts where it is first seen (so a cut to it is a cut).
+      const aimAll = () => { for (const first of ["page", "kacha", "same", "pair"]) aimShot(first); aimShot(scene); if (scene === "aya") aimShot("pair"); };
+      // The seam: how far the store's black reaches in from its side (px): a crack at the edge while the
+      // music is through the wall, wider at the door, torn in on ガチャ, ripped across on the crash, back to
+      // the middle as Aya looks, then to the header's own seam (or, where the header has none, a part of
+      // the screen, and torn away on the last beat).
+      let titleReach = null, lastReach = null;
+      const reachAt = (t) => {
+        const L = isTall() ? window.innerHeight : window.innerWidth;
+        const keys = [[0, 26, 1], [BR_BAR(5), 70, 900], [BR_BAR(6), L * 0.18, 220], [BR_BAR(7), L + 70, 170], [BR_BAR(10), L * 0.5, 200],
+          [BR_BAR(12), titleReach ?? L * 0.42, 380], [BR_MS(48), lastReach ?? -70, 260]];
+        let reach = keys[0][1];
+        for (let i = 1; i < keys.length && t >= keys[i][0]; i++) reach += (keys[i][1] - reach) * (1 - (1 - Math.min(1, (t - keys[i][0]) / keys[i][2])) ** 3);
+        return reach;
+      };
+      const setSeam = (t) => {
+        const reach = reachAt(t);
+        box.style.setProperty("--seam", `${(isTall() ? reach : window.innerWidth - reach).toFixed(1)}px`);
+      };
+      // The title card. Where the header has its art (a wide screen), it is the header itself, built a
+      // beat at a time: a copy of its decor where it is (the page is under the intro, at the top), the
+      // English where the headline is, the volume where the plates are; the seam goes to the header's.
+      const buildTitle = () => {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        const decor = document.querySelector(".hero .br-decor"), art = decor?.querySelector(".br-decor-art");
+        const words = EN.split(" ").map((word, n) => `<span style="--i: ${n}">${escapeHtml(word)}</span>`).join(" ");
+        if (art && art.getClientRects().length && !isTall()) {
+          const seamX = decor.querySelector(".br-decor-world").getBoundingClientRect().left - 4;
+          const h1 = document.querySelector(".hero h1"), r = h1.getBoundingClientRect(), font = getComputedStyle(h1);
+          const plates = document.querySelector(".ae-lineup")?.getBoundingClientRect();
+          titleReach = lastReach = window.innerWidth - seamX;
+          box.style.setProperty("--seam-h", `${document.querySelector(".hero").getBoundingClientRect().height.toFixed(1)}px`);
+          title.className = "br-title is-header";
+          title.innerHTML = `<div class="br-title-decor">${decor.outerHTML}</div>`
+            + `<p class="br-title-en" style="left: ${r.left.toFixed(1)}px; top: ${r.top.toFixed(1)}px; width: ${r.width.toFixed(1)}px; font-size: ${font.fontSize}; line-height: ${font.lineHeight}">${words}</p>`
+            + (plates && plates.top < window.innerHeight - 140 ? `<i class="br-title-vol" style="left: ${plates.left.toFixed(1)}px; top: ${(plates.top + 20).toFixed(1)}px; width: ${plates.width.toFixed(1)}px; height: ${Math.min(plates.height, window.innerHeight - plates.top - 40).toFixed(1)}px"></i>` : "");
+          return;
+        }
+        titleReach = null; lastReach = null;
+        title.className = "br-title is-loose";
+        title.innerHTML = `<i class="br-title-vol"></i><p class="br-title-jp"><span>気になってる人が</span><span>男じゃなかった</span></p>`
+          + `<p class="br-title-en">${words}</p><p class="br-title-song"><i></i><span>Opening theme</span><b>Nirvana “Breed”</b></p>`;
+      };
+      aimAll();
+      box.classList.toggle("is-tall", isTall());
+      setSeam(0);
+      const onResize = () => { if (!box.isConnected) { window.removeEventListener("resize", onResize); return; } box.classList.toggle("is-tall", isTall()); aimAll(); drawnBeat = -2; };
+      window.addEventListener("resize", onResize);
+      // Speed lines (集中線) round the middle of the moment on the big ones, drawn again on every beat
+      // (they boil).
+      const canvas = box.querySelector(".br-lines");
+      let linesOn = false, drawnBeat = -2, seed = 41;
+      const drawLines = (ink) => {
+        const w = window.innerWidth, h = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(w * ratio) || canvas.height !== Math.round(h * ratio)) { canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio); }
+        const g = canvas.getContext("2d");
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        g.clearRect(0, 0, w, h);
+        let s = (seed = (seed * 48271) % 2147483647);
+        const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+        const area = scene === "aya" ? areaOf("aya") : { x: 0, y: 0, w, h };
+        const cx = area.x + area.w / 2, cy = area.y + area.h / 2, far = Math.hypot(w, h) * 0.75, rx = area.w * 0.34, ry = area.h * 0.32;
+        g.save(); g.beginPath(); g.rect(area.x, area.y, area.w, area.h); g.clip();
+        g.fillStyle = ink;
+        for (let n = 0; n < 150; n++) {
+          const a = rnd() * Math.PI * 2, reach = 0.95 + rnd() * 0.55, half = 0.003 + rnd() * 0.011;
+          g.beginPath();
+          g.moveTo(cx + Math.cos(a) * rx * reach, cy + Math.sin(a) * ry * reach);
+          g.lineTo(cx + Math.cos(a - half) * far, cy + Math.sin(a - half) * far);
+          g.lineTo(cx + Math.cos(a + half) * far, cy + Math.sin(a + half) * far);
+          g.closePath();
+          g.fill();
+        }
+        g.restore();
+      };
+      const lineInk = { shop: "rgba(255, 255, 255, 0.92)", clerk: "rgba(255, 255, 255, 0.92)", aya: "#111111", reveal: "#111111" };
+      const show = (step) => {
+        const [, name] = this.cues[step];
+        const reached = new Set(this.cues.slice(0, step + 1).map(([, cue]) => cue));
+        if (BR_SHOTS[name]) scene = name;
+        const titled = name.startsWith("title") || name === "turn";
+        if (name === "title") buildTitle();
+        box.className = ["br-intro", isTall() ? "is-tall" : "", `is-${name}`, `on-${titled ? "title" : BR_SHOTS[scene][0]}`, ...[...reached].map((cue) => `has-${cue}`)].filter(Boolean).join(" ");
+        if (!titled) { aimShot(scene); if (scene === "aya") aimShot("pair"); }
+        slaps.forEach((slap, n) => { const [, from, until] = BR_SLAPS[n]; slap.classList.toggle("is-on", reached.has(from) && !reached.has(until)); });
+        if (this.hits.has(name)) { void box.offsetWidth; box.classList.add("is-hit"); }
+        linesOn = Boolean(lineInk[name]);
+        canvas.classList.toggle("is-on", linesOn);
+        if (linesOn) { canvas.dataset.ink = lineInk[name]; drawnBeat = -2; drawLines(lineInk[name]); }
+      };
+      // Every frame: the seam; the beat (how long since it fell) for the thumps through the wall (bars
+      // 1-5: the crack and the notes) and the jolts of the drums (from bar 7: hard on bars 7-8's kicks,
+      // softer after); the speed lines drawn again on each beat.
+      show.tick = (now) => {
+        const t = now / 1000;
+        let beat = -1;
+        for (let n = 0; n < BR_INTRO_BEATS.length && BR_INTRO_BEATS[n] <= t; n++) beat = n;
+        const pulse = beat < 0 ? 0 : Math.exp(-(t - BR_INTRO_BEATS[beat]) * 9);
+        box.style.setProperty("--br-pulse", pulse.toFixed(3));
+        box.style.setProperty("--br-thump", (beat < 25 ? pulse : 0).toFixed(3));
+        box.style.setProperty("--br-jolt", (beat >= 25 ? pulse * (beat < 33 ? 1 : 0.45) : 0).toFixed(3));
+        setSeam(now);
+        if (linesOn && beat !== drawnBeat) { drawnBeat = beat; drawLines(canvas.dataset.ink); }
+      };
+      return show;
+    },
+  };
+
+  // Breed's track 1 and track 2 beats (seconds into each part, from the same tracker as the intro's).
+  // Track 1 kicks on its even beats (none on 30, a weak one on 68); track 2 is 8 bars, kicks on its
+  // even beats, snares on the odd ones, its last bar four hits.
+  const BR_T1_BEATS = [0.003, 0.374, 0.752, 1.135, 1.501, 1.881, 2.258, 2.635, 3.004, 3.378, 3.747, 4.133, 4.49, 4.867, 5.236, 5.605, 5.976, 6.348, 6.722, 7.102, 7.471,
+    7.851, 8.214, 8.591, 8.954, 9.334, 9.709, 10.083, 10.449, 10.826, 11.183, 11.555, 11.909, 12.289, 12.664, 13.053, 13.415, 13.796, 14.17, 14.547, 14.919, 15.293,
+    15.659, 16.036, 16.408, 16.779, 17.145, 17.517, 17.894, 18.268, 18.643, 19.017, 19.383, 19.757, 20.126, 20.506, 20.869, 21.24, 21.624, 21.998, 22.364, 22.735,
+    23.104, 23.47, 23.841, 24.213, 24.593, 24.973, 25.359, 25.719, 26.091, 26.465, 26.834, 27.22, 27.579, 27.96, 28.331, 28.709, 29.074, 29.44, 29.814, 30.195, 30.566,
+    30.949, 31.318, 31.684, 32.067, 32.447, 32.813, 33.196, 33.559, 33.939, 34.302, 34.685, 35.051, 35.431];
+  const BR_T2_BEATS = [0.003, 0.383, 0.775, 1.155, 1.527, 1.904, 2.293, 2.664, 3.042, 3.428, 3.808, 4.188, 4.566, 4.946, 5.326, 5.698, 6.075, 6.449, 6.841, 7.216,
+    7.587, 7.973, 8.353, 8.734, 9.117, 9.494, 9.874, 10.26, 10.638, 11.015, 11.404, 11.773];
+  const BR_T2 = (beat) => BR_T2_BEATS[beat];
+  // The page's words through the bridge, cut out like a ransom note's (each word a scrap): Aya's notes
+  // on the guy at the CD store (the story's, not the song's).
+  const BR_LINES = ["WHO IS HE?", "the guy at the CD store", "no nametag…", "masked. hoodie. cool.", "he plays guitar?!", "Nirvana. obviously.",
+    "why is he so cool", "Koga-san??", "since WHEN?!", "the same person!?", "sits next to me", "♡ ♡ ♡"];
+  // The scraps a ransom note is cut from: [font, weight, style, paper, ink].
+  const BR_SCRAPS = [
+    ["'Anton', sans-serif", 400, "normal", "#111111", "#FFFFFF"], ["'Dela Gothic One', sans-serif", 400, "normal", "#FFFFFF", "#111111"],
+    ["'Playfair Display', serif", 900, "italic", "#E9E3D2", "#111111"], ["'Special Elite', monospace", 400, "normal", "#B1F700", "#111111"],
+    ["'Courier Prime', monospace", 700, "normal", "#FFFFFF", "#111111"], ["'Grenze Gotisch', serif", 800, "normal", "#111111", "#B1F700"],
+    ["'Instrument Serif', serif", 400, "italic", "#F4F1E8", "#111111"], ["'Syncopate', sans-serif", 700, "normal", "#D9D9D2", "#111111"],
+    ["'Shantell Sans', sans-serif", 800, "normal", "#FFFFFF", "#111111"], ["'Barlow Condensed', sans-serif", 800, "normal", "#111111", "#FFFFFF"],
+  ];
+  // A scrap's look for piece n of a note (seeded, so the same note is cut the same way).
+  const brScrap = (n, seed) => {
+    const k = (n * 7 + seed * 13) % BR_SCRAPS.length, [font, weight, style, paper, ink] = BR_SCRAPS[k];
+    const wobble = ((n * 37 + seed * 11) % 13) - 6;
+    return `--f: ${font}; --wt: ${weight}; --st: ${style}; --bg: ${paper}; --fg: ${ink}; --r: ${wobble * 1.1}deg; --y: ${((n * 5 + seed) % 7) - 3}px; --k: ${0.9 + ((n * 3 + seed) % 5) * 0.06}`;
+  };
+  // A word of a ransom note, a scrap a letter, up on beat `on` (down on `off`).
+  const brRansom = (word, on, off, seed) => `<span class="brx-word" data-in="${on}" data-out="${off}">${[...word].map((letter, n) => `<i style="${brScrap(n, seed)}">${escapeHtml(letter)}</i>`).join("")}</span>`;
+  // The bridge (track 2, the song's refrain, 8 bars): Aya's crush board. The page turns into her punk
+  // scrapbook (photocopied grey, its words cut out as ransom notes) and the clues go up on the beat:
+  //   bar 1  WHO IS HE?, a word a beat
+  //   bar 2  a Polaroid of the masked clerk, safety-pinned up: "the guy @ the CD store ♡"
+  //   bar 3  the guitar slides in; the pick (the Nirvana smiley) slapped on: "he plays?!"
+  //   bar 4  the receipt from the shop, a stitched heart, a doodle
+  //   bar 5  a string goes up, pin to pin, clue to clue
+  //   bar 6  in the corner a Polaroid of the girl who sits next to her, glasses on; the eye on her;
+  //          "…wait." (the board leans in on her)
+  //   bar 7  the string snaps across from the clerk to her: THE SAME PERSON!?
+  //   bar 8  the board torn down on the four hits; the colour back with the chorus
+  // Each piece goes up on its beat (data-in) and comes down on another (data-out).
+  const BR_BOARD = `<div class="brx-board"><i class="brx-paper"></i><div class="brx-cam">`
+    + `<p class="brx-ransom is-who">${brRansom("WHO", 0, 28, 1)}${brRansom("IS", 1, 28, 2)}${brRansom("HE", 2, 28, 3)}${brRansom("?", 3, 28, 4)}</p>`
+    + `<img class="brx-piece brx-stars" src="breed/punk/star-doodle.webp" alt="" data-in="6" data-out="30" />`
+    + `<figure class="brx-piece brx-pola is-a" data-in="4" data-out="29"><span class="brx-photo"></span><figcaption class="brx-write" data-in="5" data-out="29">the guy @ the CD store ♡</figcaption><img class="brx-pin" src="breed/punk/safety-pin.webp" alt="" /></figure>`
+    + `<img class="brx-piece brx-tape" src="breed/punk/smiley-tape.webp" alt="" data-in="7" data-out="29" />`
+    + `<img class="brx-piece brx-guitar" src="breed/punk/guitar.webp" alt="" data-in="8" data-out="30" />`
+    + `<img class="brx-piece brx-x" src="breed/punk/x-tape.webp" alt="" data-in="10" data-out="30" />`
+    + `<img class="brx-piece brx-pick" src="breed/punk/pick.webp" alt="" data-in="9" data-out="30" />`
+    + `<b class="brx-write brx-note is-plays" data-in="9" data-out="30">he plays?!</b>`
+    + `<img class="brx-piece brx-stars2" src="breed/punk/stars.webp" alt="" data-in="11" data-out="30" />`
+    + `<figure class="brx-piece brx-receipt" data-in="12" data-out="30"><img src="breed/punk/receipt.webp" alt="" /><b class="brx-write" data-in="13" data-out="30">bought Nirvana. AGAIN.</b></figure>`
+    + `<img class="brx-piece brx-heart" src="breed/punk/stitched-heart.webp" alt="" data-in="14" data-out="30" />`
+    + `<b class="brx-write brx-note is-q" data-in="15" data-out="30">♡?</b>`
+    + `<svg class="brx-string" aria-hidden="true"><path class="brx-thread" data-in="16" data-out="31" pathLength="1" /><path class="brx-thread" data-in="17" data-out="31" pathLength="1" /><path class="brx-thread" data-in="18" data-out="31" pathLength="1" /><path class="brx-thread is-snap" data-in="24" data-out="31" pathLength="1" />`
+      + `${[16, 16, 17, 18, 24].map((on) => `<circle class="brx-knot" r="7" data-in="${on}" data-out="31" />`).join("")}<path class="brx-arrow" data-in="22" data-out="30" pathLength="1" /></svg>`
+    + `<b class="brx-write brx-note is-who" data-in="19" data-out="30">WHO?!?</b>`
+    + `<figure class="brx-piece brx-pola is-b" data-in="20" data-out="30"><span class="brx-photo"></span><figcaption class="brx-write" data-in="20" data-out="30">Koga-san (sits next to me)</figcaption><img class="brx-clip" src="breed/punk/paperclip.webp" alt="" /></figure>`
+    + `<img class="brx-piece brx-eye" src="breed/punk/eyeball.webp" alt="" data-in="21" data-out="30" />`
+    + `<b class="brx-write brx-note is-wait" data-in="22" data-out="30">…wait.</b>`
+    + `<p class="brx-ransom is-same">${brRansom("THE", 25, 31, 5)}${brRansom("SAME", 25, 31, 6)}${brRansom("PERSON", 26, 31, 7)}${brRansom("!?", 27, 31, 8)}</p>`
+    + `</div></div>`;
+  const breedStage = (() => {
+    let fx = null, board = null, pieces = [], threads = [], knots = [], lastBeat = -2, lastKick = -1, cut = 0, strung = false;
+    const beatAt = (beats, t) => { let n = -1; for (let i = 0; i < beats.length && beats[i] <= t; i++) n = i; return n; };
+    // The string's ends: the clerk's safety pin, the pick, the receipt, the heart; the last one from
+    // the pin across to the girl's paperclip.
+    const centre = (selector) => { const box = board.querySelector(selector)?.getBoundingClientRect(); return box ? [box.left + box.width / 2, box.top + box.height / 2] : [0, 0]; };
+    const string = () => {
+      const svg = board.querySelector(".brx-string");
+      svg.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+      const ends = [centre(".brx-pola.is-a .brx-pin"), centre(".brx-pick"), centre(".brx-receipt"), centre(".brx-heart")];
+      const sag = (a, b) => { const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2 + Math.hypot(b[0] - a[0], b[1] - a[1]) * 0.12; return `M${a[0].toFixed(1)} ${a[1].toFixed(1)} Q${mx.toFixed(1)} ${my.toFixed(1)} ${b[0].toFixed(1)} ${b[1].toFixed(1)}`; };
+      const [t0, t1, t2, t3] = board.querySelectorAll(".brx-thread");
+      t0.setAttribute("d", sag(ends[0], ends[1]));
+      t1.setAttribute("d", sag(ends[1], ends[2]));
+      t2.setAttribute("d", sag(ends[2], ends[3]));
+      const her = centre(".brx-pola.is-b .brx-clip");
+      t3.setAttribute("d", sag(ends[0], her));
+      [ends[0], ends[1], ends[2], ends[3], her].forEach(([x, y], n) => { knots[n].setAttribute("cx", x.toFixed(1)); knots[n].setAttribute("cy", y.toFixed(1)); });
+      // the arrow: from the eye to her, a marker's curve and its head
+      const [ex, ey] = centre(".brx-eye"), photo = board.querySelector(".brx-pola.is-b").getBoundingClientRect();
+      const [tx, ty] = [photo.left + photo.width * 0.3, photo.top + photo.height * 0.2];
+      const back = Math.atan2(ty - (ey + ty) / 2 + 40, tx - (ex + tx) / 2), head = 16;
+      board.querySelector(".brx-arrow").setAttribute("d", `M${(ex + 20).toFixed(1)} ${(ey + 30).toFixed(1)} Q${((ex + tx) / 2).toFixed(1)} ${((ey + ty) / 2 + 40).toFixed(1)} ${tx.toFixed(1)} ${ty.toFixed(1)}`
+        + ` M${(tx - head * Math.cos(back - 0.5)).toFixed(1)} ${(ty - head * Math.sin(back - 0.5)).toFixed(1)} L${tx.toFixed(1)} ${ty.toFixed(1)} L${(tx - head * Math.cos(back + 0.5)).toFixed(1)} ${(ty - head * Math.sin(back + 0.5)).toFixed(1)}`);
+      strung = true;
+    };
+    // The page's words as ransom notes: each word a scrap (new lines are dealt every two bars).
+    const cutOut = () => {
+      document.querySelectorAll(".ae-lyric:not([data-cut])").forEach((line) => {
+        cut++;
+        line.dataset.cut = "";
+        line.innerHTML = line.textContent.split(/\s+/).filter(Boolean).map((word, n) => `<i style="${brScrap(n, cut)}">${escapeHtml(word)}</i>`).join(" ");
+      });
+    };
+    // The chorus's kicks, nudging the header and breathing in its seam (--br-kick, 0-1), and its snare
+    // on the beats between, twitching the stickers (--br-snare).
+    let lastSnare = -1;
+    const chorusKick = (at, name) => {
+      let kick = 0, snare = 0;
+      if (at >= 0 && at < BR_TRACK1 && name === "calm") {
+        const n = beatAt(BR_T1_BEATS, at);
+        for (let k = n; k >= 0 && k >= n - 1; k--) if (k % 2 === 0 && k !== 30) { kick = Math.exp(-(at - BR_T1_BEATS[k]) * 7) * (k === 68 ? 0.4 : k === 22 || k === 92 ? 1.4 : 1); break; }
+        if (n % 2 === 1) snare = Math.exp(-(at - BR_T1_BEATS[n]) * 9);
+      }
+      const rounded = Math.round(Math.min(1, kick) * 40) / 40, twitch = Math.round(snare * 20) / 20;
+      if (rounded !== lastKick) { lastKick = rounded; document.documentElement.style.setProperty("--br-kick", String(rounded)); }
+      if (twitch !== lastSnare) { lastSnare = twitch; document.documentElement.style.setProperty("--br-snare", String(twitch)); }
+    };
+    const onResize = () => { if (strung) string(); };
+    return {
+      mount(box) {
+        fx = box;
+        board = fx.querySelector(".brx-board");
+        pieces = [...board.querySelectorAll("[data-in]")].filter((el) => !(el instanceof SVGElement));
+        threads = [...board.querySelectorAll(".brx-thread, .brx-knot, .brx-arrow")];
+        knots = [...board.querySelectorAll(".brx-knot")];
+        window.addEventListener("resize", onResize);
+      },
+      tick(at, name) {
+        if (!fx) return;
+        chorusKick(at, name);
+        const on = at >= BR_TRACK1 && name !== "calm";
+        if (!on) {
+          if (lastBeat !== -2) {
+            lastBeat = -2; strung = false;
+            [...pieces, ...threads].forEach((el) => el.classList.remove("is-in", "is-out"));
+            board.classList.remove("is-look", "is-same");
+          }
+          return;
+        }
+        cutOut();
+        const t = at - BR_TRACK1, beat = Math.max(0, beatAt(BR_T2_BEATS, t));
+        board.style.setProperty("--brx-hit", Math.exp(-(t - BR_T2_BEATS[beat]) * 10).toFixed(3));
+        if (beat === lastBeat) return;
+        lastBeat = beat;
+        if (!strung && beat >= 15) string();
+        for (const el of [...pieces, ...threads]) {
+          const inAt = Number(el.dataset?.in ?? el.getAttribute("data-in")), outAt = Number(el.dataset?.out ?? el.getAttribute("data-out"));
+          el.classList.toggle("is-in", beat >= inAt);
+          el.classList.toggle("is-out", beat >= outAt);
+        }
+        // bar 6: the board leans in on her; bar 7: back, and everything shakes
+        board.classList.toggle("is-look", beat >= 22 && beat < 24);
+        board.classList.toggle("is-same", beat >= 24 && beat < 28);
+      },
+      unmount() {
+        window.removeEventListener("resize", onResize);
+        fx = null; board = null; lastBeat = -2; lastKick = -1; lastSnare = -1; strung = false;
+        document.documentElement.style.removeProperty("--br-kick");
+        document.documentElement.style.removeProperty("--br-snare");
+      },
+    };
+  })();
+
+  // Breed's MV, "This song connects worlds": the chorus track (the song's last chorus, its refrain and
+  // its last hit, 18 bars) told with the manga's pages, from Aya's doubt to the kiss. Two worlds side by
+  // side, each on its own paper: Mitsuki's, black, with the punk stickers (on the left; on a tall
+  // screen on top), and Aya's, white, with the cute ones; a torn lime seam between them. Each world
+  // plays its own panels, and the story pulls the two together: Mitsuki's words are thrown over the
+  // seam (bar 9), Aya's hand reaches across it (11), the stairs and the song span it (12-14), their
+  // faces close in on it a beat a row (15), it is yanked shut and safety-pinned (16), and the kiss
+  // bursts it into one lime world (17). Their ending takes the last hit (18); where that bar ends, the
+  // frame is torn open onto the page and track 1 comes in under it on the very next sample (the
+  // track leads straight into the loop, see playScene). BR_OP_BEATS: the track's beats, seconds into
+  // its music (it starts at BR_START); bar n starts on beat 4n - 4. The band stops on beat 68 (the last
+  // hit); beats 69-72 carry the last bars' tempo (0.3825 s) on, and beat 72 (BR_HANDOFF) is where the
+  // last bar ends.
+  //   open (0)          the page tears down the middle and the two worlds open out of the seam
+  //   doubt (0.41)      bars 1-4, Aya's world: her three strips, a bar each, each ripped off for the
+  //                     next; Mitsuki's world dark, the title in it
+  //   lights (3.05)     bars 3-4: the crash run lights Mitsuki's stage, a lamp a crash
+  //   stage (6.09)      bars 5-8: ギャーン, her world takes the seam: the camera climbs the guitar to her
+  //                     face; Aya's lime smile, then YOU'RE MY ROCK STAR on the crash of bar 7
+  //   rock (12.17)      bar 9, the refrain: Mitsuki asks / Aya in tears; TO MY ROCK. thrown across the
+  //                     seam on the big kick
+  //   fan (13.70)       bar 10: the first fan's note, the one who reads it
+  //   slip (15.24)      bar 11: the slip and the fall; WHOA, and Aya's hand comes over the seam
+  //   stairs (16.76)    bar 12: the stairs over the seam, ripped wide open behind them
+  //   worlds (18.29)    bar 13: their faces, THIS SONG CONNECTS WORLDS! on the seam, a record spinning
+  //   everyone (19.82)  bar 14: EVERYONE HEARS IT!!, the stickers swapping worlds
+  //   close (21.34)     bar 15: their faces close in on the seam, a row a beat
+  //   pull (22.88)      bar 16: the guess / PULL: the seam yanked shut, pinned / her heart, ドクン ドクン
+  //   kiss (24.42)      bar 17, the four hits: the seam bursts into lime, the kiss a panel a hit
+  //   always (25.95)    the last hit: their ending
+  //   page (27.48)      the bar's end: the frame torn open onto the page, track 1 under it
+  const BR_OP_BEATS = [0.003, 0.409, 0.784, 1.146, 1.521, 1.895, 2.296, 2.673, 3.048, 3.425, 3.817, 4.194, 4.586, 4.955, 5.346, 5.727, 6.089, 6.475, 6.862, 7.233,
+    7.619, 7.991, 8.359, 8.76, 9.131, 9.511, 9.9, 10.275, 10.655, 11.027, 11.378, 11.79, 12.173, 12.55, 12.936, 13.311, 13.7, 14.095, 14.486, 14.852, 15.241, 15.624,
+    16.004, 16.396, 16.762, 17.157, 17.534, 17.92, 18.292, 18.683, 19.064, 19.447, 19.818, 20.204, 20.599, 20.968, 21.339, 21.731, 22.114, 22.503, 22.875, 23.266,
+    23.673, 24.044, 24.424, 24.811, 25.191, 25.571, 25.954, 26.337, 26.719, 27.102, 27.484];
+  const BR_HANDOFF = BR_OP_BEATS[72];
+  const BR_OP = (beat) => BR_START + BR_OP_BEATS[beat];
+  // Its drums, an eighth a digit (0 none, 9 the hardest; beats 0-67, a bar a group), measured on the track.
+  const BR_DRUMS = Object.fromEntries(Object.entries({
+    kick: "70213062 24045000 14067000 27045010 53058210 11064010 53097001 12050000 93098507 22045030 11011020 14001040 32001050 22013021 61092020 11020010 21020402",
+    snare: "31002020 11220050 01320030 01422030 31511030 01312040 21210010 02323051 12222130 30102033 21202015 50400042 12403123 11400045 01601012 20400023 22503160",
+    crash: "40000000 10000000 40203060 40500000 10303010 10300000 30600020 20200000 00206000 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00003000",
+  }).map(([name, row]) => [name, row.replace(/ /g, "")]));
+  // The pages (breed/), and the panels cut from them: [page, x, y, w, h] (fractions of the page). The
+  // rows of the kiss's first page are split between their two faces (-in: closer in on them, for a
+  // tall screen, where each world is half as wide).
+  const BR_MV_PAGES = { d1: "page-d-1", d2: "page-d-2", d3: "page-d-3", e1: "page-e-1", e2: "page-e-2", k1: "kiss-1", k2: "kiss-2", k3: "kiss-3", k4: "kiss-4" };
+  const BR_MV_CROPS = {
+    reach: ["d1", 0, 0.03, 0.93, 0.25], stand: ["d1", 0.15, 0.285, 0.78, 0.32], eyes: ["d1", 0.03, 0.6, 0.92, 0.4],
+    stage: ["d2", 0, 0.15, 1, 0.54], guitar: ["d2", 0.2, 0.15, 0.68, 0.54], smile: ["d2", 0.6, 0.065, 0.4, 0.25], star: ["d2", 0.07, 0.69, 0.93, 0.31],
+    listen: ["d3", 0.07, 0.06, 0.5, 0.37], tears: ["d3", 0.47, 0.26, 0.5, 0.44], fan: ["d3", 0.24, 0.72, 0.42, 0.28], her: ["d3", 0.65, 0.71, 0.3, 0.24], play: ["d3", 0.02, 0.73, 0.25, 0.1],
+    slip: ["e1", 0.42, 0, 0.58, 0.27], fall: ["e1", 0.14, 0.05, 0.42, 0.33], whoa: ["e1", 0.02, 0.07, 0.21, 0.28], hand: ["e1", 0.7, 0.35, 0.24, 0.3], stairs: ["e1", 0, 0.38, 0.72, 0.4],
+    face: ["e2", 0.08, 0, 0.32, 0.425], grin: ["e2", 0.62, 0, 0.3, 0.425], everyone: ["e2", 0, 0.4, 1, 0.38],
+    um: ["k1", 0, 0, 0.455, 0.405], give: ["k1", 0.465, 0, 0.455, 0.405],
+    row2m: ["k1", 0.07, 0.42, 0.415, 0.18], row2a: ["k1", 0.485, 0.42, 0.435, 0.18], row3m: ["k1", 0.03, 0.615, 0.45, 0.175], row3a: ["k1", 0.48, 0.615, 0.44, 0.175],
+    row4m: ["k1", 0, 0.8, 0.47, 0.2], row4a: ["k1", 0.47, 0.8, 0.45, 0.2],
+    "row2m-in": ["k1", 0.27, 0.42, 0.215, 0.18], "row2a-in": ["k1", 0.485, 0.42, 0.215, 0.18], "row3m-in": ["k1", 0.25, 0.615, 0.23, 0.175], "row3a-in": ["k1", 0.48, 0.615, 0.23, 0.175],
+    "row4m-in": ["k1", 0.24, 0.8, 0.23, 0.2], "row4a-in": ["k1", 0.47, 0.8, 0.23, 0.2],
+    guess: ["k2", 0.08, 0, 0.92, 0.3], pull: ["k2", 0.08, 0.19, 0.84, 0.24], heart: ["k2", 0, 0.38, 0.75, 0.62],
+    kiss: ["k3", 0.08, 0, 0.415, 0.3], kissed: ["k3", 0.505, 0, 0.415, 0.27], hold: ["k3", 0.1, 0.24, 0.82, 0.44], last: ["k3", 0.03, 0.66, 0.92, 0.3],
+    always: ["k4", 0.03, 0.02, 0.97, 0.64],
+  };
+  // The shots: a panel (c), its world (m Mitsuki's, a Aya's, s over both), the beats it comes in and
+  // goes, how it comes in (slam; cut; dark: lit by the crash run) and goes (rip: torn off over what
+  // comes next), its centre in its world (0-1), the most of its world's width and height it takes,
+  // its tilt (degrees), its zoom (from, to) about a point of it, or a pan (the point moving from, to,
+  // over two beats), hug: against the seam (the faces meeting), tall: its panel on a tall screen.
+  const BR_MV_SHOTS = [
+    { c: "reach", w: "a", in: 1, out: 4, enter: "slam", leave: "rip", at: [0.5, 0.48], fit: [0.94, 0.62], tilt: -2, zoom: [1, 1.05], focus: [0.6, 0.5] },
+    { c: "stand", w: "a", in: 4, out: 8, enter: "cut", leave: "rip", at: [0.5, 0.5], fit: [0.94, 0.72], tilt: 1.5, zoom: [1, 1.07], focus: [0.6, 0.45] },
+    { c: "eyes", w: "a", in: 8, out: 16, enter: "cut", leave: "rip", at: [0.5, 0.5], fit: [0.94, 0.8], tilt: -1, zoom: [1, 1.22], focus: [0.18, 0.7] },
+    { c: "stage", w: "m", in: 8, out: 16, enter: "dark", at: [0.5, 0.5], fit: [0.94, 0.84], tilt: 1.5, zoom: [1, 1.06], focus: [0.45, 0.4] },
+    { c: "guitar", w: "m", in: 16, out: 32, enter: "slam", leave: "rip", at: [0.5, 0.5], fit: [0.94, 0.9], tilt: -1, zoom: [1.5, 1.62], pan: [[0.5, 0.86], [0.5, 0.1], 16, 24] },
+    { c: "smile", w: "a", in: 16, out: 24, enter: "cut", leave: "rip", at: [0.5, 0.5], fit: [0.92, 0.84], tilt: 2, zoom: [1, 1.08], focus: [0.4, 0.5] },
+    { c: "star", w: "a", in: 24, out: 32, enter: "slam", leave: "rip", at: [0.5, 0.48], fit: [0.95, 0.78], tilt: -1.5, zoom: [1, 1.1], focus: [0.5, 0.42] },
+    { c: "listen", w: "m", in: 32, out: 36, enter: "slam", leave: "rip", at: [0.5, 0.5], fit: [0.92, 0.88], tilt: -2, zoom: [1, 1.08], focus: [0.6, 0.4] },
+    { c: "tears", w: "a", in: 32, out: 36, enter: "slam", leave: "rip", at: [0.5, 0.5], fit: [0.92, 0.88], tilt: 2, zoom: [1, 1.08], focus: [0.5, 0.4] },
+    { c: "fan", w: "a", in: 36, out: 42, enter: "cut", leave: "rip", at: [0.5, 0.53], fit: [0.9, 0.8], tilt: -3, zoom: [1, 1.07] },
+    { c: "her", w: "m", in: 36, out: 40, enter: "cut", leave: "rip", at: [0.5, 0.58], fit: [0.78, 0.68], tilt: 2, zoom: [1, 1.06], focus: [0.5, 0.4] },
+    { c: "play", w: "m", in: 37, out: 40, enter: "slam", at: [0.5, 0.13], fit: [0.74, 0.17], tilt: -3 },
+    { c: "slip", w: "m", in: 40, out: 44, enter: "slam", at: [0.5, 0.3], fit: [0.94, 0.48], tilt: -4 },
+    { c: "fall", w: "m", in: 41, out: 44, enter: "slam", at: [0.46, 0.72], fit: [0.8, 0.5], tilt: 3, zoom: [1, 1.08] },
+    { c: "whoa", w: "a", in: 42, out: 44, enter: "slam", at: [0.6, 0.45], fit: [0.5, 0.8], tilt: 2 },
+    { c: "stairs", w: "s", in: 44, out: 48, enter: "slam", at: [0.5, 0.5], fit: [0.64, 0.86], tilt: -2.5, zoom: [1, 1.07], focus: [0.47, 0.6] },
+    { c: "face", w: "m", in: 48, out: 52, enter: "slam", at: [0.5, 0.5], fit: [0.86, 0.92], tilt: -1.5, zoom: [1, 1.06], focus: [0.5, 0.55] },
+    { c: "grin", w: "a", in: 48, out: 52, enter: "slam", at: [0.5, 0.5], fit: [0.86, 0.92], tilt: 1.5, zoom: [1, 1.06] },
+    { c: "everyone", w: "s", in: 52, out: 56, enter: "slam", at: [0.5, 0.5], fit: [0.9, 0.72], tilt: 2, zoom: [1, 1.05], focus: [0.6, 0.5] },
+    { c: "um", w: "m", in: 56, out: 57, enter: "cut", hug: true, fit: [0.9, 0.86] },
+    { c: "give", w: "a", in: 56, out: 57, enter: "cut", hug: true, fit: [0.9, 0.86] },
+    { c: "row2m", w: "m", in: 57, out: 58, enter: "cut", hug: true, fit: [0.96, 0.8], tall: "row2m-in" },
+    { c: "row2a", w: "a", in: 57, out: 58, enter: "cut", hug: true, fit: [0.96, 0.8], tall: "row2a-in" },
+    { c: "row3m", w: "m", in: 58, out: 59, enter: "cut", hug: true, fit: [0.96, 0.8], tall: "row3m-in" },
+    { c: "row3a", w: "a", in: 58, out: 59, enter: "cut", hug: true, fit: [0.96, 0.8], tall: "row3a-in" },
+    { c: "row4m", w: "m", in: 59, out: 60, enter: "cut", hug: true, fit: [0.96, 0.8], tall: "row4m-in" },
+    { c: "row4a", w: "a", in: 59, out: 60, enter: "cut", hug: true, fit: [0.96, 0.8], tall: "row4a-in" },
+    { c: "guess", w: "s", in: 60, out: 61, enter: "slam", at: [0.5, 0.5], fit: [0.92, 0.62], tilt: -2 },
+    { c: "pull", w: "s", in: 61, out: 62, enter: "slam", at: [0.5, 0.5], fit: [0.94, 0.6], tilt: 3 },
+    { c: "heart", w: "s", in: 62, out: 64, enter: "slam", at: [0.5, 0.5], fit: [0.72, 0.92], tilt: -1.5, zoom: [1, 1.05], focus: [0.4, 0.45] },
+    { c: "kiss", w: "s", in: 64, out: 65, enter: "slam", at: [0.5, 0.5], fit: [0.66, 0.9], tilt: -2 },
+    { c: "kissed", w: "s", in: 65, out: 66, enter: "cut", at: [0.5, 0.5], fit: [0.66, 0.9], tilt: 2 },
+    { c: "hold", w: "s", in: 66, out: 67, enter: "slam", at: [0.5, 0.5], fit: [0.84, 0.9], tilt: -1.5 },
+    { c: "last", w: "s", in: 67, out: 68, enter: "cut", at: [0.5, 0.5], fit: [0.94, 0.66], tilt: 1 },
+    { c: "always", w: "s", in: 68, out: 99, enter: "slam", at: [0.5, 0.5], fit: [0.8, 0.92], tilt: -1, zoom: [1, 1.06], focus: [0.5, 0.42] },
+  ];
+  // The stickers (breed/punk/, die-cut: a white edge and a shadow): their world (seam: on the seam,
+  // `at` its place along it), centre in it, size (of the screen's shorter side), turn, the beats
+  // they are on; to: the world they cross into on bar 14 (centre, beat); spin: a record.
+  const BR_MV_STICKERS = [
+    { s: "glossy-heart", w: "a", at: [0.87, 0.12], size: 0.11, turn: 14, in: 2, out: 64, to: ["m", [0.55, 0.91], 52] },
+    { s: "fragile", w: "a", at: [0.19, 0.88], size: 0.19, turn: -8, in: 5, out: 24 },
+    { s: "safety-pin", w: "m", at: [0.16, 0.1], size: 0.18, turn: 32, in: 5, out: 64, to: ["a", [0.85, 0.12], 53] },
+    { s: "chrome-star", w: "m", at: [0.86, 0.88], size: 0.13, turn: -12, in: 6, out: 64 },
+    { s: "butterfly", w: "a", at: [0.86, 0.87], size: 0.13, turn: 14, in: 9, out: 64, to: ["m", [0.5, 0.08], 54] },
+    { s: "stars-outline", w: "a", at: [0.12, 0.12], size: 0.12, turn: -10, in: 11, out: 36 },
+    { s: "pick", w: "m", at: [0.12, 0.89], size: 0.09, turn: 20, in: 18, out: 64 },
+    { s: "padlock", w: "m", at: [0.87, 0.11], size: 0.1, turn: -10, in: 21, out: 37 },
+    { s: "rock-star", w: "a", at: [0.5, 0.9], size: 0.34, turn: -6, in: 25, out: 36 },
+    { s: "metal-heart", w: "m", at: [0.87, 0.11], size: 0.11, turn: 10, in: 37, out: 64 },
+    { s: "bow", w: "a", at: [0.13, 0.12], size: 0.12, turn: -12, in: 37, out: 64 },
+    { s: "heart-keys", w: "a", at: [0.15, 0.87], size: 0.12, turn: 8, in: 38, out: 64 },
+    { s: "vinyl-heart", w: "seam", at: [0.5, 0.87], size: 0.16, turn: 0, in: 50.5, out: 64, spin: true },
+    { s: "boombox", w: "a", at: [0.84, 0.87], size: 0.17, turn: 6, in: 55, out: 64 },
+    { s: "only-you", w: "s", at: [0.12, 0.8], size: 0.17, turn: -10, in: 69, out: 99 },
+    { s: "star-earrings", w: "s", at: [0.88, 0.15], size: 0.13, turn: 12, in: 69.5, out: 99 },
+    { s: "silver-star", w: "s", at: [0.89, 0.84], size: 0.12, turn: -14, in: 70, out: 99 },
+    { s: "star-chain", w: "s", at: [0.11, 0.17], size: 0.15, turn: 10, in: 70.5, out: 99 },
+  ];
+  // Sound effects (Dela Gothic One): world (seam: along it), place, size, turn, beats on.
+  const BR_MV_SFX = [
+    { text: "ビリッ!!", w: "seam", at: [0.5, 0.3], size: 0.13, turn: -10, in: 0, out: 2 },
+    { text: "ギャーン!!", w: "m", at: [0.5, 0.13], size: 0.1, turn: -8, in: 16, out: 19 },
+    { text: "ドクン", w: "s", at: [0.14, 0.3], size: 0.085, turn: -8, in: 62, out: 64 },
+    { text: "ドクン", w: "s", at: [0.86, 0.7], size: 0.095, turn: 8, in: 63, out: 64 },
+  ];
+  // The seam over time ([beat, value], each eased in from the last): where it splits the screen
+  // (Mitsuki's share), how far apart its two edges are (px at 1080), and how rough the tear is.
+  const BR_MV_SPLIT = [[0, 0.42], [8, 0.5], [16, 0.58], [24, 0.42], [28, 0.47], [29, 0.53], [30, 0.46], [31, 0.54], [32, 0.5], [40, 0.56], [42, 0.46], [44, 0.5]];
+  const BR_MV_GAP = [[0, 22], [44, 74], [48, 22], [57, 15], [58, 9], [59, 4], [60, 2], [61, 0]];
+  const BR_MV_ROUGH = [[0, 1], [61, 0.25]];
+  // Flashes and shakes: [beat, how much].
+  const BR_MV_FLASH = [[32, 0.55], [33.5, 0.35], [44, 0.3], [56, 0.35], [61, 0.35], [64, 0.95], [66, 0.35], [68, 0.8]];
+  const BR_MV_SHAKE = [[32, 1], [33.5, 1.4], [40, 0.8], [44, 0.8], [61, 1.3], [64, 0.8], [68, 1.2]];
+  const brMvPics = {};
+  const brMvPic = (name) => (brMvPics[name] ??= Object.assign(new Image(), { decoding: "async", src: siteUrl(`breed/${name}.webp`) }));
+  const breedScene = {
+    src: "breed/opening.mp3",
+    className: "br-scene",
+    // The track leads straight into the loop: track 1 comes in where its last bar ends, under the
+    // frame being torn open (outro, ms).
+    lead: { start: BR_START, length: BR_HANDOFF },
+    outro: 640,
+    cues: [[0, "open"], [BR_OP(1), "doubt"], [BR_OP(8), "lights"], [BR_OP(16), "stage"], [BR_OP(32), "rock"], [BR_OP(36), "fan"], [BR_OP(40), "slip"],
+      [BR_OP(44), "stairs"], [BR_OP(48), "worlds"], [BR_OP(52), "everyone"], [BR_OP(56), "close"], [BR_OP(60), "pull"], [BR_OP(64), "kiss"], [BR_OP(68), "always"],
+      [BR_START + BR_HANDOFF, "page"]],
+    // Its pages, stickers and lettering, loaded while its button is up.
+    warm() {
+      Object.values(BR_MV_PAGES).forEach(brMvPic);
+      [...new Set(BR_MV_STICKERS.map((item) => `punk/${item.s}`)), "bubble-rock", "bubble-worlds"].forEach(brMvPic);
+      document.fonts?.load("400 64px 'Dela Gothic One'", `気になってる人が男じゃなかったビリッギャーンドクン!`).catch(() => undefined);
+    },
+    mount(box, sound) {
+      breedScene.warm();
+      box.innerHTML = `<canvas class="brm-screen"></canvas>`;
+      // (its sound: the chorus track, in the scene's player, kept in the box out of sight)
+      if (sound) { sound.className = "brm-sound"; box.append(sound); }
+      const canvas = box.querySelector(".brm-screen"), g = canvas.getContext("2d");
+      const LIME = "#B1F700", INK = "#111111", PAPER = "#FBFBF6";
+      let W = 0, H = 0, ratio = 1, unit = 1, tall = false;
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; unit = Math.min(W, H); tall = H > W;
+        ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+      };
+      const clamp = (q) => Math.min(1, Math.max(0, q));
+      const ease = (q) => 1 - (1 - clamp(q)) ** 3;
+      const back = (q) => { const p = clamp(q) - 1; return 1 + 2.4 * p ** 3 + 1.4 * p ** 2; };
+      // the beat (with its fraction) at t seconds into the music
+      const beatOf = (t) => {
+        const B = BR_OP_BEATS;
+        if (t < B[0]) return (t - B[0]) / 0.38;
+        if (t >= B[72]) return 72 + (t - B[72]) / 0.3825;
+        let i = 0;
+        while (B[i + 1] <= t) i++;
+        return i + (t - B[i]) / (B[i + 1] - B[i]);
+      };
+      // a drum's latest hit (0-1), dying away by beats
+      const drum = (row, bt, fall = 5) => {
+        const e = Math.floor(bt * 2);
+        for (let k = e; k >= 0 && k > e - 4; k--) {
+          const v = row.charCodeAt(k) - 48;
+          if (v > 0 && v <= 9) return (v / 9) * Math.exp(-(bt - k / 2) * fall);
+        }
+        return 0;
+      };
+      const keyed = (keys, bt, span = 0.4) => {
+        let v = keys[0][1];
+        for (let i = 1; i < keys.length && bt >= keys[i][0]; i++) v += (keys[i][1] - v) * ease((bt - keys[i][0]) / span);
+        return v;
+      };
+      const impulse = (keys, bt, fall) => keys.reduce((sum, [b, amount]) => sum + (bt >= b ? amount * Math.exp(-(bt - b) * fall) : 0), 0);
+      // a fixed scatter in -1..1 (the same tear every frame)
+      const scatter = (n) => { const r = Math.sin(n * 12.9898 + 4.1) * 43758.5453; return (r - Math.floor(r)) * 2 - 1; };
+      // ── the textures: the black paper's grain, the white one's dots, the lime world's coarser dots ──
+      const tile = (w, h, paint) => { const c = document.createElement("canvas"); c.width = w; c.height = h; paint(c.getContext("2d")); return g.createPattern(c, "repeat"); };
+      const grain = tile(160, 160, (t) => {
+        t.fillStyle = "#121212"; t.fillRect(0, 0, 160, 160);
+        for (let n = 0; n < 900; n++) { const v = Math.abs(scatter(n * 3 + 1)); t.fillStyle = `rgba(255, 255, 255, ${0.03 + v * 0.07})`; t.fillRect((scatter(n * 3 + 2) + 1) * 80, (scatter(n * 3 + 3) + 1) * 80, 1.2, 1.2); }
+        for (let n = 0; n < 9; n++) { t.fillStyle = "rgba(177, 247, 0, 0.35)"; t.fillRect((scatter(n + 900) + 1) * 80, (scatter(n + 950) + 1) * 80, 2, 2); }
+      });
+      const dots = tile(10, 10, (t) => { t.fillStyle = PAPER; t.fillRect(0, 0, 10, 10); t.fillStyle = "rgba(17, 17, 17, 0.08)"; t.beginPath(); t.arc(5, 5, 1.3, 0, Math.PI * 2); t.fill(); });
+      const limeDots = tile(14, 14, (t) => { t.fillStyle = LIME; t.fillRect(0, 0, 14, 14); t.fillStyle = "rgba(17, 17, 17, 0.12)"; t.beginPath(); t.arc(7, 7, 2.2, 0, Math.PI * 2); t.fill(); });
+      // ── the pictures ──
+      const pic = (crop) => brMvPic(BR_MV_PAGES[crop[0]]);
+      const ready = (img) => img.complete && img.naturalWidth > 0;
+      const aspectOf = (crop) => { const img = pic(crop); return (crop[3] * (img.naturalWidth || 1200)) / (crop[4] * (img.naturalHeight || 1703)); };
+      // a panel's part covering a box, zoomed about a point of it
+      const cover = (img, crop, x, y, w, h, zoom = 1, fx = 0.5, fy = 0.5) => {
+        const sw = img.naturalWidth * crop[3], sh = img.naturalHeight * crop[4], k = Math.max(w / sw, h / sh) * zoom;
+        g.drawImage(img, img.naturalWidth * crop[1], img.naturalHeight * crop[2], sw, sh, x + w * fx - sw * k * fx, y + h * fy - sh * k * fy, sw * k, sh * k);
+      };
+      // the stickers, die-cut once: a white edge (the picture's shape grown) and a soft shadow
+      const cuts = {};
+      const sticker = (name) => {
+        const img = brMvPic(`punk/${name}`);
+        if (cuts[name] || !ready(img)) return cuts[name] ?? null;
+        const k = 240 / Math.max(img.naturalWidth, img.naturalHeight), w = img.naturalWidth * k, h = img.naturalHeight * k, edge = 7, pad = 18;
+        const shape = document.createElement("canvas"); shape.width = w; shape.height = h;
+        const s = shape.getContext("2d"); s.drawImage(img, 0, 0, w, h); s.globalCompositeOperation = "source-in"; s.fillStyle = "#FFFFFF"; s.fillRect(0, 0, w, h);
+        const c = document.createElement("canvas"); c.width = w + pad * 2; c.height = h + pad * 2;
+        const t = c.getContext("2d");
+        t.shadowColor = "rgba(17, 17, 17, 0.4)"; t.shadowBlur = 8; t.shadowOffsetX = 2; t.shadowOffsetY = 5;
+        for (let a = 0; a < 16; a++) t.drawImage(shape, pad + Math.cos((a / 16) * Math.PI * 2) * edge, pad + Math.sin((a / 16) * Math.PI * 2) * edge);
+        t.shadowColor = "transparent";
+        for (let a = 0; a < 16; a++) t.drawImage(shape, pad + Math.cos((a / 16) * Math.PI * 2) * edge, pad + Math.sin((a / 16) * Math.PI * 2) * edge);
+        t.drawImage(img, pad, pad, w, h);
+        cuts[name] = { canvas: c, w: c.width, h: c.height };
+        return cuts[name];
+      };
+      // ── the seam: the tear's line (along the screen's length; across: where it splits it) ──
+      const JAGS = Array.from({ length: 27 }, (_, i) => scatter(i + 40));
+      const seamAt = (bt, t) => {
+        const vertical = !tall || bt >= 56, along = vertical ? H : W, across = vertical ? W : H;
+        const kick = drum(BR_DRUMS.kick, bt), c = keyed(BR_MV_SPLIT, bt) * across;
+        const amp = unit * 0.018 * keyed(BR_MV_ROUGH, bt) * (1 + 0.6 * kick);
+        const pts = JAGS.map((r, i) => [(-0.04 + (1.08 * i) / (JAGS.length - 1)) * along, c + r * amp + Math.sin(t * 1.7 + i * 0.9) * unit * 0.002]);
+        return { vertical, along, across, c, gap: (keyed(BR_MV_GAP, bt) * unit / 1080) * (1 + 0.35 * kick), pts };
+      };
+      const xy = (sm, a, b) => (sm.vertical ? [b, a] : [a, b]);
+      // one world's edge along the tear (side -1 Mitsuki's, +1 Aya's), and its paper out to the screen's edge (reach < 1: still opening)
+      const edgeOf = (sm, side) => sm.pts.map(([a, b]) => xy(sm, a, b + (side * sm.gap) / 2));
+      const paperOf = (sm, side, reach = 1) => {
+        const far = side < 0 ? sm.c - reach * (sm.c + 24) : sm.c + reach * (sm.across - sm.c + 24), last = sm.pts[sm.pts.length - 1][0];
+        return [...edgeOf(sm, side), xy(sm, last, far), xy(sm, sm.pts[0][0], far)];
+      };
+      const trace = (points) => { g.beginPath(); points.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); };
+      // the torn edge's fibres: the paper's core showing along it, finer jags between the big ones
+      const fibres = (points, colour, width) => {
+        g.beginPath();
+        points.forEach(([x, y], i) => {
+          if (!i) { g.moveTo(x, y); return; }
+          const [px, py] = points[i - 1];
+          for (let k = 1; k <= 3; k++) { const q = k / 4, j = scatter(i * 7 + k) * width * 1.2; g.lineTo(px + (x - px) * q + j, py + (y - py) * q - j); }
+          g.lineTo(x, y);
+        });
+        g.strokeStyle = colour; g.lineWidth = width; g.lineJoin = "round"; g.stroke();
+      };
+      // a world's box (for laying out its panels): its side of the seam
+      const worldBox = (sm, w) => {
+        if (w === "s") return { x: 0, y: 0, w: W, h: H };
+        const near = w === "m" ? sm.c - sm.gap / 2 : sm.c + sm.gap / 2;
+        const [lo, hi] = w === "m" ? [0, near] : [near, sm.across];
+        return sm.vertical ? { x: lo, y: 0, w: hi - lo, h: H } : { x: 0, y: lo, w: W, h: hi - lo };
+      };
+      // ── a panel: framed (black ink; on black paper, a white edge round it), its shadow, cut by a
+      // clip in its own frame (a torn piece), at a centre, turned and scaled ──
+      const panel = (crop, cx, cy, pw, ph, opt) => {
+        const img = pic(crop);
+        if (!ready(img)) return;
+        const line = Math.max(2.5, unit * 0.0045), x = -pw / 2, y = -ph / 2;
+        g.save();
+        g.translate(cx, cy); g.rotate(((opt.turn ?? 0) * Math.PI) / 180); g.scale(opt.scale ?? 1, opt.scale ?? 1);
+        if (opt.piece) { g.translate(opt.piece.dx, opt.piece.dy); g.rotate(opt.piece.turn); g.globalAlpha = opt.piece.alpha; trace(opt.piece.clip); g.clip(); }
+        g.fillStyle = "rgba(17, 17, 17, 0.4)"; g.fillRect(x + unit * 0.008, y + unit * 0.012, pw, ph);
+        if (opt.world === "m") { const e = line * 1.8; g.fillStyle = PAPER; g.fillRect(x - e, y - e, pw + 2 * e, ph + 2 * e); }
+        g.save(); g.beginPath(); g.rect(x, y, pw, ph); g.clip();
+        cover(img, crop, x, y, pw, ph, opt.zoom ?? 1, opt.fx ?? 0.5, opt.fy ?? 0.5);
+        if (opt.light !== undefined && opt.light < 1) { g.fillStyle = `rgba(8, 8, 8, ${(1 - opt.light) * 0.93})`; g.fillRect(x, y, pw, ph); }
+        if (opt.lamps) opt.lamps(x, y, pw, ph);
+        if (opt.flash) { g.fillStyle = `rgba(255, 255, 255, ${opt.flash})`; g.fillRect(x, y, pw, ph); }
+        g.restore();
+        g.lineWidth = line; g.strokeStyle = INK; g.strokeRect(x, y, pw, ph);
+        if (opt.piece) fibres(opt.piece.line, PAPER, line * 1.2);
+        g.restore();
+      };
+      // a scrap torn out of its page (a ragged oval of it, white fibres round it, its shadow under it)
+      const torn = (crop, cx, cy, w, h, turn, alpha) => {
+        const img = pic(crop);
+        if (!ready(img) || alpha <= 0) return;
+        const edge = Array.from({ length: 24 }, (_, i) => { const a = (i / 24) * Math.PI * 2, j = 1 + scatter(i + 90) * 0.06; return [Math.cos(a) * w * 0.5 * j, Math.sin(a) * h * 0.5 * j]; });
+        g.save(); g.globalAlpha = alpha; g.translate(cx, cy); g.rotate((turn * Math.PI) / 180);
+        g.save(); g.translate(unit * 0.008, unit * 0.012); g.fillStyle = "rgba(17, 17, 17, 0.4)"; trace(edge); g.fill(); g.restore();
+        g.save(); trace(edge); g.clip(); cover(img, crop, -w / 2, -h / 2, w, h, 1.12); g.restore();
+        fibres([...edge, edge[0]], PAPER, Math.max(2, unit * 0.005));
+        g.restore();
+      };
+      // a panel's size in its box: as much of the box as its fit allows, at its own shape
+      const fitIn = (crop, fit, box) => {
+        const aspect = aspectOf(crop), pw = Math.min(fit[0] * box.w, fit[1] * box.h * aspect);
+        return [pw, pw / aspect];
+      };
+      // a shot's place: its centre in its world, or (hug) against the seam (on a tall screen a panel
+      // over both worlds takes nearly its width)
+      const fitOf = (shot) => (tall && shot.w === "s" ? [0.94, shot.fit[1]] : shot.fit);
+      const placeOf = (shot, crop, box, sm) => {
+        const [pw, ph] = fitIn(crop, fitOf(shot), box), margin = unit * 0.014, mine = shot.w === "m";
+        if (!shot.hug) return [box.x + shot.at[0] * box.w, box.y + shot.at[1] * box.h, pw, ph];
+        if (sm.vertical) return [mine ? box.x + box.w - margin - pw / 2 : box.x + margin + pw / 2, box.y + box.h / 2, pw, ph];
+        return [box.x + box.w / 2, mine ? box.y + box.h - margin - ph / 2 : box.y + margin + ph / 2, pw, ph];
+      };
+      // the jagged line a panel is torn along when it is ripped off (in its own frame), and its two pieces
+      const ripOf = (pw, ph) => {
+        const line = Array.from({ length: 9 }, (_, i) => [pw * (0.08 - 0.16 * (i / 8)) + scatter(i + 70) * pw * 0.03, -ph / 2 - 4 + ((ph + 8) * i) / 8]);
+        const far = pw + ph;
+        return { line, left: [[-far, -ph], ...line, [-far, ph]], right: [[far, -ph], ...line, [far, ph]] };
+      };
+      // ── a shot this frame ──
+      const shotFrame = (shot, bt, sm, world) => {
+        const crop = BR_MV_CROPS[tall && shot.tall ? shot.tall : shot.c], box = worldBox(sm, shot.w);
+        const [cx, cy, pw, ph] = placeOf(shot, crop, box, sm);
+        const age = bt - shot.in, life = Math.max(0.5, shot.out - shot.in), q = clamp(age / life);
+        const kick = drum(BR_DRUMS.kick, bt);
+        let scale = 1 + 0.022 * kick, turn = shot.tilt ?? 0, flash = 0;
+        if (shot.enter === "slam") { const p = clamp(age / 0.32); scale *= 1 + 0.22 * (1 - back(p)); turn += 3 * (1 - p); flash = 0.65 * (1 - p); }
+        if (shot.enter === "cut") scale *= 1 + 0.05 * Math.exp(-age * 9);
+        if (shot.c === "heart") scale *= 1 + 0.06 * impulse([[62, 1], [63, 1]], bt, 8);
+        const [z0, z1] = shot.zoom ?? [1, 1];
+        let [fx, fy] = shot.focus ?? [0.5, 0.5];
+        if (shot.pan) { const [[ax, ay], [bx, by], b0, b1] = shot.pan, p = ease((bt - b0) / (b1 - b0)); fx = ax + (bx - ax) * p; fy = ay + (by - ay) * p; }
+        const opt = { world, turn, scale, flash, zoom: z0 + (z1 - z0) * q, fx, fy };
+        // her stage in the dark: each crash of the run lights it a step, its lamps flaring
+        if (shot.enter === "dark") {
+          const steps = [8, 9, 10, 11, 12, 13], lit = steps.filter((b) => bt >= b).length;
+          const flare = steps.reduce((sum, b) => sum + (bt >= b ? Math.exp(-(bt - b) * 4) : 0), 0);
+          opt.light = Math.min(1, 0.12 + lit * 0.15 + flare * 0.12);
+          opt.lamps = (x, y, w, h) => {
+            g.save(); g.globalCompositeOperation = "screen";
+            [[0.115, 0.19], [0.235, 0.17]].forEach(([lx, ly], n) => {
+              const on = clamp((lit - n) / 2) * 0.55 + flare * 0.35, r = w * 0.32;
+              const glow = g.createRadialGradient(x + lx * w, y + ly * h, 0, x + lx * w, y + ly * h, r);
+              glow.addColorStop(0, `rgba(255, 255, 240, ${on})`); glow.addColorStop(0.35, `rgba(177, 247, 0, ${on * 0.45})`); glow.addColorStop(1, "rgba(177, 247, 0, 0)");
+              g.fillStyle = glow; g.fillRect(x, y, w, h);
+              const beam = g.createLinearGradient(x + lx * w, y + ly * h, x + (lx + 0.25) * w, y + h);
+              beam.addColorStop(0, `rgba(255, 255, 240, ${on * 0.4})`); beam.addColorStop(1, "rgba(255, 255, 240, 0)");
+              g.fillStyle = beam; g.beginPath(); g.moveTo(x + lx * w, y + ly * h); g.lineTo(x + (lx + 0.05) * w, y + h); g.lineTo(x + (lx + 0.45) * w, y + h); g.closePath(); g.fill();
+            });
+            g.restore();
+          };
+        }
+        if (bt < shot.out) { panel(crop, cx, cy, pw, ph, opt); return; }
+        // ripped off: two pieces, one flung away, the other dropping
+        const r = clamp((bt - shot.out) / 0.55), tear = ripOf(pw, ph), fade = 1 - r ** 3;
+        panel(crop, cx, cy, pw, ph, { ...opt, flash: 0, piece: { clip: tear.left, line: tear.line, dx: -pw * 0.2 * r, dy: ph * 1.1 * r * r, turn: -0.3 * r, alpha: fade } });
+        panel(crop, cx, cy, pw, ph, { ...opt, flash: 0, piece: { clip: tear.right, line: tear.line, dx: pw * 0.55 * r, dy: -ph * 0.25 * r + ph * 0.8 * r * r, turn: 0.42 * r, alpha: fade } });
+      };
+      // ── a cut-out piece (the bubbles: pictures with their own shape) ──
+      const cutout = (name, cx, cy, h, turn, scale = 1) => {
+        const img = brMvPic(name);
+        if (!ready(img)) return;
+        const w = (h * img.naturalWidth) / img.naturalHeight;
+        g.save(); g.translate(cx, cy); g.rotate((turn * Math.PI) / 180); g.scale(scale, scale);
+        g.shadowColor = "rgba(17, 17, 17, 0.45)"; g.shadowOffsetX = unit * 0.008; g.shadowOffsetY = unit * 0.012;
+        g.drawImage(img, -w / 2, -h / 2, w, h);
+        g.restore();
+      };
+      // a point on the seam (along: 0-1 of its length; off: px into Aya's side)
+      const onSeam = (sm, along, off = 0) => xy(sm, along * sm.along, sm.c + off);
+      // a point in a world (u, v: 0-1 of its box)
+      const inWorld = (sm, w, [u, v]) => { const box = worldBox(sm, w); return [box.x + u * box.w, box.y + v * box.h]; };
+      // the title in Mitsuki's dark world (bars 1-2): two columns, set top to bottom
+      const title = (sm, bt) => {
+        const alpha = clamp((bt - 0.6) / 0.5) * (1 - clamp((bt - 8) / 0.6));
+        if (alpha <= 0) return;
+        const box = worldBox(sm, "m"), size = Math.min(unit * 0.068, (box.h * 0.8) / 9, box.w * 0.2);
+        g.save(); g.globalAlpha = alpha; g.fillStyle = PAPER; g.textAlign = "center"; g.textBaseline = "middle";
+        g.font = `400 ${size}px 'Dela Gothic One', sans-serif`;
+        ["気になってる人が", "男じゃなかった"].forEach((words, col) => {
+          const x = box.x + box.w / 2 + (col ? -0.62 : 0.62) * size * 1.1, top = box.y + box.h / 2 - (8 * size * 1.08) / 2 + size / 2 + (col ? size * 0.5 : 0);
+          [...words].forEach((ch, i) => {
+            if (bt < 1 + col + i * 0.12) return;
+            const small = "っゃ".includes(ch);
+            g.fillText(ch, x + (small ? size * 0.14 : 0), top + i * size * 1.08 - (small ? size * 0.14 : 0));
+          });
+        });
+        if (bt >= 3) {
+          g.font = `400 ${Math.max(11, size * 0.32)}px 'Special Elite', monospace`; g.fillStyle = LIME;
+          g.fillText("♪ NIRVANA  ·  BREED", box.x + box.w / 2, box.y + box.h / 2 + (8 * size * 1.08) / 2 + size * 0.9);
+        }
+        g.restore();
+      };
+      // a sound effect: lime, inked, slammed in
+      const sfx = (item, sm, bt) => {
+        const age = bt - item.in;
+        const [x, y] = item.w === "seam" ? onSeam(sm, item.at[1]) : item.w === "s" ? [item.at[0] * W, item.at[1] * H] : inWorld(sm, item.w, item.at);
+        const size = unit * item.size, p = clamp(age / 0.3), fade = 1 - clamp((bt - item.out + 0.5) / 0.5);
+        g.save(); g.translate(x, y); g.rotate((item.turn * Math.PI) / 180); g.scale(1.6 - 0.6 * back(p), 1.6 - 0.6 * back(p));
+        g.globalAlpha = clamp(p * 3) * fade;
+        g.font = `400 ${size}px 'Dela Gothic One', sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round";
+        g.lineWidth = size * 0.22; g.strokeStyle = PAPER; g.strokeText(item.text, 0, 0);
+        g.lineWidth = size * 0.12; g.strokeStyle = INK; g.strokeText(item.text, 0, 0);
+        g.fillStyle = LIME; g.fillText(item.text, 0, 0);
+        g.restore();
+      };
+      // a sticker this frame: popped on, wiggling with the snare, crossing the seam, blown off by the kiss
+      const stickerFrame = (item, sm, bt) => {
+        const cut = sticker(item.s);
+        if (!cut) return;
+        let [x, y] = item.w === "seam" ? onSeam(sm, item.at[1]) : item.w === "s" ? [item.at[0] * W, item.at[1] * H] : inWorld(sm, item.w, item.at);
+        let turn = item.turn + drum(BR_DRUMS.snare, bt, 6) * 5 * (item.turn >= 0 ? 1 : -1), alpha = 1;
+        if (item.spin) turn += (bt - item.in) * 70;
+        if (item.to && bt >= item.to[2]) {
+          const p = ease((bt - item.to[2]) / 0.8), [tx, ty] = inWorld(sm, item.to[0], item.to[1]), lift = Math.sin(Math.PI * clamp((bt - item.to[2]) / 0.8)) * unit * 0.14;
+          x += (tx - x) * p; y += (ty - y) * p - lift; turn += 360 * p;
+        }
+        if (bt >= 64 && item.out >= 64 && item.in < 64) {
+          // the kiss's burst: blown out from the middle
+          const p = clamp((bt - 64) / 1.4), dx = x - W / 2, dy = y - H / 2, far = Math.hypot(W, H) * 0.9 * p * p, d = Math.hypot(dx, dy) || 1;
+          x += (dx / d) * far; y += (dy / d) * far; turn += 260 * p; alpha = 1 - p;
+        }
+        const p = clamp((bt - item.in) / 0.28), s = ((unit * item.size) / Math.max(cut.w, cut.h)) * back(p);
+        if (alpha <= 0 || s <= 0) return;
+        g.save(); g.globalAlpha = alpha; g.translate(x, y); g.rotate((turn * Math.PI) / 180); g.scale(s, s);
+        g.drawImage(cut.canvas, -cut.w / 2, -cut.h / 2);
+        g.restore();
+      };
+      // a safety pin through the shut seam
+      const pin = (sm, along, bt, at) => {
+        const cut = sticker("safety-pin");
+        if (!cut || bt < at) return;
+        let [x, y] = onSeam(sm, along), alpha = 1, turn = (sm.vertical ? 0 : 90) + scatter(along * 10) * 14;
+        if (bt >= 64) { const p = clamp((bt - 64) / 1.2), d = Math.hypot(x - W / 2, y - H / 2) || 1, far = Math.hypot(W, H) * p * p; x += ((x - W / 2) / d) * far; y += ((y - H / 2) / d - 0.4) * far; turn += 400 * p; alpha = 1 - p; }
+        const p = clamp((bt - at) / 0.22), s = ((unit * 0.16) / Math.max(cut.w, cut.h)) * (1.7 - 0.7 * back(p));
+        g.save(); g.globalAlpha = alpha * clamp(p * 4); g.translate(x, y); g.rotate((turn * Math.PI) / 180); g.scale(s, s);
+        g.drawImage(cut.canvas, -cut.w / 2, -cut.h / 2);
+        g.restore();
+      };
+      // manga focus lines round the middle of the lime world, thrown again on each hit
+      const focusLines = (bt) => {
+        const seed = Math.floor(bt), cx = W / 2, cy = H / 2, far = Math.hypot(W, H) * 0.7;
+        g.save(); g.fillStyle = "rgba(17, 17, 17, 0.42)";
+        for (let n = 0; n < 96; n++) {
+          const a = (n / 96) * Math.PI * 2 + scatter(n + seed * 97) * 0.03, half = 0.003 + Math.abs(scatter(n * 3 + seed)) * 0.009, reach = 0.3 + Math.abs(scatter(n + seed * 13)) * 0.18;
+          g.beginPath(); g.moveTo(cx + Math.cos(a) * W * reach, cy + Math.sin(a) * H * reach);
+          g.lineTo(cx + Math.cos(a - half) * far, cy + Math.sin(a - half) * far); g.lineTo(cx + Math.cos(a + half) * far, cy + Math.sin(a + half) * far); g.closePath(); g.fill();
+        }
+        g.restore();
+      };
+      // the ending's sparkles: four-point stars twinkling round it (in the lime, never on the panel)
+      const sparkles = (bt) => {
+        const [pw, ph] = fitIn(BR_MV_CROPS.always, fitOf(BR_MV_SHOTS[BR_MV_SHOTS.length - 1]), { x: 0, y: 0, w: W, h: H }), keep = unit * 0.04;
+        for (let n = 0; n < 34; n++) {
+          const born = 68 + n * 0.11, q = (bt - born) / 1.6;
+          if (q < 0 || q > 1) continue;
+          const x = (0.5 + scatter(n + 200) * 0.48) * W, y = (0.5 + scatter(n + 300) * 0.48) * H, r = unit * (0.018 + Math.abs(scatter(n + 400)) * 0.03) * Math.sin(Math.PI * q);
+          if (Math.abs(x - W / 2) < pw / 2 + keep && Math.abs(y - H / 2) < ph / 2 + keep) continue;
+          g.save(); g.translate(x, y); g.rotate(q * 1.2); g.fillStyle = n % 3 ? PAPER : INK;
+          g.beginPath(); for (let k = 0; k < 8; k++) { const a = (k / 8) * Math.PI * 2, d = k % 2 ? r * 0.22 : r; g.lineTo(Math.cos(a) * d, Math.sin(a) * d); } g.closePath(); g.fill();
+          g.restore();
+        }
+      };
+      // ── a frame ──
+      const frame = (t, now) => {
+        const bt = beatOf(t), sm = seamAt(bt, now);
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        g.clearRect(0, 0, W, H);
+        if (bt < -0.05) return;
+        const shake = impulse(BR_MV_SHAKE, bt, 6) * unit * 0.012;
+        g.translate(Math.sin(now * 71) * shake, Math.cos(now * 53) * shake);
+        const one = bt >= 64;
+        if (one) { g.fillStyle = limeDots; g.fillRect(-20, -20, W + 40, H + 40); }
+        else {
+          // the two worlds opening out of the seam (the page showing past them until they reach the edges)
+          const reach = ease((bt + 0.05) / 0.55), front = clamp((bt + 0.05) / 0.22);
+          const band = [...edgeOf(sm, -1), ...edgeOf(sm, 1).reverse()];
+          g.save();
+          if (front < 1) { g.beginPath(); const [ex, ey] = xy(sm, front * sm.along, 0); g.rect(-20, -20, sm.vertical ? W + 40 : ex + 20, sm.vertical ? ey + 20 : H + 40); g.clip(); }
+          g.fillStyle = LIME; trace(band); g.fill();
+          if (reach > 0) {
+            g.fillStyle = grain; trace(paperOf(sm, -1, reach)); g.fill();
+            g.fillStyle = dots; trace(paperOf(sm, 1, reach)); g.fill();
+          }
+          g.restore();
+          // each world's own panels, kept to its paper (the ones being ripped off over the ones under them)
+          [[-1, "m"], [1, "a"]].forEach(([side, w]) => {
+            g.save(); trace(paperOf(sm, side, reach)); g.clip();
+            if (w === "m") title(sm, bt);
+            BR_MV_SHOTS.forEach((shot) => { if (shot.w === w && bt >= shot.in && bt < shot.out) shotFrame(shot, bt, sm, w); });
+            BR_MV_SHOTS.forEach((shot) => { if (shot.w === w && shot.leave && bt >= shot.out && bt < shot.out + 0.55) shotFrame(shot, bt, sm, w); });
+            g.restore();
+          });
+          // the torn edges' fibres, and once it is shut, the scar
+          if (front > 0) {
+            g.save();
+            if (front < 1) { g.beginPath(); const [ex, ey] = xy(sm, front * sm.along, 0); g.rect(-20, -20, sm.vertical ? W + 40 : ex + 20, sm.vertical ? ey + 20 : H + 40); g.clip(); }
+            fibres(edgeOf(sm, -1), "rgba(226, 226, 214, 0.95)", Math.max(1.5, unit * 0.0032));
+            fibres(edgeOf(sm, 1), "rgba(17, 17, 17, 0.28)", Math.max(1.5, unit * 0.003));
+            if (sm.gap < 3) { g.lineWidth = Math.max(2, unit * 0.004); g.strokeStyle = LIME; g.beginPath(); sm.pts.forEach(([a, b], i) => { const [x, y] = xy(sm, a, b); if (i) g.lineTo(x, y); else g.moveTo(x, y); }); g.stroke(); }
+            g.restore();
+          }
+        }
+        if (one) focusLines(bt);
+        // the pins through the shut seam (bar 16), then the panels over both worlds
+        if (bt >= 61 && bt < 65.3) [[0.07, 61], [0.5, 61.35], [0.93, 61.7]].forEach(([along, at]) => pin(sm, along, bt, at));
+        BR_MV_SHOTS.forEach((shot) => { if (shot.w === "s" && bt >= shot.in && bt < shot.out) shotFrame(shot, bt, sm, "m"); });
+        // bar 9: TO MY ROCK. thrown from her world onto the seam
+        if (bt >= 33 && bt < 36) {
+          const p = clamp((bt - 33) / 0.5), [sx, sy] = inWorld(sm, "m", [0.3, 0.35]), [ex, ey] = onSeam(sm, 0.5), land = clamp((bt - 33.5) / 0.3);
+          const h = unit * (tall ? 0.42 : 0.56), out = clamp((bt - 35.6) / 0.4);
+          cutout("bubble-rock", sx + (ex - sx) * ease(p), sy + (ey - sy) * ease(p) - Math.sin(Math.PI * p) * unit * 0.12, h, -25 + 19 * ease(p), (0.35 + 0.65 * ease(p)) * (1 + 0.15 * (1 - back(land)) * (p >= 1 ? 1 : 0)) * (1 - out));
+        }
+        // bar 11: her hand over the seam, torn out of its page
+        if (bt >= 43 && bt < 44.2) {
+          const p = ease((bt - 43) / 0.3), crop = BR_MV_CROPS.hand, h = unit * (tall ? 0.46 : 0.6), w = h * aspectOf(crop);
+          const [x, y] = onSeam(sm, 0.42, unit * (0.36 * (1 - p) - 0.07));
+          torn(crop, x, y, w, h, -8, clamp(p * 3) * (1 - clamp((bt - 44) / 0.2)));
+        }
+        // bar 13: THIS SONG CONNECTS WORLDS! on the seam between their faces
+        if (bt >= 49 && bt < 52.2) {
+          const [x, y] = onSeam(sm, 0.5), p = clamp((bt - 49) / 0.3);
+          cutout("bubble-worlds", x, y, unit * (tall ? 0.4 : 0.6), -4, back(p) * (1 - clamp((bt - 52) / 0.2)));
+        }
+        // the stickers
+        BR_MV_STICKERS.forEach((item) => { if (bt >= item.in && (bt < item.out || (item.out >= 64 && item.in < 64 && bt < 65.5))) stickerFrame(item, sm, bt); });
+        BR_MV_SFX.forEach((item) => { if (bt >= item.in && bt < item.out) sfx(item, sm, bt); });
+        if (bt >= 68) sparkles(bt);
+        // flashes: the cues' and the crashes'
+        const flash = Math.min(1, impulse(BR_MV_FLASH, bt, 5) + drum(BR_DRUMS.crash, bt, 9) * 0.18);
+        if (flash > 0.01) { g.setTransform(ratio, 0, 0, ratio, 0, 0); g.fillStyle = `rgba(255, 255, 255, ${flash})`; g.fillRect(0, 0, W, H); }
+      };
+      // ── the hand-off: the last frame torn down the middle, its halves flung apart over the page ──
+      let still = null, outroFrom = 0;
+      const tearOpen = () => {
+        const q = clamp((performance.now() - outroFrom) / breedScene.outro), k = q * q;
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        const cw = canvas.width, ch = canvas.height, line = Array.from({ length: 21 }, (_, i) => [cw / 2 + scatter(i + 120) * cw * 0.018, -10 + ((ch + 20) * i) / 20]);
+        [[-1, [[-cw, -ch], ...line, [-cw, ch * 2]]], [1, [[cw * 2, -ch], ...line, [cw * 2, ch * 2]]]].forEach(([side, clip]) => {
+          g.save();
+          g.translate(side * cw * 0.62 * k, ch * 0.1 * k);
+          g.translate(side < 0 ? 0 : cw, ch); g.rotate(side * 0.16 * q); g.translate(side < 0 ? 0 : -cw, -ch);
+          trace(clip); g.clip();
+          g.drawImage(still, 0, 0);
+          g.lineWidth = 5 * ratio; g.strokeStyle = PAPER; g.beginPath(); line.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+          g.restore();
+        });
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        if (q < 0.8) sfx({ text: "ビリッ!!", w: "s", at: [0.5, 0.42], size: 0.15, turn: 8, in: 72, out: 73.2 }, null, 72 + q * 1.6);
+      };
+      let lastNow = 0;
+      const draw = (now) => {
+        lastNow = now;
+        size();
+        const t = now - BR_START;
+        if (t < BR_HANDOFF) { frame(t, now); return; }
+        if (!still) {
+          frame(BR_HANDOFF, now);
+          still = document.createElement("canvas"); still.width = canvas.width; still.height = canvas.height;
+          still.getContext("2d").drawImage(canvas, 0, 0);
+          outroFrom = performance.now();
+        }
+        tearOpen();
+      };
+      const onResize = () => { if (!still) draw(lastNow); };
+      window.addEventListener("resize", onResize);
+      return {
+        show() {},
+        tick(now) { draw(now); },
+        unmount() { window.removeEventListener("resize", onResize); },
+      };
+    },
+  };
+
   const THEMES = {
     whiplash: {
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
@@ -6145,6 +7150,32 @@
       extras: ["tape.mp4", "logo-ditto.webp", "sticker-16.webp", "all-together.webp", "cd.webp", "bunny.webp", ...DT_STICKERS.map((n) => `sticker-${n}.webp`), "sticker-12.webp", "sticker-13.webp",
         ...["minji", "hanni", "danielle", "haerin", "hyein"].flatMap((key) => [`${key}-back.webp`, `${key}-anime.webp`])].filter((file) => !file.endsWith(".mp4")),
     },
+    // Breed: Nirvana's Breed as the theme song of The Guy She Was Interested in Wasn't a Guy at All
+    // (気になってる人が男じゃなかった, Sumiko Arai): the second hidden track, found under a corner of the
+    // café's page once Ditto has been (see the end of this file). A manga in black ink and its lime spot
+    // colour (breed.css); Aya and Mitsuki on their key visuals, their character sheets on the back of
+    // their cards. The intro (a pickup and 12 bars) runs straight into track 1 (24 bars), then track 2
+    // (8 bars); the band plays them at its own tempo.
+    breed: {
+      group: "kininao", artist: "Nirvana",
+      era: "Breed", folder: "breed/", tag: "BREED", back: "sheet", scheme: "light",
+      title: "Brew Houze × The Guy She Was Interested in Wasn’t a Guy at All · Breed", toast: "Brew Houze × Nirvana · Breed ☻",
+      sub: "Breed · System portal", h1: "Every Brew Houze app, sitting right next to you.", footer: "Brew Houze × Aya & Mitsuki · Breed (Nirvana) · café management system",
+      introClip: "breed/intro.mp3", introStart: BR_START, introLength: BR_INTRO,
+      loops: [{ src: "breed/track-1.mp3", start: BR_START, length: BR_TRACK1 }, { src: "breed/track-2.mp3", start: BR_START, length: BR_TRACK2 }],
+      joined: true, intro: breedIntro, introClass: "br-intro",
+      // The bridge: track 2, the song's refrain: Aya's crush board (see breedStage). The page's words
+      // are cut out as ransom notes (her notes, BR_LINES).
+      stage: {
+        beat: 60 / 158, parts: [BR_TRACK1, BR_TRACK2], grid: BR_TRACK1, lyrics: BR_LINES,
+        fx: BR_BOARD,
+        sections: [[0, "calm"], [BR_TRACK1, "board"], [BR_TRACK1 + BR_T2(16), "string"], [BR_TRACK1 + BR_T2(24), "same"], [BR_TRACK1 + BR_T2(28), "rip"], [BR_TRACK1 + BR_T2(31) + 0.12, "color"]],
+        ...breedStage,
+      },
+      scene: breedScene,
+      decor: `<div class="br-decor" aria-hidden="true"><i class="br-decor-world"></i><svg class="br-decor-tear" viewBox="0 0 64 1000" preserveAspectRatio="none" aria-hidden="true">${BR_TEAR_V}</svg><b class="br-decor-sfx">ジャーン</b><i class="br-decor-burst"></i><div class="br-decor-art"><i></i></div><p class="br-decor-jp"><span>気になってる人が</span><span>男じゃなかった</span></p><i class="br-decor-smiley"></i><p class="br-decor-tag"><small>Opening theme</small><b>Nirvana “Breed”</b></p><i class="br-decor-st is-pin"></i><i class="br-decor-st is-star"></i><i class="br-decor-st is-pick"></i></div>`,
+      extras: ["page-a-2.webp", "page-a-3.webp", "page-b-2.webp", "volume-2.webp", "flash-2.webp", "flash-3.webp", "smiley.webp", "smiley-ink.webp", ...["aya", "mitsuki"].flatMap((key) => [`${key}-alt.webp`, `${key}-back.webp`])],
+    },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
   // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
@@ -6200,6 +7231,7 @@
         + (t.back === "signature" ? `<span class="am-plate-sign" aria-hidden="true" style="--sign: url('${siteUrl(`${t.folder}${key}-signature.svg`)}')"></span>` : "")
         + (t.back === "emblem" ? `<span class="dr-plate-emblem" aria-hidden="true" style="--emblem: url('${siteUrl(`${t.folder}${key}-emblem.webp`)}')"></span>` : "")
         + (t.back === "chat" ? `<span class="dt-still" aria-hidden="true"><b><span>▶ PLAY</span><span>● REC</span></b><i>DEC 19 2022</i></span>` : "")
+        + (t.back === "sheet" ? `<span class="br-alt" aria-hidden="true" style="background-image: url('${siteUrl(`${t.folder}${key}-alt.webp`)}')"><b>${escapeHtml(m.alt)}</b></span>` : "")
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
@@ -6215,6 +7247,7 @@
     richman: { kicker: "● Live · Rich Man", label: "Plug in. Play it loud." },
     kissntell: { kicker: "🎟 Admit one", label: "Enter Kiss N Tell Park" },
     ditto: { kicker: "❄ 12.19.2022", label: "Rewind to that winter" },
+    breed: { kicker: "☻ This song connects worlds", label: "Let's give it a listen" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
   // page and lights up there during the bridge.
@@ -6233,6 +7266,10 @@
     if (cta.classList.contains("is-on") === on) return;
     cta.classList.toggle("is-on", on);
     cta.querySelector(".ae-cta-btn")?.setAttribute("tabindex", on ? "0" : "-1");
+    // While it is up, the scene's own sound (one that leads into the loop) and pictures load.
+    const spec = on && current ? THEMES[current].scene : null;
+    if (spec?.lead && soundWanted()) playerFor(current).preloadLead({ src: spec.src, ...spec.lead });
+    spec?.warm?.();
   }
 
   // ── The stage: each theme's bridge moves the page ──
@@ -6428,19 +7465,22 @@
       const offset = start ?? first / buffer.sampleRate;
       return { buffer, offset, duration: length ? Math.min(length, buffer.duration - offset) : (last + 1 - first) / buffer.sampleRate };
     };
+    const decode = async (entry) => {
+      const { src, length, start } = typeof entry === "string" ? { src: entry } : entry;
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`Could not load ${src}`);
+      return trim(await context().decodeAudioData(await response.arrayBuffer()), length, start);
+    };
     const load = () => {
       if (!loading) {
-        const decode = async (entry) => {
-          const { src, length, start } = typeof entry === "string" ? { src: entry } : entry;
-          const response = await fetch(src);
-          if (!response.ok) throw new Error(`Could not load ${src}`);
-          return trim(await context().decodeAudioData(await response.arrayBuffer()), length, start);
-        };
         loading = Promise.all([Promise.all(srcs.map(decode)), introSrc ? decode(introSrc) : null])
           .then(([decoded, intro]) => { parts = decoded; introPart = intro; }, (error) => { loading = null; throw error; });
       }
       return loading;
     };
+    // A scene's sound that leads into the loop (see lead()), decoded once.
+    const leads = {};
+    const leadOf = (entry) => (leads[entry.src] ??= decode(entry).catch((error) => { delete leads[entry.src]; throw error; }));
     // Keeps about six seconds of music queued, each part starting exactly where the last one ends.
     // What is scheduled when (on the audio clock): which part plays now (see position()).
     let timeline = [];
@@ -6470,6 +7510,25 @@
       sources.forEach((node) => { try { node.stop(); } catch { /* already stopped */ } });
       sources = [];
       timeline = [];
+    };
+    // Like halt(), but what is playing goes out over a moment (no click) instead of stopping dead.
+    const fadeOut = () => {
+      clearInterval(timer);
+      timer = null;
+      if (sources.length) {
+        const fade = ctx.createGain();
+        fade.gain.setValueAtTime(1, ctx.currentTime);
+        fade.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.12);
+        fade.connect(gain);
+        sources.forEach((node) => { node.disconnect(); node.connect(fade); try { node.stop(ctx.currentTime + 0.13); } catch { /* already stopped */ } });
+      }
+      sources = [];
+      timeline = [];
+    };
+    // The audio clock as heard right now (the output's delay taken off).
+    const heard = () => {
+      const stamp = ctx.state === "running" ? ctx.getOutputTimestamp?.() : null;
+      return stamp?.contextTime > 0 ? stamp.contextTime + (performance.now() - stamp.performanceTime) / 1000 : ctx.currentTime - (ctx.outputLatency || 0);
     };
     const running = async () => {
       try { await Promise.race([ctx.resume(), new Promise((ok) => setTimeout(ok, 400))]); } catch { /* not allowed yet */ }
@@ -6513,6 +7572,34 @@
         schedule();
         timer = setInterval(schedule, 1000);
         return () => (ctx.currentTime - at + introPart.offset) * 1000;
+      },
+      // A scene whose sound leads straight into the loop ({ src, start, length }: played from start for
+      // length seconds): decoded ahead while the scene's button is up (preloadLead); lead() plays it,
+      // what was playing going out under it, then track 1 from the top on the very next sample.
+      // Resolves the scene's clock (seconds into its file, as heard), or null when it cannot start.
+      preloadLead(entry) { context(); leadOf(entry).catch(() => undefined); },
+      async lead(entry) {
+        const mine = ++generation;
+        context();
+        let part;
+        try { [part] = await Promise.all([leadOf(entry), load()]); } catch { return null; }
+        if (!(await running()) || mine !== generation) return null;
+        fadeOut();
+        gain.gain.cancelScheduledValues(ctx.currentTime);
+        gain.gain.setValueAtTime(VOLUME, ctx.currentTime);
+        const at = ctx.currentTime + 0.05;
+        const node = ctx.createBufferSource();
+        node.buffer = part.buffer;
+        node.connect(gain);
+        node.start(at, part.offset, part.duration);
+        timeline.push({ index: -1, at, end: at + part.duration });
+        node.onended = () => { sources = sources.filter((s) => s !== node); };
+        sources.push(node);
+        index = 0;
+        nextAt = at + part.duration;
+        schedule();
+        timer = setInterval(schedule, 1000);
+        return () => heard() - at + part.offset;
       },
       async start() {
         const mine = ++generation;
@@ -6725,6 +7812,7 @@
     richman: { logo: "richman/logo-black.webp", tint: "#D9FF2E", mask: true },
     kissntell: { logo: "kiss-n-tell/logo-black.webp", tint: "#FF8CC6", mask: true },
     ditto: { logo: "ditto/logo-ditto.webp", tint: "#9AA6E8", mask: true },
+    breed: { logo: "breed/smiley-ink.webp", tint: "#B1F700", mask: true },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -6738,15 +7826,15 @@
     if (!theme) return `<button type="button" class="ae-pick is-cafe" data-pick="cafe" role="radio" style="--i: 0"><span class="ae-pick-no">01</span><span class="ae-pick-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M17 10.5h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8-.6 1.7 0 2.5M11.5 3.5c-.6.8-.6 1.7 0 2.5M15 3.5c-.6.8-.6 1.7 0 2.5"/></svg></span><span class="ae-pick-text"><span class="ae-pick-name">Café</span><span class="ae-pick-by">Brew Houze · the everyday look</span></span>${EQ}</button>`;
     const p = PICKS[theme];
     const bonus = !ORDER.includes(theme);
-    const n = bonus ? ORDER.length + 2 : ORDER.indexOf(theme) + 2;
+    const n = bonus ? ORDER.length + 2 + BONUS.indexOf(theme) : ORDER.indexOf(theme) + 2;
     return `<button type="button" class="ae-pick${bonus ? " is-bonus" : ""}" data-pick="${theme}" role="radio" style="--i: ${n - 1}; --tint: ${p.tint}"${bonus ? " hidden" : ""}>`
       + `<span class="ae-pick-no">${String(n).padStart(2, "0")}</span>`
       + `<span class="ae-pick-art" data-src="${flashesOf(theme)[0]}"></span>`
-      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">${escapeHtml(groupOf(theme).name)}${bonus ? " · hidden track" : ""}</span></span>`
+      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">${escapeHtml(THEMES[theme].artist ?? groupOf(theme).name)}${bonus ? " · hidden track" : ""}</span></span>`
       + `<i class="ae-pick-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')" aria-hidden="true"></i>${EQ}</button>`;
   };
   picker.innerHTML = `<div class="ae-picker-head"><i class="ae-picker-cover" aria-hidden="true"></i><p><small>Playlist</small><b>Brew Houze × aespa</b><span class="ae-picker-count">${ORDER.length + 1} tracks · pick an era</span></p></div>`
-    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER, "ditto"].map(pickCard).join("")}</div>`;
+    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER, ...BONUS].map(pickCard).join("")}</div>`;
   document.body.appendChild(picker);
   footerYear.setAttribute("aria-haspopup", "dialog");
   footerYear.setAttribute("aria-controls", "ae-picker");
@@ -6818,7 +7906,11 @@
   // ── The secret scene ──
   // The glowing lyric fades the theme out (its music and its stage) and plays the scene: the MV
   // bleeding in and out of the page, with its own sound (muted if the visitor turned the music off). When it ends
-  // (or is skipped) the theme comes back as it is after its intro: track 1 from the top.
+  // (or is skipped) the theme comes back as it is after its intro: track 1 from the top. A scene whose
+  // sound leads into the loop (spec.lead: its file from `start` for `length` seconds, then track 1 on
+  // the very next sample) plays it on the theme's own music player when the sound is on, and hands
+  // over to the page where the lead ends: the stage starts there under track 1, and the scene draws
+  // its own way out over the page (spec.outro ms) instead of fading.
   let scenePlaying = false;
   let stopScene = null; // ends the scene now (resume: bring the theme back after it)
   function playScene(theme) {
@@ -6846,7 +7938,10 @@
     box.append(skip);
     document.body.appendChild(box);
     root.dataset.scene = theme;
-    playerFor(theme).stop();
+    const lead = spec.lead && soundWanted() ? { src: spec.src, ...spec.lead } : null;
+    const handoff = spec.lead ? (spec.lead.start ?? 0) + spec.lead.length : Infinity;
+    let leadClock = null; // the lead's clock (seconds into the scene's file, as heard), once it plays
+    if (!lead) playerFor(theme).stop();
     stopStage();
     skip.focus({ preventScroll: true });
     // Started inside the click, so phones let it play with sound. If the browser still refuses the
@@ -6858,21 +7953,32 @@
     unmute.hidden = true;
     box.append(unmute);
     unmute.addEventListener("click", () => { video.muted = false; void video.play().catch(() => undefined); unmute.hidden = true; });
-    video.play().catch(() => {
+    const playVideo = () => video.play().catch(() => {
       video.muted = true;
       video.play().then(() => { if (soundWanted()) unmute.hidden = false; }, () => finish());
     });
+    if (lead) {
+      video.muted = true;
+      void playerFor(theme).lead(lead).then((clock) => {
+        if (done) return;
+        if (clock) { leadClock = clock; return; }
+        // No Web Audio: the element plays it instead (and track 1 starts when the scene hands over).
+        playerFor(theme).stop();
+        video.muted = false;
+        void playVideo();
+      });
+    } else void playVideo();
     let cue = "";
     let frame = 0;
     let lastMirrors = 0;
     if (SCENE_LITE) root.dataset.sceneLite = "";
     const tick = () => {
-      const now = video.currentTime;
+      const now = leadClock ? leadClock() : video.currentTime;
       const clock = performance.now();
       mirrorsDue = clock - lastMirrors >= (SCENE_LITE ? 40 : 15);
       if (mirrorsDue) lastMirrors = clock;
       let name = "load";
-      if (!video.paused || now > 0) for (const [at, entry] of spec.cues) if (now >= at) name = entry;
+      if (leadClock || !video.paused || now > 0) for (const [at, entry] of spec.cues) if (now >= at) name = entry;
       if (name !== cue) {
         cue = name;
         box.dataset.cue = name;
@@ -6883,45 +7989,61 @@
         box.classList.add("is-hit");
       }
       scene.tick(now);
+      if (!done && now >= handoff) finish("handoff");
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     const onKey = (event) => { if (event.key === "Escape" && !document.querySelector(".ae-pc-modal:not([hidden]), .ae-picker:not([hidden])")) { event.preventDefault(); finish(); } };
     document.addEventListener("keydown", onKey);
     let done = false;
+    const close = (resume) => {
+      cancelAnimationFrame(frame);
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+      scene.unmount?.();
+      box.remove();
+      delete root.dataset.scene;
+      delete root.dataset.sceneCue;
+      delete root.dataset.sceneLite;
+      mirrorsDue = true;
+      scenePlaying = false;
+      if (!resume || current !== theme) return;
+      // Back to the theme as it is after its intro.
+      window.scrollTo({ top: 0, behavior: "instant" });
+      startStage(theme);
+      if (soundWanted()) void playerFor(theme).start().then((ok) => showSoundState(ok ? "on" : "waiting"));
+      else showSoundState("off");
+      if (motionOK()) {
+        const flash = document.createElement("div");
+        flash.className = "ae-flash";
+        document.body.appendChild(flash);
+        flash.addEventListener("animationend", () => flash.remove());
+      }
+      footerYear.focus({ preventScroll: true });
+    };
+    // resume: true (the theme back from the top), false (just go), "handoff" (on into the page)
     function finish(resume = true) {
       if (done) return;
       done = true;
       stopScene = null;
-      cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKey);
       box.classList.add("is-out");
-      const close = () => {
-        video.pause();
-        video.removeAttribute("src");
-        video.load();
-        scene.unmount?.();
-        box.remove();
-        delete root.dataset.scene;
-        delete root.dataset.sceneCue;
-        delete root.dataset.sceneLite;
-        mirrorsDue = true;
-        scenePlaying = false;
-        if (!resume || current !== theme) return;
-        // Back to the theme as it is after its intro.
+      if (resume === "handoff") {
+        // Track 1 is already playing (the lead ran into it), or starts now (the element's sound goes);
+        // the stage starts with it, under the scene's way out.
+        box.classList.add("is-handoff");
+        video.muted = true;
         window.scrollTo({ top: 0, behavior: "instant" });
         startStage(theme);
-        if (soundWanted()) void playerFor(theme).start().then((ok) => showSoundState(ok ? "on" : "waiting"));
+        if (leadClock) showSoundState("on");
+        else if (soundWanted()) void playerFor(theme).start().then((ok) => showSoundState(ok ? "on" : "waiting"));
         else showSoundState("off");
-        if (motionOK()) {
-          const flash = document.createElement("div");
-          flash.className = "ae-flash";
-          document.body.appendChild(flash);
-          flash.addEventListener("animationend", () => flash.remove());
-        }
-        footerYear.focus({ preventScroll: true });
-      };
-      if (resume) setTimeout(close, 500); else close();
+        setTimeout(() => { close(false); if (current === theme) footerYear.focus({ preventScroll: true }); }, spec.outro ?? 0);
+        return;
+      }
+      cancelAnimationFrame(frame);
+      if (resume) setTimeout(() => close(true), 500); else close(false);
     }
     stopScene = finish;
     video.addEventListener("ended", () => finish());
@@ -7001,7 +8123,12 @@
     back.classList.toggle("is-tarot", t.back === "tarot");
     back.classList.toggle("is-kiss", t.back === "kiss");
     back.classList.toggle("is-chat", t.back === "chat");
-    back.innerHTML = t.back === "chat" ? `
+    back.classList.toggle("is-sheet", t.back === "sheet");
+    back.innerHTML = t.back === "sheet" ? `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the key visual">☻</button>
+      <p class="br-file"><span>Character file · 0${pcIndex + 1}</span><b>${escapeHtml(member.hangul)}</b></p>
+      <div class="br-file-sheet" role="img" aria-label="${escapeHtml(member.name)}’s character sheet" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
+      <p class="br-file-foot"><b>${escapeHtml(member.real)}</b> · CV. ${escapeHtml(member.cv)}<br />The Guy She Was Interested in Wasn’t a Guy at All · Sumiko Arai</p>` : t.back === "chat" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">♡</button>
       <div class="dt-chat">
         <p class="dt-bar"><span>${key}@ditto · Conversation</span><b>_ □ ×</b></p>
@@ -7431,12 +8558,15 @@
   // in Ditto's colours, and only in the café look: "One more thing:". Clicking it types the rest
   // ("say it ditto <3") and switches to Ditto. That unlocks it for good: the tip goes, and Ditto
   // shows in the playlist as its hidden track, to be picked again any time like the others.
-  function revealDitto() {
-    const bonus = picker.querySelector('.ae-pick[data-pick="ditto"]');
-    if (!bonus || !bonus.hidden) return;
-    bonus.hidden = false;
-    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 2} tracks · one was hidden`;
+  // A hidden track, once found, is in the playlist from then on (the count says how many were hidden).
+  function revealBonus(theme) {
+    const track = picker.querySelector(`.ae-pick[data-pick="${theme}"]`);
+    if (!track || !track.hidden) return;
+    track.hidden = false;
+    const found = BONUS.filter((bonus) => picker.querySelector(`.ae-pick[data-pick="${bonus}"]`)?.hidden === false).length;
+    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${found === 1 ? "one was" : "two were"} hidden`;
   }
+  const revealDitto = () => revealBonus("ditto");
   if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
   const tips = document.querySelector(".tips");
   let more = null, typing = false;
@@ -7544,6 +8674,99 @@
     }
     if (more && !typing) more.hidden = !due || current !== null;
   };
-  onThemeApplied = showMore;
+  // ── Breed: the secret after the secret ──
+  // Once Ditto has been found here, a corner of the café's header is turned up (in the café look
+  // only), the lime of a manga page under it. Clicking it turns the whole page over from that corner
+  // onto Breed's intro (its first page, the same one) and unlocks Breed for good: the corner goes, and
+  // Breed shows in the playlist as its second hidden track.
+  if (store.get(BREED_KEY) || current === "breed") revealBonus("breed");
+  const hero = document.querySelector(".hero");
+  let peel = null, turning = false;
+  // The screen where x - y > c (the part already turned over: the fold is the line x - y = c), as a
+  // polygon.
+  const turnedPart = (W, H, c) => {
+    const corners = [[0, 0], [W, 0], [W, H], [0, H]], part = [];
+    corners.forEach(([x1, y1], i) => {
+      const [x2, y2] = corners[(i + 1) % 4];
+      const in1 = x1 - y1 > c, in2 = x2 - y2 > c;
+      if (in1) part.push([x1, y1]);
+      if (in1 !== in2) { const q = (c - (x1 - y1)) / ((x2 - y2) - (x1 - y1)); part.push([x1 + (x2 - x1) * q, y1 + (y2 - y1) * q]); }
+    });
+    return part;
+  };
+  const polygonOf = (points) => (points.length ? `polygon(${points.map(([x, y]) => `${x.toFixed(1)}px ${y.toFixed(1)}px`).join(", ")})` : "polygon(0 0, 0 0, 0 0)");
+  // The page turned over from the header's corner (from: how far it is turned up already, px along
+  // the diagonal): under it, the intro's first page (a copy, gone once the intro is over it); over
+  // it, the page's back, folded over (lit at the fold, shaded where it curls), and its shadow.
+  function turnPage(from, done) {
+    const at = hero.getBoundingClientRect();
+    const W = window.innerWidth, H = window.innerHeight, px = Math.min(at.right, W), py = at.top;
+    const layer = document.createElement("div");
+    layer.className = "br-turn";
+    layer.setAttribute("aria-hidden", "true");
+    layer.innerHTML = `<div class="br-intro"></div><i class="br-turn-crease"></i><div class="br-turn-flapwrap"><i class="br-turn-flap"></i></div>`;
+    const under = layer.querySelector(".br-intro");
+    breedIntro.mount(under)(0);
+    document.body.append(layer);
+    const crease = layer.querySelector(".br-turn-crease"), flap = layer.querySelector(".br-turn-flap");
+    const end = px + (H - py) + 60, began = performance.now(), long = 1050;
+    const frame = (now) => {
+      const q = Math.min(1, (now - began) / long);
+      const eased = q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2;
+      const s = from + (end - from) * eased, c = px - py - s;
+      const part = turnedPart(W, H, c);
+      under.style.clipPath = crease.style.clipPath = polygonOf(part);
+      flap.style.clipPath = polygonOf(part.map(([x, y]) => [y + c, x - c]));
+      const fold = (W - c) * Math.SQRT1_2, depth = s * Math.SQRT1_2;
+      flap.style.background = `linear-gradient(225deg, transparent ${fold.toFixed(1)}px, #FFFFFF ${fold.toFixed(1)}px, #F3EEE6 ${(fold + depth * 0.12).toFixed(1)}px, #D6CCBF ${(fold + depth * 0.6).toFixed(1)}px, #ECE5DA ${(fold + depth).toFixed(1)}px)`;
+      crease.style.background = `linear-gradient(225deg, transparent ${(fold - 90).toFixed(1)}px, rgba(0, 0, 0, 0.3) ${fold.toFixed(1)}px)`;
+      if (q < 1) requestAnimationFrame(frame); else done(layer);
+    };
+    requestAnimationFrame(frame);
+  }
+  const unlockBreed = () => {
+    if (turning || switching) return;
+    turning = true;
+    // the sound woken by the click itself (phones only start audio in a tap)
+    if (soundWanted()) playerFor("breed").prime();
+    warm("breed");
+    const finish = (layer) => {
+      store.set(BREED_KEY, new Date().toISOString());
+      revealBonus("breed");
+      closePicker();
+      void switchTo("breed");
+      // the turned page goes once the intro, on the same page, is over it
+      requestAnimationFrame(() => requestAnimationFrame(() => layer?.remove()));
+      peel?.remove();
+      peel = null;
+      hero.classList.remove("has-peel");
+      turning = false;
+    };
+    if (!motionOK()) { finish(null); return; }
+    const from = peel.offsetWidth;
+    peel.style.visibility = "hidden";
+    turnPage(from, finish);
+  };
+  const showPeel = () => {
+    const due = Boolean(store.get(DITTO_KEY)) && !store.get(BREED_KEY);
+    if (due && !peel && hero) {
+      peel = document.createElement("button");
+      peel.type = "button";
+      peel.className = "br-peel";
+      peel.setAttribute("aria-label", "A corner of the page is turned up. Turn the page");
+      peel.innerHTML = `<span class="br-peel-under"><i></i></span><span class="br-peel-flapwrap"><span class="br-peel-flap"></span></span>`;
+      const ready = () => warm("breed");
+      peel.addEventListener("pointerenter", ready, { once: true });
+      peel.addEventListener("focus", ready, { once: true });
+      peel.addEventListener("click", unlockBreed);
+      hero.append(peel);
+    }
+    if (peel && !turning) {
+      peel.hidden = !due || current !== null;
+      hero.classList.toggle("has-peel", !peel.hidden);
+    }
+  };
+  onThemeApplied = () => { showMore(); showPeel(); };
   showMore();
+  showPeel();
 })();
