@@ -1,6 +1,7 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
-// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css and breed.css; photos
-// and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/, kiss-n-tell/, ditto/ and breed/).
+// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css, breed.css and yoru.css;
+// photos and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/, kiss-n-tell/, ditto/, breed/
+// and yoru/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
 // Armageddon, Drama, Rich Man or Kiss N Tell, straight from any of them. Each
@@ -24,7 +25,10 @@
   // Breed, the next one, is found under a corner of the café's page once Ditto has been (see "Breed:
   // the secret after the secret" at the end).
   const BREED_KEY = "brew-houze-breed-unlocked";
-  const BONUS = ["ditto", "breed"]; // the hidden tracks, after the six, in the order they are found
+  // Racing into the Night, the one after that, leaks out from under the café's header once Breed has
+  // been found (see "Racing into the Night: the secret after Breed" at the end).
+  const YORU_KEY = "brew-houze-yoru-unlocked";
+  const BONUS = ["ditto", "breed", "yoru"]; // the hidden tracks, after the six, in the order they are found
   const visited = () => { try { const list = JSON.parse(store.get(VISITED_KEY) ?? "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
   let onThemeApplied = null; // set by the Ditto unlock once it is ready
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -58,11 +62,21 @@
     aya: { name: "Aya", hangul: "大沢 綾", short: "Aya Osawa · 17 · CV. Akari Kito", real: "Aya Osawa (大沢 綾), 17", cv: "Akari Kito", alt: "her own beat" },
     mitsuki: { name: "Mitsuki", hangul: "古賀 美月", short: "Mitsuki Koga · 17 · CV. Mariya Ise", real: "Mitsuki Koga (古賀 美月), 17", cv: "Mariya Ise", alt: "…the girl next to you" },
   };
+  // YOASOBI, for Racing into the Night (夜に駆ける, their first single, 2019.12.15): the two of them,
+  // what each does (in Japanese where the others have their name in their own script), and the stars
+  // of the constellation on the back of each card (a planisphere: x, y in its sky, 0-100).
+  const YR_MEMBERS = {
+    ayase: { name: "Ayase", hangul: "コンポーザー", short: "Composer · producer", real: "Ayase", role: "Music · writes the story into sound",
+      stars: [[22, 62], [34, 44], [47, 52], [58, 34], [70, 41], [78, 26], [63, 63]] },
+    ikura: { name: "ikura", hangul: "ボーカル", short: "Vocals · 幾田りら", real: "Lilas Ikuta (幾田りら)", role: "Vocals · tells the story",
+      stars: [[26, 34], [38, 48], [50, 38], [61, 55], [73, 46], [66, 70], [44, 68]] },
+  };
   // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order.
   const GROUPS = {
     aespa: { name: "aespa", members: MEMBERS, order: memberOrder },
     newjeans: { name: "NewJeans", members: NJ_MEMBERS, order: Object.keys(NJ_MEMBERS) },
-    kininao: { name: "Aya & Mitsuki", members: KN_CAST, order: Object.keys(KN_CAST) },
+    kininao: { name: "The Guy She Was Interested in Wasn’t a Guy at All", members: KN_CAST, order: Object.keys(KN_CAST) },
+    yoasobi: { name: "YOASOBI", members: YR_MEMBERS, order: Object.keys(YR_MEMBERS) },
   };
   const groupOf = (theme) => GROUPS[THEMES[theme]?.group ?? "aespa"];
   const DW_TAROT = {
@@ -6061,6 +6075,14 @@
         if (BR_SHOTS[name]) scene = name;
         const titled = name.startsWith("title") || name === "turn";
         if (name === "title") buildTitle();
+        // the last beat: when the intro goes (on the next downbeat), the page's own words and cards land on
+        // it, a piece at a time (html.br-landing, breed.css)
+        if (name === "turn") {
+          setTimeout(() => {
+            root.classList.add("br-landing");
+            setTimeout(() => root.classList.remove("br-landing"), 1400);
+          }, Math.max(0, Math.round(BR_INTRO * 1000) - BR_MS(48) - 20));
+        }
         box.className = ["br-intro", isTall() ? "is-tall" : "", `is-${name}`, `on-${titled ? "title" : BR_SHOTS[scene][0]}`, ...[...reached].map((cue) => `has-${cue}`)].filter(Boolean).join(" ");
         if (!titled) { aimShot(scene); if (scene === "aya") aimShot("pair"); }
         slaps.forEach((slap, n) => { const [, from, until] = BR_SLAPS[n]; slap.classList.toggle("is-on", reached.has(from) && !reached.has(until)); });
@@ -6826,6 +6848,1876 @@
     },
   };
 
+  // ── Racing into the Night (YOASOBI) ──
+  // The third hidden track: 夜に駆ける, YOASOBI's first single, a short story (Mayo Hoshino's, on
+  // monogatary.com) turned into a song. The theme keeps to its night, its pink and its teal, and tells it
+  // gently: a pink drop falls through the night, someone races through the city to catch it, and it lands
+  // safe in two hands, the night turning to morning down the page. The studio track keeps a steady 130
+  // BPM; its three files (no gapless tag) all start their music 1352 samples in, where each part is played
+  // from: the intro is a two-beat pickup and 8 bars, then track 1 (23 bars) and track 2 (8 bars) take
+  // turns, each cut on its bars.
+  const YR_BEAT = 60 / 130;
+  const YR_START = 1352 / 44100;
+  const YR_INTRO = 698810 / 44100, YR_TRACK1 = 92 * YR_BEAT, YR_TRACK2 = 32 * YR_BEAT;
+  // The intro's beats: its pickup comes 6779 samples into its music, its bars start on beats 2, 6, …, 30
+  // (bars 1-4 piano and voice, 5-7 the band, 8 a break with a crash on beat 32), and beat 34 is track
+  // 1's first. In ms into the clip file (the intro's clock).
+  const YR_T0 = 6779 / 44100;
+  const YR_IN = (beat) => Math.round((YR_START + YR_T0 + beat * YR_BEAT) * 1000);
+  // The night sky (the header's and the intro's, the same in px so the intro's last frame is the
+  // header's): deep blue to the city's glow.
+  const YR_SKY = [[0, "#0A1226"], [520, "#13234B"], [1000, "#26305F"]];
+  // The city at night (the header's skyline and the intro's): a seeded row of buildings across a width
+  // (x, width, height), each with its windows (x, y; a third lit, in pink, warm white or teal).
+  const yrCity = (width, height, seed) => {
+    let s = seed;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    const out = [];
+    for (let x = 0; x < width;) {
+      const w = 38 + rnd() * 86, h = height * (0.32 + rnd() * 0.68), windows = [];
+      for (let wy = height - h + 10; wy < height - 8; wy += 13) for (let wx = x + 7; wx < x + w - 9; wx += 11) if (rnd() < 0.34) windows.push([wx, wy, rnd() < 0.55 ? 0 : rnd() < 0.55 ? 1 : 2]);
+      out.push({ x, w, h, windows });
+      x += w + rnd() * 5;
+    }
+    return out;
+  };
+  const YR_WINDOW = ["#FF9EB8", "#FFE4AE", "#8FE6DC"];
+  const YR_CITY_FAR = yrCity(1600, 150, 71), YR_CITY_NEAR = yrCity(1600, 210, 113);
+  // The header's skyline, as SVG (1600 × 220, anchored at the bottom; its lit windows twinkle with the
+  // chorus's beat, a few at a time).
+  const YR_CITY_SVG = (() => {
+    const layer = (city, fill, cls) => `<g class="${cls}"><path fill="${fill}" d="${city.map((b) => `M${b.x.toFixed(0)} 220V${(220 - b.h).toFixed(0)}h${b.w.toFixed(0)}V220z`).join("")}" />`
+      + city.flatMap((b) => b.windows).map(([x, y, c], n) => `<rect x="${x.toFixed(0)}" y="${(y + 220 - (city === YR_CITY_FAR ? 150 : 210)).toFixed(0)}" width="5" height="7" fill="${YR_WINDOW[c]}"${n % 7 === 0 ? ` class="is-tw" style="--tw: ${n % 5}"` : ""} />`).join("") + "</g>";
+    return `<svg class="yr-decor-city" viewBox="0 0 1600 220" preserveAspectRatio="xMidYMax slice" aria-hidden="true">${layer(YR_CITY_FAR, "#1C3561", "is-far")}${layer(YR_CITY_NEAR, "#0D1B38", "is-near")}</svg>`;
+  })();
+  // The header's decoration: the stars and the sparkles, contour lines behind the moon (the two of them in
+  // it, on its pink), two butterflies resting by it, the title down its side, the song's tag, and the
+  // city along the bottom.
+  const YR_DECOR = `<div class="yr-decor" aria-hidden="true"><i class="yr-decor-stars"></i><i class="yr-decor-stars is-twinkle"></i>`
+    + `<i class="yr-decor-lines is-pink"></i><i class="yr-decor-lines is-teal"></i><div class="yr-decor-moon"><i></i></div>`
+    + [1, 2, 3, 4, 5, 6].map((n) => `<i class="yr-decor-spark is-${n}"></i>`).join("")
+    + `<i class="yr-decor-fly is-pink"></i><i class="yr-decor-fly is-teal"></i>`
+    + `<p class="yr-decor-title">夜に駆ける</p><p class="yr-decor-tag"><small>YOASOBI</small><b>Racing into the Night</b><span>2019.12.15</span></p>${YR_CITY_SVG}</div>`;
+  // The reaching hands (hand-left and hand-right, each in the whole frame of the picture, 16:9): the
+  // gap between their fingertips, and where the clasped hands (hands) hold, as fractions of the frame.
+  const YR_GAP = [0.526, 0.487], YR_CLASP = [0.52, 0.43];
+  // The reaching hands' fingertips (in the frame), and where each is on the screen as they come (W, H
+  // fractions: off it, bar 6, bar 7; then the gap): left from the bottom-left, right from the top-right.
+  const YR_TIPS = { left: [0.51, 0.519], right: [0.542, 0.456] };
+  const YR_WAY = {
+    wide: { left: [[-0.12, 1.12], [0.12, 0.84], [0.2, 0.74]], right: [[1.12, -0.12], [0.8, 0.16], [0.6, 0.3]] },
+    tall: { left: [[-0.2, 1.1], [0.28, 0.85], [0.36, 0.76]], right: [[1.2, 0.2], [0.72, 0.34], [0.62, 0.47]] },
+  };
+  // The intro: the night, told gently, the music as it builds:
+  //   melt (0)        the pink that flooded the café drains away, down off the screen: the night under it
+  //   album (bar 1)   piano and voice: her on the rooftop at night (the song's own cover), closer and closer
+  //   tear (bar 3)    quieter: her face, hiding her eyes; a pink drop gathers where the pink runs down it,
+  //                   swelling on each beat
+  //   drop (b 13)     it falls free
+  //   fall (bar 4)    the camera follows it down: she goes up out of view, the stars and the sparkles stream
+  //                   up, the city comes up from below; boy (b 16) someone sees it
+  //   race (bar 5)    the band: he runs, the city racing past, a lurch on every kick; a cut a bar (her eye,
+  //                   her, the two of them); race2 (bar 6) two hands reaching for each other from either
+  //                   corner, closer on every bar
+  //   slow (bar 8)    the break: the city slows to a stop, the hands close in, the drop sinks into the gap
+  //                   between them; the moon (the two of them in it) rises where the page's is
+  //   catch (b 32)    the crash: the hands clasp round it: a splash, sparkles, butterflies; two of them fly
+  //                   up to the moon, where they stay on the page
+  //   title (b 33)    夜に駆ける, as on the page; at midnight the page takes over (track 1)
+  // A clock in the corner runs 11:58 to midnight. Everything is placed every frame from the clip's clock.
+  const yoruIntro = {
+    end: YR_IN(34),
+    cues: [[0, "melt"], [YR_IN(2), "album"], [YR_IN(10), "tear"], [YR_IN(13), "drop"], [YR_IN(14), "fall"], [YR_IN(16), "boy"], [YR_IN(18), "race"],
+      [YR_IN(22), "race2"], [YR_IN(26), "race3"], [YR_IN(30), "slow"], [YR_IN(32), "catch"], [YR_IN(33), "title"]],
+    hits: new Set(["race", "catch"]),
+    mount(box) {
+      const src = (file) => siteUrl(`yoru/${file}`);
+      const img = (file, cls) => `<img class="${cls}" src="${src(file)}" alt="" draggable="false" />`;
+      box.innerHTML = `
+        <canvas class="yr-night"></canvas>
+        <figure class="yr-cover is-album">${img("flash-1.webp", "")}</figure>
+        <figure class="yr-cover is-face">${img("cover.webp", "")}</figure>
+        <figure class="yr-boy">${img("boy.webp", "")}</figure>
+        ${["eye", "girl", "embrace"].map((name) => `<figure class="yr-cut is-${name}">${img(`${name}.webp`, "")}</figure>`).join("")}
+        <div class="yr-end"></div>
+        <div class="yr-hands">${img("hand-left.webp", "is-left")}${img("hand-right.webp", "is-right")}${img("hands.webp", "is-held")}</div>
+        <canvas class="yr-spark"></canvas>
+        <p class="yr-time"><span>PM</span><b>11:58</b></p>
+        <div class="yr-loose"><p>夜に駆ける</p><span><small>YOASOBI</small><b>Racing into the Night</b></span></div>
+        <i class="yr-flash"></i>`;
+      const sky = box.querySelector(".yr-night"), spark = box.querySelector(".yr-spark");
+      const album = box.querySelector(".yr-cover.is-album"), face = box.querySelector(".yr-cover.is-face"), boy = box.querySelector(".yr-boy"), end = box.querySelector(".yr-end");
+      const cuts = [...box.querySelectorAll(".yr-cut")], hands = box.querySelector(".yr-hands");
+      const leftHand = hands.querySelector(".is-left"), rightHand = hands.querySelector(".is-right"), held = hands.querySelector(".is-held");
+      const clock = box.querySelector(".yr-time b"), meridiem = box.querySelector(".yr-time span");
+      // the canvas's pictures: the butterflies (pink, teal) and the sparkles (teal 1-3, pink 4-6)
+      const picture = (file) => Object.assign(new Image(), { decoding: "async", src: src(file) });
+      const FLY = [picture("butterfly-pink.webp"), picture("butterfly-teal.webp")];
+      const SPARKS = [1, 2, 3, 4, 5, 6].map((n) => picture(`sparkle-${n}.webp`));
+      const ready = (im) => im.complete && im.naturalWidth > 0;
+      let W = 0, H = 0, ratio = 1;
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+        for (const c of [sky, spark]) if (c.width !== Math.round(W * ratio) || c.height !== Math.round(H * ratio)) { c.width = Math.round(W * ratio); c.height = Math.round(H * ratio); }
+      };
+      const clamp = (q) => Math.min(1, Math.max(0, q));
+      const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+      const out = (q) => 1 - (1 - clamp(q)) ** 3;
+      const beatOf = (now) => (now - YR_IN(0)) / (YR_BEAT * 1000);
+      const scatter = (n) => { const r = Math.sin(n * 12.9898 + 7.7) * 43758.5453; return r - Math.floor(r); };
+      const STARS = Array.from({ length: 170 }, (_, n) => [scatter(n), scatter(n + 300), 0.5 + scatter(n + 600) * 1.3, scatter(n + 900) * 6.28]);
+      const SKY_SPARKS = Array.from({ length: 10 }, (_, n) => [scatter(n + 1200), scatter(n + 1300) * 0.72, n % 6, scatter(n + 1400) * 6.28]);
+      // Where things are (px), from the screen's size: the art (its size, its centre), the catch (where
+      // the gap between the reaching hands is), and the hands' frame (its width; 16:9).
+      const tall = () => H > W;
+      const coverSize = () => Math.min(W * (tall() ? 0.86 : 0.5), H * 0.7);
+      const catchAt = () => (tall() ? [W * 0.5, H * 0.62] : [W * 0.29, H * 0.6]);
+      const handsWidth = () => Math.min(W * (tall() ? 1.5 : 0.6), H * 1.08);
+      const claspAt = () => { const [cx, cy] = catchAt(), hw = handsWidth(); return [cx + (YR_CLASP[0] - YR_GAP[0]) * hw, cy + (YR_CLASP[1] - YR_GAP[1]) * hw * 0.5625]; };
+      // The camera's fall (0-1 over bar 4), the city's race (px, from bar 5, a lurch on every beat,
+      // slowing to a stop over bar 8's first two beats).
+      const fallAt = (now) => ease((now - YR_IN(14)) / (YR_IN(18) - YR_IN(14)));
+      const raceAt = (now) => {
+        const t = now / 1000, t0 = YR_IN(18) / 1000, t1 = YR_IN(30) / 1000, t2 = YR_IN(32) / 1000, v = Math.max(W, 900) * 0.75;
+        if (t <= t0) return 0;
+        const run = Math.min(t, t1) - t0, beats = run / YR_BEAT;
+        let x = v * run + W * 0.035 * (Math.floor(beats) + out((beats % 1) * 3));
+        if (t > t1) { const q = Math.min(1, (t - t1) / (t2 - t1)); x += v * (t2 - t1) * (q - (q * q) / 2); }
+        return x;
+      };
+      // The art: the rooftop (bars 1-2) pushing in, then her face (from bar 3) pushing in, in one frame.
+      const coverAt = (now) => {
+        const k = now < YR_IN(10) ? 0.92 + 0.06 * ease((now - YR_IN(2)) / (YR_IN(10) - YR_IN(2))) : 0.98 + 0.06 * ease((now - YR_IN(10)) / (YR_IN(14) - YR_IN(10)));
+        const s = coverSize() * k;
+        return { s, x: W / 2, y: H / 2 - fallAt(now) * H * 1.15 };
+      };
+      // The drop: where it is and how big (r), by the clip's clock. It gathers at the end of the pink
+      // running down her face (45.5 % across the art, 75 % down), falls free, is followed down, hangs in
+      // the middle as the city races, and sinks into the gap between the hands at the catch.
+      const dropAt = (now) => {
+        const c = coverAt(now), tx = c.x + (0.455 - 0.5) * c.s, ty = c.y + (0.75 - 0.5) * c.s;
+        if (now < YR_IN(10)) return null;
+        const swell = Math.min(1, (now - YR_IN(10)) / (YR_IN(13) - YR_IN(10)));
+        const r = Math.min(W, H) * (0.006 + 0.012 * swell);
+        if (now < YR_IN(13)) return { x: tx, y: ty + r * 0.9, r, a: clamp((now - YR_IN(10)) / 300) };
+        // falling: free fall for a beat, then (as the camera follows) easing to the middle of the screen
+        const [cx, cy] = catchAt(), hang = [W * (tall() ? 0.5 : 0.52), H * 0.36];
+        const f = (now - YR_IN(13)) / 1000;
+        const free = { x: tx, y: ty + r + 900 * f * f };
+        const toHang = ease((now - YR_IN(13)) / (YR_IN(18) - YR_IN(13)));
+        let x = free.x + (hang[0] - free.x) * toHang, y = Math.min(free.y, H * 1.2) + (hang[1] - Math.min(free.y, H * 1.2)) * toHang;
+        // racing: it bobs a little; then the break: down into the gap between the hands
+        if (now >= YR_IN(18)) { x = hang[0] + Math.sin(now / 260) * W * 0.004; y = hang[1] + Math.sin(now / 420) * H * 0.012; }
+        if (now >= YR_IN(30)) { const q = ease((now - YR_IN(30)) / (YR_IN(32) - YR_IN(30))); x += (cx - x) * q; y += (cy - y) * q; }
+        return { x, y, r: Math.min(W, H) * 0.018, a: now >= YR_IN(32) ? 0 : 1 };
+      };
+      const g = sky.getContext("2d"), sg = spark.getContext("2d");
+      const drawCity = (city, height, scale, base, shift, alpha, blur) => {
+        const tile = 1600 * scale;
+        g.save(); g.globalAlpha = alpha;
+        for (let k = Math.floor(shift / tile) - 1; k * tile - shift < W; k++) {
+          const ox = k * tile - shift;
+          for (const b of city) {
+            const x = ox + b.x * scale;
+            if (x > W || x + b.w * scale < 0) continue;
+            g.fillStyle = height === 150 ? "#1C3561" : "#0D1B38";
+            g.fillRect(x, base - b.h * scale, b.w * scale + 1, b.h * scale);
+            b.windows.forEach(([wx, wy, c], n) => {
+              if (n % 3 === 2) return;
+              g.fillStyle = YR_WINDOW[c];
+              const X = ox + wx * scale, Y = base - (height - wy) * scale;
+              g.fillRect(X - blur, Y, 5 * scale + blur, 7 * scale);
+            });
+          }
+        }
+        g.restore();
+      };
+      const drawDrop = (ctx, d) => {
+        if (!d || d.a <= 0) return;
+        ctx.save(); ctx.globalAlpha = d.a; ctx.translate(d.x, d.y);
+        const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, d.r * 5);
+        glow.addColorStop(0, "rgba(255, 120, 160, 0.45)"); glow.addColorStop(1, "rgba(255, 120, 160, 0)");
+        ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, d.r * 5, 0, Math.PI * 2); ctx.fill();
+        const body = ctx.createLinearGradient(-d.r, -d.r * 2, d.r, d.r);
+        body.addColorStop(0, "#FFC2D3"); body.addColorStop(0.5, "#FF6F91"); body.addColorStop(1, "#E2456F");
+        ctx.fillStyle = body;
+        ctx.beginPath(); ctx.moveTo(0, -d.r * 2.2); ctx.bezierCurveTo(d.r * 0.4, -d.r * 1.2, d.r, -d.r * 0.4, d.r, d.r * 0.15);
+        ctx.arc(0, d.r * 0.15, d.r, 0, Math.PI); ctx.bezierCurveTo(-d.r, -d.r * 0.4, -d.r * 0.4, -d.r * 1.2, 0, -d.r * 2.2); ctx.fill();
+        ctx.fillStyle = "rgba(255, 255, 255, 0.85)"; ctx.beginPath(); ctx.ellipse(-d.r * 0.38, -d.r * 0.2, d.r * 0.2, d.r * 0.34, -0.4, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      };
+      // a sparkle (n: 0-5), its centre at x, y, its height h
+      const drawSpark = (ctx, n, x, y, h, alpha) => {
+        const im = SPARKS[n];
+        if (!ready(im) || alpha <= 0 || h <= 0) return;
+        const w = (h * im.naturalWidth) / im.naturalHeight;
+        ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(im, x - w / 2, y - h / 2, w, h); ctx.restore();
+      };
+      // a butterfly (0 pink, 1 teal), its body at x, y, its width w, facing left (dir 1) or right (-1),
+      // its wings beating (flap 0-1: open to closed down onto its body)
+      const drawFly = (ctx, n, x, y, w, dir, flap, alpha, turn = 0) => {
+        const im = FLY[n];
+        if (!ready(im) || alpha <= 0) return;
+        const h = (w * im.naturalHeight) / im.naturalWidth;
+        ctx.save(); ctx.globalAlpha = alpha; ctx.translate(x, y); ctx.rotate(turn); ctx.scale(dir, 1 - 0.5 * flap);
+        ctx.drawImage(im, -w * 0.3, -h * 0.68, w, h);
+        ctx.restore();
+      };
+      // The night, each frame: the sky, the stars and the sparkles, the city, the pink draining away.
+      const night = (now) => {
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        const sk = g.createLinearGradient(0, 0, 0, Math.max(H, 1000));
+        YR_SKY.forEach(([y, colour]) => sk.addColorStop(y / Math.max(H, 1000), colour));
+        g.fillStyle = sk; g.fillRect(0, 0, W, H);
+        const fall = fallAt(now), race = raceAt(now), b = beatOf(now);
+        const fade = 1 - clamp((now - YR_IN(30)) / (YR_IN(32) - YR_IN(30))), dim = 1 - clamp((now - YR_IN(32)) / (YR_IN(34) - YR_IN(32)));
+        // the stars: streaming up as the camera falls, drifting back as the city races, twinkling
+        for (const [sx, sy, r, ph] of STARS) {
+          const y = ((sy * H * 1.4 - fall * H * 0.9) % (H * 1.4) + H * 1.4) % (H * 1.4) - H * 0.2;
+          const x = ((sx * W - race * 0.04) % W + W) % W;
+          g.fillStyle = `rgba(255, 238, 245, ${(0.35 + 0.45 * (0.5 + 0.5 * Math.sin(now / 700 + ph))) * dim})`;
+          g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+        }
+        // the sparkles, among them, twinkling (each in turn)
+        const m = Math.min(W, H);
+        for (const [sx, sy, n, ph] of SKY_SPARKS) {
+          const y = ((sy * H * 1.4 - fall * H * 0.9) % (H * 1.4) + H * 1.4) % (H * 1.4) - H * 0.2;
+          const x = ((sx * W - race * 0.06) % W + W) % W, tw = 0.5 + 0.5 * Math.sin(now / 520 + ph);
+          drawSpark(g, n, x, y, m * (0.026 + 0.022 * tw) * (n % 3 === 0 ? 0.8 : 1), (0.45 + 0.55 * tw) * dim * clamp(now / 600));
+        }
+        // the city: up from below as the camera falls; racing past (the near one faster); slowing,
+        // then going in the break
+        if (fall > 0 && fade > 0) {
+          const k = tall() ? 1.25 : Math.max(0.8, W / 1600);
+          const lift = (1 - fall) * H * 0.7, blur = race > 0 && now < YR_IN(30) ? 9 : 0;
+          drawCity(YR_CITY_FAR, 150, k * 1.1, H + lift - H * 0.1, race * 0.45, fade * 0.75, blur * 0.5);
+          drawCity(YR_CITY_NEAR, 210, k * 1.15, H + lift + 6, race, fade, blur);
+        }
+        // the pink, draining away down off the screen (its surface rippling)
+        const level = ease(now / YR_IN(2)) * (H + 80) - 40;
+        if (level < H + 40) {
+          g.fillStyle = "#FF6F91";
+          g.beginPath(); g.moveTo(0, H);
+          for (let x = 0; x <= W + 20; x += 20) g.lineTo(x, level + Math.sin(x / 70 + now / 160) * 10 + Math.sin(x / 31 - now / 210) * 4);
+          g.lineTo(W, H); g.closePath(); g.fill();
+          g.strokeStyle = "rgba(255, 210, 225, 0.8)"; g.lineWidth = 3;
+          g.beginPath();
+          for (let x = 0; x <= W + 20; x += 20) { const y = level + Math.sin(x / 70 + now / 160) * 10 + Math.sin(x / 31 - now / 210) * 4; if (x) g.lineTo(x, y); else g.moveTo(x, y); }
+          g.stroke();
+        }
+        // the beat, for the lurches
+        box.style.setProperty("--yr-jolt", (now >= YR_IN(18) && now < YR_IN(30) ? Math.exp(-(b % 1) * 7) : 0).toFixed(3));
+      };
+      // Where the two butterflies settle on the page (by its moon: the header's copy, measured once it is
+      // built), as [x, y, width] of each.
+      let landing = null;
+      // The catch, on its own canvas over the hands: the drop, then a splash (a ring, droplets thrown out),
+      // sparkles popping round the clasp, butterflies rising out of it, two flying up to the moon.
+      const splash = (now) => {
+        sg.setTransform(ratio, 0, 0, ratio, 0, 0);
+        sg.clearRect(0, 0, W, H);
+        drawDrop(sg, dropAt(now));
+        const t = (now - YR_IN(32)) / 1000;
+        if (t < 0) return;
+        const [cx, cy] = claspAt(), m = Math.min(W, H);
+        if (t < 1) {
+          sg.save(); sg.globalAlpha = clamp(1 - t / 0.85);
+          sg.strokeStyle = "#FFB3C8"; sg.lineWidth = 3;
+          for (const k of [0, 0.18]) { const q = out((t - k) / 0.9); if (q > 0) { sg.beginPath(); sg.ellipse(cx, cy, q * m * 0.32, q * m * 0.11, -0.25, 0, Math.PI * 2); sg.stroke(); } }
+          for (let n = 0; n < 14; n++) {
+            const a = -Math.PI * (0.1 + 0.8 * scatter(n + 40)), v = m * (0.35 + scatter(n + 70) * 0.5), x = cx + Math.cos(a) * v * t, y = cy + Math.sin(a) * v * t + 0.9 * m * t * t;
+            sg.fillStyle = n % 3 ? "#FF8FAD" : "#FFE4EC"; sg.beginPath(); sg.arc(x, y, m * 0.006 * (1 + scatter(n) * 0.8), 0, Math.PI * 2); sg.fill();
+          }
+          sg.restore();
+          // sparkles round the clasp, each popping up and away in turn
+          for (let n = 0; n < 6; n++) {
+            const q = (t - n * 0.05) / 0.55;
+            if (q < 0 || q > 1) continue;
+            const a = -Math.PI * (0.05 + 0.9 * (n / 5)), d = m * (0.12 + 0.1 * scatter(n + 90)) * (0.6 + 0.4 * q);
+            drawSpark(sg, (n * 4) % 6, cx + Math.cos(a) * d * 1.5, cy + Math.sin(a) * d, m * 0.07 * Math.sin(Math.PI * q), 1);
+          }
+          // the small butterflies: scattering up out of it and away
+          for (let n = 0; n < 6; n++) {
+            const q = t - n * 0.06;
+            if (q < 0) continue;
+            const dir = scatter(n + 11) < 0.5 ? 1 : -1, x = cx - dir * m * (0.1 + scatter(n + 12) * 0.35) * q + Math.sin(q * 6 + n) * m * 0.02, y = cy - m * (0.3 + scatter(n + 13) * 0.45) * q;
+            drawFly(sg, n % 2, x, y, m * (0.03 + scatter(n + 17) * 0.025), dir, Math.abs(Math.sin(q * 22 + n)), clamp(1.6 - q * 2), (scatter(n + 19) - 0.5) * 0.5);
+          }
+        }
+        // the two, up to their places by the moon (in the time to the cut), beating their wings
+        const fly = clamp(t / ((YR_IN(34) - YR_IN(32)) / 1000 - 0.04));
+        [0, 1].forEach((n) => {
+          const [tx, ty, tw] = landing?.[n] ?? [W * (0.75 + n * 0.08), H * (0.2 + n * 0.1), m * 0.06];
+          const q = ease(fly), arc = Math.sin(Math.PI * q) * m * (n ? 0.1 : 0.16);
+          const x = cx + (tx - cx) * q, y = cy + (ty - cy) * q - arc, w = m * 0.045 + (tw - m * 0.045) * q;
+          drawFly(sg, n, x, y, w, 1, fly < 1 ? Math.abs(Math.sin(t * 20 + n)) : 0, clamp(t / 0.12));
+        });
+      };
+      // The DOM's pieces, placed each frame.
+      const place = (now) => {
+        // her: the rooftop in from the night in bar 1 and closer through bar 2; her face from bar 3 (the two
+        // dissolving), closer, then up out of view in bar 4
+        const c = coverAt(now), frame = `translate(${(c.x - c.s / 2).toFixed(1)}px, ${(c.y - c.s / 2).toFixed(1)}px)`;
+        for (const art of [album, face]) { art.style.width = art.style.height = `${c.s.toFixed(1)}px`; art.style.transform = frame; }
+        const dissolve = clamp((now - YR_IN(10) + 140) / 280);
+        album.style.opacity = (clamp((now - YR_IN(2) + 300) / 900) * (1 - dissolve)).toFixed(3);
+        face.style.opacity = (dissolve * (1 - clamp((now - YR_IN(15)) / 600))).toFixed(3);
+        // him, looking up: in from the right on bar 4's third beat, off to the left as the band comes in
+        const bh = Math.min(H * 0.3, W * (tall() ? 0.5 : 0.24)), bin = out((now - YR_IN(16)) / 420), bout = ease((now - YR_IN(18)) / 380);
+        boy.style.height = `${bh.toFixed(1)}px`;
+        boy.style.transform = `translate(${((1 - bin) * W - bout * W * 1.05).toFixed(1)}px, ${(H * (tall() ? 0.62 : 0.58)).toFixed(1)}px)`;
+        boy.style.opacity = now >= YR_IN(16) - 50 && now < YR_IN(18) + 400 ? "1" : "0";
+        // a cut a bar while he runs (her eye, her, the two of them): in from the right on the downbeat,
+        // jolting with the kicks, out to the left as the next comes in
+        cuts.forEach((cut, n) => {
+          const from = YR_IN(18 + n * 4), to = YR_IN(22 + n * 4);
+          const q = out((now - from) / 380), gone = ease((now - to + 120) / 380);
+          const w = Math.min(W * (tall() ? 0.62 : 0.3), H * 0.42), h = w * (n === 2 ? 1.28 : n === 1 ? 0.9 : 0.62);
+          const x0 = n ? W * (tall() ? 0.06 : 0.05) : W - w - W * (tall() ? 0.06 : 0.05);
+          const y0 = tall() ? H * 0.08 : H * 0.07;
+          cut.style.width = `${w.toFixed(1)}px`; cut.style.height = `${h.toFixed(1)}px`;
+          cut.style.opacity = now >= from - 30 && now < to + 400 ? "1" : "0";
+          cut.style.transform = `translate(${(x0 + (1 - q) * W * 0.5 - gone * W * 1.2).toFixed(1)}px, ${(y0 + Math.sin(now / 300 + n) * 4).toFixed(1)}px) rotate(${(n === 1 ? -3 : 3) * (1 - gone)}deg)`;
+        });
+        // the hands: from bar 6 the two reach in from either corner, along their arms, closer on every
+        // bar's downbeat; in the break they close in (the last bit inward, onto the clasp); at the crash
+        // the clasped pair takes their place (a flash), and they go as the title comes
+        const hw = handsWidth(), hh = hw * 0.5625, [cx, cy] = catchAt();
+        const bar = YR_BEAT * 4000, into = now - YR_IN(22);
+        const steps = Math.min(2, Math.floor(into / bar)), within = ease((into - steps * bar) / 500);
+        const away = now >= YR_IN(32) ? 0 : now >= YR_IN(30) ? 0.18 * (1 - ease((now - YR_IN(30)) / (YR_IN(32) - YR_IN(30)))) : 1 - (steps + within) * 0.41;
+        const nudge = ease((now - YR_IN(30)) / (YR_IN(32) - YR_IN(30)));
+        // each fingertip along its way (off the screen, bar 6, bar 7, the gap), by how far away it still is
+        const fx = cx - hw * YR_GAP[0], fy = cy - hh * YR_GAP[1];
+        const reach = (dir) => {
+          const side = dir < 0 ? "left" : "right", tip = [fx + YR_TIPS[side][0] * hw, fy + YR_TIPS[side][1] * hh];
+          const way = [...YR_WAY[tall() ? "tall" : "wide"][side].map(([u, v]) => [u * W, v * H]), tip];
+          const far = Math.min(1, away), i = far >= 0.59 ? 0 : far >= 0.18 ? 1 : 2, q = i === 0 ? (1 - far) / 0.41 : i === 1 ? (0.59 - far) / 0.41 : (0.18 - far) / 0.18;
+          const [ax, ay] = way[i], [bx, by] = way[i + 1];
+          const x = ax + (bx - ax) * q - tip[0] - dir * nudge * hw * 0.01, y = ay + (by - ay) * q - tip[1] - dir * nudge * hh * 0.035;
+          return `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        };
+        hands.style.width = `${hw.toFixed(1)}px`; hands.style.height = `${hh.toFixed(1)}px`;
+        hands.style.transform = `translate(${(cx - hw * YR_GAP[0]).toFixed(1)}px, ${(cy - hh * YR_GAP[1]).toFixed(1)}px)`;
+        hands.style.opacity = (now >= YR_IN(22) - 50 ? 1 - clamp((now - YR_IN(33) - 150) / 300) : 0).toFixed(3);
+        leftHand.style.transform = reach(-1);
+        rightHand.style.transform = reach(1);
+        const clasped = clamp((now - YR_IN(32) + 40) / 120);
+        leftHand.style.opacity = rightHand.style.opacity = (1 - clasped).toFixed(3);
+        held.style.opacity = clasped.toFixed(3);
+        // the clock in the corner: to midnight at the catch
+        const time = now < YR_IN(18) ? ["PM", "11:58"] : now < YR_IN(32) ? ["PM", "11:59"] : ["AM", "0:00"];
+        if (clock.textContent !== time[1]) { clock.textContent = time[1]; meridiem.textContent = time[0]; clock.parentElement.classList.remove("is-tick"); void clock.offsetWidth; clock.parentElement.classList.add("is-tick"); }
+      };
+      // The page's header where it is (the page is under the intro, at the top): copied in for the
+      // last beats, a piece at a time (the moon first, in the break), so the cut lands on it; and where
+      // its two butterflies rest, for the two flying up to them.
+      const buildEnd = () => {
+        window.scrollTo({ top: 0, behavior: "instant" });
+        const decor = document.querySelector(".hero .yr-decor");
+        end.innerHTML = decor ? decor.outerHTML : YR_DECOR;
+        const hero = document.querySelector(".hero");
+        if (hero) end.style.height = `${hero.getBoundingClientRect().height.toFixed(1)}px`;
+        landing = [...end.querySelectorAll(".yr-decor-fly")].map((fly) => {
+          const w = fly.offsetWidth, h = fly.offsetHeight;
+          return w ? [fly.offsetLeft + w * 0.3, fly.offsetTop + h * 0.68, w] : null;
+        });
+        if (landing.some((spot) => !spot)) landing = null;
+      };
+      const show = (step) => {
+        const [, name] = this.cues[step];
+        if (name === "slow" && !end.firstChild) buildEnd();
+        const reached = new Set(this.cues.slice(0, step + 1).map(([, entry]) => entry));
+        box.className = ["yr-intro", `is-${name}`, ...[...reached].map((entry) => `has-${entry}`)].join(" ");
+        if (name === "catch") { const [x, y] = claspAt(); box.style.setProperty("--yr-fx", `${x.toFixed(0)}px`); box.style.setProperty("--yr-fy", `${y.toFixed(0)}px`); }
+        if (this.hits.has(name)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+      show.tick = (now) => {
+        size();
+        night(now);
+        place(now);
+        splash(now);
+      };
+      size();
+      show.tick(0);
+      return show;
+    },
+  };
+  // Racing into the Night's pictures (yoru/<name>.webp), loaded once.
+  const yrPics = {};
+  const yrPic = (name) => (yrPics[name] ??= Object.assign(new Image(), { decoding: "async", src: siteUrl(`yoru/${name}.webp`) }));
+  // A muted film kept in step with the music's clock (t: seconds into it; outside [0, until) it is paused at
+  // its start, so the next time begins at once): started a little ahead (it takes a moment to get going),
+  // then eased into step by its speed (a seek only if it is far out: a seek stalls it).
+  const yrKeep = (film, t, until) => {
+    if (t < 0 || t >= until) {
+      if (!film.paused) film.pause();
+      if (film.currentTime > 0.05) film.currentTime = 0;
+      film.playbackRate = 1;
+      return;
+    }
+    if (film.paused) { film.currentTime = Math.min(until, t + 0.08); void film.play().catch(() => undefined); return; }
+    const behind = t - film.currentTime;
+    if (Math.abs(behind) > 0.3) { film.currentTime = t + 0.04; film.playbackRate = 1; return; }
+    const rate = 1 + Math.max(-0.15, Math.min(0.15, behind * 1.2));
+    if (Math.abs(film.playbackRate - rate) > 0.01) film.playbackRate = rate;
+  };
+  // The page, through the night: a rail at the screen's edge (wide screens), the hours down it, and the
+  // drop on it going down as the page does, from the moon to the morning; the city's windows brighten
+  // on the chorus's beats (--yr-beat).
+  // The bridge (track 2, the song's riff, 8 bars): the night leaks in.
+  //   drip (bars 1-4)   on each of the riff's stabs a pink drip runs down from the top of the screen over
+  //                     the page (dimmed), and inside the drips the MV plays (yoru/bridge.mp4, cut to track 2:
+  //                     the heart in its colours, the room with the pink dripping down its walls, her smile,
+  //                     the embrace, the fist tightening); the page's words are the night's (YR_LINES); at the
+  //                     end of bar 4 the drips swell into each other
+  //   fall (bar 5)      the downbeat: the threads snap, the screen floods, and the two of them fall together,
+  //                     the camera turning slowly with them, butterflies rising past, the hours going by in
+  //                     the corner (AM 1:00 … 4:00)
+  //   drain (bar 8, b3) it drains away down the screen, and the page is back as track 1 comes in
+  const YR_T16 = YR_BEAT / 4;
+  // the riff's stabs (sixteenths into track 2), and the drip each sends down: where across the screen, how wide
+  const YR_DRIPS = [[0, 0.5, 0.13], [10, 0.36, 0.1], [18, 0.63, 0.11], [23, 0.45, 0.08], [26, 0.57, 0.09], [32, 0.27, 0.15], [42, 0.74, 0.15],
+    [50, 0.5, 0.2], [55, 0.15, 0.16], [58, 0.85, 0.17], [63, 0.39, 0.22]];
+  // where each shot's subject is across the frame (a tall screen sees a slice of it): [from sixteenth, x]
+  const YR_FOCUS = [[0, 0.5], [32, 0.52], [50, 0.5], [55, 0.57], [58, 0.5], [67, 0.72]];
+  // the page's words through the bridge: the night's (not the song's)
+  const YR_LINES = ["It's almost midnight", "The night is calling", "Can you hear it too?", "I'll get there in time", "Hold on a little longer", "Look at me, not the dark",
+    "Take my hand", "The city is still awake", "Just the two of us", "Stay until the morning", "夜の向こうへ", "まだ間に合う", "手を離さないで", "朝まで一緒に"];
+  const YR_FX = `<div class="yr-rail"><b class="yr-rail-moon"></b><i class="yr-rail-line"></i>${[0, 1, 2, 3, 4, 5].map((h) => `<span style="--h: ${h}">${h}:00</span>`).join("")}<i class="yr-rail-drop"></i><b class="yr-rail-sun"></b></div>`
+    + `<canvas class="yr-bridge"></canvas><video class="yr-bridge-film" muted playsinline preload="auto" aria-hidden="true"></video><p class="yr-bridge-time"><span>AM</span><b>1:00</b></p>`;
+  const yoruStage = (() => {
+    let fx = null, rail = null, lastBeat = -1, canvas = null, g = null, film = null, clock = null, hour = 0, drawn = false, bridged = false;
+    let W = 0, H = 0, ratio = 1;
+    const FLY = [], SPARKS = [];
+    const clamp = (q) => Math.min(1, Math.max(0, q));
+    const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+    const out = (q) => 1 - (1 - clamp(q)) ** 3;
+    const scatter = (n) => { const r = Math.sin(n * 12.9898 + 3.3) * 43758.5453; return r - Math.floor(r); };
+    const ready = (im) => im.complete && im.naturalWidth > 0;
+    const onScroll = () => {
+      if (!rail) return;
+      const room = document.documentElement.scrollHeight - window.innerHeight;
+      rail.style.setProperty("--yr-scroll", (room > 0 ? Math.min(1, Math.max(0, window.scrollY / room)) : 0).toFixed(4));
+    };
+    const size = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+    };
+    // the film, kept with the music
+    const follow = (t) => yrKeep(film, t, YR_TRACK2);
+    // The film covering the screen (on a tall one, its slice about the shot's subject), zoomed and turned
+    // about the middle.
+    const drawFilm = (t, zoom = 1, turn = 0) => {
+      if (film.readyState < 2 || !film.videoWidth) return;
+      const vw = film.videoWidth, vh = film.videoHeight, k = Math.max(W / vw, H / vh) * zoom, dw = vw * k, dh = vh * k;
+      let focus = 0.5;
+      for (const [s, x] of YR_FOCUS) if (t >= s * YR_T16) focus = x;
+      const x = Math.min(0, Math.max(W - dw, W / 2 - dw * focus));
+      g.save(); g.translate(W / 2, H / 2); g.rotate(turn); g.translate(-W / 2, -H / 2);
+      g.drawImage(film, x, (H - dh) / 2, dw, dh);
+      g.restore();
+    };
+    // The drips by t: the pool along the top (its edge wavering), and a drip from each stab so far, running
+    // down (a column, its neck, its round head), swaying a little; at bar 4's end they swell into each other.
+    // One path (each part wound the same way, so they add up).
+    const dripsAt = (t) => {
+      const p = new Path2D(), parts = [], wide = H > W ? 1.6 : 1;
+      const pool = H * 0.12 * ease(t / (YR_T16 * 60)) + H * 0.9 * ease((t - YR_T16 * 61) / (YR_T16 * 3));
+      p.moveTo(0, -2);
+      for (let x = 0; x <= W + 24; x += 24) p.lineTo(x, pool + Math.sin(x / 90 + t * 2.2) * H * 0.008 + Math.sin(x / 37 - t * 3.1) * H * 0.004);
+      p.lineTo(W, -2); p.closePath();
+      const swell = 1 + 7 * ease((t - YR_T16 * 61) / (YR_T16 * 3));
+      YR_DRIPS.forEach(([s16, xf, wf], n) => {
+        const age = t - s16 * YR_T16;
+        if (age < 0) return;
+        const w = wf * W * wide * swell * (0.55 + 0.45 * out(age / 0.45)), r = w * 0.56;
+        const L = H * 1.3 * ease(age / (1.0 + scatter(n) * 0.7)) + r * out(age / 0.2);
+        // (each side only ever runs down to the head, so the outline never crosses itself)
+        const cx = xf * W + Math.sin(t * 2.4 + n * 1.7) * w * 0.05, head = Math.max(0, L - r), neck = Math.max(0, head - r * 0.9), bend = head - neck;
+        p.moveTo(cx - w / 2, -2);
+        p.lineTo(cx - w / 2, neck);
+        p.bezierCurveTo(cx - w / 2, neck + bend * 0.6, cx - r, head - bend * 0.4, cx - r, head);
+        p.arc(cx, head, r, Math.PI, 0, true);
+        p.bezierCurveTo(cx + r, head - bend * 0.4, cx + w / 2, neck + bend * 0.6, cx + w / 2, neck);
+        p.lineTo(cx + w / 2, -2);
+        p.closePath();
+        parts.push([cx, w, r, L, age]);
+      });
+      return { p, parts, pool };
+    };
+    // The butterflies rising past the fall, and the sparkles drifting up with them.
+    const drawFly = (n, x, y, w, flap, alpha) => {
+      const im = FLY[n % 2];
+      if (!ready(im) || alpha <= 0) return;
+      const h = (w * im.naturalHeight) / im.naturalWidth;
+      g.save(); g.globalAlpha = alpha; g.translate(x, y); g.scale(1, 1 - 0.5 * flap); g.drawImage(im, -w * 0.3, -h * 0.68, w, h); g.restore();
+    };
+    const drawSpark = (n, x, y, h, alpha) => {
+      const im = SPARKS[n % 6];
+      if (!ready(im) || alpha <= 0) return;
+      const w = (h * im.naturalWidth) / im.naturalHeight;
+      g.save(); g.globalAlpha = alpha; g.drawImage(im, x - w / 2, y - h / 2, w, h); g.restore();
+    };
+    const rising = (t) => {
+      const m = Math.min(W, H), from = YR_T16 * 66;
+      for (let n = 0; n < 9; n++) {
+        const q = (t - from - n * 0.42) / (3.2 + scatter(n + 7));
+        if (q < 0 || q > 1) continue;
+        const x = W * (0.08 + 0.84 * scatter(n + 3)) + Math.sin(q * 7 + n) * m * 0.05, y = H * (1.12 - 1.35 * q);
+        drawFly(n, x, y, m * (0.07 + 0.045 * scatter(n + 5)), Math.abs(Math.sin(t * 13 + n)), Math.min(1, 1.6 * Math.sin(Math.PI * q)));
+      }
+      for (let n = 0; n < 10; n++) {
+        const q = ((t - from) / 6 + scatter(n + 11)) % 1;
+        drawSpark(n, W * scatter(n + 13), H * (1.05 - 1.1 * q), m * (0.028 + 0.03 * (0.5 + 0.5 * Math.sin(t * 4 + n))), Math.sin(Math.PI * q));
+      }
+    };
+    // A frame of the bridge (t: seconds into track 2).
+    const frame = (t) => {
+      size();
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      drawn = true;
+      const flood = YR_T16 * 64, drain = YR_T16 * 120;
+      if (t < flood) {
+        // the drips: their pink rim (a shadow under it), then the film inside them, a gloss down each
+        const { p, parts } = dripsAt(t);
+        g.save(); g.shadowColor = "rgba(40, 6, 24, 0.45)"; g.shadowBlur = 18; g.shadowOffsetY = 6;
+        g.fillStyle = "#FF6F91"; g.fill(p); g.restore();
+        g.strokeStyle = "#FF8FAD"; g.lineWidth = 7; g.lineJoin = "round"; g.stroke(p);
+        g.save(); g.clip(p);
+        drawFilm(t, 1.04);
+        // (a fresh drip's shine, fading as it settles; none once they swell into each other)
+        const settle = 1 - ease((t - YR_T16 * 60) / (YR_T16 * 3));
+        for (const [cx, w, r, L, age] of parts) {
+          const gloss = 0.42 * settle * clamp(1 - age / 1.6);
+          if (gloss < 0.01) continue;
+          g.fillStyle = `rgba(255, 255, 255, ${gloss.toFixed(3)})`;
+          const shine = Math.max(0, L - r * 1.6), from = Math.max(0, shine - Math.max(r * 2.2, H * 0.12));
+          g.fillRect(cx - w * 0.36, from, Math.min(4, Math.max(1.5, w * 0.04)), shine - from);
+          const o = Math.min(r, 34);
+          g.beginPath(); g.ellipse(cx - r * 0.45, L - r * 1.1, o * 0.13, o * 0.24, -0.35, 0, Math.PI * 2); g.fill();
+        }
+        g.restore();
+        return;
+      }
+      // the fall: the camera turning slowly with them, pushing in, a nudge on each bar's downbeat
+      const q = (t - flood) / (YR_TRACK2 - flood), bar = Math.exp(-(((t - flood) / (YR_T16 * 16)) % 1) * 9);
+      const turn = -0.06 * ease(q), need = Math.cos(turn) + (Math.max(W, H) / Math.min(W, H)) * Math.sin(-turn);
+      const zoom = Math.max(need, 1 + 0.06 * q) + 0.02 * bar;
+      if (t < drain) {
+        drawFilm(t, zoom, turn);
+        rising(t);
+      } else {
+        // the drain: the film going down off the screen under a wavering surface, the page above it
+        const level = H * ease((t - drain) / (YR_TRACK2 - drain)) * 1.08 - H * 0.02;
+        const surface = new Path2D(), line = new Path2D();
+        surface.moveTo(0, H + 4);
+        for (let x = 0; x <= W + 24; x += 24) {
+          const y = level + Math.sin(x / 80 + t * 6) * H * 0.012 + Math.sin(x / 33 - t * 8) * H * 0.005;
+          surface.lineTo(x, y);
+          if (x) line.lineTo(x, y); else line.moveTo(x, y);
+        }
+        surface.lineTo(W, H + 4); surface.closePath();
+        g.save(); g.clip(surface); drawFilm(t, zoom, turn); rising(t); g.restore();
+        g.strokeStyle = "#FF8FAD"; g.lineWidth = 7; g.lineJoin = "round"; g.stroke(line);
+        g.strokeStyle = "rgba(255, 236, 242, 0.75)"; g.lineWidth = 2; g.save(); g.translate(0, 5); g.stroke(line); g.restore();
+      }
+      // the snap's flash
+      const flash = Math.exp(-(t - flood) * 6);
+      if (flash > 0.02) { g.fillStyle = `rgba(255, 236, 242, ${(0.8 * flash).toFixed(3)})`; g.fillRect(0, 0, W, H); }
+    };
+    return {
+      mount(box) {
+        fx = box; rail = fx.querySelector(".yr-rail");
+        canvas = fx.querySelector(".yr-bridge"); g = canvas.getContext("2d");
+        clock = fx.querySelector(".yr-bridge-time b");
+        film = fx.querySelector(".yr-bridge-film");
+        film.muted = true; film.playsInline = true; film.setAttribute("muted", ""); film.setAttribute("playsinline", "");
+        film.src = siteUrl("yoru/bridge.mp4");
+        if (!FLY.length) {
+          const picture = (file) => Object.assign(new Image(), { decoding: "async", src: siteUrl(`yoru/${file}`) });
+          FLY.push(picture("butterfly-pink.webp"), picture("butterfly-teal.webp"));
+          for (let n = 1; n <= 6; n++) SPARKS.push(picture(`sparkle-${n}.webp`));
+        }
+        window.addEventListener("scroll", onScroll, { passive: true });
+        window.addEventListener("resize", onScroll);
+        onScroll();
+      },
+      tick(at, name) {
+        if (!fx) return;
+        // the beat (0-1, dying away, in twentieths: set only when it changes), for the city's windows
+        const beat = at < 0 ? 0 : Math.round(Math.exp(-((at / YR_BEAT) % 1) * 6) * 20) / 20;
+        if (beat !== lastBeat) { lastBeat = beat; document.documentElement.style.setProperty("--yr-beat", String(beat)); }
+        // the bridge
+        const t = at - YR_TRACK1, on = name !== "calm" && t >= 0 && t < YR_TRACK2;
+        follow(on ? t : -1);
+        if (on) {
+          bridged = true;
+          frame(t);
+          const h = Math.min(4, 1 + Math.max(0, Math.floor((t - YR_T16 * 64) / (YR_T16 * 16))));
+          if (h !== hour) { hour = h; clock.textContent = `${h}:00`; clock.parentElement.classList.remove("is-tick"); void clock.offsetWidth; clock.parentElement.classList.add("is-tick"); }
+        } else if (bridged || drawn) {
+          bridged = false; drawn = false; hour = 0;
+          g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, canvas.width, canvas.height);
+        }
+      },
+      unmount() {
+        window.removeEventListener("scroll", onScroll);
+        window.removeEventListener("resize", onScroll);
+        if (film) { film.pause(); film.removeAttribute("src"); film.load(); }
+        fx = null; rail = null; lastBeat = -1; canvas = null; g = null; film = null; clock = null; hour = 0; drawn = false; bridged = false;
+        document.documentElement.style.removeProperty("--yr-beat");
+      },
+    };
+  })();
+  // The back of a card: a planisphere (星座早見盤) set to the night the song came out, 2019.12.15, 4 AM: the
+  // disc of the sky turning slowly in its frame, her (his) own constellation in it, named for them.
+  function yoruSkyBack(member, key, t, count) {
+    const stars = Array.from({ length: 70 }, (_, n) => { const r = Math.sin(n * 91.7 + key.length * 13.1) * 43758.5453, q = r - Math.floor(r), a = n * 2.399, d = 18 + 150 * Math.sqrt((n + 0.5) / 70); return [200 + Math.cos(a) * d * (0.8 + q * 0.2), 200 + Math.sin(a) * d * (0.8 + q * 0.2), 0.6 + q * 1.4]; });
+    const own = member.stars.map(([x, y]) => [80 + x * 2.4, 80 + y * 2.4]);
+    const months = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
+    return `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">☾</button>
+      <p class="yr-sky-head"><span>星座早見盤 · ${escapeHtml(count)}</span><b>${escapeHtml(member.hangul)}</b></p>
+      <div class="yr-sky">
+        <svg class="yr-sky-disc" viewBox="0 0 400 400" aria-hidden="true">
+          <circle cx="200" cy="200" r="196" class="yr-sky-rim" />
+          ${months.map((m, n) => `<text x="200" y="22" transform="rotate(${n * 30} 200 200)" class="yr-sky-month">${m}</text>`).join("")}
+          ${Array.from({ length: 60 }, (_, n) => `<line x1="200" y1="${n % 5 ? 30 : 27}" x2="200" y2="36" transform="rotate(${n * 6} 200 200)" class="yr-sky-tick" />`).join("")}
+          <circle cx="200" cy="200" r="160" class="yr-sky-field" />
+          ${stars.map(([x, y, r]) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${r.toFixed(2)}" class="yr-sky-star" />`).join("")}
+          <polyline points="${own.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ")}" class="yr-sky-line" />
+          ${own.map(([x, y], n) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${n % 3 ? 3.2 : 4.6}" class="yr-sky-own" />`).join("")}
+        </svg>
+        <i class="yr-sky-window"></i>
+        <span class="yr-sky-set">12.15 · 4:00 AM</span>
+      </div>
+      <p class="yr-sky-name"><b>${escapeHtml(member.name)}</b> 座</p>
+      <p class="yr-sky-role">${escapeHtml(member.role)}</p>
+      <p class="yr-sky-foot">YOASOBI · 夜に駆ける · 2019.12.15<br />Brew Houze × YOASOBI · ${escapeHtml(t.era)}</p>`;
+  }
+
+  // ── Racing into the Night's MV: 赤い糸, the red thread ──
+  // The user's MV clip, whole, with its own sound (the song's last 36 bars to its end; the shot of the step
+  // off the edge is not in it: mvedit.py dissolves past it), as one night from 4 AM to the morning, in small
+  // worlds that each frame the film their own way, and one red thread running through them (the red thread
+  // of fate, tied between two people who are meant to find each other):
+  //   wax (0)          the page is rolled over with black wax, like a scratch-art card
+  //   scratch (bar 1)  piano: a stylus scratches him out of the black, a stroke a beat, the card's rainbow
+  //                    under it; AM 4:00 scratched in the corner; the wax cracks and falls away
+  //   ink (bar 5)      the kicks: wet washi paper, a drop of ink on every kick blooming open, the film in
+  //                    the blooms (his tears, her face)
+  //   tie (bar 8)      the break: the paper goes to night; a red thread flies in and ties itself round the
+  //                    two hands
+  //   cradle (bar 9)   the chorus: the thread opens into cat's cradle figures (あやとり), the film in their
+  //                    windows: the star (turning a point on every flash of memory), the ladder, the net,
+  //                    the tower, a ring, and the loop pulled straight
+  //   map (bar 12)     running: the night map, the thread along the streets behind him, the distance
+  //                    counting down to the pin on the roof; footprints with his
+  //   lift (bar 15)    the bursts: the lift's doors shut, its floor dial whips up on the hits, and the
+  //                    doors open on the film's own door; out onto the roof
+  //   river (bar 18)   the roof, Tanabata: the Milky Way across the sky with the film in it, Vega and
+  //                    Altair on either bank; the thread throws a bridge over it, the two stars cross and
+  //                    meet on the embrace, and the river floods the sky
+  //   wish (bar 22)    the praying hands: a bamboo branch, wishes on paper strips hung from it (not the
+  //                    song's words)
+  //   glory (bar 25)   the profiles: morning glories climb in from the corners, a stretch a beat, and open
+  //                    on her smile
+  //   star (bar 29)    falling: a shooting star with the film in its head crosses the night, the wishes
+  //                    riding its tail
+  //   dawn (bar 33)    blinds, opening a little on every beat onto the morning, then drawn up; the thread
+  //                    ties the two hands again as they take hold; AM 5:00
+  //   end (the stop)   夜に駆ける in the dark as the film fades out. Then the theme comes back from track 1.
+  // Times are seconds into the clip, on its 130 BPM grid (the first beat 8592 samples in; bar 1 on beat 2,
+  // after a two-beat pickup; bar 37's downbeat the stop).
+  const YR_MV_T0 = 8592 / 44100;
+  const YR_MV_BAR = (n) => YR_MV_T0 + (2 + 4 * (n - 1)) * YR_BEAT;
+  // Its kicks, an eighth a digit (0 none … 9 the hardest), from bar 1 (measured on the clip).
+  const YR_MV_KICK = "503000505030008060301050017060909090909090909090909090909201000090000000200000000000002040000000002020509000000000000020400000000000000000000000100000203000000000202050900000000000103030000020000010900000002000001050900000099000000000000010200000000020107090000000001010305000000000808002";
+  // The film's flashes of memory (bar 9): its cuts.
+  const YR_MV_FLICKS = [16.133, 16.3, 16.367, 16.433, 16.5, 16.567, 16.667, 16.933, 17.0, 17.1, 17.467];
+  // Where the subject is across the frame (a tall screen sees a slice of it): [from, u].
+  const YR_MV_FOCUS = [[0, 0.47], [8.367, 0.52], [10.35, 0.45], [12.2, 0.55], [14.167, 0.5], [21.333, 0.48], [24.467, 0.55], [26.6, 0.5], [28.1, 0.36], [29.7, 0.5],
+    [39.8, 0.55], [45.167, 0.28], [47.1, 0.64], [49.467, 0.3], [50.767, 0.5], [51.133, 0.42], [52.733, 0.42], [60.1, 0.68], [62.2, 0.56], [65.467, 0.58]];
+  // The hands the thread ties (film u, v) as the shots drift: [from, u, v].
+  const YR_MV_GRIP = [[14.1, 0.42, 0.47], [14.9, 0.48, 0.42], [15.7, 0.52, 0.34], [16.2, 0.6, 0.3]];
+  const YR_MV_CLASP = [[62.2, 0.56, 0.55], [63.95, 0.6, 0.6], [64.3, 0.6, 0.6], [64.7, 0.56, 0.62], [65.1, 0.5, 0.63], [65.6, 0.5, 0.64]];
+  const yrJit = (n) => { const r = Math.sin(n * 91.345 + 7.13) * 47453.5453; return r - Math.floor(r); };
+  // The scratches (bars 1-4, one a beat): each a run of lines (film u, v), the stylus lifted between them, and how
+  // broad (of the screen's shorter side); the eleventh is AM 4:00, scratched in the corner.
+  const YR_MV_SCRATCH = (() => {
+    // hatching: parallel lines across an ellipse (centre and radii of the frame), a gap apart (of its width),
+    // their ends ragged as by hand; worked back and forth
+    const lines = (cu, cv, ru, rv, deg, gap, seed) => {
+      const a = (deg * Math.PI) / 180, dx = Math.cos(a), dy = Math.sin(a), nx = -dy, ny = dx, RX = ru * 16, RY = rv * 9, segs = [];
+      for (let o = -Math.max(RX, RY), k = 0; o <= Math.max(RX, RY); o += gap * 16, k++) {
+        const px = nx * o, py = ny * o, qa = (dx / RX) ** 2 + (dy / RY) ** 2, qb = 2 * ((px * dx) / RX ** 2 + (py * dy) / RY ** 2), qc = (px / RX) ** 2 + (py / RY) ** 2 - 1, disc = qb * qb - 4 * qa * qc;
+        if (disc <= 0) continue;
+        const s0 = (-qb - Math.sqrt(disc)) / (2 * qa) + yrJit(seed * 13 + k) * 0.5, s1 = (-qb + Math.sqrt(disc)) / (2 * qa) - yrJit(seed * 17 + k) * 0.5;
+        if (s1 - s0 < 0.15) continue;
+        const p0 = [cu + (px + dx * s0) / 16, cv + (py + dy * s0) / 9], p1 = [cu + (px + dx * s1) / 16, cv + (py + dy * s1) / 9];
+        segs.push(k % 2 ? [p1, p0] : [p0, p1]);
+      }
+      return segs;
+    };
+    // a loop round and round (an eye's scribble, the hands), as joined segments
+    const loop = (cu, cv, ru, rv, turns, seed) => {
+      const pts = Array.from({ length: Math.round(turns * 24) + 1 }, (_, i) => {
+        const a = (i / 24) * Math.PI * 2 + seed, k = 1 + 0.12 * Math.sin(i * 0.8 + seed) - 0.18 * (i / (turns * 24));
+        return [cu + Math.cos(a) * ru * k, cv + Math.sin(a) * rv * k];
+      });
+      return pts.slice(1).map((p, i) => [pts[i], p]);
+    };
+    return [
+      [lines(0.49, 0.31, 0.21, 0.12, 62, 0.008, 1), 0.008], [lines(0.5, 0.5, 0.16, 0.13, -58, 0.009, 2), 0.008], [loop(0.39, 0.32, 0.08, 0.07, 2.6, 3), 0.008], [loop(0.6, 0.3, 0.08, 0.07, 2.6, 4), 0.008],
+      [lines(0.49, 0.12, 0.27, 0.15, 72, 0.009, 5), 0.009], [lines(0.5, 0.7, 0.25, 0.15, -64, 0.009, 6), 0.009], [lines(0.49, 0.4, 0.21, 0.21, -28, 0.012, 7), 0.007], [lines(0.27, 0.86, 0.18, 0.2, 55, 0.011, 8), 0.011],
+      [lines(0.3, 0.64, 0.11, 0.18, 38, 0.009, 9), 0.009], [lines(0.6, 0.75, 0.11, 0.18, -40, 0.009, 10), 0.009], null, [lines(0.73, 0.86, 0.18, 0.2, -55, 0.011, 11), 0.011],
+      [loop(0.5, 0.53, 0.46, 0.44, 1.3, 12), 0.03], [lines(0.55, 0.13, 0.6, 0.2, 76, 0.016, 13), 0.017], [lines(0.18, 0.6, 0.32, 0.52, 60, 0.016, 14), 0.019], [lines(0.82, 0.6, 0.32, 0.52, -60, 0.016, 15), 0.019],
+    ].map((s, k) => ({ at: YR_MV_BAR(1) + k * YR_BEAT + 0.02, dur: k < 12 ? 0.38 : 0.44, segs: s?.[0] ?? null, w: s?.[1] ?? 0 }));
+  })();
+  // The ink drops (bars 5-7, one a kick): where (of the screen), how far each spreads (of √(w·h)), pink or teal.
+  const YR_MV_INK = [[0.56, 0.5, 0.2, 0], [0.38, 0.3, 0.17, 1], [0.74, 0.28, 0.16, 0], [0.62, 0.8, 0.17, 1], [0.28, 0.66, 0.17, 0], [0.5, 0.1, 0.17, 1], [0.88, 0.62, 0.17, 0],
+    [0.14, 0.22, 0.17, 1], [0.5, 0.42, 0.3, 0], [0.24, 0.9, 0.24, 1], [0.82, 0.1, 0.24, 0], [0.1, 0.56, 0.24, 1]];
+  // The cat's cradle figures (x -1…1, y about -0.8…0.62), resampled to the same number of points so one
+  // can slide into the next; turn: stood on end on a tall screen.
+  const YR_MV_CRADLE = (() => {
+    const N = 120;
+    const resample = (pts) => {
+      const ring = [...pts, pts[0]], lens = [0];
+      for (let i = 1; i < ring.length; i++) lens.push(lens[i - 1] + Math.hypot(ring[i][0] - ring[i - 1][0], ring[i][1] - ring[i - 1][1]));
+      const total = lens[lens.length - 1], out = [];
+      for (let k = 0, i = 1; k < N; k++) {
+        const d = (k / N) * total;
+        while (lens[i] < d) i++;
+        const q = (d - lens[i - 1]) / (lens[i] - lens[i - 1] || 1);
+        out.push([ring[i - 1][0] + (ring[i][0] - ring[i - 1][0]) * q, ring[i - 1][1] + (ring[i][1] - ring[i - 1][1]) * q]);
+      }
+      return out;
+    };
+    const band = (f, n = 80) => {
+      const pts = [];
+      for (let i = 0; i <= n; i++) { const x = -1 + (2 * i) / n; pts.push([x, f(x)]); }
+      for (let i = n - 1; i > 0; i--) { const x = -1 + (2 * i) / n; pts.push([x, -f(x)]); }
+      return pts;
+    };
+    const tri = (s) => 1 - 2 * Math.abs(s - Math.floor(s) - 0.5);
+    const star = [0, 2, 4, 1, 3].map((i) => { const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5; return [Math.cos(a) * 0.66, Math.sin(a) * 0.66 + 0.05]; });
+    const ladder = band((x) => 0.44 * (2 * tri((x + 1) / 0.4 + 0.25) - 1));
+    const net = Array.from({ length: 160 }, (_, i) => { const s = (i / 160) * Math.PI * 2; return [Math.cos(3 * s) * 0.92, Math.sin(4 * s) * 0.56]; });
+    const leg = (side, y) => side * (0.07 + (0.5 * (y + 0.62)) / 1.24);
+    const up = [], down = [];
+    for (let k = 0; k <= 8; k++) { const y = 0.62 - (1.24 * k) / 8; up.push([leg(k % 2 ? 1 : -1, y), y]); }
+    for (let k = 8; k >= 0; k--) { const y = 0.62 - (1.24 * k) / 8; down.push([leg(k % 2 ? -1 : 1, y), y]); }
+    const tower = [...up, [0, -0.84], ...down];
+    const ring = Array.from({ length: 64 }, (_, i) => { const s = (i / 64) * Math.PI * 2; return [Math.cos(s) * 0.86, Math.sin(s) * 0.44]; });
+    const taut = Array.from({ length: 64 }, (_, i) => { const s = (i / 64) * Math.PI * 2; return [Math.sin(s) * 0.012, -Math.cos(s) * 0.8]; });
+    return {
+      star: { pts: resample(star), name: "ほし", en: "star" }, ladder: { pts: resample(ladder), name: "はしご", en: "ladder", turn: true },
+      net: { pts: resample(net), name: "あみ", en: "net", turn: true }, tower: { pts: resample(tower), name: "とうきょうタワー", en: "Tokyo Tower" },
+      ring: { pts: resample(ring), name: "わ", en: "ring" }, taut: { pts: resample(taut), name: "", en: "" },
+    };
+  })();
+  // The run (bars 12-14): his way through the streets (map blocks, north up), the names on the map, the river.
+  const YR_MV_ROUTE = [[0, 0], [0, -5], [3, -5], [3, -14]];
+  const YR_MV_PLACES = [[-2.6, -2.5, "月見坂"], [5.6, -10.5, "星見台"], [-3.2, -7.9, "夜鳴川"], [0.6, -12.2, "朝霧公園"], [5.2, -2.2, "灯町"]];
+  const yrRiver = (x) => -7.2 + 1.1 * Math.sin(x * 0.45 + 0.6);
+  // The wishes on the strips (bar 22 on): not the song's words.
+  const YR_MV_WISHES = ["明日も会えますように", "君が笑えますように", "朝が来ますように", "ふたりで朝ごはん", "星にとどけ"];
+  const YR_MV_PAPER = ["#FFB3C7", "#9EE6DC", "#FFE8A3", "#CDB9FF", "#FFF4EC"];
+  const yoruScene = {
+    src: "yoru/mv.mp4",
+    className: "yr-scene",
+    cues: [[0, "wax"], ...[[1, "scratch"], [5, "ink"], [8, "tie"], [9, "cradle"], [12, "map"], [15, "lift"], [18, "river"], [22, "wish"], [25, "glory"], [29, "star"], [33, "dawn"], [37, "end"]]
+      .map(([bar, name]) => [YR_MV_BAR(bar), name])],
+    // Its sparkles and lettering, loaded while its button is up.
+    warm() {
+      [1, 2, 3, 4, 5, 6].forEach((n) => yrPic(`sparkle-${n}`));
+      document.fonts?.load("600 40px 'Klee One'", `AM 4:00${YR_MV_WISHES.join("")}`).catch(() => undefined);
+      document.fonts?.load("800 40px 'Shippori Mincho B1'", "夜に駆ける織姫彦星ベガアルタイルAM 5:00").catch(() => undefined);
+    },
+    mount(box, video) {
+      yoruScene.warm();
+      box.innerHTML = `<canvas class="yr-mv"></canvas>`;
+      // The film itself, with its sound, kept out of sight: everything is drawn from it.
+      video.className = "yr-mv-film";
+      video.setAttribute("aria-hidden", "true");
+      box.append(video);
+      const canvas = box.querySelector(".yr-mv"), g = canvas.getContext("2d");
+      const SPARKS = [1, 2, 3, 4, 5, 6].map((n) => yrPic(`sparkle-${n}`));
+      const B = YR_MV_BAR, BEAT = YR_BEAT, PI2 = Math.PI * 2;
+      const clamp = (q) => Math.min(1, Math.max(0, q));
+      const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+      const out = (q) => 1 - (1 - clamp(q)) ** 3;
+      const back = (q) => { const p = clamp(q) - 1; return 1 + 2.4 * p ** 3 + 1.4 * p ** 2; };
+      const mix = (a, b, q) => a + (b - a) * q;
+      const ready = (im) => im.complete && im.naturalWidth > 0;
+      // a kick's latest hit (0-1, by eighths from bar 1), dying away
+      const kick = (t, fall = 7) => {
+        const e = (t - B(1)) / (BEAT / 2), k0 = Math.floor(e);
+        for (let k = k0; k >= 0 && k > k0 - 3; k--) { const v = YR_MV_KICK.charCodeAt(k) - 48; if (v > 0 && v <= 9) return (v / 9) * Math.exp(-(e - k) * (BEAT / 2) * fall); }
+        return 0;
+      };
+      // how far into its beat (0-1) and which beat (from a time)
+      const beatIn = (t, from) => { const b = (t - from) / BEAT; return [Math.floor(b), b - Math.floor(b)]; };
+      const keyed = (keys, t) => {
+        let k = 0;
+        while (k + 1 < keys.length && t >= keys[k + 1][0]) k++;
+        const [t0, u0, v0] = keys[k], next = keys[k + 1];
+        if (!next || t <= t0) return [u0, v0];
+        const q = (t - t0) / (next[0] - t0);
+        return [mix(u0, next[1], q), mix(v0, next[2], q)];
+      };
+      let W = 0, H = 0, m = 1, A = 1, ratio = 1, tall = false;
+      // ── the film: the element's latest frame (or, while it seeks or waits, the last one kept) ──
+      const still = document.createElement("canvas");
+      still.width = SCENE_LITE ? 640 : 960; still.height = SCENE_LITE ? 360 : 540;
+      const stillG = still.getContext("2d");
+      stillG.fillStyle = "#0B1430"; stillG.fillRect(0, 0, still.width, still.height);
+      let grabs = 0;
+      const src = () => {
+        if (video.readyState >= 2 && video.videoWidth) {
+          if (grabs++ % 6 === 0) stillG.drawImage(video, 0, 0, still.width, still.height);
+          return video;
+        }
+        return still;
+      };
+      // the film covering a box (its point fu, fv in view where it can be), zoomed by z
+      const cover = (x, y, w, h, fu = 0.5, fv = 0.5, z = 1) => {
+        const k = Math.max(w / 1280, h / 720) * z, dw = 1280 * k, dh = 720 * k;
+        return { x: Math.min(x, Math.max(x + w - dw, x + w / 2 - dw * fu)), y: Math.min(y, Math.max(y + h - dh, y + h / 2 - dh * fv)), w: dw, h: dh };
+      };
+      const film = (r, alpha = 1) => { g.globalAlpha = alpha; g.drawImage(src(), r.x, r.y, r.w, r.h); g.globalAlpha = 1; };
+      const pt = (r, [u, v]) => [r.x + u * r.w, r.y + v * r.h];
+      const focusAt = (t) => { let u = 0.5; for (const [at, f] of YR_MV_FOCUS) if (t >= at) u = f; return u; };
+      const screen = (t) => cover(0, 0, W, H, focusAt(t), 0.5);
+      const night = (alpha) => {
+        const gr = g.createRadialGradient(W / 2, H / 2, m * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+        gr.addColorStop(0, "rgba(8, 13, 36, 0)"); gr.addColorStop(1, `rgba(8, 13, 36, ${alpha})`);
+        g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      };
+      const glowDot = (x, y, r, rgb, a) => {
+        if (a <= 0.01 || r <= 0) return;
+        const gr = g.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, `rgba(${rgb}, ${a})`); gr.addColorStop(1, `rgba(${rgb}, 0)`);
+        g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+      };
+      const spark = (n, x, y, s, a, turn = 0) => {
+        const im = SPARKS[n % SPARKS.length];
+        if (!ready(im) || a <= 0.01) return;
+        g.save(); g.globalAlpha = Math.min(1, a); g.translate(x, y); g.rotate(turn); g.drawImage(im, -s / 2, -s / 2, s, s); g.restore();
+      };
+      // ── the red thread: a polyline (screen points), drawn to a length along it ──
+      const lengthOf = (pts) => { let L = 0; for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); return L; };
+      const upto = (pts, d) => {
+        const kept = [pts[0]];
+        for (let i = 1; i < pts.length; i++) {
+          const [x0, y0] = pts[i - 1], [x1, y1] = pts[i], s = Math.hypot(x1 - x0, y1 - y0);
+          if (d <= s) { const q = s ? d / s : 0; kept.push([x0 + (x1 - x0) * q, y0 + (y1 - y0) * q]); return kept; }
+          d -= s; kept.push(pts[i]);
+        }
+        return kept;
+      };
+      const strand = (pts, alpha = 1, width = 1) => {
+        if (pts.length < 2 || alpha <= 0.01) return;
+        const path = new Path2D();
+        pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+        g.save(); g.globalAlpha = alpha; g.lineCap = "round"; g.lineJoin = "round";
+        g.strokeStyle = "rgba(255, 64, 104, 0.28)"; g.lineWidth = Math.max(6, m * 0.014) * width; g.stroke(path);
+        g.strokeStyle = "#E3304E"; g.lineWidth = Math.max(2, m * 0.0044) * width; g.stroke(path);
+        g.strokeStyle = "rgba(255, 196, 208, 0.9)"; g.lineWidth = Math.max(0.8, m * 0.0012) * width; g.stroke(path);
+        g.restore();
+      };
+      const curve = (a, c, b, n = 24) => Array.from({ length: n + 1 }, (_, i) => { const q = i / n, p = 1 - q; return [p * p * a[0] + 2 * p * q * c[0] + q * q * b[0], p * p * a[1] + 2 * p * q * c[1] + q * q * b[1]]; });
+      // a thread wound round a point: turns of a tilted ellipse, pulled a little tighter each turn
+      const wound = (cx, cy, rx, ry, tilt, turns, from = 0) => Array.from({ length: Math.round(turns * 28) + 1 }, (_, i) => {
+        const a = from + (i / 28) * PI2, k = 1 - 0.12 * (i / (turns * 28)), x = Math.cos(a) * rx * k, y = Math.sin(a) * ry * k;
+        return [cx + x * Math.cos(tilt) - y * Math.sin(tilt), cy + x * Math.sin(tilt) + y * Math.cos(tilt)];
+      });
+      const knotRing = (x, y, q) => {
+        if (q <= 0 || q >= 1) return;
+        g.save(); g.strokeStyle = `rgba(255, 150, 175, ${0.8 * (1 - q)})`; g.lineWidth = Math.max(2, m * 0.005) * (1 - q);
+        g.beginPath(); g.arc(x, y, m * (0.03 + 0.16 * out(q)), 0, PI2); g.stroke(); g.restore();
+        glowDot(x, y, m * 0.12, "255, 120, 150", 0.5 * (1 - q));
+      };
+      // ── the sky's stars (shared by the river and the shooting star) ──
+      const STARS = Array.from({ length: 190 }, (_, i) => ({ u: yrJit(i * 3 + 1), v: yrJit(i * 3 + 2), s: 0.6 + 1.6 * yrJit(i * 3 + 3) ** 3, p: yrJit(i + 400) * PI2, f: 1 + 3 * yrJit(i + 600) }));
+      const starfield = (t, alpha = 1) => {
+        g.save(); g.fillStyle = "#FFFFFF";
+        for (const s of STARS) {
+          const a = alpha * (0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * s.f + s.p))) * (0.4 + 0.6 * Math.min(1, s.s));
+          g.globalAlpha = a; g.beginPath(); g.arc(s.u * W, s.v * H, s.s * Math.max(1, m / 900), 0, PI2); g.fill();
+        }
+        g.restore();
+      };
+      const sky = (top, bottom) => { const gr = g.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, top); gr.addColorStop(1, bottom); g.fillStyle = gr; g.fillRect(0, 0, W, H); };
+
+      // ── 1. the wax and the scratches ──
+      const wax = document.createElement("canvas"), waxG = wax.getContext("2d"), waxTex = document.createElement("canvas");
+      const card = document.createElement("canvas"), cardG = card.getContext("2d");
+      const WAX_K = SCENE_LITE ? 0.75 : 1;
+      const paintWax = () => {
+        const w = Math.max(1, Math.round(W * WAX_K)), h = Math.max(1, Math.round(H * WAX_K));
+        wax.width = waxTex.width = card.width = w; wax.height = waxTex.height = card.height = h;
+        const p = waxTex.getContext("2d");
+        p.fillStyle = "#0A0B12"; p.fillRect(0, 0, w, h);
+        const sheen = p.createLinearGradient(0, 0, w, h);
+        ["rgba(255, 122, 156, 0.08)", "rgba(111, 217, 206, 0.06)", "rgba(255, 233, 168, 0.05)", "rgba(155, 123, 255, 0.08)"].forEach((c, i) => sheen.addColorStop(i / 3, c));
+        p.fillStyle = sheen; p.fillRect(0, 0, w, h);
+        for (let n = 0; n < (w * h) / 700; n++) { p.fillStyle = `rgba(255, 255, 255, ${(0.015 + 0.05 * yrJit(n * 3 + 1)).toFixed(3)})`; p.fillRect(yrJit(n * 3 + 2) * w, yrJit(n * 3 + 3) * h, 1, 1); }
+      };
+      const RAINBOW = ["#FF6FA0", "#FFB36B", "#FFE98A", "#7FE3C8", "#6FB6FF", "#B48CFF"];
+      // the scratches so far, cut out of the wax (as at t), and where the stylus is
+      const scratch = (t, r) => {
+        waxG.globalCompositeOperation = "copy"; waxG.drawImage(waxTex, 0, 0);
+        waxG.globalCompositeOperation = "destination-out"; waxG.lineCap = "round"; waxG.lineJoin = "round"; waxG.strokeStyle = "#000"; waxG.fillStyle = "#000";
+        let tip = null, text = 0;
+        for (const s of YR_MV_SCRATCH) {
+          const q = (t - s.at) / s.dur;
+          if (q <= 0) continue;
+          if (!s.segs) { text = q; continue; }
+          const segs = s.segs.map(([a, b]) => [pt(r, a), pt(r, b)]), lens = segs.map(([[x0, y0], [x1, y1]]) => Math.hypot(x1 - x0, y1 - y0));
+          let d = lens.reduce((sum, l) => sum + l, 0) * out(q);
+          waxG.lineWidth = Math.max(2.5, s.w * 0.56 * r.w) * WAX_K; // (of the film's size, as their spacing is)
+          waxG.beginPath();
+          for (let i = 0; i < segs.length && d > 0; i++) {
+            const [[x0, y0], [x1, y1]] = segs[i], k = Math.min(1, d / (lens[i] || 1)), x = x0 + (x1 - x0) * k, y = y0 + (y1 - y0) * k;
+            waxG.moveTo(x0 * WAX_K, y0 * WAX_K); waxG.lineTo(x * WAX_K, y * WAX_K);
+            d -= lens[i];
+            if (q < 1 && (d <= 0 || i === segs.length - 1)) tip = [x, y, Math.atan2(y1 - y0, x1 - x0)];
+          }
+          waxG.stroke();
+        }
+        if (t >= YR_MV_BAR(1)) {
+          // AM 4:00, scratched in the corner, left to right, on a patch of wax no other stroke crosses
+          const size = Math.max(26, m * 0.075), x = W * (tall ? 0.08 : 0.06), y = H * (tall ? 0.12 : 0.15);
+          waxG.save(); waxG.scale(WAX_K, WAX_K); waxG.font = `600 ${size}px 'Klee One', sans-serif`; waxG.textBaseline = "alphabetic";
+          const w = waxG.measureText("AM 4:00").width, p = out(text * 0.6);
+          waxG.globalCompositeOperation = "source-over";
+          waxG.beginPath(); waxG.roundRect(x - size * 0.35, y - size * 1.05, w + size * 0.7, size * 1.45, size * 0.3);
+          waxG.save(); waxG.clip(); waxG.setTransform(1, 0, 0, 1, 0, 0); waxG.drawImage(waxTex, 0, 0); waxG.restore();
+          if (p > 0) { waxG.globalCompositeOperation = "destination-out"; waxG.beginPath(); waxG.rect(x - 4, y - size, (w + 8) * p, size * 1.4); waxG.clip(); waxG.fillText("AM 4:00", x, y); }
+          waxG.restore();
+          if (p > 0 && p < 1) tip = [x + w * p, y - size * 0.3, 0];
+        }
+        waxG.globalCompositeOperation = "source-over";
+        return tip;
+      };
+      // the stylus: a wooden handle and a steel point, leaning in from the lower right
+      const stylus = (x, y, lean) => {
+        const L = m * 0.27;
+        g.save(); g.translate(x, y); g.rotate(-0.85 + Math.sin(lean) * 0.06);
+        g.fillStyle = "rgba(0, 0, 0, 0.35)"; g.beginPath(); g.ellipse(L * 0.55, L * 0.08, L * 0.5, L * 0.035, 0, 0, PI2); g.fill();
+        const wood = g.createLinearGradient(0, -L * 0.03, 0, L * 0.03);
+        wood.addColorStop(0, "#E9C79A"); wood.addColorStop(0.5, "#C08A55"); wood.addColorStop(1, "#7A4F2C");
+        g.fillStyle = wood; g.beginPath(); g.moveTo(L * 0.16, -L * 0.022); g.lineTo(L, -L * 0.03); g.lineTo(L, L * 0.03); g.lineTo(L * 0.16, L * 0.022); g.closePath(); g.fill();
+        const steel = g.createLinearGradient(0, -L * 0.02, 0, L * 0.02);
+        steel.addColorStop(0, "#F4F6FF"); steel.addColorStop(0.5, "#A9AFC4"); steel.addColorStop(1, "#5C6278");
+        g.fillStyle = steel; g.beginPath(); g.moveTo(0, 0); g.lineTo(L * 0.17, -L * 0.024); g.lineTo(L * 0.17, L * 0.024); g.closePath(); g.fill();
+        g.restore();
+      };
+      // the wax at the end of bar 4, cracked into chips (a jittered grid) that fall away
+      let chips = [];
+      const cutChips = () => {
+        const cols = tall ? 4 : 7, rows = tall ? 8 : 5, P = [];
+        for (let j = 0; j <= rows; j++) for (let i = 0; i <= cols; i++) {
+          const edge = i === 0 || j === 0 || i === cols || j === rows;
+          P.push([(i + (edge ? 0 : (yrJit(i * 17 + j * 5) - 0.5) * 0.7)) * (W / cols), (j + (edge ? 0 : (yrJit(i * 7 + j * 19) - 0.5) * 0.7)) * (H / rows)]);
+        }
+        chips = [];
+        for (let j = 0; j < rows; j++) for (let i = 0; i < cols; i++) {
+          const c = [P[j * (cols + 1) + i], P[j * (cols + 1) + i + 1], P[(j + 1) * (cols + 1) + i + 1], P[(j + 1) * (cols + 1) + i]];
+          const cx = c.reduce((s, p) => s + p[0], 0) / 4, cy = c.reduce((s, p) => s + p[1], 0) / 4, n = j * cols + i;
+          chips.push({ c, cx, cy, delay: yrJit(n + 70) * 0.28 + (cy / H) * 0.12, spin: (yrJit(n + 90) - 0.5) * 5, drift: (yrJit(n + 110) - 0.5) * W * 0.12 });
+        }
+      };
+      const CRACK = YR_MV_BAR(5) - 0.08;
+      // the card as it is when it cracks (the film under the scratches, the wax), for its chips to carry
+      const paintCard = (t) => {
+        const k = card.width / W, r = screen(t);
+        scratch(CRACK - 0.002, screen(CRACK - 0.002));
+        cardG.setTransform(k, 0, 0, k, 0, 0); cardG.globalCompositeOperation = "source-over";
+        cardG.drawImage(src(), r.x, r.y, r.w, r.h);
+        const gr = cardG.createLinearGradient(0, 0, W, H);
+        RAINBOW.forEach((c, i) => gr.addColorStop(i / (RAINBOW.length - 1), c));
+        cardG.globalCompositeOperation = "soft-light"; cardG.fillStyle = gr; cardG.fillRect(0, 0, W, H);
+        cardG.globalCompositeOperation = "source-over"; cardG.drawImage(wax, 0, 0, W, H);
+      };
+      let carded = false; // the card painted for this crack (once; again after a resize or going back)
+      const drawChips = (t) => {
+        const tau = t - CRACK;
+        if (!carded) { paintCard(t); carded = true; }
+        for (const ch of chips) {
+          const f = Math.max(0, tau - ch.delay), y = 0.5 * 3.4 * H * f * f;
+          if (y > H * 1.4) continue;
+          g.save(); g.translate(ch.cx + ch.drift * f, ch.cy + y); g.rotate(ch.spin * f * f); g.translate(-ch.cx, -ch.cy);
+          g.beginPath(); ch.c.forEach(([x, yy], i) => (i ? g.lineTo(x, yy) : g.moveTo(x, yy))); g.closePath();
+          g.save(); g.clip(); g.drawImage(card, 0, 0, W, H); g.restore();
+          if (tau < 0.4) { g.strokeStyle = `rgba(255, 214, 230, ${0.5 * (1 - tau / 0.4)})`; g.lineWidth = 1.2; g.stroke(); }
+          g.restore();
+        }
+      };
+      const drawWax = (t) => {
+        const r = screen(t), roll = clamp((t - 0.06) / 0.95), reach = H * out(roll) * 1.04;
+        scratch(t, r);
+        g.save(); g.beginPath(); g.rect(0, 0, W, reach); g.clip(); g.drawImage(wax, 0, 0, W, H); g.restore();
+        if (roll > 0 && roll < 1) {
+          // the roller, its wet edge of wax
+          const y = reach, h = m * 0.05, gr = g.createLinearGradient(0, y - h / 2, 0, y + h / 2);
+          gr.addColorStop(0, "#1C1F2E"); gr.addColorStop(0.45, "#5B6078"); gr.addColorStop(0.55, "#2A2E40"); gr.addColorStop(1, "#0C0D14");
+          g.fillStyle = "rgba(0, 0, 0, 0.35)"; g.fillRect(0, y + h * 0.4, W, h * 0.5);
+          g.fillStyle = gr; g.fillRect(-4, y - h / 2, W + 8, h);
+          g.fillStyle = "rgba(255, 179, 200, 0.5)"; g.fillRect(0, y - h * 0.08, W, Math.max(1, h * 0.05));
+        }
+      };
+      const drawScratch = (t) => {
+        const r = screen(t);
+        carded = false;
+        film(r);
+        // the card's rainbow under the black
+        g.save(); g.globalCompositeOperation = "soft-light";
+        const gr = g.createLinearGradient(0, 0, W, H);
+        RAINBOW.forEach((c, i) => gr.addColorStop(i / (RAINBOW.length - 1), c));
+        g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore();
+        const tip = scratch(t, r);
+        g.drawImage(wax, 0, 0, W, H);
+        if (t >= CRACK - 0.14) {
+          // the cracks, a moment before it goes
+          g.save(); g.strokeStyle = `rgba(255, 220, 232, ${0.7 * clamp((t - CRACK + 0.14) / 0.06)})`; g.lineWidth = 1.4;
+          for (const ch of chips) { g.beginPath(); ch.c.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.stroke(); }
+          g.restore();
+        }
+        if (tip) stylus(tip[0], tip[1], t * 9);
+      };
+
+      // ── 2. ink on washi ──
+      const paper = document.createElement("canvas"), layer = document.createElement("canvas"), layerG = layer.getContext("2d");
+      const paintPaper = () => {
+        paper.width = Math.max(1, Math.round(W * 0.5)); paper.height = Math.max(1, Math.round(H * 0.5));
+        const p = paper.getContext("2d"), w = paper.width, h = paper.height;
+        p.fillStyle = "#F5ECDD"; p.fillRect(0, 0, w, h);
+        for (let n = 0; n < (w * h) / 260; n++) {
+          const x = yrJit(n * 5 + 1) * w, y = yrJit(n * 5 + 2) * h, l = 4 + 16 * yrJit(n * 5 + 3), a = yrJit(n * 5 + 4) * PI2;
+          p.strokeStyle = yrJit(n * 5 + 5) < 0.5 ? "rgba(160, 128, 96, 0.09)" : "rgba(255, 255, 255, 0.55)"; p.lineWidth = 0.6;
+          p.beginPath(); p.moveTo(x, y); p.quadraticCurveTo(x + Math.cos(a + 0.6) * l * 0.5, y + Math.sin(a + 0.6) * l * 0.5, x + Math.cos(a) * l, y + Math.sin(a) * l); p.stroke();
+        }
+        const v = p.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.hypot(w, h) * 0.6);
+        v.addColorStop(0, "rgba(120, 90, 70, 0)"); v.addColorStop(1, "rgba(120, 90, 70, 0.16)");
+        p.fillStyle = v; p.fillRect(0, 0, w, h);
+        layer.width = Math.max(1, Math.round(W * 0.5)); layer.height = Math.max(1, Math.round(H * 0.5));
+      };
+      const INKS = ["232, 70, 120", "40, 150, 150"];
+      const bloomPath = (i, t, grow = 1) => {
+        const [u, v, R] = YR_MV_INK[i], tau = t - (B(5) + i * BEAT), r = R * A * (1 - Math.exp(-tau * 3.4)) * grow;
+        const path = new Path2D(), a1 = yrJit(i + 3) * PI2, a2 = yrJit(i + 5) * PI2, a3 = yrJit(i + 7) * PI2, drift = tau * 0.25;
+        for (let k = 0; k <= 56; k++) {
+          const th = (k / 56) * PI2, rr = r * (1 + 0.11 * Math.sin(3 * th + a1 + drift) + 0.06 * Math.sin(5 * th + a2 - drift) + 0.035 * Math.sin(11 * th + a3));
+          const x = u * W + Math.cos(th) * rr, y = v * H + Math.sin(th) * rr;
+          if (k) path.lineTo(x, y); else path.moveTo(x, y);
+        }
+        path.closePath();
+        return { path, r, tau };
+      };
+      const drawInk = (t, grow = 1) => {
+        g.drawImage(paper, 0, 0, W, H);
+        const r = screen(t), blooms = [];
+        for (let i = 0; i < YR_MV_INK.length; i++) if (t >= B(5) + i * BEAT) blooms.push([i, bloomPath(i, t, grow)]);
+        if (!blooms.length) return;
+        // the film, only in the blooms (feathered), printed onto the paper
+        const k = layer.width / W;
+        layerG.setTransform(1, 0, 0, 1, 0, 0); layerG.clearRect(0, 0, layer.width, layer.height); layerG.setTransform(k, 0, 0, k, 0, 0);
+        layerG.fillStyle = "#FFFFFF";
+        for (const [i, b] of blooms) {
+          const cx = YR_MV_INK[i][0] * W, cy = YR_MV_INK[i][1] * H;
+          for (const [s, a] of [[1.05, 0.3], [1.0, 0.45], [0.95, 1]]) {
+            layerG.save(); layerG.globalAlpha = a; layerG.translate(cx, cy); layerG.scale(s, s); layerG.translate(-cx, -cy); layerG.fill(b.path); layerG.restore();
+          }
+        }
+        layerG.globalCompositeOperation = "source-in"; layerG.drawImage(src(), r.x, r.y, r.w, r.h); layerG.globalCompositeOperation = "source-over";
+        g.save(); g.globalCompositeOperation = "multiply"; g.drawImage(layer, 0, 0, W, H);
+        // each bloom's pigment, deeper at its edge (where watercolour dries darkest), and its splatter
+        for (const [i, b] of blooms) {
+          const ink = INKS[YR_MV_INK[i][3]];
+          g.fillStyle = `rgba(${ink}, 0.1)`; g.fill(b.path);
+          g.strokeStyle = `rgba(${ink}, ${0.34 * clamp(b.tau * 3)})`; g.lineWidth = Math.max(2, m * 0.006); g.stroke(b.path);
+          for (let n = 0; n < 6; n++) {
+            const a = yrJit(i * 13 + n) * PI2, d = b.r * (1.12 + 0.5 * yrJit(i * 17 + n)), s = m * (0.003 + 0.009 * yrJit(i * 19 + n)) * clamp(b.tau * 8);
+            g.fillStyle = `rgba(${ink}, 0.55)`; g.beginPath(); g.arc(YR_MV_INK[i][0] * W + Math.cos(a) * d, YR_MV_INK[i][1] * H + Math.sin(a) * d, s, 0, PI2); g.fill();
+          }
+        }
+        g.restore();
+        // the drop landing (a ring on the wet paper)
+        const [beat, frac] = beatIn(t, B(5));
+        if (beat >= 0 && beat < YR_MV_INK.length && frac < 0.5) {
+          const [u, v] = YR_MV_INK[beat];
+          g.save(); g.strokeStyle = `rgba(${INKS[YR_MV_INK[beat][3]]}, ${0.5 * (1 - frac * 2)})`; g.lineWidth = 2;
+          g.beginPath(); g.arc(u * W, v * H, A * 0.04 + A * 0.2 * out(frac * 2), 0, PI2); g.stroke(); g.restore();
+        }
+      };
+
+      // ── 3. the tie ──
+      const tieThread = (gx, gy) => {
+        const rx = m * 0.085, ry = m * 0.05, tilt = -0.5;
+        const loopFrom = [gx + rx * Math.cos(tilt), gy + rx * Math.sin(tilt)];
+        const come = curve([W + 12, gy + H * 0.34], [W * 0.84, gy + H * 0.02], loopFrom, 26);
+        const wrap = wound(gx, gy, rx, ry, tilt, 2.1);
+        const end = wrap[wrap.length - 1], knot = wound(end[0] - m * 0.012, end[1] + m * 0.012, m * 0.014, m * 0.014, 0, 1.1, -0.6);
+        const last = knot[knot.length - 1], go = curve(last, [gx - W * 0.22, H * 1.02], [-12, H * 0.94], 26);
+        return { pts: [...come, ...wrap.slice(1), ...knot.slice(1), ...go.slice(1)], knot: last };
+      };
+      const drawTie = (t) => {
+        const q = out((t - B(8)) / 0.45);
+        if (q < 1) drawInk(t, 1 + q * 1.4);
+        const r = screen(t);
+        film(r, q);
+        night(0.82 * q);
+        const [gx, gy] = pt(r, keyed(YR_MV_GRIP, t)), th = tieThread(gx, gy), L = lengthOf(th.pts);
+        const p = out((t - B(8) - 0.1) / 1.15);
+        strand(upto(th.pts, L * p));
+        knotRing(th.knot[0], th.knot[1], (t - B(8) - 1.15) / 0.7);
+      };
+
+      // ── 4. the cat's cradle ──
+      const CRADLE_STEPS = [[B(9), "star"], [B(10), "ladder"], [B(10) + 2 * BEAT, "net"], [B(11), "tower"], [B(11) + 2 * BEAT, "ring"], [B(12) - 0.34, "taut"]];
+      const placeFigure = (fig) => {
+        if (fig === YR_MV_CRADLE.taut) {
+          // pulled straight up from where he will be on the map
+          const x = W * (tall ? 0.5 : 0.71), y1 = H * (tall ? 0.85 : 0.76), y0 = H * 0.08, k = (y1 - y0) / 1.6;
+          return fig.pts.map(([px, py]) => [x + px * k, y0 + (py + 0.8) * k]);
+        }
+        const turn = tall && fig.turn;
+        const xs = fig.pts.map(([x, y]) => (turn ? y : x)), ys = fig.pts.map(([x, y]) => (turn ? -x : y));
+        const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+        const bw = tall ? W * 0.84 : W * 0.66, bh = tall ? H * 0.56 : H * 0.66;
+        const k = Math.min(bw / (x1 - x0 || 1), bh / (y1 - y0 || 1)), cx = W / 2, cy = H * (tall ? 0.46 : 0.48);
+        return xs.map((x, i) => [cx + (x - (x0 + x1) / 2) * k, cy + (ys[i] - (y0 + y1) / 2) * k]);
+      };
+      const cradleAt = (t, r) => {
+        let k = 0;
+        while (k + 1 < CRADLE_STEPS.length && t >= CRADLE_STEPS[k + 1][0]) k++;
+        const [at, name] = CRADLE_STEPS[k], fig = YR_MV_CRADLE[name];
+        let pts = placeFigure(fig);
+        if (name === "star") {
+          // a point on for every flash of memory, snapping round
+          let turned = 0;
+          for (const f of YR_MV_FLICKS) if (t >= f) turned += out((t - f) / 0.12);
+          const cx = W / 2, cy = H * (tall ? 0.46 : 0.48), a = (turned * Math.PI * 2) / 5;
+          pts = pts.map(([x, y]) => [cx + (x - cx) * Math.cos(a) - (y - cy) * Math.sin(a), cy + (x - cx) * Math.sin(a) + (y - cy) * Math.cos(a)]);
+        }
+        const q = ease((t - at) / 0.3);
+        if (q < 1) {
+          let prev;
+          if (k === 0) {
+            // opening out of the knot
+            const [gx, gy] = pt(r, keyed(YR_MV_GRIP, t));
+            prev = pts.map((_, i) => [gx + Math.cos((i / pts.length) * PI2) * m * 0.02, gy + Math.sin((i / pts.length) * PI2) * m * 0.02]);
+          } else prev = placeFigure(YR_MV_CRADLE[CRADLE_STEPS[k - 1][1]]);
+          pts = pts.map(([x, y], i) => [mix(prev[i][0], x, q), mix(prev[i][1], y, q)]);
+        }
+        return { pts, fig, k, q };
+      };
+      const drawCradle = (t) => {
+        const r = screen(t);
+        g.fillStyle = "#0B1430"; g.fillRect(0, 0, W, H);
+        film(r, 0.16);
+        const { pts, fig, k, q } = cradleAt(t, r), path = new Path2D();
+        pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+        path.closePath();
+        // the film in the figure's windows
+        g.save(); g.clip(path, "evenodd"); film(r); g.fillStyle = `rgba(255, 122, 156, ${0.1 * kick(t)})`; g.fillRect(0, 0, W, H); g.restore();
+        // the string, held at its corners
+        strand([...pts, pts[0]], 1, 1 + 0.25 * kick(t));
+        // fingertips at its corners: the farthest point in each of ten directions from its middle
+        const mx = pts.reduce((s, p) => s + p[0], 0) / pts.length, my = pts.reduce((s, p) => s + p[1], 0) / pts.length, far = [];
+        for (const [x, y] of pts) { const k = Math.floor(((Math.atan2(y - my, x - mx) + Math.PI) / PI2) * 10) % 10, d = Math.hypot(x - mx, y - my); if (!far[k] || d > far[k][2]) far[k] = [x, y, d]; }
+        const reach = Math.max(...far.filter(Boolean).map((f) => f[2]));
+        for (const f of far) if (f && f[2] > reach * 0.62) glowDot(f[0], f[1], m * 0.026, "255, 190, 210", 0.5 + 0.2 * Math.sin(t * 6 + f[0]));
+        // its name
+        if (fig.name) {
+          const a = k === 0 ? q : 1;
+          g.save(); g.globalAlpha = a * clamp((B(12) - 0.34 - t) / 0.2); g.textAlign = "center"; g.fillStyle = "#FFE3EC";
+          g.font = `700 ${Math.max(15, m * 0.032)}px 'Zen Kaku Gothic New', sans-serif`;
+          const y = H * (tall ? 0.86 : 0.91);
+          g.fillText(`あやとり · ${fig.name}`, W / 2, y);
+          g.font = `500 ${Math.max(10, m * 0.016)}px 'Zen Kaku Gothic New', sans-serif`; g.fillStyle = "#6FD9CE";
+          g.fillText(`cat's cradle · ${fig.en}`.toUpperCase().split("").join(" "), W / 2, y + Math.max(16, m * 0.03));
+          g.restore();
+        }
+      };
+
+      // ── 5. the run, on the night map ──
+      const ROUTE_LEN = lengthOf(YR_MV_ROUTE);
+      const routePoint = (s) => {
+        s = Math.max(-2, Math.min(ROUTE_LEN + 2, s));
+        if (s <= 0) return [YR_MV_ROUTE[0][0], YR_MV_ROUTE[0][1] - s];
+        for (let i = 1; i < YR_MV_ROUTE.length; i++) {
+          const [x0, y0] = YR_MV_ROUTE[i - 1], [x1, y1] = YR_MV_ROUTE[i], l = Math.hypot(x1 - x0, y1 - y0);
+          if (s <= l) return [x0 + ((x1 - x0) * s) / l, y0 + ((y1 - y0) * s) / l];
+          s -= l;
+        }
+        const [x, y] = YR_MV_ROUTE[YR_MV_ROUTE.length - 1];
+        return [x, y - s];
+      };
+      const RUN0 = B(12), RUN1 = B(15) - 0.32;
+      const runAt = (t) => {
+        const tau = clamp((t - RUN0) / (RUN1 - RUN0)), beats = (t - RUN0) / BEAT;
+        return ROUTE_LEN * clamp(tau + 0.012 * Math.sin(beats * PI2 - 1.2) * (tau < 1 ? 1 : 0));
+      };
+      const mapView = (t) => {
+        const s = runAt(t), [x, y] = routePoint(s), [ax, ay] = routePoint(s - 0.35), [bx, by] = routePoint(s + 0.9);
+        const turn = Math.atan2(by - ay, bx - ax) + Math.PI / 2, U = Math.max(W, H) * (tall ? 0.105 : 0.095);
+        const cx = W * (tall ? 0.5 : 0.71), cy = H * (tall ? 0.85 : 0.76);
+        return { s, x, y, turn, U, cx, cy };
+      };
+      const toScreen = (v, [mx, my]) => {
+        const dx = (mx - v.x) * v.U, dy = (my - v.y) * v.U, c = Math.cos(-v.turn), sn = Math.sin(-v.turn);
+        return [v.cx + dx * c - dy * sn, v.cy + dx * sn + dy * c];
+      };
+      const cell = (i, j, k = 0) => yrJit(i * 73.13 + j * 157.71 + k * 11.3 + 0.5);
+      const lens = () => (tall ? { x: W * 0.06, y: H * 0.07, w: W * 0.88, h: Math.min(H * 0.36, W * 0.88 * 0.8) } : { x: W * 0.05, y: H * 0.5 - (W * 0.45 * 9) / 32, w: W * 0.45, h: (W * 0.45 * 9) / 16 });
+      const drawMap = (t) => {
+        const v = mapView(t), reach = Math.hypot(W, H) / v.U / 2 + 2;
+        g.fillStyle = "#1A2752"; g.fillRect(0, 0, W, H);
+        g.save(); g.translate(v.cx, v.cy); g.rotate(-v.turn); g.scale(v.U, v.U); g.translate(-v.x, -v.y);
+        const i0 = Math.floor(v.x - reach), i1 = Math.ceil(v.x + reach), j0 = Math.floor(v.y - reach), j1 = Math.ceil(v.y + reach);
+        // the avenues (every third street), wider
+        g.fillStyle = "#28386F";
+        for (let i = i0 - (i0 % 3) - 3; i <= i1; i += 3) g.fillRect(i - 0.17, j0, 0.34, j1 - j0);
+        for (let j = j0 - (j0 % 3) - 3; j <= j1; j += 3) g.fillRect(i0, j - 0.17, i1 - i0, 0.34);
+        // the blocks: buildings, a few windows lit on the roofs, parks
+        for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+          const sx = i % 3 === 0 ? 0.17 : 0.09, sy = j % 3 === 0 ? 0.17 : 0.09, ex = (i + 1) % 3 === 0 ? 0.17 : 0.09, ey = (j + 1) % 3 === 0 ? 0.17 : 0.09;
+          const bx = i + sx, by = j + sy, bw = 1 - sx - ex, bh = 1 - sy - ey, kind = cell(i, j);
+          if (kind < 0.1 || (i === 0 && j === -13) || (i === 1 && j === -13)) {
+            g.fillStyle = "#123A41"; g.fillRect(bx, by, bw, bh);
+            g.fillStyle = "#1C5650";
+            for (let n = 0; n < 5; n++) { g.beginPath(); g.arc(bx + bw * (0.2 + 0.6 * cell(i, j, n + 1)), by + bh * (0.2 + 0.6 * cell(i, j, n + 9)), 0.07 + 0.05 * cell(i, j, n + 20), 0, PI2); g.fill(); }
+            continue;
+          }
+          g.fillStyle = "#101833"; g.fillRect(bx, by, bw, bh);
+          const split = cell(i, j, 2) < 0.5;
+          for (let n = 0; n < 2; n++) {
+            const px = split ? bx + 0.05 + n * (bw / 2) : bx + 0.05, py = split ? by + 0.05 : by + 0.05 + n * (bh / 2), pw = split ? bw / 2 - 0.1 : bw - 0.1, ph = split ? bh - 0.1 : bh / 2 - 0.1;
+            g.fillStyle = cell(i, j, n + 3) < 0.5 ? "#18244B" : "#1D2B58"; g.fillRect(px, py, pw, ph);
+            if (cell(i, j, n + 5) < 0.35) { g.fillStyle = cell(i, j, n + 6) < 0.5 ? "rgba(255, 196, 150, 0.75)" : "rgba(255, 150, 180, 0.7)"; g.fillRect(px + pw * 0.3, py + ph * 0.4, 0.06, 0.06); }
+          }
+        }
+        // the river, and the bridge he crosses it on
+        g.lineCap = "butt"; g.lineJoin = "round";
+        const riverPath = new Path2D();
+        for (let x = i0 - 1; x <= i1 + 1; x += 0.25) (x === i0 - 1 ? riverPath.moveTo(x, yrRiver(x)) : riverPath.lineTo(x, yrRiver(x)));
+        g.strokeStyle = "#2B5C75"; g.lineWidth = 1.16; g.stroke(riverPath);
+        g.strokeStyle = "#0F3047"; g.lineWidth = 1.0; g.stroke(riverPath);
+        g.strokeStyle = "rgba(111, 217, 206, 0.18)"; g.lineWidth = 0.04; g.setLineDash([0.3, 0.25]); g.stroke(riverPath); g.setLineDash([]);
+        g.fillStyle = "#2E3F78"; g.fillRect(3 - 0.2, yrRiver(3) - 0.62, 0.4, 1.24);
+        // the way ahead (dotted), the thread behind him, the pin
+        const ahead = [], behind = [];
+        for (let d = 0; d <= ROUTE_LEN; d += 0.2) (d <= v.s ? behind : ahead).push(routePoint(d));
+        behind.push(routePoint(v.s)); ahead.unshift(routePoint(v.s));
+        g.strokeStyle = "rgba(255, 179, 200, 0.55)"; g.lineWidth = 0.07; g.lineCap = "round"; g.setLineDash([0.02, 0.2]);
+        g.beginPath(); ahead.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke(); g.setLineDash([]);
+        // footprints with his (the shot of the feet)
+        for (let f = 24.47; f <= Math.min(t, 26.6); f += BEAT / 2) {
+          const n = Math.round((f - 24.47) / (BEAT / 2)), s = runAt(f), [x, y] = routePoint(s), [x2, y2] = routePoint(s + 0.1), a = Math.atan2(y2 - y, x2 - x), side = n % 2 ? 1 : -1;
+          g.save(); g.translate(x - Math.sin(a) * 0.1 * side, y + Math.cos(a) * 0.1 * side); g.rotate(a + Math.PI / 2);
+          g.fillStyle = `rgba(255, 150, 180, ${0.8 * clamp(1 - (t - f) / 1.6)})`;
+          g.beginPath(); g.ellipse(0, 0, 0.045, 0.085, 0, 0, PI2); g.fill(); g.beginPath(); g.ellipse(0, 0.11, 0.035, 0.035, 0, 0, PI2); g.fill();
+          g.restore();
+        }
+        g.restore();
+        strand(behind.map((p) => toScreen(v, p)), 1, 1.1);
+        // the names (upright)
+        g.save(); g.textAlign = "center"; g.font = `700 ${Math.max(11, m * 0.022)}px 'Shippori Mincho B1', serif`;
+        for (const [x, y, name] of YR_MV_PLACES) { const [sx, sy] = toScreen(v, [x, y]); if (sx < -60 || sx > W + 60 || sy < -30 || sy > H + 30) continue; g.fillStyle = "rgba(10, 16, 40, 0.6)"; g.fillText(name, sx + 1, sy + 1); g.fillStyle = name === "夜鳴川" ? "#7FD8E6" : "#AFA8D6"; g.fillText(name, sx, sy); }
+        g.restore();
+        // the pin on the roof
+        const [px, py] = toScreen(v, YR_MV_ROUTE[YR_MV_ROUTE.length - 1]), pr = m * 0.03, land = clamp((t - RUN1) / 0.25);
+        g.save(); g.translate(px, py - pr * 1.2 * (1 - land * 0.3));
+        g.fillStyle = "#FF7A9C"; g.beginPath(); g.arc(0, -pr, pr, Math.PI * 0.85, Math.PI * 0.15); g.lineTo(0, pr * 0.9); g.closePath(); g.fill();
+        g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(0, -pr, pr * 0.42, 0, PI2); g.fill();
+        g.font = `800 ${Math.max(12, m * 0.026)}px 'Shippori Mincho B1', serif`; g.textAlign = "center"; g.fillStyle = "#FFE3EC"; g.fillText("屋上", 0, -pr * 2.4);
+        g.restore();
+        // him: a dot and the way he faces, a ring on every beat
+        const [beat, frac] = beatIn(t, RUN0);
+        g.save(); g.translate(v.cx, v.cy);
+        const cone = g.createLinearGradient(0, 0, 0, -m * 0.14);
+        cone.addColorStop(0, "rgba(255, 122, 156, 0.45)"); cone.addColorStop(1, "rgba(255, 122, 156, 0)");
+        g.fillStyle = cone; g.beginPath(); g.moveTo(0, 0); g.lineTo(-m * 0.05, -m * 0.14); g.lineTo(m * 0.05, -m * 0.14); g.closePath(); g.fill();
+        if (beat >= 0) { g.strokeStyle = `rgba(255, 179, 200, ${0.7 * (1 - frac)})`; g.lineWidth = 2; g.beginPath(); g.arc(0, 0, m * (0.02 + 0.05 * out(frac)), 0, PI2); g.stroke(); }
+        g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(0, 0, m * 0.016, 0, PI2); g.fill();
+        g.fillStyle = "#FF5C87"; g.beginPath(); g.arc(0, 0, m * 0.011, 0, PI2); g.fill();
+        g.restore();
+        // the film, in the map's window on where he is
+        const L = lens(), rr = Math.min(L.w, L.h) * 0.06;
+        g.save(); g.shadowColor = "rgba(3, 6, 20, 0.6)"; g.shadowBlur = 24; g.fillStyle = "#0B1430";
+        g.beginPath(); g.roundRect(L.x, L.y, L.w, L.h, rr); g.fill(); g.restore();
+        g.save(); g.beginPath(); g.roundRect(L.x, L.y, L.w, L.h, rr); g.clip(); film(cover(L.x, L.y, L.w, L.h, focusAt(t), 0.5)); g.restore();
+        g.save(); g.strokeStyle = "#FF8FAD"; g.lineWidth = 2; g.beginPath(); g.roundRect(L.x, L.y, L.w, L.h, rr); g.stroke();
+        g.font = `700 ${Math.max(10, m * 0.017)}px 'Zen Kaku Gothic New', sans-serif`; g.fillStyle = "#FF8FAD"; g.textBaseline = "top";
+        g.fillText("● 現在地  NOW", L.x + 10, L.y + L.h + 8); g.restore();
+        // the way: the time, how far is left
+        const left = Math.max(0, (ROUTE_LEN - v.s) * 82), mins = 12 + Math.min(7, Math.floor(((t - RUN0) / (RUN1 - RUN0)) * 7));
+        g.save(); g.textBaseline = "alphabetic";
+        const hx = tall ? W * 0.06 : W * 0.56, hy = tall ? L.y + L.h + Math.max(46, m * 0.13) : H * 0.13;
+        g.font = `800 ${Math.max(22, m * 0.05)}px 'Shippori Mincho B1', serif`; g.fillStyle = "#FFFFFF"; g.fillText(`AM 4:${mins}`, hx, hy);
+        g.font = `700 ${Math.max(12, m * 0.022)}px 'Zen Kaku Gothic New', sans-serif`; g.fillStyle = "#FF8FAD";
+        g.fillText(left > 5 ? `屋上まで あと ${left >= 1000 ? `${(left / 1000).toFixed(1)} km` : `${Math.round(left / 10) * 10} m`}` : "到着 · arrived", hx, hy + Math.max(20, m * 0.04));
+        g.restore();
+        // the doors shut over it at the end
+        const shut = out((t - (B(15) - 0.2)) / 0.2);
+        if (shut > 0) liftDoors(0, 0, W, H, 1 - shut, t);
+        // the night drawn in from the cradle
+        const q = clamp((t - RUN0) / 0.3);
+        if (q < 1) { g.fillStyle = `rgba(11, 20, 48, ${1 - q})`; g.fillRect(0, 0, W, H); strand([[v.cx, v.cy], [v.cx, v.cy - H * 0.7 * (1 - q)]], 1 - q); }
+      };
+
+      // ── 6. the lift ──
+      const hair = document.createElement("canvas");
+      hair.width = 8; hair.height = 96;
+      { const h = hair.getContext("2d"); for (let y = 0; y < 96; y += 1) { h.fillStyle = `rgba(255, 255, 255, ${(0.02 + 0.06 * yrJit(y + 900)).toFixed(3)})`; h.fillRect(0, y, 8, 1); } }
+      const liftDoors = (x, y, w, h, open, t) => {
+        const half = (w / 2) * (1 - open);
+        if (half <= 0.5) return;
+        const hairs = g.createPattern(hair, "repeat");
+        for (const [px, pw] of [[x, half], [x + w - half, half]]) {
+          const gr = g.createLinearGradient(px, 0, px + pw, 0);
+          gr.addColorStop(0, "#4D5577"); gr.addColorStop(0.45, "#8C93B5"); gr.addColorStop(0.6, "#9DA4C4"); gr.addColorStop(1, "#4A5172");
+          g.fillStyle = gr; g.fillRect(px, y, pw, h);
+          g.fillStyle = hairs; g.fillRect(px, y, pw, h);
+          // the film, faint in the steel
+          g.save(); g.beginPath(); g.rect(px, y, pw, h); g.clip(); g.globalCompositeOperation = "soft-light"; film(cover(x, y, w, h, focusAt(t), 0.5), 0.55); g.restore();
+          g.fillStyle = "rgba(255, 255, 255, 0.25)"; g.fillRect(px + 1, y, 1, h);
+        }
+        g.fillStyle = "#1A1F33"; g.fillRect(x + half - 1.5, y, 3, h);
+        g.fillRect(x + w - half - 1.5, y, 3, h);
+      };
+      const OPEN = 28.1, OUT0 = 30.95, OUT1 = B(18);
+      const drawLift = (t) => {
+        const r = screen(t), crash = t < OPEN + 0.2 ? Math.max(0, ...[26.6, 26.96, 27.19, 27.42, 27.66, 27.88].map((h) => (t >= h ? Math.exp(-(t - h) * 9) : 0))) : 0;
+        const zin = 1 + 2.4 * (1 - out((t - B(15)) / 0.45)), zout = 1 + 7 * ease((t - OUT0) / (OUT1 - OUT0)) ** 2, z = zin * zout;
+        const shake = crash * m * 0.006;
+        g.save(); g.translate(Math.sin(t * 91) * shake, Math.cos(t * 77) * shake);
+        const dh0 = tall ? Math.min(H * 0.5, W * 1.25) : H * 0.62, dw0 = tall ? Math.min(W * 0.62, dh0 * 0.72) : dh0 * 0.8;
+        const cx = W / 2, cy = H * (tall ? 0.58 : 0.6);
+        const D = { x: cx - (dw0 / 2) * z, y: cy - (dh0 / 2) * z, w: dw0 * z, h: dh0 * z };
+        const F = { x: D.x - dw0 * 0.42 * z, y: D.y - dh0 * 0.38 * z, w: D.w + dw0 * 0.84 * z, h: D.h + dh0 * 0.38 * z };
+        // the cab: walls, ceiling, floor in one-point perspective round the front wall
+        const quad = (pts, fill) => { g.fillStyle = fill; g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.fill(); };
+        const side = g.createLinearGradient(0, 0, W, 0);
+        side.addColorStop(0, "#151A2E"); side.addColorStop(0.5, "#262D4C"); side.addColorStop(1, "#151A2E");
+        quad([[-40, -40], [F.x, F.y], [F.x, F.y + F.h], [-40, H + 40]], side);
+        quad([[W + 40, -40], [F.x + F.w, F.y], [F.x + F.w, F.y + F.h], [W + 40, H + 40]], side);
+        quad([[-40, -40], [W + 40, -40], [F.x + F.w, F.y], [F.x, F.y]], "#2A3152");
+        quad([[-40, H + 40], [W + 40, H + 40], [F.x + F.w, F.y + F.h], [F.x, F.y + F.h]], "#0F1324");
+        // the ceiling's light, the floor catching the doorway's
+        glowDot(W / 2, -m * 0.05, Math.max(W, H) * 0.42, "255, 236, 214", 0.22 + 0.25 * crash);
+        const open = out((t - OPEN) / 0.55);
+        if (open > 0) {
+          g.save(); g.globalAlpha = 0.35 * open; const fl = g.createLinearGradient(0, F.y + F.h, 0, H);
+          fl.addColorStop(0, "rgba(255, 190, 210, 0.9)"); fl.addColorStop(1, "rgba(255, 190, 210, 0)");
+          g.fillStyle = fl; g.beginPath(); g.moveTo(D.x, F.y + F.h); g.lineTo(D.x + D.w, F.y + F.h); g.lineTo(D.x + D.w + (D.w * 0.9), H); g.lineTo(D.x - D.w * 0.9, H); g.closePath(); g.fill(); g.restore();
+        }
+        // the front wall, its seams
+        const front = g.createLinearGradient(0, F.y, 0, F.y + F.h);
+        front.addColorStop(0, "#3A4269"); front.addColorStop(1, "#262C49");
+        g.fillStyle = front; g.fillRect(F.x, F.y, F.w, F.h);
+        g.fillStyle = "rgba(255, 255, 255, 0.06)"; for (let k = 1; k < 6; k++) g.fillRect(F.x + (F.w * k) / 6, F.y, 1, F.h);
+        // the doorway: the film, then the doors
+        g.save(); g.beginPath(); g.rect(D.x, D.y, D.w, D.h); g.clip(); film(r); g.restore();
+        liftDoors(D.x, D.y, D.w, D.h, open, t);
+        g.strokeStyle = "#9AA1C2"; g.lineWidth = Math.max(2, m * 0.004); g.strokeRect(D.x, D.y, D.w, D.h);
+        // the floor dial: a brass half-moon, the needle whipping up a floor a hit, R and a chime at the top
+        const steps = [26.96, 27.19, 27.42, 27.54, 27.66, 27.77, 27.88, 27.95, 28.0];
+        let floor = 0;
+        for (const s of steps) if (t >= s) floor += back((t - s) / 0.09);
+        floor = Math.min(9, floor);
+        const rd = Math.min(dw0 * 0.32, dh0 * 0.24) * z, px = cx, py = D.y - rd * 0.18;
+        g.save(); g.translate(px, py);
+        g.fillStyle = "#121628"; g.beginPath(); g.arc(0, 0, rd, Math.PI, 0); g.closePath(); g.fill();
+        g.strokeStyle = "#C9A86A"; g.lineWidth = Math.max(2, rd * 0.05); g.beginPath(); g.arc(0, 0, rd, Math.PI, 0); g.closePath(); g.stroke();
+        g.textAlign = "center"; g.textBaseline = "middle"; g.font = `700 ${Math.max(9, rd * 0.17)}px 'Zen Kaku Gothic New', sans-serif`;
+        for (let k = 0; k <= 9; k++) {
+          const a = Math.PI + (k / 9) * Math.PI, on = Math.abs(floor - k) < 0.5;
+          g.fillStyle = k === 9 ? (floor > 8.5 ? "#FF8FAD" : "#B0607A") : on ? "#FFE9C4" : "#8C8FA8";
+          g.fillText(k === 9 ? "R" : String(k + 1), Math.cos(a) * rd * 0.76, Math.sin(a) * rd * 0.76);
+        }
+        const na = Math.PI + (floor / 9) * Math.PI;
+        g.strokeStyle = "#FF5C87"; g.lineWidth = Math.max(2, rd * 0.035); g.lineCap = "round";
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(Math.cos(na) * rd * 0.6, Math.sin(na) * rd * 0.6); g.stroke();
+        g.fillStyle = "#C9A86A"; g.beginPath(); g.arc(0, 0, rd * 0.07, 0, PI2); g.fill();
+        if (floor > 8.5) glowDot(rd * 0.76, -rd * 0.02, rd * 0.4, "255, 122, 156", 0.6 * Math.exp(-Math.max(0, t - 28.0) * 1.5));
+        g.restore();
+        // the buttons, R lit
+        const bx = D.x + D.w + dw0 * 0.13 * z, by = D.y + D.h * 0.34, bw = dw0 * 0.14 * z, bh = D.h * 0.36;
+        if (bx < W) {
+          g.fillStyle = "#1A1F35"; g.fillRect(bx, by, bw, bh);
+          g.strokeStyle = "#8C93B5"; g.lineWidth = 1; g.strokeRect(bx, by, bw, bh);
+          for (let k = 0; k < 10; k++) {
+            const col = k % 2, row = Math.floor(k / 2), x = bx + bw * (col ? 0.7 : 0.3), y = by + bh * (0.12 + row * 0.19), rb = bw * 0.14, lit = k === 0;
+            g.fillStyle = lit ? "#FF7A9C" : "#3A4166"; g.beginPath(); g.arc(x, y, rb, 0, PI2); g.fill();
+            if (lit) glowDot(x, y, rb * 3, "255, 122, 156", 0.4);
+            g.fillStyle = lit ? "#FFFFFF" : "#9AA0BF"; g.font = `700 ${Math.max(7, rb * 1.1)}px 'Zen Kaku Gothic New', sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+            g.fillText(lit ? "R" : String(10 - k), x, y);
+          }
+        }
+        g.restore();
+        // the hits flash the cab
+        if (crash > 0.02) { g.fillStyle = `rgba(255, 220, 236, ${0.22 * crash})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ── 7. the river of stars ──
+      const MEET = B(20) + 2 * BEAT;
+      const riverGeo = (t) => {
+        const a = tall ? -1.36 : -0.42, dir = [Math.cos(a), Math.sin(a)], nrm = [-dir[1], dir[0]], L = Math.hypot(W, H) * 0.6, A0 = Math.sqrt(W * H);
+        const flood = 1 + 7 * ease((t - MEET - 0.1) / 0.9), hw = (s) => A0 * 0.17 * (1 + 0.16 * Math.sin((s / L) * 2.3 + 0.7) + 0.07 * Math.sin((s / L) * 6.1)) * flood;
+        const at = (s, across) => [W / 2 + dir[0] * s + nrm[0] * across, H / 2 + dir[1] * s + nrm[1] * across];
+        return { dir, nrm, L, hw, at };
+      };
+      const DUST = Array.from({ length: SCENE_LITE ? 220 : 420 }, (_, i) => {
+        const g1 = yrJit(i * 4 + 1), g2 = yrJit(i * 4 + 2);
+        return { s: yrJit(i * 4 + 3) * 2 - 1, a: (g1 + g2 - 1) * 1.05, z: 0.5 + 1.4 * yrJit(i * 4 + 4) ** 2, p: yrJit(i + 77) * PI2 };
+      });
+      const LYRA = [[0, 0], [0.026, 0.045], [0.05, 0.062], [0.042, 0.118], [0.018, 0.102], [-0.024, 0.032]], LYRA_LINES = [[0, 1], [1, 2], [2, 3], [3, 4], [4, 1], [0, 5]];
+      const AQUILA = [[0, 0], [-0.034, -0.026], [0.034, 0.026], [-0.05, 0.07], [-0.1, 0.1], [0.07, -0.08], [0.11, 0.04]], AQUILA_LINES = [[1, 0], [0, 2], [0, 3], [3, 4], [1, 5], [2, 6]];
+      const drawRiver = (t) => {
+        const r = screen(t), R = riverGeo(t), A0 = Math.sqrt(W * H);
+        sky("#050A20", "#141B46");
+        starfield(t, 0.9);
+        // the river, the film in it
+        const path = new Path2D(), n = 48;
+        for (let i = 0; i <= n; i++) { const s = -R.L + (2 * R.L * i) / n, [x, y] = R.at(s, R.hw(s)); if (i) path.lineTo(x, y); else path.moveTo(x, y); }
+        for (let i = n; i >= 0; i--) { const s = -R.L + (2 * R.L * i) / n, [x, y] = R.at(s, -R.hw(s)); path.lineTo(x, y); }
+        path.closePath();
+        g.save(); g.clip(path); film(r);
+        const haze = g.createLinearGradient(...R.at(0, -R.hw(0)), ...R.at(0, R.hw(0)));
+        haze.addColorStop(0, "rgba(160, 190, 255, 0.35)"); haze.addColorStop(0.2, "rgba(160, 190, 255, 0)"); haze.addColorStop(0.8, "rgba(160, 190, 255, 0)"); haze.addColorStop(1, "rgba(160, 190, 255, 0.35)");
+        g.fillStyle = haze; g.fillRect(0, 0, W, H); g.restore();
+        g.save(); g.strokeStyle = "rgba(200, 220, 255, 0.16)"; g.lineWidth = A0 * 0.05; g.stroke(path); g.strokeStyle = "rgba(230, 240, 255, 0.35)"; g.lineWidth = 1.2; g.stroke(path); g.restore();
+        // stardust along it
+        g.save(); g.globalCompositeOperation = "lighter"; g.fillStyle = "#FFFFFF";
+        for (const d of DUST) {
+          const s = d.s * R.L, [x, y] = R.at(s, d.a * R.hw(s) * 0.98 / Math.max(1, R.hw(s) / (A0 * 0.2)));
+          g.globalAlpha = 0.25 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.4 + d.p)); g.beginPath(); g.arc(x, y, d.z * Math.max(0.8, m / 1000), 0, PI2); g.fill();
+        }
+        g.restore();
+        // the two of them in the sky: Vega (織姫) on one bank, Altair (彦星) on the other
+        // (on either bank, well clear of the river, but on the screen)
+        const hw0 = A0 * 0.17, off = tall ? hw0 + (W / 2 - hw0) * 0.55 : hw0 * 1.85, along = R.L * (tall ? 0.24 : 0.36);
+        const inside = ([x, y]) => [Math.min(W - m * 0.1, Math.max(m * 0.1, x)), Math.min(H * 0.86, Math.max(H * 0.1, y))];
+        const vega0 = inside(R.at(-along, -off)), altair0 = inside(R.at(along, off));
+        const mid = [(vega0[0] + altair0[0]) / 2, (vega0[1] + altair0[1]) / 2], arch = [mid[0] - R.nrm[0] * hw0 * 1.6, mid[1] - R.nrm[1] * hw0 * 1.6];
+        const bridge = curve(vega0, arch, altair0, 40), cross = ease((t - B(20)) / (MEET - B(20)));
+        const at = (q) => { const p = 1 - q; return [p * p * vega0[0] + 2 * p * q * arch[0] + q * q * altair0[0], p * p * vega0[1] + 2 * p * q * arch[1] + q * q * altair0[1]]; };
+        const vega = at(0.5 * cross), altair = at(1 - 0.5 * cross), met = t >= MEET;
+        // their constellations, a star an eighth
+        const drawn = (t - B(18)) / (BEAT / 2), sc = m * 1.3;
+        const figure = (home, pts, lines, from) => {
+          g.save(); g.strokeStyle = "rgba(190, 210, 255, 0.5)"; g.lineWidth = 1; g.fillStyle = "#E8F0FF";
+          lines.forEach(([a, b], k) => {
+            const q = clamp(drawn - from - k);
+            if (q <= 0) return;
+            const [x0, y0] = [home[0] + pts[a][0] * sc, home[1] + pts[a][1] * sc], [x1, y1] = [home[0] + pts[b][0] * sc, home[1] + pts[b][1] * sc];
+            g.beginPath(); g.moveTo(x0, y0); g.lineTo(mix(x0, x1, q), mix(y0, y1, q)); g.stroke();
+          });
+          pts.slice(1).forEach(([x, y], k) => { if (drawn > from + k) { g.beginPath(); g.arc(home[0] + x * sc, home[1] + y * sc, Math.max(1.2, m * 0.0028), 0, PI2); g.fill(); } });
+          g.restore();
+        };
+        const fade = 1 - clamp((t - MEET) / 0.5);
+        if (fade > 0) { g.save(); g.globalAlpha = fade; figure(vega0, LYRA, LYRA_LINES, 0); figure(altair0, AQUILA, AQUILA_LINES, 2); g.restore(); }
+        // the thread's bridge over the river
+        const throwQ = out((t - (B(19) + 2 * BEAT)) / 0.9);
+        if (throwQ > 0) strand(upto(bridge, lengthOf(bridge) * throwQ), 1 - clamp((t - MEET) / 0.8));
+        const star = ([x, y], rgb, size, a) => {
+          glowDot(x, y, size * 4, rgb, 0.55 * a);
+          g.save(); g.globalAlpha = a; g.fillStyle = "#FFFFFF"; g.translate(x, y);
+          g.beginPath(); for (let k = 0; k < 8; k++) { const rr = k % 2 ? size * 0.28 : size * 1.6, aa = (k / 8) * PI2; g.lineTo(Math.cos(aa) * rr, Math.sin(aa) * rr); } g.closePath(); g.fill();
+          g.restore();
+        };
+        if (!met) {
+          // trails as they cross
+          if (cross > 0) for (let k = 1; k <= 6; k++) { const back1 = Math.max(0, cross - k * 0.03); glowDot(...at(0.5 * back1), m * 0.03, "255, 160, 190", 0.25 * (1 - k / 7)); glowDot(...at(1 - 0.5 * back1), m * 0.03, "130, 230, 220", 0.25 * (1 - k / 7)); }
+          star(vega, "255, 150, 190", m * 0.022, 1); star(altair, "120, 230, 220", m * 0.02, 1);
+          g.save(); g.font = `700 ${Math.max(11, m * 0.022)}px 'Shippori Mincho B1', serif`; g.textAlign = "center"; g.globalAlpha = 1 - cross;
+          const label = (text, [x, y], colour) => { const half = g.measureText(text).width / 2 + 8; g.fillStyle = colour; g.fillText(text, Math.min(W - half, Math.max(half, x)), y + m * 0.075); };
+          label("織姫 · ベガ", vega, "#FFD3E0"); label("彦星 · アルタイル", altair, "#BFF3EC"); g.restore();
+        } else {
+          // they meet: one star, a ring of light, and the river floods the sky
+          // (the one star rises out of the way, to the top of the sky)
+          const q = (t - MEET) / 0.7, p = at(0.5), up = ease((t - MEET - 0.2) / 1.4);
+          const where = [mix(p[0], W * 0.5, up), mix(p[1], H * 0.08, up)];
+          knotRing(where[0], where[1], q);
+          star(where, "255, 200, 220", m * 0.026 * (1 + 0.15 * Math.sin(t * 5)), 1 - clamp((t - B(22) + 0.4) / 0.4));
+          for (let k = 0; k < 10; k++) { const a = (k / 10) * PI2 + 0.3, d = m * 0.32 * out(q); spark(k, where[0] + Math.cos(a) * d, where[1] + Math.sin(a) * d, m * 0.05, 1 - clamp(q), a); }
+          if (q < 0.6) { g.fillStyle = `rgba(255, 240, 246, ${0.3 * (1 - q / 0.6)})`; g.fillRect(0, 0, W, H); }
+          g.save(); g.globalCompositeOperation = "lighter"; starfield(t, 0.35 * clamp((t - MEET - 0.5) / 0.6)); g.restore();
+        }
+        // the roof's film drawn into the river
+        const q0 = clamp((t - B(18)) / 0.6);
+        if (q0 < 1) film(r, 1 - ease(q0));
+      };
+
+      // ── 8. the wishes ──
+      const leaf = (x, y, L, a, w = 0.16) => {
+        g.save(); g.translate(x, y); g.rotate(a);
+        const gr = g.createLinearGradient(0, -L * w, 0, L * w);
+        gr.addColorStop(0, "#2E8A74"); gr.addColorStop(1, "#16483F");
+        g.fillStyle = gr; g.beginPath(); g.moveTo(0, 0); g.quadraticCurveTo(L * 0.35, -L * w, L, 0); g.quadraticCurveTo(L * 0.35, L * w, 0, 0); g.fill();
+        g.strokeStyle = "rgba(160, 240, 210, 0.45)"; g.lineWidth = 0.8; g.beginPath(); g.moveTo(L * 0.05, 0); g.lineTo(L * 0.9, 0); g.stroke();
+        g.restore();
+      };
+      // the branch (from the left, and a second from the right), and where the strips hang on it (of the width)
+      const SPOTS = { wide: [0.08, 0.19, 0.3, 0.41, 0.92], tall: [0.1, 0.29, 0.71, 0.9, 0.5] };
+      const stemY = (u) => (u < 0.5 ? H * (0.07 + 0.08 * Math.sin((u / 0.5) * Math.PI * 0.85)) : H * (0.05 + 0.07 * Math.sin(((1 - u) / 0.5) * Math.PI * 0.85)));
+      const drawWish = (t) => {
+        const r = screen(t), come = out((t - B(22)) / 0.45), go = ease((t - (B(25) - 0.4)) / 0.4);
+        film(r);
+        const top = g.createLinearGradient(0, 0, 0, H * 0.45);
+        top.addColorStop(0, `rgba(8, 13, 36, ${0.55 * come})`); top.addColorStop(1, "rgba(8, 13, 36, 0)");
+        g.fillStyle = top; g.fillRect(0, 0, W, H);
+        const rise = -H * 0.3 * (1 - come) - H * 0.4 * go;
+        g.save(); g.translate(0, rise);
+        // the branches: a culm with its nodes, twigs off it, and sprays of leaves hanging from them
+        const stems = [[0, tall ? 0.38 : 0.44], [tall ? 0.62 : 0.66, 1]];
+        for (const [u0, u1] of stems) {
+          const left = u0 === 0, pts = [], out1 = left ? 1 : -1;
+          for (let k = 0; k <= 30; k++) { const u = mix(u0, u1, k / 30); pts.push([u * W + (left ? -12 : 12) * (k === 0 || k === 30 ? 1 : 0), stemY(u)]); }
+          const path = new Path2D();
+          pts.forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+          g.lineCap = "round"; g.lineJoin = "round";
+          g.strokeStyle = "#0F2E29"; g.lineWidth = Math.max(9, m * 0.022); g.stroke(path);
+          g.strokeStyle = "#2F7A66"; g.lineWidth = Math.max(6, m * 0.015); g.stroke(path);
+          g.strokeStyle = "rgba(190, 250, 225, 0.45)"; g.lineWidth = Math.max(1.5, m * 0.004); g.stroke(path);
+          for (let k = 3; k < 30; k += 5) {
+            const [x, y] = pts[k];
+            g.fillStyle = "#0F2E29"; g.fillRect(x - 2, y - m * 0.013, 4, m * 0.026);
+            g.fillStyle = "rgba(200, 255, 230, 0.6)"; g.fillRect(x + 2, y - m * 0.012, 1.5, m * 0.024);
+            // a twig, and a spray hanging from its end
+            const sway = Math.sin(t * 1.6 + k) * 0.07 + 0.06 * kick(t), ta = (left ? 0.9 : Math.PI - 0.9) + sway * 0.5, tl = m * 0.05;
+            const tx = x + Math.cos(ta) * tl, ty = y + Math.sin(ta) * tl;
+            g.strokeStyle = "#2F7A66"; g.lineWidth = Math.max(1.5, m * 0.004); g.beginPath(); g.moveTo(x, y); g.lineTo(tx, ty); g.stroke();
+            for (let f = 0; f < 5; f++) leaf(tx, ty, m * (0.085 + 0.04 * yrJit(k * 7 + f)), Math.PI / 2 + out1 * (f - 2) * 0.36 + sway + (yrJit(k * 3 + f) - 0.5) * 0.25, 0.15);
+          }
+          for (let k = 1; k <= 29; k += 4) {
+            const [x, y] = pts[k], sway = Math.sin(t * 1.9 + k * 2) * 0.06;
+            for (let f = 0; f < 3; f++) leaf(x, y, m * (0.06 + 0.025 * yrJit(k * 11 + f)), (left ? 0.3 : Math.PI - 0.3) + (f - 1) * 0.5 * out1 - 0.5 * out1 + sway, 0.15);
+          }
+        }
+        // the strips, one a beat and a half, swinging in on red threads
+        const spots = tall ? SPOTS.tall : SPOTS.wide, sw = Math.max(26, m * (tall ? 0.085 : 0.068)), sh = sw * 4.6;
+        YR_MV_WISHES.forEach((wish, k) => {
+          const at = B(22) + k * 1.5 * BEAT, tau = t - at;
+          if (tau < 0) return;
+          const u = spots[k], ax = u * W, ay = stemY(u) + m * 0.006, string = m * (k === 4 && tall ? 0.02 : 0.045);
+          const swing = (k % 2 ? 1 : -1) * 1.1 * Math.exp(-tau * 2.4) * Math.cos(tau * 6) + Math.sin(t * 1.3 + k * 1.7) * 0.05 + 0.04 * kick(t) * (k % 2 ? 1 : -1);
+          g.save(); g.translate(ax, ay); g.rotate(swing); g.globalAlpha = clamp(tau / 0.12);
+          g.strokeStyle = "#E3304E"; g.lineWidth = 1.4; g.beginPath(); g.moveTo(0, 0); g.lineTo(0, string); g.stroke();
+          g.translate(0, string);
+          g.shadowColor = "rgba(3, 6, 20, 0.45)"; g.shadowBlur = 10; g.shadowOffsetY = 4;
+          g.fillStyle = YR_MV_PAPER[k]; g.fillRect(-sw / 2, 0, sw, sh);
+          g.shadowColor = "transparent";
+          g.fillStyle = "rgba(255, 255, 255, 0.35)"; g.fillRect(-sw / 2, 0, sw, 2);
+          g.fillStyle = "rgba(60, 40, 60, 0.25)"; g.beginPath(); g.arc(0, sw * 0.22, sw * 0.06, 0, PI2); g.fill();
+          const chars = [...wish], size = Math.min(sw * 0.56, (sh - sw * 0.6) / chars.length);
+          g.fillStyle = "#2A2240"; g.font = `600 ${size}px 'Klee One', sans-serif`; g.textAlign = "center"; g.textBaseline = "middle";
+          const shown = clamp((tau - 0.15) / 0.5) * chars.length;
+          chars.forEach((c, i) => { if (i < shown) g.fillText(c, 0, sw * 0.5 + size * (i + 0.5)); });
+          g.restore();
+        });
+        g.restore();
+      };
+
+      // ── 9. morning glories ──
+      const catmull = (P, n = 10) => {
+        const outPts = [];
+        for (let i = 0; i < P.length - 1; i++) {
+          const p0 = P[Math.max(0, i - 1)], p1 = P[i], p2 = P[i + 1], p3 = P[Math.min(P.length - 1, i + 2)];
+          for (let k = 0; k < n; k++) {
+            const s = k / n, s2 = s * s, s3 = s2 * s;
+            outPts.push([0, 1].map((d) => 0.5 * (2 * p1[d] + (-p0[d] + p2[d]) * s + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * s2 + (-p0[d] + 3 * p1[d] - 3 * p2[d] + p3[d]) * s3)));
+          }
+        }
+        outPts.push(P[P.length - 1]);
+        return outPts;
+      };
+      // the vines (of the screen), when each grows (bars), and its flowers: [how far along (0-1), colour, when it opens]
+      const VINES = [
+        { p: [[-0.02, 1.03], [0.07, 0.84], [0.03, 0.64], [0.1, 0.47], [0.05, 0.3], [0.12, 0.14], [0.22, 0.07], [0.3, 0.12]], from: 25, to: 28, flowers: [[0.55, 0, 0], [0.98, 2, 2]] },
+        { p: [[1.02, 1.03], [0.93, 0.86], [0.97, 0.66], [0.9, 0.5], [0.95, 0.32], [0.88, 0.16], [0.78, 0.08], [0.71, 0.13]], from: 25, to: 28, flowers: [[0.5, 1, 1], [0.98, 0, 3]] },
+        { p: [[0.24, 1.04], [0.29, 0.93], [0.23, 0.86], [0.31, 0.8]], from: 26.5, to: 28, flowers: [[1, 2, 3.5]] },
+        { p: [[0.7, 1.04], [0.66, 0.94], [0.73, 0.88], [0.66, 0.83]], from: 26.5, to: 28, flowers: [[1, 1, 3.5]] },
+      ];
+      const GLORY = [["255, 111, 158", "255, 196, 216"], ["86, 128, 255", "190, 214, 255"], ["150, 104, 240", "214, 198, 255"]];
+      const heartLeaf = (x, y, L, a, grow) => {
+        if (grow <= 0) return;
+        g.save(); g.translate(x, y); g.rotate(a); g.scale(grow, grow);
+        const gr = g.createLinearGradient(0, -L * 0.5, L, L * 0.5);
+        gr.addColorStop(0, "#4FC49A"); gr.addColorStop(1, "#1C6B57");
+        g.fillStyle = gr; g.beginPath(); g.moveTo(L * 0.1, 0);
+        g.bezierCurveTo(L * 0.05, -L * 0.62, L * 0.78, -L * 0.48, L, 0); g.bezierCurveTo(L * 0.78, L * 0.48, L * 0.05, L * 0.62, L * 0.1, 0); g.fill();
+        g.strokeStyle = "rgba(220, 255, 236, 0.5)"; g.lineWidth = 0.8; g.beginPath(); g.moveTo(L * 0.12, 0); g.lineTo(L * 0.92, 0); g.stroke();
+        g.restore();
+      };
+      const glory = (x, y, rf, colour, q, glow, turn) => {
+        if (q <= 0) return;
+        const [deep, light] = GLORY[colour], open = Math.max(0.2, back((q - 0.25) / 0.75));
+        g.save(); g.translate(x, y); g.rotate(turn + (1 - clamp(q)) * 1.4);
+        if (q < 0.25) {
+          // the bud, twisted shut
+          g.fillStyle = `rgb(${deep})`; g.beginPath(); g.ellipse(0, 0, rf * 0.16, rf * 0.42, 0, 0, PI2); g.fill();
+          g.strokeStyle = `rgba(${light}, 0.8)`; g.lineWidth = 1; g.beginPath(); g.moveTo(-rf * 0.1, -rf * 0.3); g.quadraticCurveTo(rf * 0.15, 0, -rf * 0.08, rf * 0.35); g.stroke();
+          g.restore(); return;
+        }
+        const R = rf * Math.min(1.08, open);
+        glowDot(0, 0, R * 1.9, deep, 0.35 * glow);
+        const face = g.createRadialGradient(0, 0, 0, 0, 0, R);
+        face.addColorStop(0, "#FFFFFF"); face.addColorStop(0.2, `rgb(${light})`); face.addColorStop(0.62, `rgb(${light})`); face.addColorStop(1, `rgb(${deep})`);
+        g.fillStyle = face; g.beginPath();
+        for (let k = 0; k <= 60; k++) { const a = (k / 60) * PI2, rr = R * (1 - 0.07 * Math.cos(5 * a)); g.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+        g.closePath(); g.fill();
+        g.strokeStyle = "rgba(255, 255, 255, 0.55)"; g.lineWidth = Math.max(1, rf * 0.05);
+        for (let k = 0; k < 5; k++) { const a = (k / 5) * PI2 + Math.PI / 10; g.beginPath(); g.moveTo(Math.cos(a) * R * 0.18, Math.sin(a) * R * 0.18); g.lineTo(Math.cos(a) * R * 0.95, Math.sin(a) * R * 0.95); g.stroke(); }
+        glowDot(0, 0, R * 0.32, "255, 248, 220", 0.95);
+        g.restore();
+      };
+      const drawGlory = (t) => {
+        const r = screen(t), hit = t >= B(29) - 0.08 ? Math.exp(-(t - (B(29) - 0.08)) * 4) : 0;
+        film(r);
+        night(0.3);
+        for (const [n, vine] of VINES.entries()) {
+          const pts = catmull(vine.p.map(([u, v]) => [u * W, v * H]), 12), L = lengthOf(pts);
+          const beats = (t - B(vine.from)) / BEAT, total = (B(vine.to) - B(vine.from)) / BEAT;
+          if (beats <= 0) continue;
+          const grown = Math.min(1, (Math.floor(beats) + out(beats - Math.floor(beats))) / total), d = L * grown, stem = upto(pts, d);
+          g.save(); g.lineCap = "round"; g.lineJoin = "round";
+          g.strokeStyle = "#13372E"; g.lineWidth = Math.max(4, m * 0.011); g.beginPath(); stem.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke();
+          g.strokeStyle = "#3FA57F"; g.lineWidth = Math.max(2, m * 0.006); g.stroke();
+          g.restore();
+          // leaves along it as it passes, and a curl of tendril now and then
+          const gap = m * 0.07;
+          for (let k = 1; k * gap < d; k++) {
+            const [x, y] = upto(pts, k * gap).pop(), [x2, y2] = upto(pts, k * gap + 2).pop(), a = Math.atan2(y2 - y, x2 - x), side = k % 2 ? 1 : -1;
+            const grow = back((d - k * gap) / (m * 0.06));
+            heartLeaf(x, y, m * (0.042 + 0.012 * yrJit(n * 31 + k)), a + side * 1.15 + Math.sin(t * 1.5 + k) * 0.06, grow);
+            if (k % 3 === 1) {
+              g.save(); g.strokeStyle = "rgba(120, 220, 170, 0.8)"; g.lineWidth = 1.2; g.beginPath();
+              for (let s = 0; s <= 30; s++) { const aa = a - side * 1.6 + side * (s / 30) * Math.PI * 3, rr = m * 0.028 * (1 - s / 34) * clamp(grow); g.lineTo(x + Math.cos(a - side * 1.6) * m * 0.02 + Math.cos(aa) * rr, y + Math.sin(a - side * 1.6) * m * 0.02 + Math.sin(aa) * rr); }
+              g.stroke(); g.restore();
+            }
+          }
+          // its flowers: a bud from bar 27, open on bar 28's beats
+          for (const [along, colour, beat] of vine.flowers) {
+            const fd = L * along;
+            if (fd > d + 1) continue;
+            const [x, y] = upto(pts, Math.max(1, fd - 1)).pop(), budQ = clamp((t - B(27)) / 0.6) * 0.24, openQ = (t - (B(28) + beat * BEAT)) / 0.5;
+            glory(x, y, m * (n < 2 ? 0.068 : 0.05), colour, openQ > 0 ? 0.25 + 0.75 * clamp(openQ) : budQ, 1 + 2.5 * hit, yrJit(n * 9 + beat) * PI2);
+          }
+        }
+        if (hit > 0.02) { g.fillStyle = `rgba(255, 240, 248, ${0.35 * hit})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ── 10. the shooting star ──
+      const STAR1 = B(33) - 0.3, TAIL = 0.75;
+      const starPath = (q) => {
+        const [a, c, b] = tall ? [[0.36, 0.25], [0.86, 0.34], [0.6, 0.66]] : [[0.2, 0.34], [0.56, 0.18], [0.8, 0.62]], p = 1 - q;
+        return [(p * p * a[0] + 2 * p * q * c[0] + q * q * b[0]) * W, (p * p * a[1] + 2 * p * q * c[1] + q * q * b[1]) * H];
+      };
+      // the city along the bottom, a few windows still lit, the lights on its masts
+      const city = document.createElement("canvas");
+      let masts = [];
+      const paintCity = () => {
+        city.width = Math.max(1, Math.round(W)); city.height = Math.max(1, Math.round(H * 0.3));
+        const c = city.getContext("2d"), h = city.height;
+        masts = [];
+        for (let x = -10, n = 0; x < W; n++) {
+          const bw = W * (0.026 + 0.05 * yrJit(n * 3 + 801)), bh = H * (0.05 + 0.17 * yrJit(n * 3 + 802) ** 1.5);
+          c.fillStyle = n % 3 ? "#070C24" : "#0A1130"; c.fillRect(x, h - bh, bw + 1, bh);
+          for (let wy = h - bh + 6; wy < h - 4; wy += 7) for (let wx = x + 4; wx < x + bw - 4; wx += 6) {
+            const v = yrJit(wx * 0.37 + wy * 1.13 + n);
+            if (v < 0.1) { c.fillStyle = v < 0.04 ? "rgba(255, 157, 184, 0.8)" : "rgba(255, 203, 142, 0.8)"; c.fillRect(wx, wy, 2, 3); }
+          }
+          if (yrJit(n + 870) < 0.22) { c.fillStyle = "#070C24"; c.fillRect(x + bw / 2 - 1, h - bh - H * 0.03, 2, H * 0.03); masts.push([x + bw / 2, H - h + (h - bh - H * 0.03)]); }
+          x += bw;
+        }
+      };
+      const drawStar = (t) => {
+        const r = screen(t), q = mix(clamp((t - B(29)) / (STAR1 - B(29))), ease((t - B(29)) / (STAR1 - B(29))), 0.4);
+        const dawnish = clamp((t - B(31)) / (STAR1 - B(31)));
+        const bottom = `rgb(${Math.round(mix(20, 92, dawnish))}, ${Math.round(mix(27, 44, dawnish))}, ${Math.round(mix(70, 100, dawnish))})`;
+        sky("#040920", bottom);
+        starfield(t, 0.95 - 0.4 * dawnish);
+        if (dawnish > 0) glowDot(W * 0.82, H * 1.02, Math.max(W, H) * 0.6, "255, 150, 140", 0.45 * dawnish);
+        g.drawImage(city, 0, H - city.height, W, city.height);
+        for (const [x, y] of masts) glowDot(x, y, m * 0.012, "255, 70, 90", 0.5 + 0.5 * Math.sin(t * 4 + x));
+        const rH = tall ? W * 0.3 : m * 0.24, head = starPath(q);
+        // its tail: the way it came, widest at the head, a bright core down it
+        const trail = Array.from({ length: 32 }, (_, i) => starPath(q - TAIL * (1 - i / 31)));
+        const tailPath = (k) => {
+          const edgeA = [], edgeB = [];
+          trail.forEach(([x, y], i) => {
+            const [nx, ny] = trail[Math.min(31, i + 1)], [px, py] = trail[Math.max(0, i - 1)], a = Math.atan2(ny - py, nx - px), w = rH * k * (i / 31) ** 1.25;
+            edgeA.push([x - Math.sin(a) * w, y + Math.cos(a) * w]); edgeB.push([x + Math.sin(a) * w, y - Math.cos(a) * w]);
+          });
+          const path = new Path2D();
+          [...edgeA, ...edgeB.reverse()].forEach(([x, y], i) => (i ? path.lineTo(x, y) : path.moveTo(x, y)));
+          path.closePath();
+          return path;
+        };
+        g.save(); g.globalCompositeOperation = "lighter";
+        const tg = g.createLinearGradient(head[0], head[1], trail[0][0], trail[0][1]);
+        tg.addColorStop(0, "rgba(255, 226, 238, 0.8)"); tg.addColorStop(0.3, "rgba(255, 140, 185, 0.45)"); tg.addColorStop(0.65, "rgba(110, 190, 255, 0.24)"); tg.addColorStop(1, "rgba(111, 217, 206, 0)");
+        g.fillStyle = tg; g.fill(tailPath(0.98));
+        const core = g.createLinearGradient(head[0], head[1], trail[8][0], trail[8][1]);
+        core.addColorStop(0, "rgba(255, 255, 255, 0.85)"); core.addColorStop(1, "rgba(255, 255, 255, 0)");
+        g.fillStyle = core; g.fill(tailPath(0.3));
+        g.restore();
+        // sparkles shed along the tail
+        for (let k = 0; k < (SCENE_LITE ? 20 : 38); k++) {
+          const f = (yrJit(k * 3 + 1) + t * 0.3) % 1, [x, y] = starPath(q - TAIL * f), w = rH * 0.95 * (1 - f) ** 1.25, off = (yrJit(k * 3 + 2) - 0.5) * 1.7 * w;
+          const [x2, y2] = starPath(q - TAIL * f + 0.01), a = Math.atan2(y2 - y, x2 - x);
+          spark(k, x - Math.sin(a) * off, y + Math.cos(a) * off, m * (0.022 + 0.034 * yrJit(k + 50)) * (1 - f * 0.6), (1 - f) * (0.65 + 0.35 * Math.sin(t * 8 + k)), t + k);
+        }
+        // the wishes, riding it
+        YR_MV_WISHES.forEach((wish, k) => {
+          const f = 0.16 + k * 0.1, [x, y] = starPath(q - TAIL * f), [x2, y2] = starPath(q - TAIL * f + 0.01), a = Math.atan2(y2 - y, x2 - x), off = (k % 2 ? 1 : -1) * rH * 0.5 * (1 - f);
+          const sx = x - Math.sin(a) * off, sy = y + Math.cos(a) * off, sw = Math.max(16, m * 0.034), sh = sw * 3.6;
+          g.save(); g.translate(sx, sy); g.rotate(a + Math.PI / 2 + Math.sin(t * 2 + k) * 0.3); g.globalAlpha = clamp((t - B(29)) / 0.6);
+          glowDot(0, 0, sh * 1.1, "255, 220, 235", 0.5);
+          g.fillStyle = YR_MV_PAPER[k]; g.fillRect(-sw / 2, -sh / 2, sw, sh);
+          g.fillStyle = "#2A2240"; g.font = `600 ${sw * 0.62}px 'Klee One', sans-serif`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText([...wish][0], 0, -sh * 0.18);
+          g.restore();
+        });
+        // its head: the film in it, turning as they fall; a halo
+        glowDot(head[0], head[1], rH * 2.1, "255, 190, 215", 0.5);
+        g.save(); g.beginPath(); g.arc(head[0], head[1], rH, 0, PI2); g.clip();
+        g.translate(head[0], head[1]); g.rotate(Math.sin(t * 0.9) * 0.18);
+        film(cover(-rH * 1.25, -rH * 1.25, rH * 2.5, rH * 2.5, 0.55, 0.45));
+        g.restore();
+        g.save(); g.strokeStyle = "rgba(255, 245, 250, 0.9)"; g.lineWidth = Math.max(2, m * 0.004); g.beginPath(); g.arc(head[0], head[1], rH, 0, PI2); g.stroke(); g.restore();
+        // the iris into it from the flowers, and its flare at the horizon (into the dawn)
+        const iris = clamp((t - B(29)) / 0.5);
+        if (iris < 1) {
+          const R0 = Math.hypot(W, H), rr = mix(R0, rH, ease(iris)), [cx, cy] = [mix(W / 2, head[0], ease(iris)), mix(H / 2, head[1], ease(iris))];
+          g.save(); g.beginPath(); g.arc(cx, cy, rr, 0, PI2); g.clip(); film(r); g.restore();
+        }
+        const flare = clamp((t - (B(33) - 0.55)) / 0.55);
+        if (flare > 0) glowDot(head[0], head[1], Math.hypot(W, H) * 1.4 * ease(flare), "255, 246, 238", Math.min(1, flare * 1.3));
+        if (flare > 0.75) { g.fillStyle = `rgba(255, 246, 238, ${(flare - 0.75) * 4})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ── 11. dawn, through blinds ──
+      const drawDawn = (t) => {
+        const r = screen(t);
+        film(r);
+        const warm = clamp((t - B(33)) / 2.4) * (1 - clamp((t - 66.9) / 0.3));
+        if (warm > 0) {
+          g.save(); g.globalCompositeOperation = "soft-light";
+          const gr = g.createLinearGradient(0, 0, W * 0.4, H);
+          gr.addColorStop(0, `rgba(255, 196, 140, ${0.95 * warm})`); gr.addColorStop(1, `rgba(255, 130, 170, ${0.6 * warm})`);
+          g.fillStyle = gr; g.fillRect(0, 0, W, H); g.restore();
+          glowDot(W * 0.86, -H * 0.05, Math.max(W, H) * 0.7, "255, 214, 170", 0.32 * warm);
+        }
+        // the blinds: a slat's tilt a beat in bar 33, then drawn up in bar 34
+        const [beat, frac] = beatIn(t, B(33)), steps = Math.min(4, Math.max(0, beat) + (beat < 4 ? out(frac / 0.4) : 0));
+        const shut = 1 - 0.235 * steps, rail = mix(H, H * 0.05, ease((t - B(34)) / 1.5)), N = tall ? 22 : 15, cellH = rail / N, gone = clamp((t - 65.25) / 0.4);
+        if (gone < 1) {
+          g.save(); g.globalAlpha = 1 - gone;
+          // light through the gaps, falling across
+          if (shut < 0.95) {
+            g.save(); g.globalCompositeOperation = "screen"; g.globalAlpha = (1 - gone) * 0.5 * (1 - shut);
+            for (let i = 0; i < N; i += 1) { const y = cellH * (i + 0.5); const lg = g.createLinearGradient(0, y, W * 0.3, y + cellH * 3); lg.addColorStop(0, "rgba(255, 220, 180, 0.0)"); lg.addColorStop(0.5, "rgba(255, 220, 180, 0.25)"); lg.addColorStop(1, "rgba(255, 220, 180, 0)"); g.fillStyle = lg; g.fillRect(0, y, W, cellH * 0.45); }
+            g.restore();
+          }
+          for (let i = 0; i < N; i++) {
+            const y = cellH * (i + 0.5), th = Math.max(2, cellH * (0.1 + 0.9 * shut));
+            const sg = g.createLinearGradient(0, y - th / 2, 0, y + th / 2);
+            sg.addColorStop(0, "rgba(255, 246, 238, 0.98)"); sg.addColorStop(1, "rgba(222, 192, 176, 0.98)");
+            g.fillStyle = sg; g.fillRect(0, y - th / 2, W, th);
+            g.fillStyle = "rgba(70, 36, 50, 0.22)"; g.fillRect(0, y + th / 2, W, Math.max(1, cellH * 0.06));
+          }
+          g.fillStyle = "rgba(240, 222, 210, 0.9)";
+          for (const u of [0.18, 0.5, 0.82]) g.fillRect(u * W - 1, 0, 2, rail);
+          g.fillStyle = "#F2E2D6"; g.fillRect(0, rail - Math.max(3, cellH * 0.18), W, Math.max(5, cellH * 0.3));
+          g.fillStyle = "#EFDCCD"; g.fillRect(0, 0, W, Math.max(8, H * 0.03));
+          // the pull cord
+          g.strokeStyle = "#E8D2C1"; g.lineWidth = 2; g.beginPath(); g.moveTo(W * 0.94, 0); g.lineTo(W * 0.94 + Math.sin(t * 2) * 4, rail + H * 0.12); g.stroke();
+          g.fillStyle = "#FF8FAD"; g.beginPath(); g.ellipse(W * 0.94 + Math.sin(t * 2) * 4, rail + H * 0.12 + 8, 5, 9, 0, 0, PI2); g.fill();
+          g.restore();
+        }
+        // the thread: down from the top, round the two hands as they take hold
+        const T1 = B(34) + 2 * BEAT, TIE = B(35);
+        if (t >= T1) {
+          const [cx, cy] = pt(r, keyed(YR_MV_CLASP, t)), rx = m * 0.08, ry = m * 0.045, tilt = -0.25;
+          const down = curve([W * 0.5, -10], [W * 0.5 + (cx - W * 0.5) * 0.2, cy * 0.5], [cx + rx * Math.cos(tilt), cy + rx * Math.sin(tilt) - ry], 24);
+          const pts = [...down, ...wound(cx, cy, rx, ry, tilt, 2, -Math.PI / 2).slice(1)], L = lengthOf(pts);
+          // (it lets go just before their faces come)
+          const p = out((t - T1) / (TIE - T1)), fade = 1 - clamp((t - 65.2) / 0.3);
+          strand(upto(pts, L * p), fade);
+          knotRing(cx, cy, (t - TIE) / 0.8);
+        }
+        // AM 5:00
+        const five = clamp((t - B(36)) / 0.6) * (1 - clamp((t - 67.1) / 0.2));
+        if (five > 0) {
+          g.save(); g.globalAlpha = five; g.font = `800 ${Math.max(22, m * 0.05)}px 'Shippori Mincho B1', serif`; g.fillStyle = "#FFFFFF";
+          g.shadowColor = "rgba(255, 140, 120, 0.8)"; g.shadowBlur = 16; g.fillText("AM 5:00", W * (tall ? 0.08 : 0.06), H * (tall ? 0.12 : 0.15)); g.restore();
+        }
+        // in from the star's flare
+        const q = clamp((t - B(33)) / 0.6);
+        if (q < 1) { g.fillStyle = `rgba(255, 246, 238, ${1 - out(q)})`; g.fillRect(0, 0, W, H); }
+      };
+      const drawEnd = (t) => {
+        film(screen(t));
+        const q = clamp((t - (B(37) + 0.05)) / 0.4);
+        g.fillStyle = `rgba(6, 10, 26, ${0.6 * q})`; g.fillRect(0, 0, W, H);
+        if (q <= 0) return;
+        g.save(); g.globalAlpha = q; g.textAlign = "center"; g.textBaseline = "middle";
+        g.font = `800 ${Math.max(34, m * 0.09)}px 'Shippori Mincho B1', serif`; g.fillStyle = "#FFFFFF"; g.shadowColor = "rgba(255, 122, 156, 0.8)"; g.shadowBlur = 22;
+        g.fillText("夜に駆ける", W / 2, H * 0.46); g.shadowColor = "transparent";
+        g.font = `700 ${Math.max(11, m * 0.02)}px 'Zen Kaku Gothic New', sans-serif`; g.fillStyle = "#6FD9CE";
+        g.fillText("Y O A S O B I  ·  R A C I N G   I N T O   T H E   N I G H T", W / 2, H * 0.46 + Math.max(40, m * 0.08));
+        g.restore();
+        const w = Math.min(W * 0.5, m * 0.6), line = Array.from({ length: 41 }, (_, i) => [W / 2 - w / 2 + (w * i) / 40, H * 0.46 + Math.max(58, m * 0.11) + Math.sin(i * 0.5 + t * 2) * 3]);
+        strand(upto(line, lengthOf(line) * out(q)), q);
+      };
+
+      // ── each frame: the part the clip is in ──
+      const draw = (t) => {
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+        if (t < B(1)) drawWax(t);
+        else if (t < CRACK + 0.001) drawScratch(t);
+        else if (t < B(8)) { drawInk(t); if (t < CRACK + 1.2) drawChips(t); }
+        else if (t < B(9)) drawTie(t);
+        else if (t < B(12)) drawCradle(t);
+        else if (t < B(15)) drawMap(t);
+        else if (t < B(18)) drawLift(t);
+        else if (t < B(22)) drawRiver(t);
+        else if (t < B(25)) drawWish(t);
+        else if (t < B(29)) drawGlory(t);
+        else if (t < B(33)) drawStar(t);
+        else if (t < B(37)) drawDawn(t);
+        else drawEnd(t);
+      };
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; m = Math.min(W, H); A = Math.sqrt(W * H); tall = H > W;
+        ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+        paintWax(); paintPaper(); paintCity(); cutChips();
+        carded = false;
+      };
+      size();
+      let lastNow = 0;
+      const onResize = () => { size(); draw(lastNow); };
+      window.addEventListener("resize", onResize);
+      return {
+        show() {},
+        tick(now) { lastNow = now; draw(now); },
+        unmount() { window.removeEventListener("resize", onResize); },
+      };
+    },
+  };
+
   const THEMES = {
     whiplash: {
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
@@ -7160,7 +9052,7 @@
       group: "kininao", artist: "Nirvana",
       era: "Breed", folder: "breed/", tag: "BREED", back: "sheet", scheme: "light",
       title: "Brew Houze × The Guy She Was Interested in Wasn’t a Guy at All · Breed", toast: "Brew Houze × Nirvana · Breed ☻",
-      sub: "Breed · System portal", h1: "Every Brew Houze app, sitting right next to you.", footer: "Brew Houze × Aya & Mitsuki · Breed (Nirvana) · café management system",
+      sub: "Breed · Nirvana", h1: "Every Brew Houze app, sitting right next to you.", footer: "Brew Houze × The Guy She Was Interested in Wasn’t a Guy at All · Breed (Nirvana) · café management system",
       introClip: "breed/intro.mp3", introStart: BR_START, introLength: BR_INTRO,
       loops: [{ src: "breed/track-1.mp3", start: BR_START, length: BR_TRACK1 }, { src: "breed/track-2.mp3", start: BR_START, length: BR_TRACK2 }],
       joined: true, intro: breedIntro, introClass: "br-intro",
@@ -7175,6 +9067,32 @@
       scene: breedScene,
       decor: `<div class="br-decor" aria-hidden="true"><i class="br-decor-world"></i><svg class="br-decor-tear" viewBox="0 0 64 1000" preserveAspectRatio="none" aria-hidden="true">${BR_TEAR_V}</svg><b class="br-decor-sfx">ジャーン</b><i class="br-decor-burst"></i><div class="br-decor-art"><i></i></div><p class="br-decor-jp"><span>気になってる人が</span><span>男じゃなかった</span></p><i class="br-decor-smiley"></i><p class="br-decor-tag"><small>Opening theme</small><b>Nirvana “Breed”</b></p><i class="br-decor-st is-pin"></i><i class="br-decor-st is-star"></i><i class="br-decor-st is-pick"></i></div>`,
       extras: ["page-a-2.webp", "page-a-3.webp", "page-b-2.webp", "volume-2.webp", "flash-2.webp", "flash-3.webp", "smiley.webp", "smiley-ink.webp", ...["aya", "mitsuki"].flatMap((key) => [`${key}-alt.webp`, `${key}-back.webp`])],
+    },
+    // Racing into the Night: YOASOBI's 夜に駆ける, the third hidden track, found where the café's header
+    // leaks pink once Breed has been (see the end of this file). The page is one night, top to bottom
+    // (yoru.css): the header's sky, its moon and city, the sections the hours after midnight, the
+    // morning at the foot. Ayase and ikura on their plates, a planisphere on the back of each card. The
+    // intro (a pickup and 8 bars) runs straight into track 1 (23 bars), then track 2 (8 bars).
+    yoru: {
+      group: "yoasobi", artist: "YOASOBI",
+      era: "Racing into the Night", folder: "yoru/", tag: "夜に駆ける", back: "sky", scheme: "dark",
+      title: "Brew Houze × YOASOBI · Racing into the Night", toast: "Brew Houze × YOASOBI · 夜に駆ける 🌙",
+      sub: "Racing into the Night · System portal", h1: "Every Brew Houze app, racing into the night with you.", footer: "Brew Houze × YOASOBI · Racing into the Night (夜に駆ける) · café management system",
+      introClip: "yoru/intro.mp3", introStart: YR_START, introLength: YR_INTRO,
+      loops: [{ src: "yoru/track-1.mp3", start: YR_START, length: YR_TRACK1 }, { src: "yoru/track-2.mp3", start: YR_START, length: YR_TRACK2 }],
+      joined: true, intro: yoruIntro, introClass: "yr-intro",
+      // The bridge: track 2, the riff: the night leaks in (see yoruStage). The page's words are the
+      // night's (YR_LINES).
+      stage: {
+        beat: YR_BEAT, parts: [YR_TRACK1, YR_TRACK2], grid: YR_TRACK1, lyrics: YR_LINES,
+        fx: YR_FX,
+        sections: [[0, "calm"], [YR_TRACK1, "drip"], [YR_TRACK1 + YR_T16 * 64, "fall"], [YR_TRACK1 + YR_T16 * 120, "drain"]],
+        ...yoruStage,
+      },
+      scene: yoruScene,
+      decor: YR_DECOR,
+      extras: ["cover.webp", "boy.webp", "girl.webp", "eye.webp", "embrace.webp", "hand-left.webp", "hand-right.webp", "hands.webp", "moon.webp", "butterfly-pink.webp", "butterfly-teal.webp",
+        "lines-pink-1.webp", "lines-teal-2.webp", ...[1, 2, 3, 4, 5, 6].map((n) => `sparkle-${n}.webp`)],
     },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
@@ -7248,9 +9166,10 @@
     kissntell: { kicker: "🎟 Admit one", label: "Enter Kiss N Tell Park" },
     ditto: { kicker: "❄ 12.19.2022", label: "Rewind to that winter" },
     breed: { kicker: "☻ This song connects worlds", label: "Let's give it a listen" },
+    yoru: { kicker: "AM 4:00 · 夜明けまで", label: "Race into the night" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
-  // page and lights up there during the bridge.
+  // page, up whenever the theme is on (not only during the bridge).
   const cta = document.createElement("div");
   cta.className = "ae-cta";
   cta.id = "ae-cta";
@@ -7258,9 +9177,11 @@
   function renderCta(theme) {
     const t = theme ? THEMES[theme] : null;
     const words = theme ? CTAS[theme] : null;
+    cta.classList.remove("is-on");
     if (!t?.scene || !words) { cta.innerHTML = ""; return; }
     cta.innerHTML = `<button type="button" class="ae-cta-btn is-${theme}" aria-label="Play the secret ${escapeHtml(t.era)} scene" tabindex="-1">`
       + `<i class="ae-cta-icon" aria-hidden="true"></i><span class="ae-cta-text"><small>${escapeHtml(words.kicker)}</small><b>${escapeHtml(words.label)}</b></span></button>`;
+    showCta(true);
   }
   function showCta(on) {
     if (cta.classList.contains("is-on") === on) return;
@@ -7332,11 +9253,8 @@
       const line = pool[(deal * 7 + k + start) % pool.length];
       el.innerHTML = `<span class="ae-sr">${escapeHtml(lyricSaved.get(el)[1])}</span><span class="ae-lyric" aria-hidden="true" style="--ly-i: ${i % 9}">${escapeHtml(line)}</span>`;
     });
-    // While the lyrics are on, the theme's scene button rises at the bottom of the screen.
-    showCta(Boolean(current && THEMES[current]?.scene));
   }
   function restoreLyrics() {
-    showCta(false);
     lyricSaved.forEach(([html], el) => { el.innerHTML = html; el.style.minHeight = ""; });
     lyricSaved.clear();
     lyricDeal = -1;
@@ -7571,7 +9489,8 @@
         nextAt = at + introPart.duration;
         schedule();
         timer = setInterval(schedule, 1000);
-        return () => (ctx.currentTime - at + introPart.offset) * 1000;
+        // (as heard: the output's delay taken off, so the intro's last frame goes as the loop is heard)
+        return () => (heard() - at + introPart.offset) * 1000;
       },
       // A scene whose sound leads straight into the loop ({ src, start, length }: played from start for
       // length seconds): decoded ahead while the scene's button is up (preloadLead); lead() plays it,
@@ -7726,18 +9645,35 @@
       show(0);
       let shown = 0;
       let clock = null;
+      // Skip: a button over the intro (and Escape) ends it now; the theme then starts as after its intro
+      // (its music from track 1's top: the intro's own sound is stopped).
+      let skipped = false, over = false;
+      const skip = document.createElement("button");
+      skip.type = "button";
+      skip.className = `ae-intro-skip is-${theme}`;
+      skip.textContent = "Skip intro ›";
+      document.body.appendChild(skip);
+      const onKey = (event) => { if (event.key === "Escape") { event.preventDefault(); skipped = true; } };
+      skip.addEventListener("click", () => { skipped = true; });
+      document.addEventListener("keydown", onKey);
+      const finish = (wasSkipped) => {
+        over = true;
+        skip.remove();
+        document.removeEventListener("keydown", onKey);
+        box.classList.add("is-out");
+        setTimeout(() => { box.remove(); if (film) { film.pause(); film.currentTime = 0; } }, 260);
+        if (wasSkipped && !t.joined) clipFor(theme).pause();
+        done({ joined: joined && !wasSkipped, skipped: wasSkipped });
+      };
       const frame = () => {
+        if (over) return;
+        if (skipped) { finish(true); return; }
         const now = clock();
         let step = 0;
         spec.cues.forEach(([at], i) => { if (now >= at) step = i; });
         if (step !== shown) { shown = step; show(step); }
         show.tick?.(now);
-        if (now >= spec.end) {
-          box.classList.add("is-out");
-          setTimeout(() => { box.remove(); if (film) { film.pause(); film.currentTime = 0; } }, 260);
-          done({ joined });
-          return;
-        }
+        if (now >= spec.end) { finish(false); return; }
         requestAnimationFrame(frame);
       };
       let joined = false;
@@ -7813,6 +9749,7 @@
     kissntell: { logo: "kiss-n-tell/logo-black.webp", tint: "#FF8CC6", mask: true },
     ditto: { logo: "ditto/logo-ditto.webp", tint: "#9AA6E8", mask: true },
     breed: { logo: "breed/smiley-ink.webp", tint: "#B1F700", mask: true },
+    yoru: { logo: "yoru/moon.webp", tint: "#FF7A9C", mask: true },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -8124,7 +10061,8 @@
     back.classList.toggle("is-kiss", t.back === "kiss");
     back.classList.toggle("is-chat", t.back === "chat");
     back.classList.toggle("is-sheet", t.back === "sheet");
-    back.innerHTML = t.back === "sheet" ? `
+    back.classList.toggle("is-sky", t.back === "sky");
+    back.innerHTML = t.back === "sky" ? yoruSkyBack(member, key, t, count) : t.back === "sheet" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the key visual">☻</button>
       <p class="br-file"><span>Character file · 0${pcIndex + 1}</span><b>${escapeHtml(member.hangul)}</b></p>
       <div class="br-file-sheet" role="img" aria-label="${escapeHtml(member.name)}’s character sheet" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
@@ -8564,7 +10502,7 @@
     if (!track || !track.hidden) return;
     track.hidden = false;
     const found = BONUS.filter((bonus) => picker.querySelector(`.ae-pick[data-pick="${bonus}"]`)?.hidden === false).length;
-    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${found === 1 ? "one was" : "two were"} hidden`;
+    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${["", "one was", "two were", "three were"][found] ?? `${found} were`} hidden`;
   }
   const revealDitto = () => revealBonus("ditto");
   if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
@@ -8766,7 +10704,115 @@
       hero.classList.toggle("has-peel", !peel.hidden);
     }
   };
-  onThemeApplied = () => { showMore(); showPeel(); };
+  // ── Racing into the Night: the secret after Breed ──
+  // Once Breed has been found here, something pink leaks out from under the café's header, at its
+  // bottom-left corner (in the café look only): it seeps along the edge and drips, a drop falling now
+  // and then. Clicking it lets it flood the screen and plays the theme's intro, which starts as that
+  // pink draining away. That unlocks it for good: the leak is gone, and the theme shows in the playlist
+  // as the third hidden track.
+  if (store.get(YORU_KEY) || current === "yoru") revealBonus("yoru");
+  let leak = null, flooding = false;
+  // The flood: the pink spreading out from the leak (along the header's edge, drips running down the
+  // page ahead of it, and a wavering pool from the corner) until it covers the screen, on a canvas over
+  // the page; done(layer) then.
+  function flood(x0, y0, done) {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const layer = document.createElement("canvas");
+    layer.className = "yr-flood";
+    layer.setAttribute("aria-hidden", "true");
+    layer.width = Math.round(W * ratio); layer.height = Math.round(H * ratio);
+    document.body.append(layer);
+    const g = layer.getContext("2d");
+    const far = Math.hypot(Math.max(x0, W - x0), Math.max(y0, H - y0)) * 1.08;
+    const drips = Array.from({ length: Math.ceil(W / 46) }, (_, n) => [(n + 0.2 + Math.random() * 0.6) * 46, 6 + Math.random() * 10, 0.75 + Math.random() * 0.6]);
+    const began = performance.now(), long = 1050;
+    const frame = (now) => {
+      const q = Math.min(1, (now - began) / long), e = q * q * (3 - 2 * q), t = now - began;
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      g.fillStyle = "#FF6F91";
+      // along the edge, out from the corner
+      const reach = Math.min(W, W * 1.6 * q + 60);
+      g.fillRect(0, y0 - 4, reach, 10 + 24 * q);
+      // the drips, each once the edge's pink has reached it
+      for (const [x, w, speed] of drips) {
+        if (x > reach) continue;
+        const len = Math.max(0, (q - x / (W * 1.6)) * H * 2.2 * speed);
+        g.beginPath(); g.roundRect(x - w / 2, y0, w, len + w, w / 2); g.fill();
+        g.beginPath(); g.arc(x, y0 + len + w * 0.6, w * 0.75, 0, Math.PI * 2); g.fill();
+      }
+      // the pool from the corner, its edge wavering
+      const R = far * e;
+      g.beginPath();
+      for (let a = 0; a <= 72; a++) {
+        const th = (a / 72) * Math.PI * 2, r = R * (1 + 0.05 * Math.sin(th * 5 + t / 90) + 0.03 * Math.sin(th * 11 - t / 60));
+        const x = x0 + Math.cos(th) * r, y = y0 + Math.sin(th) * r;
+        if (a) g.lineTo(x, y); else g.moveTo(x, y);
+      }
+      g.fill();
+      // the liquid's gloss: a light line along the pool's edge, just inside it
+      g.save(); g.clip(); g.strokeStyle = "rgba(255, 226, 236, 0.75)"; g.lineWidth = 5; g.stroke(); g.restore();
+      g.strokeStyle = "rgba(226, 70, 112, 0.55)"; g.lineWidth = 2; g.stroke();
+      if (q < 1) requestAnimationFrame(frame); else done(layer);
+    };
+    requestAnimationFrame(frame);
+  }
+  const unlockYoru = () => {
+    if (flooding || switching) return;
+    flooding = true;
+    // the sound woken by the click itself (phones only start audio in a tap)
+    if (soundWanted()) playerFor("yoru").prime();
+    warm("yoru");
+    const finish = (layer) => {
+      store.set(YORU_KEY, new Date().toISOString());
+      revealBonus("yoru");
+      closePicker();
+      void switchTo("yoru");
+      // the flood goes once the intro, the same pink, is over it
+      requestAnimationFrame(() => requestAnimationFrame(() => layer?.remove()));
+      leak?.parentElement?.remove();
+      leak = null;
+      flooding = false;
+    };
+    if (!motionOK()) { finish(null); return; }
+    const at = leak.getBoundingClientRect();
+    leak.classList.add("is-flooding");
+    flood(at.left + 24, at.top + 4, finish);
+  };
+  const showLeak = () => {
+    const due = Boolean(store.get(BREED_KEY)) && !store.get(YORU_KEY);
+    if (due && !leak && hero) {
+      // (in a strip of no height between the header and the page, so it hangs from the header's edge)
+      const strip = document.createElement("div");
+      strip.className = "yr-leak-at";
+      leak = document.createElement("button");
+      leak.type = "button";
+      leak.className = "yr-leak";
+      leak.setAttribute("aria-label", "Something pink is leaking out from under the header. Follow it");
+      leak.innerHTML = `<svg viewBox="0 0 240 96" aria-hidden="true">
+        <defs><filter id="yr-goo" x="-20%" y="-20%" width="140%" height="160%"><feGaussianBlur stdDeviation="4.5" /><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -8" /></filter>
+        <linearGradient id="yr-leak-pink" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8FB0" /><stop offset="1" stop-color="#F2577F" /></linearGradient></defs>
+        <g class="yr-leak-goo" filter="url(#yr-goo)" fill="url(#yr-leak-pink)">
+          <path class="yr-leak-sheet" d="M0 -6H226C214 3 196 2 172 7C146 12 118 9 92 13C64 17 40 14 24 19C14 22 6 20 0 23Z" />
+          <ellipse class="yr-leak-drip is-a" cx="24" cy="18" rx="8" ry="17" />
+          <ellipse class="yr-leak-drip is-b" cx="86" cy="13" rx="6.5" ry="11" />
+          <ellipse class="yr-leak-drip is-c" cx="158" cy="9" rx="5" ry="7" />
+          <circle class="yr-leak-drop" cx="24" cy="34" r="6.5" />
+        </g>
+        <path class="yr-leak-shine" d="M8 6C40 9 90 6 150 2" />
+        <ellipse class="yr-leak-shine is-dot" cx="20" cy="22" rx="2" ry="4.5" />
+      </svg>`;
+      const ready = () => warm("yoru");
+      leak.addEventListener("pointerenter", ready, { once: true });
+      leak.addEventListener("focus", ready, { once: true });
+      leak.addEventListener("click", unlockYoru);
+      strip.append(leak);
+      hero.after(strip);
+    }
+    if (leak && !flooding) leak.parentElement.hidden = !due || current !== null;
+  };
+  onThemeApplied = () => { showMore(); showPeel(); showLeak(); };
   showMore();
   showPeel();
+  showLeak();
 })();
