@@ -1,7 +1,7 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
-// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css, breed.css and yoru.css;
-// photos and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/, kiss-n-tell/, ditto/, breed/
-// and yoru/).
+// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css, breed.css, yoru.css and
+// stay.css; photos and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/, kiss-n-tell/, ditto/,
+// breed/, yoru/ and stay/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
 // Armageddon, Drama, Rich Man or Kiss N Tell, straight from any of them. Each
@@ -28,7 +28,11 @@
   // Racing into the Night, the one after that, leaks out from under the café's header once Breed has
   // been found (see "Racing into the Night: the secret after Breed" at the end).
   const YORU_KEY = "brew-houze-yoru-unlocked";
-  const BONUS = ["ditto", "breed", "yoru"]; // the hidden tracks, after the six, in the order they are found
+  // I Really Want to Stay at Your House, the one after that, glitches out of the café header's own logo once
+  // Racing into the Night has been found (see "I Really Want to Stay at Your House: the secret after Racing
+  // into the Night" at the end).
+  const STAY_KEY = "brew-houze-stay-unlocked";
+  const BONUS = ["ditto", "breed", "yoru", "stay"]; // the hidden tracks, after the six, in the order they are found
   const visited = () => { try { const list = JSON.parse(store.get(VISITED_KEY) ?? "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
   let onThemeApplied = null; // set by the Ditto unlock once it is ready
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -71,12 +75,23 @@
     ikura: { name: "ikura", hangul: "ボーカル", short: "Vocals · 幾田りら", real: "Lilas Ikuta (幾田りら)", role: "Vocals · tells the story",
       stars: [[26, 34], [38, 48], [50, 38], [61, 55], [73, 46], [66, 70], [44, 68]] },
   };
+  // Cyberpunk: Edgerunners (Studio Trigger, 2022), for I Really Want to Stay at Your House (Rosa Walton's; in
+  // Night City, Hallie Coggins's): its two, as a fixer's file has them (the back of each card): who they are,
+  // their chrome, their voices (Japanese · English), how each one's story ends. David's is a dead man's
+  // (dead: his plate and his card corrupted, his vitals flat).
+  const SY_CAST = {
+    david: { name: "David", hangul: "デイビッド・マルティネス", short: "Edgerunner · crew leader", real: "David Martinez", role: "Edgerunner · crew leader",
+      chrome: "Military-grade Sandevistan", cv: "KENN · Zach Aguilar", status: "FLATLINED", line: "He kept his promise. She made it to the moon.", dead: true },
+    lucy: { name: "Lucy", hangul: "ルーシー", short: "Netrunner", real: "Lucyna Kushinada", role: "Netrunner",
+      chrome: "Cyberdeck · monowire", cv: "Aoi Yūki · Emi Lo", status: "ALIVE · LUNA", line: "She made it to the moon. He is in every memory she plays back." },
+  };
   // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order.
   const GROUPS = {
     aespa: { name: "aespa", members: MEMBERS, order: memberOrder },
     newjeans: { name: "NewJeans", members: NJ_MEMBERS, order: Object.keys(NJ_MEMBERS) },
     kininao: { name: "The Guy She Was Interested in Wasn’t a Guy at All", members: KN_CAST, order: Object.keys(KN_CAST) },
     yoasobi: { name: "YOASOBI", members: YR_MEMBERS, order: Object.keys(YR_MEMBERS) },
+    edgerunners: { name: "Cyberpunk: Edgerunners", members: SY_CAST, order: Object.keys(SY_CAST) },
   };
   const groupOf = (theme) => GROUPS[THEMES[theme]?.group ?? "aespa"];
   const DW_TAROT = {
@@ -7247,16 +7262,16 @@
   const yrPics = {};
   const yrPic = (name) => (yrPics[name] ??= Object.assign(new Image(), { decoding: "async", src: siteUrl(`yoru/${name}.webp`) }));
   // A muted film kept in step with the music's clock (t: seconds into it; outside [0, until) it is paused at
-  // its start, so the next time begins at once): started a little ahead (it takes a moment to get going),
-  // then eased into step by its speed (a seek only if it is far out: a seek stalls it).
-  const yrKeep = (film, t, until) => {
+  // its start, so the next time begins at once): started a little ahead (lead s: it takes a moment to get
+  // going), then eased into step by its speed (a seek only if it is far out: a seek stalls it).
+  const yrKeep = (film, t, until, lead = 0.08) => {
     if (t < 0 || t >= until) {
       if (!film.paused) film.pause();
       if (film.currentTime > 0.05) film.currentTime = 0;
       film.playbackRate = 1;
       return;
     }
-    if (film.paused) { film.currentTime = Math.min(until, t + 0.08); void film.play().catch(() => undefined); return; }
+    if (film.paused) { film.currentTime = Math.min(until, t + lead); void film.play().catch(() => undefined); return; }
     const behind = t - film.currentTime;
     if (Math.abs(behind) > 0.3) { film.currentTime = t + 0.04; film.playbackRate = 1; return; }
     const rate = 1 + Math.max(-0.15, Math.min(0.15, behind * 1.2));
@@ -8718,6 +8733,2151 @@
     },
   };
 
+  // ── I Really Want to Stay at Your House (Rosa Walton) × Cyberpunk: Edgerunners ──
+  // The song at 125 BPM (a beat of 21168 samples); each file's music starts 1352 samples in (cut like the
+  // others), and each is whole bars: the intro 8 (pads, the bass from bar 3, the build from bar 5, the band
+  // on bar 8), track 1 20 (the groove, the verse, the drums dropping out for its last 4), track 2 8.
+  const SY_BEAT = 60 / 125;
+  const SY_START = 1352 / 44100;
+  const SY_INTRO = 32 * SY_BEAT, SY_TRACK1 = 80 * SY_BEAT, SY_TRACK2 = 32 * SY_BEAT;
+  // a beat of the intro (from its first), as ms of its clip
+  const SY_IN = (beat) => Math.round((SY_START + beat * SY_BEAT) * 1000);
+  // The intro: a braindance (a memory, recorded and played back) of Lucy's, on the music. Its memories are the
+  // show's own (stay/intro.mp4, cut from the user's clip onto the beat grid by introedit.py: a shot every two
+  // beats, the leap a bar, from beat 4 to 29):
+  //   boot (0)          bar 1: the replay boots out of the glitch, its log typed in
+  //   open (bar 2)      it opens: Lucy behind the leaves; David, in the crowd
+  //   together (bar 3)  the two of them at the train's door; close, in the neon
+  //   (bar 4)           Lucy in the yellow jacket, smiling; then scrub (beat 14, what comes in on the third
+  //                     beat): the memory scrubbed back through her close-ups, smeared
+  //   dream (bar 5)     the bass: their leap through the golden light
+  //   smile (bar 6)     Lucy in the purple light, smiling at him; thermal (its third beat): his hand finding
+  //                     hers, seen as heat
+  //   vitals (bar 7)    David in the respirator, his biomonitor over it: a beat a beat, weaker each time, the
+  //                     picture corrupting with it
+  //   flatline (bar 8)  the band comes in: the line goes flat on the last of the two of them, FLATLINED, the
+  //                     replay breaks apart
+  //   title (beat 29)   the logo glitches in over the Earth seen from the moon (where she ended up), the
+  //                     song's name typed under it; on the downbeat, the page
+  // The film and his heart's line are drawn on a canvas every frame from the clip's clock (the film kept in
+  // step with it); the replay's HUD, its log, the vitals and the title are the DOM's.
+  // The pictures: file, and the point of each kept in view when the screen crops it (u, v).
+  const SY_PICS = { moon: ["flash-4.webp", 0.5, 0.45] };
+  // the film: from the intro's beat 4, 25 beats long
+  const SY_FILM0 = SY_START + 4 * SY_BEAT, SY_FILM = 25 * SY_BEAT;
+  // the replay's log (the beat each line starts typing, in bar 1)
+  const SY_BOOT = [[0.2, "BRAINDANCE // PLAYBACK"], [0.8, "NEURAL LINK ........... OK"], [1.4, "LOADING   MEMORY_0417.bd"], [2.0, "RECORDED BY ....... LUCY"],
+    [2.6, "⚠ 3 SEGMENTS CORRUPTED"], [3.25, "PLAY ▶"]];
+  const SY_SONG = "I REALLY WANT TO STAY AT YOUR HOUSE";
+  // his biomonitor's last readings, a beat each through bar 7
+  const SY_PULSE = [98, 71, 44, 19];
+  const syHeat = (v) => {
+    const stops = [[0, 8, 0, 40], [0.25, 70, 0, 140], [0.5, 225, 25, 80], [0.75, 255, 160, 0], [1, 255, 248, 200]];
+    let k = 1;
+    while (k < stops.length - 1 && v > stops[k][0]) k++;
+    const [a, r0, g0, b0] = stops[k - 1], [z, r1, g1, b1] = stops[k], q = Math.min(1, Math.max(0, (v - a) / (z - a)));
+    return [r0 + (r1 - r0) * q, g0 + (g1 - g0) * q, b0 + (b1 - b0) * q];
+  };
+  // A picture made ready for tearing: drawn to a working size, its three colour channels apart (drawn back
+  // together with "lighter", each can be shifted), and as heat when asked.
+  const syPrepare = (img, heat) => {
+    const w = Math.min(1280, img.naturalWidth), h = Math.round((w * img.naturalHeight) / img.naturalWidth);
+    const base = document.createElement("canvas");
+    base.width = w; base.height = h;
+    base.getContext("2d").drawImage(img, 0, 0, w, h);
+    const ch = ["#FF0000", "#00FF00", "#0000FF"].map((colour) => {
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const cg = c.getContext("2d");
+      cg.drawImage(base, 0, 0); cg.globalCompositeOperation = "multiply"; cg.fillStyle = colour; cg.fillRect(0, 0, w, h);
+      return c;
+    });
+    // a soft copy (halved down to a few dozen pixels, so each is an average, then grown back smoothly), the
+    // blurred backdrop of a picture shown whole
+    let small = base;
+    while (small.width > 48) {
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(small.width / 2)); c.height = Math.max(1, Math.round(small.height / 2));
+      c.getContext("2d").drawImage(small, 0, 0, c.width, c.height);
+      small = c;
+    }
+    const tiny = document.createElement("canvas");
+    tiny.width = small.width * 8; tiny.height = small.height * 8;
+    const tg = tiny.getContext("2d");
+    tg.imageSmoothingQuality = "high"; tg.drawImage(small, 0, 0, tiny.width, tiny.height);
+    let hot = null;
+    if (heat) {
+      hot = document.createElement("canvas");
+      hot.width = w; hot.height = h;
+      const cg = hot.getContext("2d");
+      cg.drawImage(base, 0, 0);
+      const data = cg.getImageData(0, 0, w, h), d = data.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const [r, g, b] = syHeat((d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) / 255);
+        d[i] = r; d[i + 1] = g; d[i + 2] = b;
+      }
+      cg.putImageData(data, 0, 0);
+    }
+    return { base, ch, hot, tiny };
+  };
+  // static (grey noise), for the glitches
+  const syStatic = (() => {
+    let tile = null;
+    return () => {
+      if (tile) return tile;
+      tile = document.createElement("canvas");
+      tile.width = tile.height = 160;
+      const tg = tile.getContext("2d"), data = tg.createImageData(160, 160);
+      for (let i = 0; i < data.data.length; i += 4) { const v = Math.random() * 255; data.data[i] = data.data[i + 1] = data.data[i + 2] = v; data.data[i + 3] = 255; }
+      tg.putImageData(data, 0, 0);
+      return tile;
+    };
+  })();
+  const stayIntro = {
+    end: SY_IN(32),
+    video: { wide: "intro.mp4", tall: "intro.mp4" },
+    cues: [[0, "boot"], [SY_IN(4), "open"], [SY_IN(8), "together"], [SY_IN(14), "scrub"], [SY_IN(16), "dream"], [SY_IN(20), "smile"], [SY_IN(22), "thermal"],
+      [SY_IN(24), "vitals"], [SY_IN(28), "flatline"], [SY_IN(29), "title"]],
+    hits: new Set(["open", "dream", "flatline", "title"]),
+    mount(box, photos, flashes, film) {
+      const src = (file) => siteUrl(`stay/${file}`);
+      box.innerHTML = `
+        <canvas class="sy-bd"></canvas>
+        <pre class="sy-boot"></pre>
+        <div class="sy-hud">
+          <i class="sy-corner is-tl"></i><i class="sy-corner is-tr"></i><i class="sy-corner is-bl"></i><i class="sy-corner is-br"></i>
+          <p class="sy-hud-file"><b>▶ BD REPLAY</b><span>MEMORY_0417.bd</span></p>
+          <p class="sy-hud-layers"><span class="is-vis">VIS</span><span class="is-thm">THM</span><span class="is-aud">AUD</span></p>
+          <div class="sy-hud-line"><i class="is-vis"></i><i class="is-thm"></i><i class="is-aud"></i><b></b></div>
+          <p class="sy-hud-tc">00:02:14:00</p>
+        </div>
+        <div class="sy-vitals"><p><span>BIOMONITOR</span><b>D. MARTINEZ</b></p><p class="sy-bpm"><b>98</b><small>BPM</small></p></div>
+        <div class="sy-dead"><i class="sy-dead-danger"></i><b data-text="FLATLINED">FLATLINED</b><p>NO BIOMONITOR SIGNAL · D. MARTINEZ</p></div>
+        <div class="sy-card"><small>Brew Houze ×</small><div class="sy-card-logo"><img src="${src("logo.webp")}" alt="" draggable="false" /></div><p class="sy-card-song"></p><span>Rosa Walton</span></div>
+        <i class="sy-flash"></i>`;
+      const canvas = box.querySelector(".sy-bd"), g = canvas.getContext("2d");
+      const boot = box.querySelector(".sy-boot"), head = box.querySelector(".sy-hud-line b"), tc = box.querySelector(".sy-hud-tc");
+      const bpm = box.querySelector(".sy-bpm b"), song = box.querySelector(".sy-card-song");
+      const layers = { vis: box.querySelector(".sy-hud-layers .is-vis"), thm: box.querySelector(".sy-hud-layers .is-thm"), aud: box.querySelector(".sy-hud-layers .is-aud") };
+      const clamp = (q) => Math.min(1, Math.max(0, q));
+      const out = (q) => 1 - (1 - clamp(q)) ** 3;
+      const PI2 = Math.PI * 2;
+      // the pictures, ready once loaded
+      const pics = {};
+      for (const [name, [file, fu, fv]] of Object.entries(SY_PICS)) {
+        const pic = { fu, fv, ready: null };
+        const img = new Image();
+        img.decoding = "async";
+        img.onload = () => { pic.ready = syPrepare(img, false); };
+        img.src = src(file);
+        pics[name] = pic;
+      }
+      // the film, read the same way as a picture: its latest frame kept (a seek or a stall shows the last one),
+      // and as each moment needs it, its channels apart, its heat (through a lookup), a soft copy (halved
+      // down, grown back) for the blurred backdrop
+      const sheet = (w, h) => Object.assign(document.createElement("canvas"), { width: w, height: h });
+      const fw = SCENE_LITE ? 640 : 960, fh = Math.round((fw * 9) / 16);
+      const reel = { fu: 0.5, fv: 0.5, ready: { base: sheet(fw, fh), ch: [sheet(fw, fh), sheet(fw, fh), sheet(fw, fh)], hot: sheet(320, 180), tiny: sheet(240, 135) } };
+      const halves = [sheet(480, 270), sheet(240, 135), sheet(120, 68), sheet(60, 34)];
+      const heatLUT = new Uint8ClampedArray(768);
+      for (let v = 0; v < 256; v++) heatLUT.set(syHeat(v / 255), v * 3);
+      const grab = (split, hot, soft) => {
+        const r = reel.ready;
+        if (film && film.readyState >= 2 && !film.seeking) r.base.getContext("2d").drawImage(film, 0, 0, fw, fh);
+        if (split) r.ch.forEach((c, i) => { const cg = c.getContext("2d"); cg.globalCompositeOperation = "copy"; cg.drawImage(r.base, 0, 0); cg.globalCompositeOperation = "multiply"; cg.fillStyle = ["#FF0000", "#00FF00", "#0000FF"][i]; cg.fillRect(0, 0, fw, fh); });
+        if (hot) {
+          const hg = r.hot.getContext("2d", { willReadFrequently: true });
+          hg.drawImage(r.base, 0, 0, 320, 180);
+          const data = hg.getImageData(0, 0, 320, 180), d = data.data;
+          for (let i = 0; i < d.length; i += 4) { const v = ((d[i] * 77 + d[i + 1] * 151 + d[i + 2] * 28) >> 8) * 3; d[i] = heatLUT[v]; d[i + 1] = heatLUT[v + 1]; d[i + 2] = heatLUT[v + 2]; }
+          hg.putImageData(data, 0, 0);
+        }
+        if (soft) {
+          let from = r.base;
+          for (const c of halves) { c.getContext("2d").drawImage(from, 0, 0, c.width, c.height); from = c; }
+          const tg = r.tiny.getContext("2d");
+          tg.imageSmoothingQuality = "high"; tg.drawImage(from, 0, 0, 240, 135);
+        }
+      };
+      let frames = 0;
+      const noise = syStatic();
+      const noisy = g.createPattern(noise, "repeat");
+      const lines = (() => { const c = document.createElement("canvas"); c.width = 4; c.height = 4; const cg = c.getContext("2d"); cg.fillStyle = "rgba(0, 0, 0, 0.34)"; cg.fillRect(0, 0, 4, 1); return g.createPattern(c, "repeat"); })();
+      let W = 0, H = 0, ratio = 1;
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+      };
+      // a picture over the screen (cover, its point kept in view, zoomed); its channels apart by `split` px;
+      // or as heat. One far from the screen's shape is framed over itself blurred and dark instead: a tall
+      // one on a wide screen shown whole, a wide one on a phone as a band across the middle.
+      const draw = (pic, zoom, split = 0, alpha = 1, hot = false) => {
+        const ready = pic?.ready;
+        if (!ready) return;
+        const iw = ready.base.width, ih = ready.base.height, shape = iw / ih / (W / H), whole = shape < 0.66, band = shape > 1.5;
+        if (whole || band) {
+          g.globalAlpha = alpha; g.drawImage(ready.tiny, -W * 0.05, -H * 0.05, W * 1.1, H * 1.1);
+          g.fillStyle = "rgba(3, 3, 10, 0.62)"; g.fillRect(0, 0, W, H); g.globalAlpha = 1;
+        }
+        // the box it fills (the screen, the band, or its own shape whole), and where it sits in it
+        const bh = band ? Math.min(H * 0.54, (W * ih * 1.9) / iw) : H, by = (H - bh) / 2;
+        const k = (whole ? Math.min(W / iw, H / ih) * 0.94 : Math.max(W / iw, bh / ih)) * zoom, w = iw * k, h = ih * k;
+        const x = whole ? (W - w) / 2 : Math.min(0, Math.max(W - w, W / 2 - w * pic.fu));
+        const y = whole && h <= H ? (H - h) / 2 : Math.min(by, Math.max(by + bh - h, by + bh / 2 - h * pic.fv));
+        g.save();
+        if (whole) { g.globalAlpha = 0.7 * alpha; g.strokeStyle = "#00E5FF"; g.lineWidth = 1; g.strokeRect(x - 6.5, y - 6.5, w + 13, h + 13); }
+        if (band) {
+          g.globalAlpha = 0.7 * alpha; g.fillStyle = "#00E5FF"; g.fillRect(0, by - 7, W, 1); g.fillRect(0, by + bh + 6, W, 1);
+          g.beginPath(); g.rect(0, by, W, bh); g.clip();
+        }
+        g.globalAlpha = alpha;
+        if (hot && ready.hot) g.drawImage(ready.hot, x, y, w, h);
+        else if (split > 0.5) {
+          g.save(); g.globalCompositeOperation = "lighter";
+          g.drawImage(ready.ch[0], x - split, y, w, h); g.drawImage(ready.ch[1], x, y, w, h); g.drawImage(ready.ch[2], x + split, y, w, h);
+          g.restore();
+        } else g.drawImage(ready.base, x, y, w, h);
+        g.restore();
+        g.globalAlpha = 1;
+      };
+      // tearing (0-1): slices of the frame slipping sideways, and past half, bars of neon
+      const tear = (amount) => {
+        if (amount < 0.03) return;
+        for (let i = 0, n = Math.round(2 + amount * 12); i < n; i++) {
+          const y = Math.random() * H, h = 2 + Math.random() * (6 + 50 * amount), dx = (Math.random() - 0.5) * 170 * amount;
+          g.drawImage(canvas, 0, y * ratio, canvas.width, h * ratio, dx, y, W, h);
+        }
+        if (amount > 0.35) {
+          g.save(); g.globalCompositeOperation = "screen";
+          for (let i = 0, n = Math.round(amount * 7); i < n; i++) {
+            g.fillStyle = ["rgba(0, 229, 255, 0.5)", "rgba(255, 46, 151, 0.5)", "rgba(252, 238, 10, 0.45)"][i % 3];
+            g.fillRect(Math.random() * W, Math.random() * H, 20 + Math.random() * 240 * amount, 3 + Math.random() * 18);
+          }
+          g.restore();
+        }
+      };
+      const grain = (alpha) => {
+        if (alpha <= 0.01) return;
+        g.save(); g.globalAlpha = alpha; g.globalCompositeOperation = "overlay";
+        g.translate(-Math.random() * 160, -Math.random() * 160); g.fillStyle = noisy; g.fillRect(0, 0, W + 160, H + 160);
+        g.restore();
+      };
+      // his heart on the biomonitor: the trace running left, its pen 78% across, a beat on each of bar 7's
+      // (weaker each time); flat from the band's downbeat on
+      const qrs = (x) => (x < -0.06 ? 0 : x < -0.02 ? -0.12 * Math.sin(((x + 0.06) / 0.04) * Math.PI) : x < 0 ? 0 : x < 0.03 ? x / 0.03
+        : x < 0.06 ? 1 - ((x - 0.03) / 0.03) * 1.45 : x < 0.09 ? -0.45 + ((x - 0.06) / 0.03) * 0.45 : x < 0.2 ? 0.18 * Math.sin(((x - 0.09) / 0.11) * Math.PI) : 0);
+      const FLAT = SY_START + 28 * SY_BEAT;
+      const heart = (time) => (time >= FLAT ? 0 : SY_PULSE.reduce((v, _, k) => v + qrs(time - (SY_START + (24 + k) * SY_BEAT)) * (1 - k * 0.2), 0));
+      const ekg = (t) => {
+        const flat = t >= FLAT, pen = W * 0.78, speed = W * 0.36, base = H * 0.72, amp = Math.min(H * 0.16, 120), path = new Path2D();
+        for (let x = 0; x <= pen; x += 3) { const y = base - heart(t - (pen - x) / speed) * amp; if (x) path.lineTo(x, y); else path.moveTo(x, y); }
+        if (flat) path.lineTo(W, base);
+        g.save(); g.lineJoin = "round"; g.lineCap = "round";
+        g.strokeStyle = flat ? "rgba(255, 0, 60, 0.35)" : "rgba(166, 255, 0, 0.3)"; g.lineWidth = 10; g.stroke(path);
+        g.strokeStyle = flat ? "#FF2D55" : "#B6FF3A"; g.lineWidth = 2.5; g.stroke(path);
+        if (!flat) { g.fillStyle = "#EFFFC8"; g.beginPath(); g.arc(pen, base - heart(t) * amp, 4.5, 0, PI2); g.fill(); }
+        g.restore();
+      };
+      // the replay's own clock: 00:02:14 at the start, scrubbed back 9 s in bar 4
+      const memory = (b) => (b < 14 ? 134 + (b - 4) * SY_BEAT : b < 16 ? 134 + 10 * SY_BEAT - ((b - 14) / 2) * 9 : 134 + 10 * SY_BEAT - 9 + (b - 16) * SY_BEAT);
+      const timecode = (s) => { const f = Math.floor(s * 24); return `00:${String(Math.floor(f / 1440)).padStart(2, "0")}:${String(Math.floor(f / 24) % 60).padStart(2, "0")}:${String(f % 24).padStart(2, "0")}`; };
+      const show = (step) => {
+        const [, name] = this.cues[step];
+        const reached = new Set(this.cues.slice(0, step + 1).map(([, entry]) => entry));
+        box.className = ["sy-intro", `is-${name}`, ...[...reached].map((entry) => `has-${entry}`)].join(" ");
+        if (this.hits.has(name)) { void box.offsetWidth; box.classList.add("is-hit"); }
+      };
+      show.tick = (now) => {
+        size();
+        const t = now / 1000, b = (t - SY_START) / SY_BEAT;
+        g.setTransform(1, 0, 0, 1, 0, 0); g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+        g.fillStyle = "#03030A"; g.fillRect(0, 0, canvas.width, canvas.height);
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        // a cut's jolt: a burst of tearing right after it
+        const cut = (at, k = 0.55) => (b >= at ? k * Math.exp(-(b - at) * 5) : 0);
+        let glitch = 0, fuzz = 0.07;
+        // the film kept in step with the clock (from beat 4; before it, ready at its start)
+        if (film) yrKeep(film, t - SY_FILM0, SY_FILM, 0.015);
+        frames++;
+        // the film drawn: zoom, its channels apart, how bright, as heat
+        const reelAt = (zoom, split, alpha = 1, hot = false) => {
+          const soft = (16 / 9) / (W / H) > 1.5 && frames % 3 === 0;
+          grab(split > 0.5 && !hot, hot, soft || frames < 3);
+          draw(reel, zoom, split, alpha, hot);
+        };
+        if (b < 4) {
+          // out of the unlock's static, into the dark
+          const s = 1 - clamp(b / 1.3);
+          if (s > 0) { g.globalAlpha = 0.6 * s; g.fillStyle = noisy; g.fillRect(0, 0, W, H); g.globalAlpha = 1; glitch = s * 0.8; }
+        } else if (b < 8) {
+          // it opens out of a line, on Lucy behind the leaves; David in the crowd
+          const open = out((b - 4) / 0.35);
+          g.save(); g.beginPath(); g.rect(0, H / 2 - (H / 2) * open, W, H * open); g.clip();
+          reelAt(1.02 + 0.03 * ((b - 4) / 4), 1.5); g.restore();
+          if (open < 1) { g.fillStyle = "rgba(220, 250, 255, 0.85)"; g.fillRect(0, H / 2 - (H / 2) * open - 1, W, 2); g.fillRect(0, H / 2 + (H / 2) * open - 1, W, 2); }
+          glitch = Math.max(cut(4), cut(6, 0.35));
+        } else if (b < 14) {
+          // the two of them, a shot every two beats
+          reelAt(1.03, 1.5); glitch = Math.max(cut(8, 0.35), cut(10, 0.35), cut(12, 0.35));
+        } else if (b < 16) {
+          // scrubbed back (the film runs her close-ups backwards): smeared sideways, its colours apart
+          const q = (b - 14) / 2, smear = Math.sin(Math.PI * q);
+          grab(true, false, false);
+          for (let k = -3; k <= 3; k++) { g.save(); g.translate(k * 18 * smear, 0); draw(reel, 1.06, 6 + 10 * smear, k ? 0.09 : 0.46); g.restore(); }
+          g.save(); g.globalCompositeOperation = "screen"; g.globalAlpha = 0.35 * smear;
+          for (let i = 0; i < 14; i++) { g.fillStyle = i % 2 ? "#00E5FF" : "#FF2E97"; g.fillRect(0, Math.random() * H, W, 1 + Math.random() * 3); }
+          g.restore();
+          glitch = 0.25 + 0.3 * smear; fuzz = 0.12;
+        } else if (b < 20) {
+          // the leap through the golden light, a warm glow over it
+          reelAt(1.02 + 0.05 * ((b - 16) / 4), 1.2); glitch = cut(16);
+          const glow = g.createRadialGradient(W * 0.5, H * 0.4, 0, W * 0.5, H * 0.4, Math.max(W, H) * 0.7);
+          glow.addColorStop(0, "rgba(255, 230, 140, 0.08)"); glow.addColorStop(1, "rgba(255, 230, 140, 0)");
+          g.save(); g.globalCompositeOperation = "screen"; g.fillStyle = glow; g.fillRect(0, 0, W, H); g.restore();
+        } else if (b < 24) {
+          // her smile; then his hand finding hers, seen as heat
+          const hot = b >= 22;
+          reelAt(1.03, hot ? 0 : 1.6, 1, hot); glitch = Math.max(cut(20, 0.35), cut(22));
+        } else if (b < 28) {
+          // his last beats: darker, more torn on each
+          const k = Math.floor(b - 24), f = b - 24 - k;
+          reelAt(1.03 + 0.04 * ((b - 24) / 4), 3 + k * 3 + 8 * Math.exp(-f * 6), 0.82 - 0.1 * k);
+          glitch = 0.1 + 0.12 * k + 0.4 * Math.exp(-f * 7); fuzz = 0.1 + 0.04 * k;
+        } else if (b < 29) {
+          // flatline: the last of the two of them breaks apart, then the dark
+          const q = b - 28;
+          if (q < 0.6) reelAt(1.08, 22 * (1 - q), 0.85 * (1 - q / 0.6));
+          glitch = 1 - 0.7 * q; fuzz = 0.22;
+        } else {
+          // the Earth from the moon, under the title
+          const q = (b - 29) / 3;
+          draw(pics.moon, 1.04 + 0.06 * q, 1.2, 0.35 + 0.35 * out(q * 2) - 0.45 * clamp((b - 31.4) / 0.6));
+          glitch = cut(29) + [30.5, 31, 31.5].reduce((sum, at) => sum + (b >= at ? 0.25 * Math.exp(-(b - at) * 9) : 0), 0);
+        }
+        tear(glitch);
+        if (b >= 24 && b < 29.6) ekg(t);
+        // scanlines, grain, the edges darker
+        g.save(); g.fillStyle = lines; g.globalAlpha = 0.55; g.fillRect(0, 0, W, H); g.restore();
+        grain(fuzz + glitch * 0.15);
+        const v = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+        v.addColorStop(0, "rgba(3, 3, 10, 0)"); v.addColorStop(1, "rgba(3, 3, 10, 0.75)");
+        g.fillStyle = v; g.fillRect(0, 0, W, H);
+        // the log, typed in (the memory's loading bar under its line)
+        if (b < 4.6) {
+          const typed = SY_BOOT.filter(([at]) => b >= at).map(([at, text]) => text.slice(0, Math.floor((b - at) * 34)));
+          if (b >= 1.4) { const q = clamp((b - 1.5) / 1.1), n = Math.round(q * 22); typed.splice(3, 0, `[${"█".repeat(n)}${"░".repeat(22 - n)}] ${String(Math.round(q * 100)).padStart(3, " ")}%`); }
+          boot.textContent = typed.join("\n") + (Math.floor(b * 4) % 2 ? " █" : "");
+        }
+        // the replay's HUD: its playhead and timecode, the layer on
+        if (b >= 4 && b < 28) {
+          const s = memory(b);
+          head.style.left = `${(clamp((s - 126) / 24) * 100).toFixed(2)}%`;
+          tc.textContent = timecode(s);
+          const layer = b >= 24 ? "aud" : b >= 22 && b < 24 ? "thm" : "vis";
+          for (const [key, el] of Object.entries(layers)) el.classList.toggle("is-on", key === layer);
+        }
+        if (b >= 24 && b < 29) bpm.textContent = b >= 28 ? "0" : String(SY_PULSE[Math.min(3, Math.floor(b - 24))]);
+        if (b >= 29) song.textContent = SY_SONG.slice(0, Math.max(0, Math.floor((b - 29.35) * 15)));
+      };
+      size();
+      show.tick(0);
+      return show;
+    },
+  };
+
+  // The header (stay.css places it; the show's logo goes over the heading): the replay of the two of them
+  // (their embrace in space) filling its right, seen through the braindance's HUD (its file, its layers,
+  // its timeline, a scan going down it), and the moon in its sights. (Its tint, and the filter that turns the
+  // show's logo red: the red's, see stayStage.)
+  const SY_DECOR = `<div class="sy-decor" aria-hidden="true"><i class="sy-decor-art"></i><i class="sy-decor-scan"></i><i class="sy-decor-tint"></i>`
+    + `<svg class="sy-decor-filter" width="0" height="0" focusable="false"><filter id="sy-red-logo" color-interpolation-filters="sRGB"><feColorMatrix type="matrix" values="1 0 0 0 0  0.14 0 0 0 0  0.25 0 0 0 0  0 0 0 1 0" /></filter></svg>`
+    + `<i class="sy-corner is-tl"></i><i class="sy-corner is-tr"></i><i class="sy-corner is-bl"></i><i class="sy-corner is-br"></i>`
+    + `<p class="sy-decor-file"><b>▶ BD REPLAY</b><span>MEMORY_0417.bd · LOOP</span></p>`
+    + `<p class="sy-decor-layers"><b>VIS</b><span>THM</span><span>AUD</span></p>`
+    + `<div class="sy-decor-moon"><i class="sy-decor-target"></i><i class="sy-decor-crescent"></i><p><b>LUNA</b><span>384,400 KM</span></p></div>`
+    + `<div class="sy-decor-line"><i class="is-vis"></i><i class="is-thm"></i><i class="is-aud"></i><b></b></div></div>`;
+
+  // A plate's own layer (the lineup): David's corrupted (copies of his photo pulled apart in colour and
+  // slipping, static, FLATLINED, his line flat, NO SIGNAL), Lucy's alive (her line beating, on the moon). Under
+  // it, over the photo only, the red's tint (the stamp and the chips keep their colours).
+  const SY_BEATING = "M0 12 H40 l5 -3 l4 3 l4 0 l4 -10 l5 19 l4 -12 l5 3 l7 0 H120 l5 -3 l4 3 l4 0 l4 -10 l5 19 l4 -12 l5 3 l7 0 H200";
+  const stayPlate = (m, photo) => `<span class="sy-tint" aria-hidden="true"></span>` + (m.dead
+    ? `<span class="sy-plate is-dead" aria-hidden="true" style="--sy-photo: url('${siteUrl(photo)}')"><i class="sy-ghost is-r"></i><i class="sy-ghost is-c"></i><i class="sy-ghost is-slip"></i><i class="sy-static"></i>`
+      + `<b class="sy-stamp" data-text="FLATLINED">FLATLINED</b><em class="sy-chip">● NO SIGNAL</em><svg class="sy-ekg" viewBox="0 0 200 24" preserveAspectRatio="none"><path d="M0 12 H200" /></svg></span>`
+    : `<span class="sy-plate" aria-hidden="true"><em class="sy-chip is-live">● ONLINE · LUNA</em><svg class="sy-ekg" viewBox="0 0 200 24" preserveAspectRatio="none"><path d="${SY_BEATING}" /></svg></span>`);
+
+  // The back of each card: a fixer's file on them (who, their chrome, their voices, their status), the
+  // portrait scanned (David's corrupted, FLATLINED), their vitals (his flat), how their story ends.
+  function stayFileBack(member, key, t, count) {
+    const dead = Boolean(member.dead);
+    return `
+      <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the photo">⌁</button>
+      <p class="sy-file-head"><span>PERSONAL FILE</span><b>${count}</b></p>
+      <div class="sy-file-top">
+        <div class="sy-file-photo${dead ? " is-dead" : ""}" role="img" aria-label="${escapeHtml(member.real)}" style="--sy-photo: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"><i class="sy-file-scan"></i>${dead ? `<b class="sy-file-stamp">FLATLINED</b>` : ""}</div>
+        <div class="sy-file-id"><h3>${escapeHtml(member.real)}</h3><p lang="ja">${escapeHtml(member.hangul)}</p><p class="sy-file-role">${escapeHtml(member.role)}</p>
+          <p class="sy-file-status ${dead ? "is-dead" : "is-alive"}">● ${escapeHtml(member.status)}</p></div>
+      </div>
+      <dl class="sy-file-data"><dt>Chrome</dt><dd>${escapeHtml(member.chrome)}</dd><dt>Voice</dt><dd>${escapeHtml(member.cv)}</dd></dl>
+      <div class="sy-file-vitals${dead ? " is-flat" : ""}"><span>Vitals</span><svg viewBox="0 0 200 24" preserveAspectRatio="none" aria-hidden="true"><path d="${dead ? "M0 12 H200" : SY_BEATING}" /></svg><b>${dead ? "0 BPM" : "72 BPM"}</b></div>
+      <p class="sy-file-line">“${escapeHtml(member.line)}”</p>
+      <p class="sy-file-code${dead ? " is-dead" : ""}"><i aria-hidden="true"></i><span>FILE NC-0417-${escapeHtml(member.real.split(" ").map((word) => word[0]).join(""))}<br />INTEGRITY <b>${dead ? "37% · CORRUPTED" : "100%"}</b></span></p>
+      <p class="sy-file-foot">Cyberpunk: Edgerunners · Studio Trigger × CD PROJEKT RED<br />Brew Houze × Rosa Walton · ${escapeHtml(t.era)}</p>`;
+  }
+
+  // David's card, corrupted (a dead man's card): on a canvas over the photo, every frame, the photo torn —
+  // its colours pulled apart, slices of it slipping, blocks of it gone to static; calm for a moment, then
+  // worse, and now and then the signal gone altogether. FLATLINED over it, his name breaking up with it.
+  // Runs while his card is up (and turned to its front); returns its stop.
+  function stayCorrupt(front, photo, title) {
+    const canvas = document.createElement("canvas");
+    canvas.className = "sy-pc-glitch";
+    canvas.setAttribute("aria-hidden", "true");
+    const stamp = document.createElement("div");
+    stamp.className = "sy-pc-dead";
+    stamp.setAttribute("aria-hidden", "true");
+    stamp.innerHTML = `<b data-text="FLATLINED">FLATLINED</b><p><i></i><span>NO SIGNAL</span></p>`;
+    front.querySelector("img").after(canvas, stamp);
+    const g = canvas.getContext("2d"), name = title.textContent;
+    const noise = syStatic(), noisy = g.createPattern(noise, "repeat");
+    const img = new Image();
+    img.decoding = "async";
+    let ready = null, W = 0, H = 0, ratio = 1, frame = 0, burstUntil = 0, nextBurst = performance.now() + 600, lostUntil = 0, nextLost = performance.now() + 3600;
+    img.onload = () => { ready = syPrepare(img, false); };
+    img.src = siteUrl(photo);
+    const garble = (text) => [...text].map((c) => (Math.random() < 0.45 ? "▓▒░█#%&$01"[Math.floor(Math.random() * 10)] : c)).join("");
+    const paint = (now) => {
+      const w = front.clientWidth, h = front.clientHeight;
+      if (!w || !h) return;
+      ratio = Math.min(window.devicePixelRatio || 1, 2);
+      if (canvas.width !== Math.round(w * ratio) || canvas.height !== Math.round(h * ratio)) { canvas.width = Math.round(w * ratio); canvas.height = Math.round(h * ratio); }
+      W = w; H = h;
+      if (now >= nextBurst) { burstUntil = now + 140 + Math.random() * 300; nextBurst = burstUntil + 450 + Math.random() * 1500; }
+      if (now >= nextLost) { lostUntil = now + 90 + Math.random() * 150; nextLost = lostUntil + 3000 + Math.random() * 3800; }
+      const burst = now < burstUntil, lost = now < lostUntil;
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+      g.fillStyle = "#05050C"; g.fillRect(0, 0, W, H);
+      if (lost || !ready) {
+        g.fillStyle = noisy; g.globalAlpha = 0.5; g.save(); g.translate(-Math.random() * 160, -Math.random() * 160); g.fillRect(0, 0, W + 160, H + 160); g.restore(); g.globalAlpha = 1;
+        g.fillStyle = "#FF2D55"; g.font = `700 ${Math.round(W * 0.075)}px 'Share Tech Mono', monospace`; g.textAlign = "center"; g.fillText("SIGNAL LOST", W / 2, H * 0.46);
+        title.textContent = garble(name);
+        return;
+      }
+      // the photo as the card has it (cover, 50% 18%), its colours apart
+      const iw = ready.base.width, ih = ready.base.height, k = Math.max(W / iw, H / ih), dw = iw * k, dh = ih * k, x = (W - dw) / 2, y = (H - dh) * 0.18;
+      const split = burst ? 5 + Math.random() * 10 : 1.2 + Math.sin(now / 300) * 0.8;
+      g.save(); g.globalCompositeOperation = "lighter";
+      g.drawImage(ready.ch[0], x - split, y, dw, dh); g.drawImage(ready.ch[1], x, y, dw, dh); g.drawImage(ready.ch[2], x + split * 0.7, y + (burst ? 2 : 0), dw, dh);
+      g.restore();
+      // slices slipping (a few now and then when calm, many in a burst), blocks of static and neon
+      const slips = burst ? 5 + Math.floor(Math.random() * 7) : frame % 23 === 0 ? 1 : 0;
+      for (let i = 0; i < slips; i++) {
+        const sy = Math.random() * H, sh = 2 + Math.random() * (burst ? 34 : 10), dx = (Math.random() - 0.5) * (burst ? 60 : 16);
+        g.drawImage(canvas, 0, sy * ratio, canvas.width, sh * ratio, dx, sy, W, sh);
+      }
+      if (burst) {
+        for (let i = 0, n = 2 + Math.floor(Math.random() * 4); i < n; i++) {
+          const bx = Math.random() * W, by = Math.random() * H, bw = 14 + Math.random() * W * 0.5, bh = 3 + Math.random() * 20;
+          if (i % 2) { g.save(); g.globalAlpha = 0.8; g.fillStyle = noisy; g.translate(-Math.random() * 160, 0); g.fillRect(bx, by, bw, bh); g.restore(); }
+          else { g.fillStyle = ["rgba(0, 229, 255, 0.55)", "rgba(255, 45, 85, 0.6)", "rgba(252, 238, 10, 0.5)"][Math.floor(Math.random() * 3)]; g.fillRect(bx, by, bw, bh); }
+        }
+      }
+      // a dead man's colours, drained (less so in a burst, when the tear shows them), and darker
+      g.save(); g.globalCompositeOperation = "saturation"; g.fillStyle = `rgba(128, 128, 128, ${burst ? 0.35 : 0.72})`; g.fillRect(0, 0, W, H); g.restore();
+      g.fillStyle = "rgba(5, 5, 12, 0.16)"; g.fillRect(0, 0, W, H);
+      // grain, and the dead's red rising from the foot
+      g.save(); g.globalCompositeOperation = "overlay"; g.globalAlpha = burst ? 0.32 : 0.12; g.translate(-Math.random() * 160, -Math.random() * 160); g.fillStyle = noisy; g.fillRect(0, 0, W + 160, H + 160); g.restore();
+      const red = g.createLinearGradient(0, H * 0.45, 0, H);
+      red.addColorStop(0, "rgba(255, 0, 60, 0)"); red.addColorStop(1, "rgba(255, 0, 60, 0.28)");
+      g.fillStyle = red; g.fillRect(0, 0, W, H);
+      title.textContent = burst && Math.random() < 0.7 ? garble(name) : name;
+    };
+    let raf = 0, stopped = false;
+    const card = front.closest(".ae-pc");
+    const loop = (now) => {
+      if (stopped) return;
+      frame++;
+      if (!card?.classList.contains("is-flipped")) paint(now);
+      raf = requestAnimationFrame(loop);
+    };
+    if (motionOK()) raf = requestAnimationFrame(loop);
+    else img.addEventListener("load", () => { if (!stopped) { burstUntil = 0; nextBurst = Infinity; nextLost = Infinity; paint(performance.now()); } });
+    return () => { stopped = true; cancelAnimationFrame(raf); canvas.remove(); stamp.remove(); title.textContent = name; };
+  }
+
+  // ── The red ──
+  // While the song's voice is in (track 1, from beat 29, its pickup into bar 9, to bar 17, where the drums drop
+  // out) the page goes red, the way the show's screen does when the chrome takes over (stay.css, "The red"):
+  // the palette swapped at the first note (html[data-sy-red], flickered on; and off at the last), and the
+  // screen cracked where something hit it, on the stage's layers: the glass split from the impact (its cracks
+  // running out in a moment; more on bar 13, the crack spreading), the panel's ink bleeding black under it,
+  // dead lines of pixels down it; the crack's glow and the screen's edges pulsing with the groove's kicks. A
+  // glitch tears through on the impact, every two bars after it, as the crack spreads and on the way out
+  // (html[data-sy-tear], the headings and the plates jolting; bands torn across the screen, blocks of it gone
+  // wrong round the impact). The screen is hit somewhere else each time round.
+  const SY_RED_IN = 29 * SY_BEAT, SY_RED_OUT = 64 * SY_BEAT, SY_SPREAD = 19 * SY_BEAT;
+  // the flicker (s): on at the first note, then off, on, off and on to stay; at the last off, then on, off,
+  // on and off to stay
+  const SY_FLICK_IN = [0.07, 0.12, 0.2, 0.235], SY_FLICK_OUT = [0.06, 0.1, 0.19, 0.22];
+  const syRedAt = (at) => at >= SY_RED_IN && (at < SY_RED_OUT
+    ? SY_FLICK_IN.filter((s) => at - SY_RED_IN >= s).length % 2 === 0
+    : SY_FLICK_OUT.filter((s) => at - SY_RED_OUT >= s).length % 2 === 1);
+  // the tears: [beat into track 1, how long (s), how hard, with a flash]
+  const SY_TEARS = [[29, 0.34, 1, true], [36, 0.16, 0.45], [44, 0.16, 0.45], [48, 0.26, 0.8, true], [52, 0.16, 0.45], [60, 0.16, 0.45], [64, 0.3, 0.9]];
+  // where the screen is hit, each time round (across, down)
+  const SY_IMPACTS = [[0.74, 0.32], [0.3, 0.66], [0.66, 0.74], [0.3, 0.3]];
+  const SY_FX = `<div class="syx"><i class="syx-scan"></i><i class="syx-edge"></i><canvas class="syx-halo"></canvas><canvas class="syx-crack"></canvas>`
+    + `<div class="syx-lines">${"<i hidden></i>".repeat(7)}</div></div><canvas class="syx-tear"></canvas>`
+    + `<canvas class="syb"></canvas><video class="syb-film" muted playsinline preload="auto" aria-hidden="true"></video>`;
+  // the same numbers every time from a seed
+  const syRandom = (seed) => {
+    let s = seed >>> 0;
+    return () => {
+      s = (s + 0x6D2B79F5) >>> 0;
+      let q = Math.imul(s ^ (s >>> 15), s | 1);
+      q ^= q + Math.imul(q ^ (q >>> 7), q | 61);
+      return ((q ^ (q >>> 14)) >>> 0) / 4294967296;
+    };
+  };
+  // A screen hit at (x0, y0), cracked (its shape from the seed): the cracks, each a stretch of line [x1, y1,
+  // x2, y2, width, when (s from the impact)], in the order they appear: rays wandering out from the impact
+  // (some to the screen's edges, branching), rings split round it, its middle crushed, and on bar 13 new
+  // cracks running on from the long ones. The ink (a blot round the impact, wider once the crack spreads,
+  // veins of it down the worst cracks, drops of it), the glass's glints at the middle, and the dead lines of
+  // pixels (down or across the screen near the impact, three at once, the rest as it spreads).
+  const syCrack = (W, H, x0, y0, seed) => {
+    const rnd = syRandom(seed), u = Math.max(0.7, Math.min(W, H) / 900), diag = Math.hypot(W, H), speed = diag / 0.3;
+    const cracks = [], rays = [];
+    const walk = (x, y, a, len, w, at, depth, ray) => {
+      for (let d = 0; d < len;) {
+        const step = (7 + rnd() * 15) * u;
+        a += (rnd() - 0.5) * 0.4;
+        const nx = x + Math.cos(a) * step, ny = y + Math.sin(a) * step;
+        d += step;
+        cracks.push([x, y, nx, ny, w * (1 - 0.7 * Math.min(1, d / len)), at + d / speed]);
+        ray?.push([nx, ny, d]);
+        if (depth < 2 && rnd() < (depth ? 0.03 : 0.05)) walk(nx, ny, a + (rnd() < 0.5 ? -1 : 1) * (0.3 + rnd() * 0.5), (len - d) * (0.2 + rnd() * 0.45), w * 0.6, at + d / speed, depth + 1, null);
+        x = nx; y = ny;
+        if (x < -40 || y < -40 || x > W + 40 || y > H + 40) return;
+      }
+    };
+    const n = 9 + Math.floor(rnd() * 4);
+    for (let i = 0; i < n; i++) {
+      const long = rnd() < 0.42, ray = [[x0, y0, 0]];
+      walk(x0, y0, ((i + (rnd() - 0.5) * 0.7) / n) * Math.PI * 2, diag * (long ? 0.4 + rnd() * 0.5 : 0.05 + rnd() * 0.2), (long ? 2.4 : 1.7) * u, 0, 0, ray);
+      rays.push(ray);
+    }
+    for (const r of [15, 32, 56, 88]) {
+      for (let i = 0; i < n; i++) {
+        if (rnd() < 0.3) continue;
+        const far = r * u * (0.8 + rnd() * 0.4), p = rays[i].find((q) => q[2] >= r * u), q = rays[(i + 1) % n].find((q2) => q2[2] >= far);
+        if (!p || !q) continue;
+        const mx = (p[0] + q[0]) / 2 + (rnd() - 0.5) * 9 * u, my = (p[1] + q[1]) / 2 + (rnd() - 0.5) * 9 * u, at = (r * u) / speed + 0.03;
+        cracks.push([p[0], p[1], mx, my, 1.1 * u, at], [mx, my, q[0], q[1], 1.1 * u, at]);
+      }
+    }
+    for (let i = 0; i < 28; i++) {
+      const a = rnd() * Math.PI * 2, r = rnd() * 13 * u, l = (3 + rnd() * 7) * u, b = rnd() * Math.PI * 2, x = x0 + Math.cos(a) * r, y = y0 + Math.sin(a) * r;
+      cracks.push([x, y, x + Math.cos(b) * l, y + Math.sin(b) * l, 0.9 * u, 0.01]);
+    }
+    const long = rays.filter((ray) => ray.length > 24);
+    for (let i = 0; i < 4; i++) {
+      const ray = long.length ? long[Math.floor(rnd() * long.length)] : rays[i % n], p = ray[Math.floor(ray.length * (0.2 + rnd() * 0.5))];
+      walk(p[0], p[1], Math.atan2(p[1] - y0, p[0] - x0) + (rnd() - 0.5) * 1.6, diag * (0.25 + rnd() * 0.35), 1.6 * u, SY_SPREAD + i * 0.05, 1, null);
+    }
+    cracks.sort((a, b) => a[5] - b[5]);
+    // (a blot's edge: its radii smoothed into each other)
+    const blot = (r) => {
+      let k = Array.from({ length: 36 }, () => 0.4 + rnd());
+      k = k.map((v, i) => (k[(i + 35) % 36] + v * 2 + k[(i + 1) % 36]) / 4);
+      return k.map((v, i) => { const a = (i / 36) * Math.PI * 2; return [x0 + Math.cos(a) * v * r * u, y0 + Math.sin(a) * v * r * u]; });
+    };
+    // (the ink's veins down the worst cracks: beads of it, three to a stretch of crack, running into each
+    // other and thinning out)
+    const veins = rays.filter((ray) => ray.length > 12).filter((_, i) => i % 2 === 0).slice(0, 5).flatMap((ray) => {
+      const reach = (90 + rnd() * 190) * u, beads = [];
+      for (let i = 1; i < ray.length && ray[i][2] <= reach; i++) {
+        const [ax, ay, ad] = ray[i - 1], [bx, by, bd] = ray[i];
+        for (let k = 0; k < 3; k++) {
+          const f = k / 3, d = ad + (bd - ad) * f;
+          beads.push([ax + (bx - ax) * f + (rnd() - 0.5) * 3 * u, ay + (by - ay) * f + (rnd() - 0.5) * 3 * u, (1.2 + 6.5 * (1 - d / reach) ** 1.3) * u * (0.8 + rnd() * 0.4)]);
+        }
+      }
+      return beads;
+    });
+    // (drops of it: three big ones at the blot's edge, running into it, and small ones by the cracks)
+    const drops = Array.from({ length: 13 }, (_, i) => {
+      if (i < 3) { const a = rnd() * Math.PI * 2, r = (42 + rnd() * 22) * u; return [x0 + Math.cos(a) * r, y0 + Math.sin(a) * r, (11 + rnd() * 10) * u]; }
+      const ray = rays[Math.floor(rnd() * n)], p = ray[Math.min(ray.length - 1, Math.floor(rnd() * 12))];
+      return [p[0] + (rnd() - 0.5) * 20 * u, p[1] + (rnd() - 0.5) * 20 * u, (2 + rnd() * 6) * u];
+    });
+    const glints = Array.from({ length: 16 }, () => { const a = rnd() * Math.PI * 2, r = rnd() * 22 * u; return [x0 + Math.cos(a) * r, y0 + Math.sin(a) * r, (0.6 + rnd() * 1.4) * u]; });
+    // the dead lines: [down (or across), from the impact (px), width (px), colour, when]
+    const lines = [[true, -38, 2, "#FF2A48", 0.03], [true, -31, 1, "rgba(255, 238, 241, 0.8)", 0.03], [false, -96, 2, "#9E001B", 0.06],
+      [true, 24, 3, "#FF5C70", SY_SPREAD], [true, 31, 1, "rgba(0, 229, 255, 0.55)", SY_SPREAD + 0.06], [true, 128, 1, "rgba(255, 238, 241, 0.5)", SY_SPREAD + 0.12],
+      [false, 52, 1, "rgba(255, 238, 241, 0.55)", SY_SPREAD + 0.04]]
+      .map(([down, off, width, colour, when], i) => ({ down, pos: (down ? x0 : y0) + off * u * (0.8 + rnd() * 0.4), width, colour, when, flicker: i % 3 !== 0, period: 0.9 + rnd() * 1.6 }));
+    return { x0, y0, u, cracks, core: blot(58), wide: blot(110), veins, drops, glints, lines };
+  };
+  // The crack by t (s from the impact), on its canvas (g, crisp: ratio, its pixels a CSS pixel) and its glow's
+  // (h, at half size): the ink first (growing out from the impact, a red bloom round it), then the cracks, each
+  // a dark line with the glint of its broken edge beside it, the glints at the middle; the glow the cracks in
+  // red, and the ink's rim.
+  const syDrawCrack = (g, h, c, t, W, H, ratio) => {
+    g.setTransform(ratio, 0, 0, ratio, 0, 0); g.clearRect(0, 0, W, H);
+    h.setTransform(0.5, 0, 0, 0.5, 0, 0); h.clearRect(0, 0, W, H);
+    if (t < 0) return;
+    const out = (q) => 1 - (1 - Math.min(1, Math.max(0, q))) ** 3;
+    // an outline through its points' midpoints (smooth), drawn k of the way out from the impact
+    const shape = (ctx, pts, k) => {
+      const pt = (i) => { const [x, y] = pts[(i + pts.length) % pts.length]; return [c.x0 + (x - c.x0) * k, c.y0 + (y - c.y0) * k]; };
+      ctx.beginPath();
+      const [ax, ay] = pt(0), [bx, by] = pt(1);
+      ctx.moveTo((ax + bx) / 2, (ay + by) / 2);
+      for (let i = 1; i <= pts.length; i++) { const [px, py] = pt(i), [qx, qy] = pt(i + 1); ctx.quadraticCurveTo(px, py, (px + qx) / 2, (py + qy) / 2); }
+      ctx.closePath();
+    };
+    const core = out((t - 0.02) / 0.55), wide = out((t - SY_SPREAD) / 1.1);
+    g.save();
+    if (core > 0) {
+      const R = 120 * c.u * (0.6 + 0.4 * core + 0.5 * wide), bloom = g.createRadialGradient(c.x0, c.y0, R * 0.3, c.x0, c.y0, R * 1.6);
+      bloom.addColorStop(0, "rgba(255, 30, 60, 0.26)"); bloom.addColorStop(0.5, "rgba(255, 30, 60, 0.12)"); bloom.addColorStop(1, "rgba(255, 30, 60, 0)");
+      g.fillStyle = bloom; g.fillRect(c.x0 - R * 1.6, c.y0 - R * 1.6, R * 3.2, R * 3.2);
+      g.fillStyle = "rgba(3, 0, 1, 0.94)"; g.shadowColor = "rgba(3, 0, 1, 0.9)"; g.shadowBlur = 14 * c.u * ratio;
+      shape(g, c.core, 0.25 + 0.75 * core); g.fill();
+      if (wide > 0) { g.globalAlpha = 0.85; shape(g, c.wide, 0.4 + 0.6 * wide); g.fill(); g.globalAlpha = 1; }
+      // the veins running out (drawn in from the impact as they go), then the drops
+      g.shadowBlur = 8 * c.u * ratio;
+      g.beginPath();
+      for (const [x, y, r] of c.veins) { const px = c.x0 + (x - c.x0) * core, py = c.y0 + (y - c.y0) * core; g.moveTo(px + r, py); g.arc(px, py, r, 0, Math.PI * 2); }
+      g.fill();
+      const drip = out((t - 0.2) / 0.5);
+      g.shadowBlur = 4 * c.u * ratio;
+      if (drip > 0) for (const [x, y, r] of c.drops) { g.beginPath(); g.arc(x, y, r * drip, 0, Math.PI * 2); g.fill(); }
+    }
+    g.restore();
+    const paths = new Map(); // a path for each width (in half pixels)
+    for (const k of c.cracks) {
+      if (k[5] > t) break;
+      const key = Math.max(1, Math.round(k[4] * 2));
+      let p = paths.get(key);
+      if (!p) paths.set(key, (p = new Path2D()));
+      p.moveTo(k[0], k[1]); p.lineTo(k[2], k[3]);
+    }
+    g.lineCap = h.lineCap = "round"; g.lineJoin = h.lineJoin = "round";
+    for (const [key, p] of paths) { g.lineWidth = key / 2 + 0.5; g.strokeStyle = "rgba(10, 0, 3, 0.82)"; g.stroke(p); }
+    g.save(); g.translate(0.9, -0.8);
+    for (const [key, p] of paths) { g.lineWidth = Math.max(0.6, key / 5); g.strokeStyle = "rgba(255, 228, 232, 0.72)"; g.stroke(p); }
+    g.restore();
+    g.fillStyle = "rgba(255, 244, 246, 0.85)";
+    for (const [x, y, r] of c.glints) { g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
+    h.shadowColor = "rgba(255, 16, 48, 0.95)"; h.shadowBlur = 7;
+    for (const [key, p] of paths) { h.lineWidth = key / 2 + 2.6; h.strokeStyle = "rgba(255, 34, 64, 0.75)"; h.stroke(p); }
+    if (core > 0) { h.lineWidth = 5 * c.u; h.strokeStyle = "rgba(255, 60, 90, 0.6)"; shape(h, c.core, 0.25 + 0.75 * core); h.stroke(); }
+  };
+  // A tear (q: how far through it, 0-1; hard: how hard; deal: which, new every 45 ms): bands torn across the
+  // screen (red, pale, black; static through some), blocks gone wrong round the impact, and a flash from the
+  // impact going out over the screen.
+  const syTear = (g, W, H, c, q, hard, flash, deal, noisy) => {
+    g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W, H);
+    const rnd = syRandom(deal * 9973 + 17);
+    if (flash) {
+      const R = Math.hypot(W, H) * (0.15 + 0.85 * q), a = (1 - q) ** 2, glow = g.createRadialGradient(c.x0, c.y0, 0, c.x0, c.y0, R);
+      glow.addColorStop(0, `rgba(255, 240, 242, ${(0.8 * a).toFixed(3)})`); glow.addColorStop(0.25, `rgba(255, 40, 70, ${(0.45 * a).toFixed(3)})`); glow.addColorStop(1, "rgba(255, 30, 60, 0)");
+      g.fillStyle = glow; g.fillRect(0, 0, W, H);
+    }
+    for (let i = 0, n = 2 + Math.round(hard * 5); i < n; i++) {
+      const y = rnd() * H, bh = 2 + rnd() * (6 + 18 * hard), x = rnd() < 0.5 ? 0 : rnd() * W * 0.5, w = (W - x) * (0.4 + rnd() * 0.6);
+      g.fillStyle = ["rgba(255, 26, 58, 0.4)", "rgba(255, 236, 240, 0.2)", "rgba(6, 0, 2, 0.6)", "rgba(255, 26, 58, 0.22)"][i % 4];
+      g.fillRect(x, y, w, bh);
+      if (i % 2 === 0) { const ox = rnd() * 160, oy = rnd() * 160; g.save(); g.globalAlpha = 0.3; g.translate(-ox, -oy); g.fillStyle = noisy; g.fillRect(x + ox, y + oy, w, bh); g.restore(); }
+    }
+    for (let i = 0, n = Math.round(2 + hard * 6); i < n; i++) {
+      const bx = c.x0 + (rnd() - 0.5) * 360 * c.u, by = c.y0 + (rnd() - 0.5) * 260 * c.u, bw = (8 + rnd() * 46) * c.u, bh = (4 + rnd() * 18) * c.u;
+      g.fillStyle = ["#FF2340", "rgba(255, 240, 242, 0.85)", "#050001", "rgba(0, 229, 255, 0.6)"][Math.floor(rnd() * 4)];
+      g.fillRect(bx, by, bw, bh);
+    }
+  };
+  // ── Track 2: the cyberskeleton ──
+  // The song's last 8 bars (track 2) are David's last stand, as the user cut it to the music (stay/bridge.mp4,
+  // its frame at t the music at t: Adam Smasher, David's rage, the fight, Rebecca; Lucy in his arms, their
+  // goodbye and her scream; the rooftop and the white). The page is shut inside his military cyberskeleton and
+  // the film is seen through its visor:
+  //   lock (bar 1)      the armour's plates slide in over the page on track 1's last beat and slam shut on the
+  //                     first kick (sparks off the seams, the screen shaking), the film in the visor; the
+  //                     targeting locks onto Adam Smasher; INTEGRITY falling and NEURAL LOAD rising on the
+  //                     plates, the plates jolting on the kicks
+  //   open (7.47 s)     Lucy: the locks hiss open (steam at the seams) and on bar 5 the plates draw back off the
+  //                     screen, the film opening out to the whole screen; light drifting up through it
+  //   slam (11.69 s)    her goodbye: the plates slam back on the cut, tighter, red warnings flashing (the load
+  //                     past 100%: CYBERPSYCHOSIS RISK); on the last bar they take the strobe's hits
+  //   breach (14.8 s)   the white blows out of the film over the screen and the plates fly off; as track 1
+  //                     comes back in, the white clears off the page
+  const SY_B_UNLOCK = 7.47, SY_B_OPEN = 16 * SY_BEAT, SY_B_SLAM = 11.83, SY_B_SHUT = SY_B_SLAM - 0.14, SY_B_BREACH = 14.8;
+  // the strobe's hits in the last bar
+  const SY_B_HITS = [13.43, 13.5, 13.63, 13.73, 13.83, 14.03];
+  // the screen shaken: [s into track 2, how hard (px)]
+  const SY_B_SHAKES = [[0, 14], [0.67, 6], [4.83, 8], [SY_B_SLAM, 16], [12.4, 5], [12.5, 5], [12.6, 5], [12.67, 5], [12.8, 5], [12.93, 6],
+    ...SY_B_HITS.map((s, i) => [s, i === 5 ? 12 : 7]), [SY_B_BREACH, 20]];
+  // sparks off the seams: [s, how many]
+  const SY_B_SPARKS = [[0, 46], [SY_B_SLAM, 52], [13.43, 16], [13.63, 16], [13.83, 16], [14.03, 30], [SY_B_BREACH, 70]];
+  // flashes over everything: [s, how bright, how long]
+  const SY_B_FLASHES = [[0, 0.38, 0.16], [0.67, 0.22, 0.12], [4.83, 0.28, 0.15], [SY_B_SLAM, 0.28, 0.14], [14.03, 0.45, 0.15]];
+  // the plates jolted in: on the groove's kicks (on 1, the and of 2 and 4 of each bar; none in bar 7's break
+  // after its 1), harder on the hits: [s, how far (of the visor's size)]
+  const SY_B_JOLTS = [...Array.from({ length: 8 }, (_, bar) => [0, 1.5, 3].map((b) => bar * 4 + b)).flat().filter((b) => b < 25 || b >= 28).map((b) => [b * SY_BEAT, 0.007]),
+    ...SY_B_HITS.map((s) => [s, 0.022])];
+  // where each shot's subject is across the frame (a tall screen sees a slice of it): [from s, x]
+  const SY_B_FOCUS = [[0, 0.55], [0.5, 0.45], [0.7, 0.42], [1.77, 0.36], [2.97, 0.6], [3.87, 0.47], [4.8, 0.55], [5.83, 0.3], [6.97, 0.5], [7.47, 0.6],
+    [8.67, 0.62], [9.63, 0.45], [10.5, 0.55], [11.83, 0.55], [12.17, 0.5], [12.4, 0.47], [12.93, 0.52], [13.43, 0.5]];
+  // the targeting on Adam Smasher: [from s, to s, his box in the frame (x0, y0, x1, y1)]
+  const SY_B_TARGETS = [[0, 0.47, [0.3, 0.04, 0.88, 0.64]], [3.87, 4.8, [0.4, 0.02, 0.56, 0.25]]];
+  // where the white comes out of, in the frame
+  const SY_B_BLAST = [0.5, 0.47];
+  // the plates' readouts through it: [s, value]
+  const SY_B_ARMOR = [[0, 100], [0.6, 97], [0.75, 91], [4.75, 80], [4.95, 71], [SY_B_UNLOCK, 62], [SY_B_SLAM, 60], [11.95, 47], [13.4, 33], [13.55, 26],
+    [13.75, 19], [13.9, 13], [14.1, 6], [SY_B_BREACH, 0]];
+  const SY_B_LOAD = [[0, 74], [2.9, 81], [3.05, 93], [SY_B_UNLOCK, 99], [8.6, 86], [SY_B_SLAM, 84], [11.95, 104], [13.4, 121], [SY_B_BREACH, 140]];
+  // which way each plate goes off the screen (top, then round clockwise, as the visor's edges)
+  const SY_B_DIRS = [[0, -1], [0.7071, -0.7071], [1, 0], [0.7071, 0.7071], [0, 1], [-0.7071, 0.7071], [-1, 0], [-0.7071, -0.7071]];
+  const stayBridge = (() => {
+    let canvas = null, g = null, film = null, small = null, sg = null, stripes = null, redStripes = null, grain = null;
+    let W = 0, H = 0, ratio = 1, drawn = false, bridged = false;
+    const clamp = (q) => Math.min(1, Math.max(0, q));
+    const easeIn = (q) => clamp(q) ** 3;
+    const easeOut = (q) => 1 - (1 - clamp(q)) ** 3;
+    const easeInOut = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+    // a value from [s, value] keys at t
+    const keyed = (keys, t) => {
+      if (t <= keys[0][0]) return keys[0][1];
+      for (let i = 1; i < keys.length; i++) {
+        const [s1, v1] = keys[i];
+        if (t <= s1) { const [s0, v0] = keys[i - 1]; return v0 + (v1 - v0) * ((t - s0) / (s1 - s0 || 1)); }
+      }
+      return keys[keys.length - 1][1];
+    };
+    // a hazard band's pattern: yellow and black (red and black in the warnings)
+    const hazard = (colour) => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 24;
+      const cg = c.getContext("2d");
+      cg.fillStyle = colour; cg.fillRect(0, 0, 24, 24);
+      cg.fillStyle = "#07080C";
+      cg.beginPath(); cg.moveTo(0, 0); cg.lineTo(12, 0); cg.lineTo(0, 12); cg.closePath(); cg.fill();
+      cg.beginPath(); cg.moveTo(24, 0); cg.lineTo(24, 12); cg.lineTo(12, 24); cg.lineTo(0, 24); cg.closePath(); cg.fill();
+      return g.createPattern(c, "repeat");
+    };
+    // the metal's grain: short strokes, light and dark, brushed one way
+    const brushed = () => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 160;
+      const cg = c.getContext("2d"), rnd = syRandom(2077);
+      for (let n = 0; n < 520; n++) {
+        const x = rnd() * 160, y = rnd() * 160, l = 8 + rnd() * 46, light = rnd() < 0.45;
+        cg.strokeStyle = light ? `rgba(255, 255, 255, ${(0.025 + rnd() * 0.04).toFixed(3)})` : `rgba(0, 0, 0, ${(0.06 + rnd() * 0.1).toFixed(3)})`;
+        for (const o of [0, -160]) { cg.beginPath(); cg.moveTo(x + o, y); cg.lineTo(x + o + l, y + l * 0.1); cg.stroke(); }
+      }
+      return g.createPattern(c, "repeat");
+    };
+    const size = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+    };
+    // the size of the plates' print and parts
+    const scale = () => Math.min(1.15, Math.max(0.72, Math.min(W, H) / 820));
+    // the visor (an octagon, its corners cut) at a size (1: the fight's), and the plates round it
+    const visorAt = (v) => {
+      const wide = W >= H;
+      const cx = W / 2, cy = H * (wide ? 0.51 : 0.52);
+      const vx = (wide ? 0.38 * W : 0.46 * W) * v, vy = (wide ? 0.31 * H : 0.25 * H) * v, c = Math.min(vx, vy) * 0.22;
+      return { wide, cx, cy, vx, vy, pts: [[cx - vx + c, cy - vy], [cx + vx - c, cy - vy], [cx + vx, cy - vy + c], [cx + vx, cy + vy - c],
+        [cx + vx - c, cy + vy], [cx - vx + c, cy + vy], [cx - vx, cy + vy - c], [cx - vx, cy - vy + c]] };
+    };
+    const platesOf = (V) => {
+      const [P0, P1, P2, P3, P4, P5, P6, P7] = V.pts, m = 90, L = -m, T = -m, R = W + m, B = H + m;
+      return [
+        [[P0[0], T], [P1[0], T], P1, P0], [[P1[0], T], [R, T], [R, P2[1]], P2, P1],
+        [[R, P2[1]], [R, P3[1]], P3, P2], [[R, P3[1]], [R, B], [P4[0], B], P4, P3],
+        [[P4[0], B], [P5[0], B], P5, P4], [[P5[0], B], [L, B], [L, P6[1]], P6, P5],
+        [[L, P6[1]], [L, P7[1]], P7, P6], [[L, P7[1]], [L, T], [P0[0], T], P0, P7],
+      ];
+    };
+    // how far each plate goes to be off the screen, along its way out (its edge past the screen's furthest
+    // corner that way, with room for the shake)
+    const reach = (V) => SY_B_DIRS.map(([dx, dy], i) => {
+      const [a, b] = [V.pts[i], V.pts[(i + 1) % 8]];
+      return Math.max(0, W * dx, H * dy, W * dx + H * dy) - Math.min(a[0] * dx + a[1] * dy, b[0] * dx + b[1] * dy) + 30;
+    });
+    const trace = (pts) => { g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]); g.closePath(); };
+    // how shut the armour is at t (1 shut, 0 off the screen), with the slams' bounce: slid in over track 1's
+    // last beat (most of the way in, a breath, then slammed shut), unlocked, drawn back over three beats,
+    // slammed back on the cut, blown open in the breach
+    const shutAt = (t) => {
+      const bounce = (dt) => (dt >= 0 && dt < 0.3 ? 0.016 * Math.exp(-dt * 16) * Math.sin(dt * 58) : 0);
+      if (t < 0) { const q = (t + SY_BEAT) / SY_BEAT; return q < 0.55 ? 0.55 * easeOut(q / 0.55) : 0.55 + 0.45 * easeIn((q - 0.55) / 0.45); }
+      if (t < SY_B_UNLOCK) return 1 - bounce(t);
+      if (t < SY_B_OPEN) return 1 - 0.02 * Math.sin(clamp((t - SY_B_UNLOCK) / 0.21) * Math.PI);
+      if (t < SY_B_SHUT) return 1 - easeInOut((t - SY_B_OPEN) / (3 * SY_BEAT));
+      if (t < SY_B_BREACH) return easeIn((t - SY_B_SHUT) / (SY_B_SLAM - SY_B_SHUT)) - bounce(t - SY_B_SLAM);
+      return 1 - easeOut((t - SY_B_BREACH) / 0.3);
+    };
+    // how far the plates are jolted in at t, and how hard the screen is shaken
+    const joltAt = (t) => {
+      let k = 0;
+      for (const [s, amp] of SY_B_JOLTS) if (s <= t && t - s < 0.4) k = Math.max(k, amp * Math.exp(-(t - s) * 14));
+      return k;
+    };
+    const shakeAt = (t) => {
+      let x = 0, y = 0;
+      for (const [s, amp] of SY_B_SHAKES) {
+        const dt = t - s;
+        if (dt < 0 || dt > 0.45) continue;
+        const e = amp * Math.exp(-dt * 13);
+        x += e * Math.sin(dt * 71 + s * 13); y += e * 0.7 * Math.cos(dt * 59 + s * 7);
+      }
+      return [x, y];
+    };
+    // the film covering a box, about the shot's subject
+    const filmIn = (x0, y0, w, h, t) => {
+      const vw = film.videoWidth || 1280, vh = film.videoHeight || 720, k = Math.max(w / vw, h / vh), dw = vw * k, dh = vh * k;
+      let focus = 0.5;
+      for (const [s, x] of SY_B_FOCUS) if (t >= s) focus = x;
+      return { x: Math.min(x0, Math.max(x0 + w - dw, x0 + w / 2 - dw * focus)), y: y0 + (h - dh) / 2, w: dw, h: dh };
+    };
+    // its place: covering the visor, opening out to cover the screen as the armour opens
+    const filmAt = (V, open, t) => {
+      const A = filmIn(V.cx - V.vx, V.cy - V.vy, 2 * V.vx, 2 * V.vy, t), B = filmIn(0, 0, W, H, t), k = clamp(open);
+      return { x: A.x + (B.x - A.x) * k, y: A.y + (B.y - A.y) * k, w: A.w + (B.w - A.w) * k, h: A.h + (B.h - A.h) * k };
+    };
+    // a readout on a plate: its name, its value, a bar of segments (along or up), in its colour
+    const meter = (x, y, len, upright, name, value, frac, colour, s) => {
+      g.save();
+      g.textBaseline = "alphabetic";
+      g.font = `700 ${Math.max(9, Math.round(11 * s))}px Rajdhani, sans-serif`; g.fillStyle = "rgba(220, 226, 245, 0.62)";
+      g.fillText(name, x, y);
+      g.font = `italic 700 ${Math.round(22 * s)}px 'Chakra Petch', sans-serif`; g.fillStyle = colour;
+      g.shadowColor = colour; g.shadowBlur = 10;
+      g.fillText(value, x, y + 25 * s);
+      g.shadowBlur = 0;
+      const n = 16, gap = 2 * s, thick = 9 * s, top = y + 36 * s, cell = (len - gap * (n - 1)) / n;
+      for (let i = 0; i < n; i++) {
+        const on = i < Math.round(frac * n);
+        g.fillStyle = on ? colour : "rgba(255, 255, 255, 0.08)";
+        if (upright) g.fillRect(x, top + (n - 1 - i) * (cell + gap), thick, cell);
+        else g.fillRect(x + i * (cell + gap), top, cell, thick);
+      }
+      g.restore();
+    };
+    // past 100%, what the load is doing to him
+    const risk = (x, y, s, on) => {
+      g.save();
+      g.font = `400 ${Math.max(9, Math.round(10 * s))}px 'Share Tech Mono', monospace`; g.fillStyle = on ? "#FF2D55" : "rgba(255, 45, 85, 0.45)";
+      g.fillText("CYBERPSYCHOSIS RISK", x, y);
+      g.restore();
+    };
+    // The plates: gunmetal, brushed, their edges catching the light, the visor's light on them, a groove
+    // further out (the edge plates split into panels across it, vents in the corner plates), a hazard band
+    // and bolts along the visor's edge, its rim lit (brighter on the kicks), the readouts and labels; off the
+    // screen as the armour opens (and flying off, turning, in the breach).
+    const drawPlates = (V, shut, t, kick) => {
+      const plates = platesOf(V), need = reach(V), s = scale();
+      const blown = t >= SY_B_BREACH ? t - SY_B_BREACH : 0, warn = t >= SY_B_SHUT;
+      const blink = Math.floor(t / (SY_BEAT / 2)) % 2 === 0;
+      const rim = warn ? (blink ? "#FF2D55" : "#B3122E") : "#00E5FF", lit = warn ? "255, 45, 85" : "0, 229, 255";
+      const metal = g.createLinearGradient(0, 0, W * 0.45, H);
+      metal.addColorStop(0, "#272B3A"); metal.addColorStop(0.5, "#161924"); metal.addColorStop(1, "#0A0B11");
+      const armor = keyed(SY_B_ARMOR, t), load = keyed(SY_B_LOAD, t);
+      const armorColour = armor > 50 ? "#00E5FF" : armor > 25 ? "#FFB020" : "#FF2D55";
+      const loadColour = load < 90 ? "#A6FF00" : load < 110 ? "#FFB020" : "#FF2D55";
+      const loadText = load > 100 && blink ? "OVERLOAD" : `${Math.round(load)}%`;
+      const offs = SY_B_DIRS.map((_, i) => (blown ? 380 * blown + 900 * blown * blown : need[i] * (1 - Math.min(1, shut))));
+      const gone = (i) => !blown && offs[i] >= need[i];
+      // (a point along plate i's edge of the visor, f of the way, o further out)
+      const along = (i, f, o) => { const [a, b] = [V.pts[i], V.pts[(i + 1) % 8]], [dx, dy] = SY_B_DIRS[i]; return [a[0] + (b[0] - a[0]) * f + dx * o, a[1] + (b[1] - a[1]) * f + dy * o]; };
+      // (the canvas moved to where plate i is now)
+      const place = (i) => {
+        const [dx, dy] = SY_B_DIRS[i];
+        g.translate(dx * offs[i], dy * offs[i]);
+        if (blown) { const [mx, my] = along(i, 0.5, 0); g.translate(mx, my); g.rotate((i % 2 ? 1 : -1) * blown * 1.6); g.translate(-mx, -my); }
+      };
+      plates.forEach((pts, i) => {
+        if (gone(i)) return;
+        const [dx, dy] = SY_B_DIRS[i], [a, b] = [V.pts[i], V.pts[(i + 1) % 8]];
+        const at = (f, o) => along(i, f, o);
+        const line = (p, q, width, colour) => { g.beginPath(); g.moveTo(p[0], p[1]); g.lineTo(q[0], q[1]); g.lineWidth = width; g.strokeStyle = colour; g.stroke(); };
+        g.save();
+        place(i);
+        trace(pts);
+        g.fillStyle = metal; g.fill();
+        g.save();
+        g.clip();
+        g.fillStyle = grain; g.fill();
+        // its edges catching the light
+        trace(pts); g.lineWidth = 6; g.strokeStyle = "rgba(255, 255, 255, 0.05)"; g.stroke();
+        // the visor's light on the metal by its edge
+        const [mx, my] = at(0.5, 0), glow = g.createLinearGradient(mx, my, mx + dx * 110 * s, my + dy * 110 * s);
+        glow.addColorStop(0, `rgba(${lit}, ${(0.1 + 0.12 * kick / 0.022).toFixed(3)})`); glow.addColorStop(1, `rgba(${lit}, 0)`);
+        g.fillStyle = glow; g.fill();
+        // the groove further out, its light edge
+        line(at(-1, 54 * s), at(2, 54 * s), 2, "rgba(0, 0, 0, 0.6)"); line(at(-1, 56 * s), at(2, 56 * s), 1, "rgba(255, 255, 255, 0.06)");
+        if (i % 2 === 0) {
+          // the edge plates split into panels across the groove
+          for (const f of [0.14, 0.86]) { line(at(f, 56 * s), at(f, 2400), 2, "rgba(0, 0, 0, 0.55)"); line(at(f + 0.002, 56 * s), at(f + 0.002, 2400), 1, "rgba(255, 255, 255, 0.05)"); }
+        } else {
+          // the corner plates' vents, a lamp by them
+          g.lineCap = "round";
+          for (let n = 0; n < 5; n++) { const o = (74 + n * 12) * s; line(at(0.16, o), at(0.84, o), 5 * s, "#05060A"); line(at(0.16, o + 2.6 * s), at(0.84, o + 2.6 * s), 1, "rgba(255, 255, 255, 0.08)"); }
+          const [lx, ly] = at(0.5, 150 * s), on = warn ? blink : Math.floor(t / SY_BEAT + i) % 4 === 0;
+          g.beginPath(); g.arc(lx, ly, 3 * s, 0, Math.PI * 2); g.fillStyle = on ? rim : "rgba(255, 255, 255, 0.1)";
+          if (on) { g.shadowColor = rim; g.shadowBlur = 10; }
+          g.fill(); g.shadowBlur = 0;
+        }
+        // the hazard band
+        const [h0, h1, h2, h3] = [at(0, 12 * s), at(1, 12 * s), at(1, 22 * s), at(0, 22 * s)];
+        g.beginPath(); g.moveTo(h0[0], h0[1]); g.lineTo(h1[0], h1[1]); g.lineTo(h2[0], h2[1]); g.lineTo(h3[0], h3[1]); g.closePath();
+        g.globalAlpha = 0.88; g.fillStyle = warn && blink ? redStripes : stripes; g.fill(); g.globalAlpha = 1;
+        // bolts at the band's ends
+        for (const f of [0.1, 0.9]) {
+          const [bx, by] = at(f, 36 * s);
+          g.beginPath(); g.arc(bx, by, 3.6 * s, 0, Math.PI * 2); g.fillStyle = "#2C3040"; g.fill();
+          g.beginPath(); g.arc(bx - 1 * s, by - 1 * s, 1.3 * s, 0, Math.PI * 2); g.fillStyle = "rgba(255, 255, 255, 0.35)"; g.fill();
+        }
+        g.restore();
+        // the seams between the plates
+        trace(pts); g.lineWidth = 3; g.strokeStyle = "#030406"; g.stroke();
+        // the visor's rim: a dark lip, then its light
+        g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]);
+        g.lineCap = "round"; g.lineWidth = 8; g.strokeStyle = "#020305"; g.stroke();
+        g.save(); g.shadowColor = rim; g.shadowBlur = 14 + 900 * kick; g.lineWidth = 2.2; g.strokeStyle = rim; g.stroke(); g.restore();
+        g.restore();
+      });
+      // over them, the print on the edge plates (each moving with its own): the readouts, up the side plates
+      // (a wide screen) or along the top and the bottom (a tall one); the top plate's state and its lights; the
+      // bottom plate's stencils
+      [0, 2, 4, 6].forEach((i) => {
+        if (gone(i)) return;
+        g.save();
+        place(i);
+        if (V.wide && (i === 6 || i === 2)) {
+          const side = i === 6 ? V.cx - V.vx : W - (V.cx + V.vx), x0 = i === 6 ? Math.max(14, side / 2 - 34 * s) : V.cx + V.vx + Math.max(14, side / 2 - 34 * s);
+          if (side > 110 * s) {
+            const y0 = V.cy - V.vy * 0.62, len = V.vy * 1.05;
+            if (i === 6) meter(x0, y0, len, true, "INTEGRITY", `${Math.round(armor)}%`, armor / 100, armorColour, s);
+            else {
+              meter(x0, y0, len, true, "NEURAL LOAD", loadText, Math.min(1, load / 140), loadColour, s);
+              if (load > 100) risk(x0, y0 + 54 * s + len, s, blink);
+            }
+          }
+        }
+        if (!V.wide && (i === 0 || i === 4)) {
+          const room = i === 0 ? V.cy - V.vy : H - (V.cy + V.vy);
+          if (room > 120 * s) {
+            const len = V.vx * 1.2, x0 = V.cx - len / 2, y0 = i === 0 ? room * 0.3 : V.cy + V.vy + room * 0.36;
+            if (i === 0) meter(x0, y0, len, false, "INTEGRITY", `${Math.round(armor)}%`, armor / 100, armorColour, s);
+            else {
+              meter(x0, y0, len, false, "NEURAL LOAD", loadText, Math.min(1, load / 140), loadColour, s);
+              if (load > 100) risk(x0, y0 + 63 * s, s, blink);
+            }
+          }
+        }
+        if (i === 0) {
+          const y = V.cy - V.vy - 40 * s, state = t < 0 ? "ARMOR · LOCKING" : t < SY_B_UNLOCK ? "ARMOR · LOCKED" : t < SY_B_SHUT ? "ARMOR · UNLOCKED" : t < SY_B_HITS[0] ? "ARMOR · OVERRIDE" : "ARMOR · BREACH";
+          g.save();
+          g.textAlign = "center"; g.font = `700 ${Math.round(13 * s)}px Rajdhani, sans-serif`;
+          g.fillStyle = warn ? rim : "#FCEE0A"; g.shadowColor = g.fillStyle; g.shadowBlur = 8;
+          g.fillText(state.split("").join(String.fromCharCode(8202)), V.cx, y);
+          g.shadowBlur = 0;
+          for (let n = 0; n < 9; n++) {
+            const on = warn ? blink === (n % 2 === 0) : n === Math.floor(t * 9) % 9;
+            g.fillStyle = on ? (warn ? "#FF2D55" : "#00E5FF") : "rgba(255, 255, 255, 0.1)";
+            g.fillRect(V.cx - 54 * s + n * 12 * s, y + 10 * s, 8 * s, 3 * s);
+          }
+          g.restore();
+        }
+        if (i === 4) {
+          g.save();
+          g.textAlign = "center"; g.font = `400 ${Math.round(10 * s)}px 'Share Tech Mono', monospace`; g.fillStyle = "rgba(220, 226, 245, 0.4)";
+          g.fillText(V.wide ? "▲ NO STEP      CYBERSKELETON · MIL-SPEC · DM-0417      HYD ◆ 04      PINCH POINT ▲" : "▲ NO STEP · DM-0417 · HYD ◆ 04", V.cx, V.cy + V.vy + 46 * s);
+          g.restore();
+        }
+        g.restore();
+      });
+    };
+    // the targeting, locking onto Adam Smasher in his shots (its label under him, or beside him when he is far;
+    // kept in the visor)
+    const target = (t, F, s, V) => {
+      const hit = SY_B_TARGETS.find(([from, to]) => t >= from && t < to);
+      if (!hit) return;
+      const [from, , [x0, y0, x1, y1]] = hit, q = easeOut((t - from) / 0.25);
+      if (q < 1 && Math.floor((t - from) / 0.05) % 2) return;
+      const grow = 1 + 0.6 * (1 - q), mx = F.x + ((x0 + x1) / 2) * F.w, my = F.y + ((y0 + y1) / 2) * F.h;
+      const hw = ((x1 - x0) / 2) * F.w * grow, hh = ((y1 - y0) / 2) * F.h * grow, arm = Math.min(hw, hh) * 0.32;
+      g.save();
+      g.strokeStyle = "#FF2D55"; g.lineWidth = 2.2; g.shadowColor = "rgba(255, 45, 85, 0.8)"; g.shadowBlur = 8;
+      g.beginPath();
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const cx = mx + sx * hw, cy = my + sy * hh;
+        g.moveTo(cx - sx * arm, cy); g.lineTo(cx, cy); g.lineTo(cx, cy - sy * arm);
+      }
+      g.moveTo(mx - 7, my); g.lineTo(mx + 7, my); g.moveTo(mx, my - 7); g.lineTo(mx, my + 7);
+      g.stroke();
+      g.shadowBlur = 0;
+      const beside = hw < 80 * s;
+      const lx = Math.min(V.cx + V.vx - 120 * s, Math.max(V.cx - V.vx + 14 * s, beside ? mx + hw + 12 * s : mx - hw));
+      const ly = Math.min(V.cy + V.vy - 24 * s, Math.max(V.cy - V.vy + 26 * s, beside ? my - hh + 14 * s : my + hh + 18 * s));
+      g.fillStyle = "#FF2D55"; g.font = `700 ${Math.round(14 * s)}px Rajdhani, sans-serif`;
+      g.fillText("ADAM SMASHER", lx, ly);
+      g.font = `400 ${Math.round(10 * s)}px 'Share Tech Mono', monospace`;
+      g.fillText(`THREAT ${"█".repeat(Math.round(8 * q))}${"░".repeat(8 - Math.round(8 * q))} ${q >= 1 ? "MAX" : ""}`, lx, ly + 14 * s);
+      g.restore();
+    };
+    // sparks off the visor's rim on the slams and the hits (each burst the same every time: seeded)
+    const sparks = (t, V) => {
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      for (const [s, n] of SY_B_SPARKS) {
+        const dt = t - s;
+        if (dt < 0 || dt > 0.65) continue;
+        const rnd = syRandom(Math.round(s * 1000) + 77);
+        for (let i = 0; i < n; i++) {
+          const seg = Math.floor(rnd() * 8), f = rnd(), ang = rnd() * Math.PI * 2, speed = 240 + rnd() * 560, life = 0.25 + rnd() * 0.38, warm = rnd();
+          if (dt > life) continue;
+          const [a, b] = [V.pts[seg], V.pts[(seg + 1) % 8]];
+          const x0 = a[0] + (b[0] - a[0]) * f, y0 = a[1] + (b[1] - a[1]) * f, vx = Math.cos(ang) * speed, vy = Math.sin(ang) * speed - 140;
+          const x = x0 + vx * dt, y = y0 + vy * dt + 900 * dt * dt, px = x - vx * 0.02, py = y - (vy + 1800 * dt) * 0.02;
+          g.strokeStyle = `rgba(255, ${Math.round(190 + 65 * warm)}, ${Math.round(110 + 90 * warm)}, ${(1 - dt / life).toFixed(3)})`;
+          g.lineWidth = 1.7; g.beginPath(); g.moveTo(px, py); g.lineTo(x, y); g.stroke();
+        }
+      }
+      g.restore();
+    };
+    // the locks' steam, out of the visor's seams as they open
+    const steam = (t, V) => {
+      const dt = t - SY_B_UNLOCK;
+      if (dt < 0 || dt > 1.7) return;
+      const q = dt / 1.7;
+      for (let i = 0; i < 8; i++) {
+        const [a, b] = [V.pts[i], V.pts[(i + 1) % 8]], [dx, dy] = SY_B_DIRS[i];
+        const r = 30 + 170 * easeOut(q), x = (a[0] + b[0]) / 2 + dx * 70 * q, y = (a[1] + b[1]) / 2 + dy * 70 * q - 50 * q;
+        const puff = g.createRadialGradient(x, y, 0, x, y, r);
+        puff.addColorStop(0, `rgba(226, 240, 236, ${(0.34 * (1 - q)).toFixed(3)})`); puff.addColorStop(1, "rgba(226, 240, 236, 0)");
+        g.fillStyle = puff; g.fillRect(x - r, y - r, 2 * r, 2 * r);
+      }
+    };
+    // light drifting up through the screen while she is in his arms
+    const motes = (t) => {
+      const a = clamp((t - SY_B_OPEN) / 1.2) * (1 - clamp((t - (SY_B_SHUT - 0.3)) / 0.3));
+      if (a <= 0) return;
+      const rnd = syRandom(4242);
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      for (let i = 0; i < 26; i++) {
+        const x0 = rnd() * W, y0 = rnd() * H, speed = 10 + rnd() * 22, r = 1.2 + rnd() * 2.6, phase = rnd() * 6.28, alpha = (0.18 + rnd() * 0.4) * a;
+        const y = (((y0 - speed * (t - SY_B_OPEN)) % H) + H) % H, x = x0 + Math.sin(t * 0.7 + phase) * 14;
+        const dot = g.createRadialGradient(x, y, 0, x, y, r * 3);
+        dot.addColorStop(0, `rgba(236, 255, 244, ${alpha.toFixed(3)})`); dot.addColorStop(1, "rgba(236, 255, 244, 0)");
+        g.fillStyle = dot; g.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+      }
+      g.restore();
+    };
+    // a frame of the bridge at t (s into track 2; on track 1's last beat, the plates sliding in over the page)
+    const frame = (t) => {
+      size();
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      drawn = true;
+      const shut = shutAt(t), kick = joltAt(t), V = visorAt((t >= SY_B_SHUT ? 0.84 : 1) * (1 - kick)), s = scale();
+      const open = 1 - Math.min(1, shut), F = filmAt(V, open, t);
+      const [sx, sy] = shakeAt(t);
+      g.translate(sx, sy);
+      if (t >= 0) {
+        // the suit's dark inside, the film over it (the plates' gaps show it as they open)
+        g.fillStyle = "#040507"; g.fillRect(-60, -60, W + 120, H + 120);
+        if (film.readyState >= 2 && film.videoWidth) {
+          g.drawImage(film, F.x, F.y, F.w, F.h);
+          // her glow: the frame, soft, laid over itself
+          if (open > 0.3 && t < SY_B_SHUT) {
+            sg.drawImage(film, 0, 0, small.width, small.height);
+            g.globalCompositeOperation = "screen"; g.globalAlpha = 0.22 * open;
+            g.drawImage(small, F.x, F.y, F.w, F.h);
+            g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+          }
+        }
+        // the visor's glass while it is shut: its edges shaded, a reflection crossing it once a bar
+        if (shut > 0.9) {
+          g.save();
+          trace(V.pts); g.clip();
+          g.globalAlpha = clamp((shut - 0.9) / 0.1);
+          g.lineWidth = 46; g.strokeStyle = "rgba(0, 0, 0, 0.42)"; g.shadowColor = "rgba(0, 0, 0, 0.9)"; g.shadowBlur = 30; trace(V.pts); g.stroke();
+          g.shadowBlur = 0;
+          const q = ((t / (4 * SY_BEAT)) % 1) * 2.4 - 0.7, gx = V.cx - V.vx + q * 2 * V.vx;
+          const sheen = g.createLinearGradient(gx - 160, 0, gx + 160, 0);
+          sheen.addColorStop(0, "rgba(255, 255, 255, 0)"); sheen.addColorStop(0.5, "rgba(220, 255, 240, 0.07)"); sheen.addColorStop(1, "rgba(255, 255, 255, 0)");
+          g.fillStyle = sheen; g.fillRect(V.cx - V.vx, V.cy - V.vy, 2 * V.vx, 2 * V.vy);
+          g.globalAlpha = 1;
+          target(t, F, s, V);
+          g.restore();
+        }
+        motes(t);
+      }
+      if (t < SY_B_BREACH + 0.4) drawPlates(V, shut, t, kick);
+      if (t >= 0) {
+        steam(t, V);
+        sparks(t, V);
+        // flashes over it all
+        let flash = 0;
+        for (const [at, bright, long] of SY_B_FLASHES) { const dt = t - at; if (dt >= 0 && dt < long) flash = Math.max(flash, bright * (1 - dt / long)); }
+        if (flash > 0) { g.fillStyle = `rgba(236, 255, 242, ${flash.toFixed(3)})`; g.fillRect(-60, -60, W + 120, H + 120); }
+        // the white, blowing out of the film over everything
+        const dt = t - SY_B_BREACH;
+        if (dt >= 0) {
+          const ex = F.x + SY_B_BLAST[0] * F.w, ey = F.y + SY_B_BLAST[1] * F.h;
+          const far = Math.hypot(Math.max(ex, W - ex), Math.max(ey, H - ey)) * 1.25, q = easeIn(dt / 0.36), R = 50 + (far - 50) * q;
+          if (q >= 1) { g.fillStyle = "#FFFFFF"; g.fillRect(-60, -60, W + 120, H + 120); }
+          else {
+            const white = g.createRadialGradient(ex, ey, R * 0.5, ex, ey, R);
+            white.addColorStop(0, "#FFFFFF"); white.addColorStop(1, "rgba(255, 255, 255, 0)");
+            g.fillStyle = white; g.beginPath(); g.arc(ex, ey, R, 0, Math.PI * 2); g.fill();
+          }
+        }
+      }
+      g.setTransform(1, 0, 0, 1, 0, 0);
+    };
+    const wipe = () => { if (!g) return; g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, canvas.width, canvas.height); drawn = false; };
+    return {
+      mount(box) {
+        canvas = box.querySelector(".syb"); g = canvas.getContext("2d");
+        film = box.querySelector(".syb-film");
+        film.muted = true; film.playsInline = true; film.setAttribute("muted", ""); film.setAttribute("playsinline", "");
+        film.src = siteUrl("stay/bridge.mp4");
+        small = document.createElement("canvas"); small.width = 192; small.height = 108; sg = small.getContext("2d");
+        stripes = hazard("#FCEE0A"); redStripes = hazard("#FF2D55"); grain = brushed();
+        drawn = false; bridged = false;
+      },
+      // at: seconds into the loop (-1 in the intro)
+      tick(at) {
+        if (!canvas) return;
+        const t = at - SY_TRACK1;
+        yrKeep(film, at >= 0 && t >= 0 && t < SY_TRACK2 ? t : -1, SY_TRACK2);
+        if (at >= 0 && t >= -SY_BEAT && t < SY_TRACK2) { bridged = true; frame(t); return; }
+        // the white clearing off the page as track 1 comes back in
+        if (bridged && at >= 0 && at < 0.65) {
+          size();
+          g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, canvas.width, canvas.height);
+          g.fillStyle = `rgba(255, 255, 255, ${(1 - easeOut(at / 0.65)).toFixed(3)})`; g.fillRect(0, 0, canvas.width, canvas.height);
+          drawn = true;
+          return;
+        }
+        if (at >= 0.65) bridged = false;
+        if (drawn) wipe();
+      },
+      unmount() {
+        if (film) { film.pause(); film.removeAttribute("src"); film.load(); }
+        canvas = null; g = null; film = null; small = null; sg = null; stripes = null; redStripes = null; grain = null; drawn = false; bridged = false;
+      },
+    };
+  })();
+  // ── The MV: jack in ──
+  // The user's MV clip, whole, with its own sound (stay/mv.mp4: the song from its intro to the end of its chorus,
+  // fading out; the two of them on the moon, their life in Night City, his end, her alone on the moon). Lucy, a
+  // netrunner, jacks into the page to find him in her memories: a netrun in the Net's own look (the codes, the
+  // matrix, the grid, the ICE), world by world:
+  //   breach (0)        Breach Protocol over the page: the code matrix and the daemons to upload, a code picked on
+  //                     each beat (along a row, down a column…), the buffer filling, BREACH SUCCESSFUL; the page
+  //                     breaks up into code
+  //   decrypt (bar 3)   the first memory, the two of them on the moon, comes out of the code: every cell a hex code
+  //                     in the picture's colour there, decrypting cell by cell outwards from the two of them
+  //   luna (bar 5)      the moon, clear: their name tags, and Night City on the Earth behind them, 384,400 km away
+  //   cut (bar 7)       the verse, their life in Night City (each memory decrypted only so far: its corners
+  //                     still code, breathing with the beat): on each cut her monowire whips across the screen
+  //                     and the memory before falls apart in two along it
+  //   net (28.6 s)      a memory a beat, flying in out of the Net's grid and on past
+  //   kiss (40.1 s)     the kiss: everything else gone, the picture soft
+  //   launch (bar 23)   the break and the riser: the rocket in the header's sights, LUNA 384,400 KM, the distance
+  //                     running down as it climbs, the screen shaking
+  //   drop (45.87 s)    the drop: the blast's flash and a shockwave of code; the picture turning to code on the
+  //                     kicks; ICE
+  //   psycho (50.2 s)   his cyberpsychosis: the strobe turned negative, then the picture doubling round him on the
+  //                     kicks; CYBERPSYCHOSIS and NEURAL LOAD 140% (the bridge's readout) flashing, !DANGER! down
+  //                     the sides
+  //   tears (59.77 s)   her tears: quiet
+  //   lastrun (61.17 s) his last run: the cyberskeleton's visor as in track 2, INTEGRITY 0%, blown off on the cut
+  //   goodbye (65 s)    their goodbye: light drifting up
+  //   call (67.7 s)     she calls him: a holocall, CALLING DAVID MARTINEZ, his picture; it connects on his smile
+  //   lost (76.6 s)     the moon, empty: SIGNAL LOST, the call shut off; his tag where he stood, FLATLINED,
+  //                     flickering out; the title as the film fades out. Then the theme comes back from track 1.
+  // Times are seconds into the clip, on the song's grid (125 BPM; bar 1's downbeat 0.153 s before the clip
+  // starts, the drop on bar 25).
+  const SY_MV_BAR = (n) => -0.153 + (n - 1) * 4 * SY_BEAT;
+  // the shots (where each starts) and where its subject is across the frame (a tall screen sees a slice of it)
+  const SY_MV_SHOTS = [[0, 0.5], [3, 0.48], [11.367, 0.3], [12.7, 0.78], [13.733, 0.42], [14.733, 0.35], [15.667, 0.45], [16.567, 0.52], [17.567, 0.45],
+    [19.5, 0.5], [21.4, 0.5], [23.333, 0.5], [25.233, 0.55], [27.133, 0.5], [28.1, 0.45], [28.6, 0.5], [29.1, 0.5], [29.533, 0.4], [30, 0.5], [30.5, 0.4],
+    [31, 0.55], [31.5, 0.45], [31.967, 0.4], [32.433, 0.6], [32.933, 0.55], [33.367, 0.5], [33.833, 0.6], [34.3, 0.4], [34.8, 0.45], [35.3, 0.5], [35.8, 0.4],
+    [36.067, 0.4], [36.267, 0.5], [36.667, 0.55], [37.233, 0.5], [37.633, 0.35], [38.167, 0.4], [39.167, 0.6], [40.1, 0.5], [41, 0.55], [42.1, 0.5],
+    [45.867, 0.62], [46.367, 0.55], [47.7, 0.35], [49.233, 0.6], [50.2, 0.45], [52, 0.45], [54.6, 0.4], [55, 0.5], [55.933, 0.4], [56.533, 0.5], [56.9, 0.45],
+    [57.233, 0.45], [57.867, 0.5], [59.767, 0.45], [61.167, 0.45], [65, 0.5], [66.467, 0.5], [66.967, 0.5], [67.7, 0.45], [68.433, 0.4], [68.867, 0.5],
+    [69.633, 0.55], [70.333, 0.25], [70.833, 0.5], [71.6, 0.5], [72.3, 0.5], [74.167, 0.45], [76.6, 0.5]];
+  // the verse's cuts, each made by her monowire
+  const SY_MV_SLICES = [11.367, 12.7, 13.733, 14.733, 15.667, 16.567, 17.567, 19.5, 21.4, 23.333, 25.233, 27.133, 28.1];
+  // the memories coming a beat at a time, each flying in down the Net
+  const SY_MV_PACKETS = [28.6, 29.1, 29.533, 30, 30.5, 31, 31.5, 31.967, 32.433, 32.933, 33.367, 33.833, 34.3, 34.8, 35.3, 35.8, 36.067, 36.267, 36.667,
+    37.233, 37.633, 38.167, 39.167];
+  // the chorus's kicks (on 1, the and of 2 and 4 of bars 25-40)
+  const SY_MV_KICKS = Array.from({ length: 16 }, (_, i) => [0, 6, 12].map((x) => SY_MV_BAR(25 + i) + (x * SY_BEAT) / 4)).flat();
+  const SY_MV_CODES = ["1C", "55", "BD", "E9", "7A", "FF"];
+  // Breach Protocol: the path picked through the 6x6 matrix (a cell a beat, [row, column]: along row 0, down that
+  // column, along that row…), the buffer it fills, and the daemons those codes upload (their codes, where they end)
+  const SY_MV_PATH = [[0, 2], [3, 2], [3, 5], [1, 5], [1, 0], [4, 0], [4, 3]];
+  const SY_MV_BUFFER = ["1C", "BD", "55", "E9", "1C", "7A", "FF"];
+  const SY_MV_DAEMONS = [[["1C", "BD"], 1, "DATAMINE_V1"], [["BD", "55", "E9"], 3, "ICEPICK"], [["E9", "1C", "7A", "FF"], 6, "MEMORY_LUNA"]];
+  const syPics = new Map();
+  const syPic = (file) => {
+    if (!syPics.has(file)) syPics.set(file, Object.assign(new Image(), { decoding: "async", src: siteUrl(`stay/${file}`) }));
+    return syPics.get(file);
+  };
+  const stayScene = {
+    src: "stay/mv.mp4",
+    className: "sy-scene",
+    cues: [[0, "breach"], [SY_MV_BAR(3), "decrypt"], [SY_MV_BAR(5), "luna"], [SY_MV_BAR(7), "cut"], [28.6, "net"], [40.1, "kiss"], [SY_MV_BAR(23), "launch"],
+      [45.867, "drop"], [50.2, "psycho"], [59.767, "tears"], [61.167, "lastrun"], [65, "goodbye"], [67.7, "call"], [76.6, "lost"]],
+    // its pictures and lettering, loaded while its button is up
+    warm() {
+      ["david.webp", "logo.webp", "hud-target.webp", "hud-danger.webp"].forEach(syPic);
+      document.fonts?.load("700 20px Rajdhani", "BREACH PROTOCOL").catch(() => undefined);
+      document.fonts?.load("italic 700 40px 'Chakra Petch'", "CYBERPSYCHOSIS").catch(() => undefined);
+      document.fonts?.load("20px 'Share Tech Mono'", "1C 55 BD E9 7A FF").catch(() => undefined);
+    },
+    mount(box, video) {
+      stayScene.warm();
+      box.innerHTML = `<canvas class="sy-mv"></canvas>`;
+      // the film itself, with its sound, kept out of sight: everything is drawn from it
+      video.className = "sy-mv-film";
+      video.setAttribute("aria-hidden", "true");
+      box.append(video);
+      const canvas = box.querySelector(".sy-mv"), g = canvas.getContext("2d");
+      const B = SY_MV_BAR, BEAT = SY_BEAT, PI2 = Math.PI * 2;
+      const DAVID = syPic("david.webp"), LOGO = syPic("logo.webp"), TARGET = syPic("hud-target.webp"), DANGER = syPic("hud-danger.webp");
+      const clamp = (q) => Math.min(1, Math.max(0, q));
+      const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+      const out = (q) => 1 - (1 - clamp(q)) ** 3;
+      const inn = (q) => clamp(q) ** 3;
+      const back = (q) => { const p = clamp(q) - 1; return 1 + 2.2 * p ** 3 + 1.2 * p ** 2; };
+      const mix = (a, b, q) => a + (b - a) * q;
+      const ready = (im) => im.complete && im.naturalWidth > 0;
+      let W = 0, H = 0, m = 1, ratio = 1, tall = false, u = 1;
+
+      // ── the film: the element's latest frame (or, while it seeks or waits, the last one kept) ──
+      const still = document.createElement("canvas");
+      still.width = SCENE_LITE ? 640 : 960; still.height = SCENE_LITE ? 360 : 540;
+      const stillG = still.getContext("2d");
+      stillG.fillStyle = "#07070D"; stillG.fillRect(0, 0, still.width, still.height);
+      let grabs = 0;
+      const live = () => video.readyState >= 2 && video.videoWidth > 0;
+      const src = () => {
+        if (live()) { if (grabs++ % 6 === 0) stillG.drawImage(video, 0, 0, still.width, still.height); return video; }
+        return still;
+      };
+      const focusAt = (t) => { let f = 0.5; for (const [at, x] of SY_MV_SHOTS) if (t >= at) f = x; return f; };
+      const shotAt = (t) => { let n = 0; SY_MV_SHOTS.forEach(([at], i) => { if (t >= at) n = i; }); return n; };
+      // the film covering a box (its point fu, fv in view where it can be), zoomed by z
+      const cover = (x, y, w, h, fu = 0.5, fv = 0.5, z = 1) => {
+        const k = Math.max(w / 1280, h / 720) * z, dw = 1280 * k, dh = 720 * k;
+        return { x: Math.min(x, Math.max(x + w - dw, x + w / 2 - dw * fu)), y: Math.min(y, Math.max(y + h - dh, y + h / 2 - dh * fv)), w: dw, h: dh };
+      };
+      const screen = (t, z = 1) => cover(0, 0, W, H, focusAt(t), 0.5, z);
+      const film = (r, alpha = 1, from = src()) => { const a0 = g.globalAlpha; g.globalAlpha = a0 * alpha; g.drawImage(from, r.x, r.y, r.w, r.h); g.globalAlpha = a0; };
+      const pt = (r, x, y) => [r.x + x * r.w, r.y + y * r.h];
+      // the picture before each cut (for the cuts that take it apart, or send it flying): kept every frame while
+      // no cut is due, handed over as one passes
+      const CUTS = [...SY_MV_SLICES, ...SY_MV_PACKETS].sort((a, b) => a - b);
+      const keep = document.createElement("canvas"), gone = document.createElement("canvas");
+      keep.width = gone.width = 640; keep.height = gone.height = 360;
+      const keepG = keep.getContext("2d"), goneG = gone.getContext("2d");
+      let lastCut = -1, goneAt = -9;
+      const track = (t) => {
+        if (t < 11 || t > 40.2) return;
+        let c = -1;
+        for (const at of CUTS) if (t >= at) c = at;
+        if (c !== lastCut) {
+          if (c > 0 && t - c < 0.25) { goneG.drawImage(keep, 0, 0); goneAt = c; }
+          lastCut = c;
+        }
+        const next = CUTS.find((at) => at > t);
+        if (live() && (next === undefined || next - t > 0.035)) keepG.drawImage(video, 0, 0, keep.width, keep.height);
+      };
+      // the film's glow: a small copy of it, laid back over it soft
+      const small = document.createElement("canvas");
+      small.width = 192; small.height = 108;
+      const smallG = small.getContext("2d");
+      const bloom = (r, alpha) => {
+        if (alpha <= 0.01) return;
+        smallG.drawImage(src(), 0, 0, small.width, small.height);
+        g.save(); g.globalCompositeOperation = "screen"; g.globalAlpha = alpha; g.drawImage(small, r.x, r.y, r.w, r.h); g.restore();
+      };
+
+      // ── the film as code: every cell a hex code in the picture's colour there ──
+      // (the picture at a pixel a cell, lit up, blown up blocky, seen through the codes cut out of black; three
+      // sets of codes, so they roll)
+      let cs = 16, cols = 1, rows = 1, order = new Float32Array(0);
+      const masks = [0, 1, 2].map(() => document.createElement("canvas"));
+      const tiny = document.createElement("canvas"), tinyG = tiny.getContext("2d");
+      const paintMasks = () => {
+        cs = SCENE_LITE || W < 700 ? 13 : 16; cols = Math.ceil(W / cs); rows = Math.ceil(H / cs);
+        tiny.width = cols; tiny.height = rows;
+        masks.forEach((c, k) => {
+          c.width = cols * cs; c.height = rows * cs;
+          const mg = c.getContext("2d");
+          mg.fillStyle = "#000000"; mg.fillRect(0, 0, c.width, c.height);
+          mg.globalCompositeOperation = "destination-out";
+          mg.font = `${Math.round(cs * 0.7)}px 'Share Tech Mono', monospace`; mg.textAlign = "center"; mg.textBaseline = "middle";
+          const rnd = syRandom(911 + k * 7);
+          for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+            const code = SY_MV_CODES[Math.floor(rnd() * 6)];
+            mg.fillText(code, q * cs + cs / 2, r * cs + cs / 2 + 1); mg.fillText(code, q * cs + cs / 2 + 0.6, r * cs + cs / 2 + 1);
+          }
+        });
+      };
+      const mosaic = (r, alpha = 1, k = 0) => {
+        if (alpha <= 0.01) return;
+        tinyG.globalCompositeOperation = "source-over";
+        tinyG.drawImage(src(), r.x / cs, r.y / cs, r.w / cs, r.h / cs);
+        tinyG.globalCompositeOperation = "lighter"; tinyG.drawImage(tiny, 0, 0); tinyG.globalCompositeOperation = "source-over";
+        g.save(); g.globalAlpha *= alpha;
+        g.imageSmoothingEnabled = false; g.drawImage(tiny, 0, 0, cols * cs, rows * cs); g.imageSmoothingEnabled = true;
+        g.globalAlpha *= 0.8; g.drawImage(masks[((k % 3) + 3) % 3], 0, 0);
+        g.restore();
+      };
+      // each cell's turn to decrypt (0-1): outwards from a point on the screen, ragged
+      const orderFrom = (x, y) => {
+        const rnd = syRandom(4417);
+        order = new Float32Array(cols * rows);
+        let far = 1;
+        for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) { const d = Math.hypot((q + 0.5) * cs - x, (r + 0.5) * cs - y); order[r * cols + q] = d; far = Math.max(far, d); }
+        for (let i = 0; i < order.length; i++) order[i] = 0.8 * (order[i] / far) + 0.2 * rnd();
+      };
+      let edges = new Float32Array(0);
+      const edgesFrom = () => {
+        const rnd = syRandom(7331);
+        edges = new Float32Array(cols * rows);
+        for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) edges[r * cols + q] = Math.hypot(((q + 0.5) * cs - W / 2) / (W / 2), ((r + 0.5) * cs - H / 2) / (H / 2)) + 0.14 * rnd();
+      };
+      const cellsOut = (R) => {
+        const p = new Path2D();
+        for (let i = 0; i < edges.length; i++) if (edges[i] > R) p.rect((i % cols) * cs, Math.floor(i / cols) * cs, cs, cs);
+        return p;
+      };
+      const cellsIn = (q0, q1) => {
+        const p = new Path2D();
+        for (let i = 0; i < order.length; i++) if (order[i] >= q0 && order[i] < q1) p.rect((i % cols) * cs, Math.floor(i / cols) * cs, cs, cs);
+        return p;
+      };
+
+      // ── lettering, marks and glitches ──
+      const RAJ = "Rajdhani, sans-serif", MONO = "'Share Tech Mono', monospace", CHAKRA = "'Chakra Petch', sans-serif";
+      const font = (weight, size, family) => `${weight} ${Math.max(9, Math.round(size))}px ${family}`;
+      const spaced = (str) => str.split("").join(String.fromCharCode(8202));
+      const label = (str, x, y, f, colour, align = "left", alpha = 1, glow = 0) => {
+        if (alpha <= 0.01) return;
+        g.save(); g.globalAlpha *= alpha; g.font = f; g.fillStyle = colour; g.textAlign = align; g.textBaseline = "middle";
+        if (glow) { g.shadowColor = colour; g.shadowBlur = glow; }
+        g.fillText(str, x, y); g.restore();
+      };
+      // a box with its corners cut (top right, bottom left)
+      const cutBox = (x, y, w, h, c) => {
+        g.beginPath(); g.moveTo(x, y); g.lineTo(x + w - c, y); g.lineTo(x + w, y + c); g.lineTo(x + w, y + h); g.lineTo(x + c, y + h); g.lineTo(x, y + h - c); g.closePath();
+      };
+      // a memory's tag in the corner: its number, its address, what the net makes of it
+      const memNo = (n) => `MEM_${String(n).padStart(4, "0")}`;
+      const hexOf = (n) => `0x${((Math.imul(n + 7, 2654435761) >>> 0).toString(16).toUpperCase() + "0000").slice(0, 4)}`;
+      const memTag = (n, note, alpha = 1, colour = "#5EF6FF") => {
+        if (alpha <= 0.01) return;
+        const x = 22 * u, y = (tall ? 64 : 26) * u;
+        g.save(); g.globalAlpha *= alpha;
+        g.fillStyle = "rgba(7, 7, 13, 0.62)"; cutBox(x - 8 * u, y - 14 * u, 214 * u, 40 * u, 8 * u); g.fill();
+        g.fillStyle = colour; g.fillRect(x - 8 * u, y - 14 * u, 3 * u, 40 * u);
+        g.restore();
+        label(`${memNo(n)} · ${hexOf(n)}`, x + 2 * u, y - 2 * u, font(400, 12 * u, MONO), colour, "left", alpha);
+        label(note, x + 2 * u, y + 14 * u, font(700, 11 * u, RAJ), "#D0ED57", "left", 0.85 * alpha);
+      };
+      // corner brackets round the screen
+      const brackets = (alpha, colour = "#5EF6FF", inset = 18) => {
+        if (alpha <= 0.01) return;
+        const i = inset * u, l = 34 * u;
+        g.save(); g.globalAlpha *= alpha; g.strokeStyle = colour; g.lineWidth = 2;
+        g.beginPath();
+        for (const [x, y, sx, sy] of [[i, i, 1, 1], [W - i, i, -1, 1], [W - i, H - i, -1, -1], [i, H - i, 1, -1]]) { g.moveTo(x + sx * l, y); g.lineTo(x, y); g.lineTo(x, y + sy * l); }
+        g.stroke(); g.restore();
+      };
+      const wash = (colour, alpha) => { if (alpha > 0.01) { g.save(); g.fillStyle = colour; g.globalAlpha *= Math.min(1, alpha); g.fillRect(-40, -40, W + 80, H + 80); g.restore(); } };
+      const vignette = (rgb, alpha) => {
+        const gr = g.createRadialGradient(W / 2, H / 2, m * 0.3, W / 2, H / 2, Math.hypot(W, H) * 0.6);
+        gr.addColorStop(0, `rgba(${rgb}, 0)`); gr.addColorStop(1, `rgba(${rgb}, ${alpha})`);
+        g.fillStyle = gr; g.fillRect(0, 0, W, H);
+      };
+      // bands of the screen torn sideways (copied from the canvas onto itself, shifted)
+      const tear = (n, amp, seed) => {
+        if (amp < 0.5) return;
+        const rnd = syRandom(seed), cw = canvas.width, ch = canvas.height;
+        g.save(); g.setTransform(1, 0, 0, 1, 0, 0);
+        for (let i = 0; i < n; i++) {
+          const y = Math.floor(rnd() * ch), h = Math.min(ch - y, Math.ceil((0.008 + rnd() * 0.05) * ch)), dx = Math.round((rnd() - 0.5) * 2 * amp * ratio);
+          if (h > 0) g.drawImage(canvas, 0, y, cw, h, dx, y, cw, h);
+        }
+        g.restore();
+      };
+      const shakeOf = (amp, t) => [amp * Math.sin(t * 93.1), amp * 0.72 * Math.cos(t * 71.7)];
+      // the chorus's latest kick, dying away
+      const kickAt = (t, fall = 9) => { let k = 0; for (const s of SY_MV_KICKS) { if (s > t) break; k = Math.exp(-(t - s) * fall); } return k; };
+      const blinkAt = (t, per = BEAT / 2) => Math.floor((t - B(1)) / per) % 2 === 0;
+
+      // ── breach: Breach Protocol over the page ──
+      const MATRIX = (() => {
+        const rnd = syRandom(2077), cells = Array.from({ length: 6 }, () => Array.from({ length: 6 }, () => SY_MV_CODES[Math.floor(rnd() * 6)]));
+        SY_MV_PATH.forEach(([r, c], i) => { cells[r][c] = SY_MV_BUFFER[i]; });
+        return cells;
+      })();
+      const PICKS = SY_MV_PATH.map((_, i) => B(1) + (i + 1) * BEAT);
+      // its two panels: the code matrix, and the buffer with the daemons (side by side on a wide screen, one over
+      // the other on a tall one)
+      const breachLayout = () => {
+        if (!tall) {
+          const w = Math.min(W - 64, 1000 * u), h = Math.min(H - 150, 440 * u), x = (W - w) / 2, y = (H - h) / 2 + 8 * u;
+          return { mx: x, my: y, mw: w * 0.5, mh: h, rx: x + w * 0.53, ry: y, rw: w * 0.47, rh: h };
+        }
+        const w = W - 28, x = 14, mh = Math.min(w + 20 * u, H * 0.47), rh = 300 * u, y = Math.max(60, (H - mh - rh - 16) / 2);
+        return { mx: x, my: y, mw: w, mh, rx: x, ry: y + mh + 16, rw: w, rh };
+      };
+      const panel = (x, y, w, h, title) => {
+        const c = 14 * u, strip = 26 * u;
+        cutBox(x, y, w, h, c); g.fillStyle = "rgba(9, 11, 17, 0.9)"; g.fill();
+        g.strokeStyle = "rgba(208, 237, 87, 0.5)"; g.lineWidth = 1; g.stroke();
+        g.fillStyle = "#D0ED57"; g.fillRect(x, y, Math.min(w - c, 230 * u), strip);
+        label(spaced(title), x + 10 * u, y + strip / 2 + 1, font(700, 14 * u, RAJ), "#0A0C12");
+      };
+      const breachUI = (t) => {
+        const L = breachLayout(), done = PICKS.filter((p) => t >= p).length;
+        // the matrix
+        panel(L.mx, L.my, L.mw, L.mh, "CODE MATRIX");
+        const head = 34 * u, pad = 16 * u, cz = Math.min((L.mw - 2 * pad) / 6, (L.mh - head - 2 * pad) / 6);
+        const gx = L.mx + (L.mw - cz * 6) / 2, gy = L.my + head + (L.mh - head - cz * 6) / 2;
+        const band = done >= 7 ? null : done === 0 ? ["row", 0] : done % 2 ? ["col", SY_MV_PATH[done - 1][1]] : ["row", SY_MV_PATH[done - 1][0]];
+        if (band) {
+          g.fillStyle = "rgba(208, 237, 87, 0.1)"; g.strokeStyle = "rgba(208, 237, 87, 0.5)"; g.lineWidth = 1;
+          const [bx, by, bw, bh] = band[0] === "row" ? [gx, gy + band[1] * cz, cz * 6, cz] : [gx + band[1] * cz, gy, cz, cz * 6];
+          g.fillRect(bx, by, bw, bh); g.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
+        }
+        // the cursor, gliding to the next code to pick
+        if (done < 7) {
+          const from = done === 0 ? [0, 0] : SY_MV_PATH[done - 1], to = SY_MV_PATH[done], t0 = done === 0 ? 0 : PICKS[done - 1];
+          const q = ease(((t - t0) / (PICKS[done] - t0)) * 1.7), cx = gx + mix(from[1], to[1], q) * cz, cy = gy + mix(from[0], to[0], q) * cz;
+          g.fillStyle = "rgba(94, 246, 255, 0.14)"; g.fillRect(cx + 3, cy + 3, cz - 6, cz - 6);
+          g.strokeStyle = "#5EF6FF"; g.lineWidth = 2; g.strokeRect(cx + 3, cy + 3, cz - 6, cz - 6);
+        }
+        for (let r = 0; r < 6; r++) for (let c = 0; c < 6; c++) {
+          const k = SY_MV_PATH.findIndex(([pr, pc]) => pr === r && pc === c), picked = k >= 0 && k < done;
+          const inBand = band && (band[0] === "row" ? band[1] === r : band[1] === c);
+          const x = gx + c * cz + cz / 2, y = gy + r * cz + cz / 2 + 1;
+          if (picked && t - PICKS[k] < 0.18) { g.fillStyle = `rgba(94, 246, 255, ${(0.55 * (1 - (t - PICKS[k]) / 0.18)).toFixed(3)})`; g.fillRect(x - cz / 2 + 2, y - cz / 2 + 1, cz - 4, cz - 4); }
+          label(picked ? "[  ]" : MATRIX[r][c], x, y, font(700, cz * 0.4, RAJ), picked ? "rgba(208, 237, 87, 0.3)" : inBand ? "#F0FF9A" : "#D0ED57", "center");
+        }
+        // the buffer, then the daemons, each code lit as it is matched and the daemon INSTALLED when it is whole
+        panel(L.rx, L.ry, L.rw, L.rh, "BREACH PROTOCOL");
+        const x0 = L.rx + 16 * u, bz = Math.min(36 * u, (L.rw - 32 * u - 7 * 6 * u) / 8);
+        let y = L.ry + 50 * u;
+        label("BREACH TIME REMAINING", x0, y, font(700, 11 * u, RAJ), "rgba(208, 237, 87, 0.75)");
+        y += 14 * u;
+        g.fillStyle = "rgba(208, 237, 87, 0.15)"; g.fillRect(x0, y, L.rw - 32 * u, 5 * u);
+        g.fillStyle = "#D0ED57"; g.fillRect(x0, y, (L.rw - 32 * u) * (1 - 0.82 * clamp(t / PICKS[6])), 5 * u);
+        y += 26 * u;
+        label("BUFFER", x0, y, font(700, 11 * u, RAJ), "rgba(208, 237, 87, 0.75)");
+        y += 12 * u;
+        for (let i = 0; i < 8; i++) {
+          const bx = x0 + i * (bz + 6 * u);
+          g.strokeStyle = i < done ? "#5EF6FF" : "rgba(208, 237, 87, 0.35)"; g.lineWidth = 1; g.strokeRect(bx + 0.5, y + 0.5, bz - 1, bz - 1);
+          if (i < done) {
+            const fly = out((t - PICKS[i]) / 0.16);
+            label(SY_MV_BUFFER[i], bx + bz / 2, y + bz / 2 + 1 - (1 - fly) * 14 * u, font(700, bz * 0.42, RAJ), "#5EF6FF", "center", fly);
+          }
+        }
+        y += bz + 26 * u;
+        label("SEQUENCE REQUIRED TO UPLOAD", x0, y, font(700, 11 * u, RAJ), "rgba(208, 237, 87, 0.75)");
+        y += 14 * u;
+        const dz = Math.min(bz * 0.86, 30 * u);
+        SY_MV_DAEMONS.forEach(([codes, end, name]) => {
+          const start = end - codes.length + 1, whole = done > end, flash = whole ? 1 - clamp((t - PICKS[end]) / 0.3) : 0;
+          if (flash > 0) { g.fillStyle = `rgba(166, 255, 0, ${(0.22 * flash).toFixed(3)})`; g.fillRect(x0 - 6 * u, y - 4 * u, L.rw - 20 * u, dz + 8 * u); }
+          codes.forEach((code, j) => {
+            const bx = x0 + j * (dz + 4 * u), hit = done > start + j;
+            g.fillStyle = hit ? (whole ? "rgba(166, 255, 0, 0.2)" : "rgba(94, 246, 255, 0.16)") : "rgba(208, 237, 87, 0.06)"; g.fillRect(bx, y, dz, dz);
+            label(code, bx + dz / 2, y + dz / 2 + 1, font(700, dz * 0.46, RAJ), whole ? "#A6FF00" : hit ? "#5EF6FF" : "#D0ED57", "center");
+          });
+          const nx = x0 + 4 * (dz + 4 * u) + 10 * u;
+          label(name, nx, y + dz * 0.32, font(700, 13 * u, RAJ), whole ? "#A6FF00" : "#D0ED57");
+          label(whole ? "INSTALLED" : "PENDING", nx, y + dz * 0.8, font(400, 10 * u, MONO), whole ? "#A6FF00" : "rgba(208, 237, 87, 0.5)");
+          y += dz + 12 * u;
+        });
+        // the breach through
+        if (t >= PICKS[6]) {
+          const q = out((t - PICKS[6]) / 0.12), bh = 74 * u, by = H / 2 - bh / 2;
+          g.fillStyle = "rgba(3, 18, 22, 0.94)"; g.fillRect(0, by, W * q, bh);
+          g.fillStyle = "#5EF6FF"; g.fillRect(0, by, W * q, 2); g.fillRect(W * (1 - q), by + bh - 2, W * q, 2);
+          label(spaced("BREACH SUCCESSFUL"), W / 2, by + bh * 0.42, font(700, Math.min(36 * u, W / 13), RAJ), "#5EF6FF", "center", q, 16);
+          label("3 DAEMONS UPLOADED · ACCESS: MEMORY", W / 2, by + bh * 0.78, font(400, 11 * u, MONO), "#D0ED57", "center", q);
+        }
+      };
+      const drawBreach = (t) => {
+        // the page, darkened, the film's interference over it (its static, the feet, the Earth coming up)
+        const derez = clamp((t - (PICKS[6] + 0.08)) / (B(3) - PICKS[6] - 0.08));
+        wash("#07070D", 0.72 * out(t / 0.3));
+        g.save(); g.globalCompositeOperation = "screen"; film(screen(t), 0.32 + 0.4 * clamp((t - 3) / 0.6)); g.restore();
+        // the page breaking up into code
+        mosaic(screen(t), ease(derez), Math.floor(t / 0.09));
+        g.save(); g.globalAlpha = 1 - ease(derez);
+        g.translate(0, (1 - out(t / 0.35)) * 26 * u);
+        if (t < 0.35) g.globalAlpha *= out(t / 0.35);
+        breachUI(t);
+        g.restore();
+        tear(Math.round(4 + 12 * derez), derez * 90 * u, Math.floor(t * 30));
+        if (t < 0.5) tear(5, (1 - t / 0.5) * 50 * u, Math.floor(t * 30) + 3);
+      };
+
+      // ── decrypt: the moon out of the code ──
+      const drawDecrypt = (t) => {
+        const r = screen(t), q = clamp((t - B(3)) / (B(5) - B(3) - 0.5)), k = Math.floor(t / 0.11);
+        mosaic(r, 1, k);
+        g.save(); g.clip(cellsIn(-1, q)); film(r); g.restore();
+        if (q < 1) { g.fillStyle = "rgba(225, 255, 250, 0.6)"; g.fill(cellsIn(q, q + 0.035)); }
+        // its progress
+        const x = 22 * u, y = H - (tall ? 110 : 54) * u, w = Math.min(320 * u, W - 44 * u);
+        label(q < 1 ? `DECRYPTING ${memNo(1)}` : `${memNo(1)} · DECRYPTED`, x, y, font(700, 13 * u, RAJ), q < 1 ? "#D0ED57" : "#A6FF00");
+        label(`${Math.floor(q * 100)}%`, x + w, y, font(400, 13 * u, MONO), q < 1 ? "#5EF6FF" : "#A6FF00", "right");
+        g.fillStyle = "rgba(208, 237, 87, 0.18)"; g.fillRect(x, y + 12 * u, w, 4 * u);
+        g.fillStyle = q < 1 ? "#5EF6FF" : "#A6FF00"; g.fillRect(x, y + 12 * u, w * q, 4 * u);
+      };
+
+      // ── luna: the moon, clear ──
+      // a name tag over someone in the film (as the game tags people): a mark over the head, a line up, the name
+      // typed in
+      const nameTag = (r, x, y, name, colour, age, sub = "", subColour = colour) => {
+        if (age <= 0) return;
+        const [hx, hy] = pt(r, x, y), up = 64 * u * out(age / 0.3), lx = Math.min(W - 16 * u - name.length * 8.6 * u, Math.max(16 * u, hx - 12 * u));
+        g.save(); g.strokeStyle = colour; g.fillStyle = colour; g.lineWidth = 1.2;
+        g.beginPath(); g.moveTo(hx, hy - 12 * u); g.lineTo(hx - 5 * u, hy - 19 * u); g.lineTo(hx, hy - 26 * u); g.lineTo(hx + 5 * u, hy - 19 * u); g.closePath(); g.fill();
+        g.beginPath(); g.moveTo(hx, hy - 26 * u); g.lineTo(hx, hy - 26 * u - up); g.lineTo(lx, hy - 26 * u - up); g.stroke();
+        g.restore();
+        const shown = name.slice(0, Math.floor(age * 34));
+        g.fillStyle = "rgba(7, 7, 13, 0.6)"; g.fillRect(lx - 6 * u, hy - 44 * u - up, Math.max(20 * u, shown.length * 8.6 * u + 14 * u), 22 * u);
+        label(shown, lx, hy - 33 * u - up, font(700, 14 * u, RAJ), colour, "left", 1, 6);
+        if (sub && age > 0.5) {
+          g.fillStyle = "rgba(7, 7, 13, 0.6)"; g.fillRect(lx - 6 * u, hy - 22 * u - up, sub.length * 8.6 * u + 14 * u, 18 * u);
+          label(spaced(sub), lx, hy - 13 * u - up, font(700, 12 * u, RAJ), subColour, "left", 1, 8);
+        }
+      };
+      // a mark on the film: the header's sights, turning, with words by it
+      const tintedTarget = {};
+      const targetIn = (colour) => {
+        if (!tintedTarget[colour]) {
+          const c = document.createElement("canvas"); c.width = 300; c.height = 317;
+          const cg = c.getContext("2d");
+          cg.drawImage(TARGET, 0, 0, 300, 317); cg.globalCompositeOperation = "source-in"; cg.fillStyle = colour; cg.fillRect(0, 0, 300, 317);
+          tintedTarget[colour] = c;
+        }
+        return tintedTarget[colour];
+      };
+      const sights = (x, y, size, turn, alpha, lines, colour = "#FCEE0A") => {
+        if (alpha <= 0.01) return;
+        g.save(); g.globalAlpha *= alpha;
+        if (ready(TARGET)) {
+          g.translate(x, y); g.rotate(turn);
+          const h = size * (634 / 600), dark = targetIn("#05060C");
+          for (const [ox, oy] of [[-1.5, 0], [1.5, 0], [0, -1.5], [0, 1.5]]) g.drawImage(dark, -size / 2 + ox, -h / 2 + oy, size, h);
+          g.drawImage(targetIn(colour), -size / 2, -h / 2, size, h);
+        }
+        g.restore();
+        const lx = x + size * 0.58, wide = Math.max(...lines.map(([str]) => str.length)) * 9.5 * u;
+        g.save(); g.globalAlpha *= 0.62 * alpha; g.fillStyle = "#05060C"; g.fillRect(lx - 7 * u, y - 21 * u, wide + 14 * u, lines.length * 18 * u + 8 * u); g.restore();
+        lines.forEach(([str, f, c], i) => label(str, lx, y - 9 * u + i * 18 * u, f, c ?? colour, "left", alpha, i ? 0 : 8));
+      };
+      const drawLuna = (t) => {
+        const q = (t - B(5)) / (B(7) - B(5)), r = screen(t, 1 + 0.045 * ease(q));
+        film(r);
+        nameTag(r, 0.41, 0.6, "DAVID MARTINEZ", "#FCEE0A", t - (B(5) + 0.35));
+        nameTag(r, 0.57, 0.61, "LUCYNA KUSHINADA", "#5EF6FF", t - (B(5) + 0.83));
+        const [ex, ey] = pt(r, 0.45, 0.3), a = out((t - B(6)) / 0.4);
+        sights(ex, ey, 64 * u, t * 0.4, a, [["NIGHT CITY", font(700, 15 * u, RAJ)], ["384,400 KM", font(400, 12 * u, MONO), "#5EF6FF"]]);
+        memTag(1, "LUNA · DECRYPTED", 1, "#A6FF00");
+        if (t > B(7) - 0.25) tear(8, ((t - (B(7) - 0.25)) / 0.25) * 60 * u, Math.floor(t * 30));
+      };
+
+      // ── cut: her monowire through the verse's cuts ──
+      const SLICE = SY_MV_SLICES.map((c, i) => { const rnd = syRandom(611 + i * 37); return { c, a: (i % 2 ? 1 : -1) * (0.2 + 0.8 * rnd()), o: (rnd() - 0.5) * 0.34, from: rnd() < 0.5 ? 1 : -1 }; });
+      const line = (x0, y0, x1, y1) => { g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke(); };
+      const drawCut = (t) => {
+        const r = screen(t), beat = Math.exp(-(((t - B(1)) / BEAT) % 1) * 5);
+        film(r);
+        g.save(); g.clip(cellsOut(1.08 - 0.05 * beat)); mosaic(r, 0.9, Math.floor(t / 0.11)); g.restore();
+        const sl = SLICE.filter((x) => t >= x.c && t < x.c + 0.8).pop();
+        if (sl) {
+          const dir = [Math.cos(sl.a), Math.sin(sl.a)], nrm = [-dir[1], dir[0]], L = Math.hypot(W, H);
+          const P = [W / 2 + nrm[0] * sl.o * m, H / 2 + nrm[1] * sl.o * m], age = t - sl.c;
+          const a0 = [P[0] - dir[0] * L * sl.from, P[1] - dir[1] * L * sl.from], a1 = [P[0] + dir[0] * L * sl.from, P[1] + dir[1] * L * sl.from];
+          // the memory before, in two, sliding apart along the cut and falling away
+          if (goneAt === sl.c) {
+            const q = out((age - 0.06) / 0.62), fade = 1 - clamp((age - 0.22) / 0.5), R = cover(0, 0, W, H, focusAt(sl.c - 0.03), 0.5);
+            for (const side of [1, -1]) {
+              if (fade <= 0) break;
+              g.save();
+              g.translate((dir[0] * 0.18 + nrm[0] * 0.09) * side * m * q, (dir[1] * 0.18 + nrm[1] * 0.09) * side * m * q + 0.12 * m * q * q);
+              g.translate(P[0], P[1]); g.rotate(side * 0.05 * q); g.translate(-P[0], -P[1]);
+              g.beginPath(); g.moveTo(a0[0], a0[1]); g.lineTo(a1[0], a1[1]);
+              g.lineTo(a1[0] + nrm[0] * side * L, a1[1] + nrm[1] * side * L); g.lineTo(a0[0] + nrm[0] * side * L, a0[1] + nrm[1] * side * L); g.closePath();
+              g.clip();
+              g.globalAlpha = fade; g.drawImage(gone, R.x, R.y, R.w, R.h);
+              g.globalCompositeOperation = "lighter"; g.strokeStyle = `rgba(255, 130, 230, ${(0.85 * fade).toFixed(3)})`; g.lineWidth = 3; line(a0[0], a0[1], a1[0], a1[1]);
+              g.restore();
+            }
+          }
+          // the wire whipping across, then its glow dying
+          const w = clamp(age / 0.09), glow = 1 - clamp((age - 0.09) / 0.42);
+          if (glow > 0) {
+            const e = [a0[0] + (a1[0] - a0[0]) * w, a0[1] + (a1[1] - a0[1]) * w];
+            g.save(); g.globalCompositeOperation = "lighter"; g.lineCap = "round";
+            g.strokeStyle = `rgba(170, 70, 255, ${(0.4 * glow).toFixed(3)})`; g.lineWidth = 16 * u; line(a0[0], a0[1], e[0], e[1]);
+            g.strokeStyle = `rgba(110, 235, 255, ${(0.75 * glow).toFixed(3)})`; g.lineWidth = 4; line(a0[0], a0[1], e[0], e[1]);
+            g.strokeStyle = `rgba(255, 255, 255, ${glow.toFixed(3)})`; g.lineWidth = 1.6; line(a0[0], a0[1], e[0], e[1]);
+            g.restore();
+          }
+        }
+        memTag(shotAt(t), "NIGHT CITY · DECRYPTED");
+      };
+
+      // ── net: a memory a beat, down the Net's grid ──
+      // the grid: a floor and a ceiling running into the middle, a row coming at you every beat; the Net's dark
+      // in the middle
+      const grid = (t, alpha) => {
+        const vx = W / 2, vy = H / 2, ph = (t / BEAT) % 1;
+        g.save(); g.globalAlpha = alpha; g.lineWidth = 1;
+        for (const sg of [1, -1]) {
+          for (let k = 0; k < 18; k++) {
+            const z = 0.3 + (k + 1 - ph) * 0.5, y = vy + (sg * H * 0.56) / z;
+            g.strokeStyle = `rgba(0, 229, 255, ${Math.min(0.55, 0.6 / z).toFixed(3)})`; line(0, y, W, y);
+          }
+          for (let k = -14; k <= 14; k++) { g.strokeStyle = "rgba(0, 229, 255, 0.2)"; line(vx, vy, vx + k * W * 0.16, vy + sg * H * 1.9); }
+        }
+        const horizon = g.createLinearGradient(0, vy - 26 * u, 0, vy + 26 * u);
+        horizon.addColorStop(0, "rgba(255, 46, 151, 0)"); horizon.addColorStop(0.5, "rgba(255, 46, 151, 0.35)"); horizon.addColorStop(1, "rgba(0, 229, 255, 0)");
+        g.fillStyle = horizon; g.fillRect(0, vy - 26 * u, W, 52 * u);
+        const core = g.createRadialGradient(vx, vy, 0, vx, vy, m * 0.42);
+        core.addColorStop(0, "rgba(3, 4, 10, 1)"); core.addColorStop(1, "rgba(3, 4, 10, 0)");
+        g.fillStyle = core; g.fillRect(vx - m * 0.42, vy - m * 0.42, m * 0.84, m * 0.84);
+        g.restore();
+      };
+      // the codes streaming out of the middle along it
+      const STREAM = Array.from({ length: 46 }, (_, i) => { const rnd = syRandom(300 + i); return { a: rnd() * PI2, p: rnd(), v: 0.5 + rnd() * 0.9, c: SY_MV_CODES[Math.floor(rnd() * 6)] }; });
+      const streams = (t, alpha) => {
+        g.save(); g.textAlign = "center"; g.textBaseline = "middle";
+        for (const d of STREAM) {
+          const q = (d.p + t * d.v * 0.42) % 1, rr = q * q * Math.hypot(W, H) * 0.62;
+          label(d.c, W / 2 + Math.cos(d.a) * rr, H / 2 + Math.sin(d.a) * rr * 0.8, font(400, (8 + 16 * q) * u, MONO), "#5EF6FF", "center", alpha * 0.7 * Math.sin(Math.PI * q));
+        }
+        g.restore();
+      };
+      // a memory as a panel in the Net: its frame, its corners, its number over it (z: how near; dx: off to the side)
+      const packet = (from, focus, z, dx, alpha, n) => {
+        if (alpha <= 0.01) return;
+        const pw = tall ? W * 0.86 : W * 0.68, ph = tall ? H * 0.6 : (pw * 9) / 16, w = pw * z, h = ph * z, x = W / 2 - w / 2 + dx, y = H / 2 - h / 2;
+        g.save(); g.globalAlpha *= alpha;
+        g.beginPath(); g.rect(x, y, w, h); g.save(); g.clip();
+        const R = cover(x, y, w, h, focus, 0.5);
+        g.drawImage(from, R.x, R.y, R.w, R.h);
+        g.restore();
+        g.strokeStyle = "rgba(94, 246, 255, 0.85)"; g.lineWidth = 1.5; g.strokeRect(x, y, w, h);
+        const l = Math.min(w, h) * 0.08;
+        g.lineWidth = 3; g.strokeStyle = "#5EF6FF";
+        g.beginPath();
+        for (const [cx, cy, sx, sy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x + w, y + h, -1, -1], [x, y + h, 1, -1]]) { g.moveTo(cx + sx * l, cy); g.lineTo(cx, cy); g.lineTo(cx, cy + sy * l); }
+        g.stroke();
+        g.restore();
+        if (z > 0.5) {
+          label(`${memNo(n)} · ${hexOf(n)}`, x, y - 12 * u, font(400, 12 * u * Math.min(1.4, z), MONO), "#5EF6FF", "left", alpha);
+          label(spaced("DECRYPTED"), x + w, y - 12 * u, font(700, 11 * u * Math.min(1.4, z), RAJ), "#A6FF00", "right", alpha);
+        }
+      };
+      const drawNet = (t) => {
+        g.fillStyle = "#03040A"; g.fillRect(0, 0, W, H);
+        grid(t, 1);
+        streams(t, 1);
+        const i = SY_MV_PACKETS.filter((c) => t >= c).length - 1, c = SY_MV_PACKETS[Math.max(0, i)], age = t - c;
+        packet(src(), focusAt(t), 0.05 + 0.95 * back(age / 0.26) + 0.025 * age, 0, 1, shotAt(t));
+        if (goneAt === c && age < 0.3) {
+          const q = age / 0.3;
+          packet(gone, focusAt(c - 0.03), 1.03 + 1.3 * out(q), (i % 2 ? 1 : -1) * W * 0.45 * out(q), (1 - q) ** 1.5, shotAt(c - 0.03));
+        }
+        if (age < 0.08) wash("#BFFBFF", 0.18 * (1 - age / 0.08));
+      };
+
+      // ── kiss: everything else gone ──
+      const drawKiss = (t) => {
+        const r = screen(t, 1.02 - 0.02 * clamp((t - 40.1) / 2));
+        film(r);
+        bloom(r, 0.34);
+        vignette("40, 8, 30", 0.45);
+        wash("#FFFFFF", 0.7 * (1 - clamp((t - 40.1) / 0.28)));
+      };
+
+      // ── launch: the rocket in the header's sights ──
+      const SPEED = Array.from({ length: 60 }, (_, i) => { const rnd = syRandom(50 + i); return { x: rnd(), v: 0.6 + rnd(), p: rnd() }; });
+      const drawLaunch = (t) => {
+        const rise = clamp((t - B(24)) / (B(25) - B(24))), [sx, sy] = shakeOf(10 * u * inn(rise), t);
+        g.save(); g.translate(sx, sy);
+        const r = screen(t, 1.06);
+        film(r);
+        g.restore();
+        // the speed of it: codes rushing down past, more and faster as it climbs
+        if (rise > 0) {
+          g.save(); g.globalAlpha = 0.25 + 0.5 * rise; g.fillStyle = "#5EF6FF";
+          SPEED.slice(0, Math.round(10 + 50 * rise)).forEach(({ x, v, p }) => {
+            const y = ((p + (t - B(24)) * v * (1 + 3 * rise) * 0.9) % 1) * (H + 80) - 40;
+            g.fillRect(x * W, y, 1.5, 18 * u + 60 * u * rise);
+          });
+          g.restore();
+        }
+        const [rx, ry] = pt(r, 0.5, 0.32), a = out((t - (B(23) + 0.25)) / 0.6);
+        const dist = Math.round(384400 * (1 - inn(rise)));
+        sights(rx + sx, ry + sy, (110 - 44 * rise) * u, t * (0.3 + 2.6 * rise * rise), a, [[spaced("LUNA"), font(700, 18 * u, RAJ)], [`${dist.toLocaleString("en-US")} KM`, font(400, 13 * u, MONO), "#5EF6FF"]]);
+        wash("#FFFFFF", 0.3 * inn(rise));
+        brackets(a * 0.8, "#FCEE0A");
+      };
+
+      // ── drop: the blast, the Net beating ──
+      const drawDrop = (t) => {
+        const k = kickAt(t), r = screen(t, 1 + 0.04 * k);
+        film(r);
+        // on the kicks, the picture turning to code for a moment
+        if (t > 46.4) mosaic(r, 0.62 * k, Math.floor(t / 0.08));
+        // the blast: a ring of code going out from it, its flash
+        const age = t - B(25);
+        if (age > 0 && age < 0.6) {
+          const [bx, by] = pt(screen(46.1), 0.62, 0.45), R = (age / 0.6) * Math.hypot(W, H) * 1.05, band = 0.09 * m + 0.05 * R;
+          g.save(); g.beginPath(); g.arc(bx, by, R, 0, PI2); g.arc(bx, by, Math.max(0, R - band), 0, PI2, true); g.clip("evenodd");
+          mosaic(r, 1, Math.floor(t / 0.06));
+          g.restore();
+          g.save(); g.strokeStyle = `rgba(255, 255, 255, ${(1 - age / 0.6).toFixed(3)})`; g.lineWidth = 3; g.beginPath(); g.arc(bx, by, R, 0, PI2); g.stroke(); g.restore();
+        }
+        if (age > -0.06) wash("#FFF6E8", 0.9 * (1 - clamp((age + 0.06) / 0.36)));
+        brackets(0.55 + 0.45 * k);
+        if (t >= 49.233) {
+          const on = blinkAt(t, BEAT / 4), y = (tall ? 72 : 40) * u, w = 250 * u;
+          cutBox(W / 2 - w / 2, y - 18 * u, w, 36 * u, 10 * u); g.fillStyle = on ? "rgba(70, 0, 14, 0.85)" : "rgba(20, 0, 6, 0.7)"; g.fill();
+          g.strokeStyle = "#FF2D55"; g.lineWidth = 1.2; g.stroke();
+          label(spaced("▲ ICE DETECTED"), W / 2, y + 1, font(700, 20 * u, RAJ), on ? "#FF2D55" : "rgba(255, 45, 85, 0.45)", "center", 1, on ? 12 : 0);
+        }
+      };
+
+      // ── psycho: his cyberpsychosis ──
+      // the picture tinted (for the doubles round him)
+      const tints = ["#FF2E97", "#A6FF00"].map((colour) => { const c = document.createElement("canvas"); c.width = 480; c.height = 270; return { c, g: c.getContext("2d"), colour }; });
+      const tinted = (i) => {
+        const T = tints[i];
+        T.g.globalCompositeOperation = "source-over"; T.g.drawImage(src(), 0, 0, 480, 270);
+        T.g.globalCompositeOperation = "multiply"; T.g.fillStyle = T.colour; T.g.fillRect(0, 0, 480, 270);
+        return T.c;
+      };
+      // !DANGER! strips down the sides, red, running up
+      let dangerRed = null;
+      const danger = (t, alpha) => {
+        if (alpha <= 0.01 || !ready(DANGER)) return;
+        if (!dangerRed) {
+          dangerRed = document.createElement("canvas"); dangerRed.width = 340; dangerRed.height = 435;
+          const dg = dangerRed.getContext("2d");
+          dg.drawImage(DANGER, 0, 0, 340, 435); dg.globalCompositeOperation = "multiply"; dg.fillStyle = "#FF2D55"; dg.fillRect(0, 0, 340, 435);
+        }
+        const w = (tall ? 54 : 84) * u, h = (w * 435) / 340, off = ((t * 120 * u) % h);
+        g.save(); g.globalAlpha *= alpha; g.globalCompositeOperation = "screen";
+        for (const x of [0, W - w]) for (let y = -off; y < H; y += h) g.drawImage(dangerRed, x, y, w, h);
+        g.restore();
+      };
+      // CYBERPSYCHOSIS, flashing on a red plate low on the screen
+      const warning = (t, alpha) => {
+        if (alpha <= 0.01) return;
+        const on = blinkAt(t), w = Math.min(W - 36 * u, 640 * u), h = 92 * u, x = (W - w) / 2, y = H - h - (tall ? 96 : 52) * u;
+        g.save(); g.globalAlpha *= alpha;
+        cutBox(x, y, w, h, 16 * u); g.fillStyle = on ? "rgba(255, 30, 62, 0.92)" : "rgba(110, 0, 18, 0.88)"; g.fill();
+        g.strokeStyle = "#FF8DA0"; g.lineWidth = 1; g.stroke();
+        g.restore();
+        label(spaced("CYBERPSYCHOSIS"), W / 2, y + h * 0.42, font("italic 700", Math.min(42 * u, w / 9.5), CHAKRA), on ? "#FFFFFF" : "#FF5A70", "center", alpha, on ? 18 : 0);
+        label("⚠ NEURAL LOAD 140% · LIMITERS OFF", W / 2, y + h * 0.8, font(400, 12 * u, MONO), on ? "#2A0008" : "#FFB3BF", "center", alpha);
+      };
+      const drawPsycho = (t) => {
+        const k = kickAt(t);
+        if (t < 51.533) {
+          // the strobe: every other flash of it turned negative, and red
+          const n = Math.floor((t - 50.2) * 6), [sx, sy] = shakeOf(7 * u, t);
+          g.save(); g.translate(sx, sy); film(screen(t, 1.03)); g.restore();
+          if (n % 2) {
+            g.save();
+            g.globalCompositeOperation = "difference"; g.fillStyle = "#FFFFFF"; g.fillRect(0, 0, W, H);
+            g.globalCompositeOperation = "multiply"; g.fillStyle = "#FF4060"; g.fillRect(0, 0, W, H);
+            g.restore();
+          }
+          tear(6, 30 * u, n + 9);
+          return;
+        }
+        const [sx, sy] = shakeOf(9 * u * k, t), r = screen(t, 1.04);
+        g.save(); g.translate(sx, sy);
+        film(r);
+        // the picture doubling round him, a double more on every kick (to five), turning
+        const from = t >= 57.867 ? 57.867 : t >= 52 && t < 55.933 ? 52 : null;
+        if (from !== null) {
+          const n = Math.min(5, SY_MV_KICKS.filter((s) => s >= from - 0.01 && s <= t).length), rr = m * (0.02 + 0.035 * k);
+          const neon = t >= 57.867 ? [tinted(0), tinted(1)] : null;
+          g.save(); g.globalCompositeOperation = "screen";
+          for (let i = 0; i < n; i++) {
+            const a = (i / Math.max(1, n)) * PI2 + t * 0.7, from2 = neon ? neon[i % 2] : src();
+            film({ x: r.x + Math.cos(a) * rr, y: r.y + Math.sin(a) * rr, w: r.w, h: r.h }, t >= 57.867 ? 0.55 : 0.3, from2);
+          }
+          g.restore();
+        }
+        g.restore();
+        wash("#FF1E3E", 0.18 * k);
+        const on = clamp((t - 52) / 0.2) * (1 - clamp((t - 59.55) / 0.2));
+        danger(t, 0.75 * on);
+        warning(t, on);
+        if (k > 0.6) tear(4, 26 * u * k, Math.floor(t * 30));
+      };
+
+      // ── tears: quiet ──
+      const drawTears = (t) => {
+        const r = screen(t, 1.03 - 0.03 * clamp((t - 59.767) / 1.4));
+        film(r);
+        vignette("4, 10, 30", 0.55);
+        wash("#FFFFFF", 0.35 * (1 - clamp((t - 59.767) / 0.25)));
+      };
+
+      // ── lastrun: the cyberskeleton's visor, as in track 2 ──
+      const visorAt = (v) => {
+        const wide = W >= H, cx = W / 2, cy = H * (wide ? 0.51 : 0.52);
+        const vx = (wide ? 0.38 * W : 0.46 * W) * v, vy = (wide ? 0.31 * H : 0.25 * H) * v, c = Math.min(vx, vy) * 0.22;
+        return { wide, cx, cy, vx, vy, pts: [[cx - vx + c, cy - vy], [cx + vx - c, cy - vy], [cx + vx, cy - vy + c], [cx + vx, cy + vy - c],
+          [cx + vx - c, cy + vy], [cx - vx + c, cy + vy], [cx - vx, cy + vy - c], [cx - vx, cy - vy + c]] };
+      };
+      const DIRS = [[0, -1], [0.7071, -0.7071], [1, 0], [0.7071, 0.7071], [0, 1], [-0.7071, 0.7071], [-1, 0], [-0.7071, -0.7071]];
+      let redBand = null;
+      const drawLastRun = (t) => {
+        const age = t - 61.167, k = kickAt(t), blown = t >= 64.9 ? t - 64.9 : 0;
+        const shut = inn(age / 0.12), V = visorAt(0.86 * (1 - 0.012 * k));
+        const [sx, sy] = shakeOf(age < 0.4 ? 14 * u * (1 - age / 0.4) : 6 * u * k, t);
+        g.save(); g.translate(sx, sy);
+        g.fillStyle = "#040507"; g.fillRect(-40, -40, W + 80, H + 80);
+        film(cover((V.cx - V.vx) * shut, (V.cy - V.vy) * shut, mix(W, 2 * V.vx, shut), mix(H, 2 * V.vy, shut), focusAt(t)));
+        if (!redBand) {
+          const c = document.createElement("canvas"); c.width = c.height = 24;
+          const cg = c.getContext("2d");
+          cg.fillStyle = "#FF2D55"; cg.fillRect(0, 0, 24, 24); cg.fillStyle = "#07080C";
+          cg.beginPath(); cg.moveTo(0, 0); cg.lineTo(12, 0); cg.lineTo(0, 12); cg.closePath(); cg.fill();
+          cg.beginPath(); cg.moveTo(24, 0); cg.lineTo(24, 12); cg.lineTo(12, 24); cg.lineTo(0, 24); cg.closePath(); cg.fill();
+          redBand = g.createPattern(c, "repeat");
+        }
+        const [P0, P1, P2, P3, P4, P5, P6, P7] = V.pts, M = 90, T = -M, Lf = -M, R = W + M, Bt = H + M;
+        const plates = [[[P0[0], T], [P1[0], T], P1, P0], [[P1[0], T], [R, T], [R, P2[1]], P2, P1], [[R, P2[1]], [R, P3[1]], P3, P2], [[R, P3[1]], [R, Bt], [P4[0], Bt], P4, P3],
+          [[P4[0], Bt], [P5[0], Bt], P5, P4], [[P5[0], Bt], [Lf, Bt], [Lf, P6[1]], P6, P5], [[Lf, P6[1]], [Lf, P7[1]], P7, P6], [[Lf, P7[1]], [Lf, T], [P0[0], T], P0, P7]];
+        const metal = g.createLinearGradient(0, 0, W * 0.45, H);
+        metal.addColorStop(0, "#2A1B22"); metal.addColorStop(0.5, "#170F14"); metal.addColorStop(1, "#0A0709");
+        const blink = blinkAt(t);
+        plates.forEach((pts, i) => {
+          const [dx, dy] = DIRS[i], off = (1 - shut) * Math.max(W, H) * 0.7 + (blown ? 420 * blown + 1600 * blown * blown : 0);
+          const [a, b] = [V.pts[i], V.pts[(i + 1) % 8]];
+          g.save(); g.translate(dx * off, dy * off);
+          if (blown) { const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2; g.translate(mx, my); g.rotate((i % 2 ? 1 : -1) * blown * 1.8); g.translate(-mx, -my); }
+          g.beginPath(); g.moveTo(pts[0][0], pts[0][1]); for (const p of pts.slice(1)) g.lineTo(p[0], p[1]); g.closePath();
+          g.fillStyle = metal; g.fill(); g.lineWidth = 3; g.strokeStyle = "#030203"; g.stroke();
+          g.save(); g.clip();
+          g.beginPath(); g.moveTo(a[0] + dx * 12 * u, a[1] + dy * 12 * u); g.lineTo(b[0] + dx * 12 * u, b[1] + dy * 12 * u); g.lineTo(b[0] + dx * 22 * u, b[1] + dy * 22 * u); g.lineTo(a[0] + dx * 22 * u, a[1] + dy * 22 * u); g.closePath();
+          g.globalAlpha = 0.9; g.fillStyle = redBand; g.fill(); g.globalAlpha = 1;
+          g.restore();
+          g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.lineCap = "round";
+          g.lineWidth = 8; g.strokeStyle = "#020102"; g.stroke();
+          g.shadowColor = "#FF2D55"; g.shadowBlur = 16 + 24 * k; g.lineWidth = 2.2; g.strokeStyle = blink ? "#FF2D55" : "#B3122E"; g.stroke();
+          g.restore();
+        });
+        if (!blown) {
+          const a = clamp((age - 0.15) / 0.2);
+          label(spaced("ARMOR · CRITICAL"), V.cx, V.cy - V.vy - 34 * u, font(700, 14 * u, RAJ), blink ? "#FF2D55" : "#B3122E", "center", a, 10);
+          const side = V.cx - V.vx, x0 = V.wide ? Math.max(12 * u, side / 2 - 40 * u) : 22 * u, y0 = V.wide ? V.cy - V.vy * 0.5 : V.cy - V.vy - 120 * u;
+          if (!V.wide || side > 120 * u) {
+            label("INTEGRITY", x0, y0, font(700, 12 * u, RAJ), "rgba(255, 220, 226, 0.7)", "left", a);
+            label("0%", x0, y0 + 26 * u, font("italic 700", 26 * u, CHAKRA), "#FF2D55", "left", a, 12);
+            const x1 = V.wide ? V.cx + V.vx + Math.max(12 * u, side / 2 - 40 * u) : W - 22 * u, al = V.wide ? "left" : "right";
+            label("NEURAL LOAD", x1, y0, font(700, 12 * u, RAJ), "rgba(255, 220, 226, 0.7)", al, a);
+            label(blink ? "140%" : "OVERLOAD", x1, y0 + 26 * u, font("italic 700", 26 * u, CHAKRA), "#FF2D55", al, a, 12);
+          }
+        }
+        g.restore();
+        if (blown) wash("#FFFFFF", 0.85 * (1 - clamp((t - 65) / 0.35)) * clamp(blown / 0.1));
+      };
+
+      // ── goodbye: light drifting up ──
+      const MOTES = Array.from({ length: 30 }, (_, i) => { const rnd = syRandom(4242 + i); return { x: rnd(), y: rnd(), v: 10 + rnd() * 26, r: 1.2 + rnd() * 2.8, p: rnd() * PI2, a: 0.2 + rnd() * 0.45 }; });
+      const motes = (t, alpha) => {
+        if (alpha <= 0.01) return;
+        g.save(); g.globalCompositeOperation = "lighter";
+        for (const d of MOTES) {
+          const y = (((d.y * H - d.v * u * t) % H) + H) % H, x = d.x * W + Math.sin(t * 0.8 + d.p) * 16 * u, R = d.r * 3 * u;
+          const dot = g.createRadialGradient(x, y, 0, x, y, R);
+          dot.addColorStop(0, `rgba(255, 236, 248, ${(d.a * alpha).toFixed(3)})`); dot.addColorStop(1, "rgba(255, 236, 248, 0)");
+          g.fillStyle = dot; g.fillRect(x - R, y - R, 2 * R, 2 * R);
+        }
+        g.restore();
+      };
+      const drawGoodbye = (t) => {
+        const r = screen(t);
+        film(r);
+        bloom(r, 0.2);
+        motes(t, clamp((t - 65) / 0.8));
+        vignette("6, 6, 20", 0.4);
+        wash("#FFFFFF", 0.85 * (1 - clamp((t - 65) / 0.35)));
+      };
+
+      // ── call: a holocall to him ──
+      // the call's window, as the game's: HOLOCALL and its time over his name, his picture (cyan, a hologram's
+      // lines through it) or, once it connects, the film; under it the call's state and its sound
+      const callBox = () => {
+        const w = tall ? Math.min(W - 40 * u, 340 * u) : Math.min(340 * u, W * 0.3), h = w * 0.62 + 72 * u;
+        return { x: tall ? (W - w) / 2 : 26 * u, y: tall ? 56 * u : 26 * u, w, h };
+      };
+      const holocall = (t, state, squash = 0) => {
+        const C = callBox(), x = C.x, y = C.y, w = C.w, ph = w * 0.62, top = 44 * u, py = y + top;
+        const h = C.h * (1 - squash), cy = y + C.h / 2;
+        if (h < 2) return;
+        g.save();
+        if (squash > 0) { g.translate(0, cy); g.scale(1, Math.max(0.01, 1 - squash)); g.translate(0, -cy); }
+        cutBox(x, y, w, C.h, 14 * u); g.fillStyle = "rgba(6, 9, 16, 0.86)"; g.fill();
+        const lost = state === "lost", colour = lost ? "#FF2D55" : state === "on" ? "#A6FF00" : "#5EF6FF";
+        g.strokeStyle = colour; g.lineWidth = 1.2; g.stroke();
+        // its head: HOLOCALL, the time, his name
+        label(spaced("◉ HOLOCALL"), x + 12 * u, y + 13 * u, font(400, 11 * u, MONO), colour);
+        const secs = state === "on" || lost ? Math.max(0, Math.floor(t - 74.167)) : 0;
+        label(state === "calling" ? "· · ·".slice(0, 1 + 2 * (Math.floor(t * 3) % 3)) : `00:${String(secs).padStart(2, "0")}`, x + w - 12 * u, y + 13 * u, font(400, 11 * u, MONO), colour, "right");
+        label("DAVID MARTINEZ", x + 12 * u, y + 31 * u, font(700, 17 * u, RAJ), "#FCEE0A", "left", 1, 6);
+        // the picture
+        g.save(); g.beginPath(); g.rect(x + 8 * u, py, w - 16 * u, ph); g.clip();
+        g.fillStyle = "#02060A"; g.fillRect(x + 8 * u, py, w - 16 * u, ph);
+        if (state === "calling") {
+          if (ready(DAVID)) {
+            const iw = DAVID.naturalWidth, sh = (iw * ph) / (w - 16 * u);
+            const a0 = g.globalAlpha;
+            g.globalAlpha = a0 * (0.72 + 0.12 * Math.sin(t * 31) * Math.sin(t * 7));
+            g.drawImage(DAVID, 0, DAVID.naturalHeight * 0.57 - sh / 2, iw, sh, x + 8 * u, py, w - 16 * u, ph);
+            g.globalAlpha = a0; g.globalCompositeOperation = "color"; g.fillStyle = "#29D9FF"; g.fillRect(x + 8 * u, py, w - 16 * u, ph);
+            g.globalCompositeOperation = "source-over";
+          }
+        } else {
+          film(cover(x + 8 * u, py, w - 16 * u, ph, 0.45, 0.4));
+          if (lost) {
+            g.fillStyle = "rgba(4, 2, 6, 0.45)"; g.fillRect(x + 8 * u, py, w - 16 * u, ph);
+            const rnd = syRandom(Math.floor(t * 24) + 5);
+            for (let n = 0; n < 22; n++) { g.fillStyle = rnd() < 0.5 ? `rgba(255, 255, 255, ${(0.1 + 0.35 * rnd()).toFixed(2)})` : `rgba(255, 45, 85, ${(0.2 + 0.4 * rnd()).toFixed(2)})`; g.fillRect(x + 8 * u, py + rnd() * ph, w - 16 * u, 1 + rnd() * 4); }
+            if (Math.floor(t * 20) % 3 === 0) { g.globalCompositeOperation = "difference"; g.fillStyle = "#FF2D55"; g.fillRect(x + 8 * u, py, w - 16 * u, ph); g.globalCompositeOperation = "source-over"; }
+          }
+        }
+        g.fillStyle = "rgba(0, 0, 0, 0.22)";
+        for (let ly = py; ly < py + ph; ly += 3) g.fillRect(x + 8 * u, ly, w - 16 * u, 1);
+        g.restore();
+        // its state, and its sound: bars, still while it rings, alive once it connects
+        const sy = py + ph + 18 * u;
+        const ring = state === "calling" ? clamp(1 - (((t - 67.7) % (2 * BEAT)) / (2 * BEAT)) * 1.6) : 0;
+        label(lost ? spaced("SIGNAL LOST") : state === "on" ? spaced("CONNECTED") : spaced("CALLING"), x + 12 * u, sy, font(700, 14 * u, RAJ), colour, "left", lost ? (blinkAt(t, 0.12) ? 1 : 0.35) : 1, 8);
+        for (let i = 0; i < 14; i++) {
+          const hh = state === "on" ? (0.25 + 0.75 * Math.abs(Math.sin(t * 9 + i * 1.7) * Math.sin(t * 3.1 + i))) * 14 * u : lost ? 1.5 : (0.15 + 0.5 * ring * Math.abs(Math.sin(i * 1.3))) * 14 * u;
+          g.fillStyle = colour; g.fillRect(x + w - 16 * u - (14 - i) * 6 * u, sy - hh / 2, 3 * u, Math.max(1.5, hh));
+        }
+        g.restore();
+        // the ring, going out from it
+        if (ring > 0) {
+          g.save(); g.strokeStyle = `rgba(94, 246, 255, ${(0.6 * ring).toFixed(3)})`; g.lineWidth = 2;
+          const e = (1 - ring) * 22 * u; cutBox(x - e, y - e, w + 2 * e, C.h + 2 * e, 14 * u + e); g.stroke(); g.restore();
+        }
+      };
+      const drawCall = (t) => {
+        const r = screen(t);
+        film(r);
+        vignette("4, 6, 16", 0.35);
+        const a = out((t - 67.7) / 0.3);
+        g.save(); g.globalAlpha = a; holocall(t, t >= 74.167 ? "on" : "calling"); g.restore();
+        if (t >= 74.167 && t < 74.4) wash("#E8FFF0", 0.25 * (1 - (t - 74.167) / 0.233));
+      };
+
+      // ── lost: the moon, empty ──
+      const drawLost = (t) => {
+        film(screen(t));
+        const age = t - 76.6, squash = ease((age - 0.75) / 0.4), shut = ease((age - 1.15) / 0.25);
+        if (shut < 1) {
+          const C = callBox();
+          g.save();
+          if (shut > 0) { const cx = C.x + C.w / 2; g.translate(cx, 0); g.scale(Math.max(0.01, 1 - shut), 1); g.translate(-cx, 0); }
+          holocall(t, "lost", squash);
+          g.restore();
+          if (age < 0.75) tear(5, 18 * u, Math.floor(t * 24));
+          if (squash >= 1) { g.fillStyle = "#FFFFFF"; g.fillRect(C.x + (C.w / 2) * shut, C.y + C.h / 2 - 1, C.w * (1 - shut), 2); }
+        }
+        // where he stood: his tag, FLATLINED, flickering out
+        const ghost = clamp((age - 0.2) / 0.2) * (1 - clamp((t - 77.95) / 0.2));
+        if (ghost > 0 && Math.floor(t * 17) % 6 !== 0) {
+          g.save(); g.globalAlpha *= ghost;
+          nameTag(screen(t), 0.6, 0.62, "DAVID MARTINEZ", "#9AA3B5", age - 0.2, "FLATLINED", "#FF2D55");
+          g.restore();
+        }
+        const C = callBox();
+        label(spaced("CALL ENDED · 00:02"), C.x + 12 * u, C.y + C.h / 2, font(400, 11 * u, MONO), "rgba(255, 90, 112, 0.85)", "left", clamp((age - 1.4) / 0.2) * (1 - clamp((age - 2.6) / 0.5)));
+        // the title, as the film fades out
+        const a = ease((t - 77.9) / 0.8);
+        if (a > 0) {
+          wash("#05050B", 0.45 * a);
+          const lw = Math.min(W * 0.62, 400 * u), lh = lw * (180 / 801), y = H * 0.4;
+          if (ready(LOGO)) { g.save(); g.globalAlpha = a; g.drawImage(LOGO, (W - lw) / 2, y - lh - 20 * u, lw, lh); g.restore(); }
+          const size = Math.min(30 * u, W / 15), lines = tall ? ["I REALLY WANT TO STAY", "AT YOUR HOUSE"] : ["I REALLY WANT TO STAY AT YOUR HOUSE"];
+          lines.forEach((str, i) => {
+            const ly = y + 18 * u + i * size * 1.25;
+            label(str, W / 2 - 2, ly, font("italic 700", size, CHAKRA), "rgba(255, 46, 151, 0.8)", "center", a);
+            label(str, W / 2 + 2, ly, font("italic 700", size, CHAKRA), "rgba(0, 229, 255, 0.8)", "center", a);
+            label(str, W / 2, ly, font("italic 700", size, CHAKRA), "#FFFFFF", "center", a);
+          });
+          const by = y + 18 * u + lines.length * size * 1.25 + 8 * u;
+          label(spaced("ROSA WALTON · CYBERPUNK: EDGERUNNERS"), W / 2, by, font(400, 12 * u, MONO), "#5EF6FF", "center", a);
+          label(spaced("◢ JACK OUT"), W / 2, by + 30 * u, font(700, 13 * u, RAJ), "#FCEE0A", "center", a * (blinkAt(t, 0.5) ? 1 : 0.4));
+        }
+      };
+
+      // ── each frame: the world the clip is in ──
+      const draw = (t) => {
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+        track(t);
+        if (t < B(3)) drawBreach(t);
+        else if (t < B(5)) drawDecrypt(t);
+        else if (t < B(7)) drawLuna(t);
+        else if (t < 28.6) drawCut(t);
+        else if (t < 40.1) drawNet(t);
+        else if (t < B(23)) drawKiss(t);
+        else if (t < 45.867) drawLaunch(t);
+        else if (t < 50.2) drawDrop(t);
+        else if (t < 59.767) drawPsycho(t);
+        else if (t < 61.167) drawTears(t);
+        else if (t < 65) drawLastRun(t);
+        else if (t < 67.7) drawGoodbye(t);
+        else if (t < 76.6) drawCall(t);
+        else drawLost(t);
+      };
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; m = Math.min(W, H); tall = H > W;
+        u = Math.min(1.25, Math.max(0.72, m / 760));
+        ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+        paintMasks();
+        // the two of them, where the decrypting starts
+        const r = screen(5);
+        orderFrom(...pt(r, 0.49, 0.72));
+        edgesFrom();
+      };
+      size();
+      document.fonts?.ready.then(() => { if (canvas.isConnected) paintMasks(); });
+      let lastNow = 0;
+      const onResize = () => { size(); draw(lastNow); };
+      window.addEventListener("resize", onResize);
+      return {
+        show() {},
+        tick(now) { lastNow = now; draw(now); },
+        unmount() { window.removeEventListener("resize", onResize); },
+      };
+    },
+  };
+  // The stage: the red and track 2's cyberskeleton on the music's clock (tick: seconds into the loop, -1 in the
+  // intro).
+  const stayStage = (() => {
+    const root = document.documentElement;
+    let fx = null, crackCv = null, haloCv = null, tearCv = null, g = null, h = null, tg = null, lines = [], noisy = null;
+    let W = 0, H = 0, ratio = 1, sized = false, crack = null, round = -1, armed = true, red = false, drawn = false, phase = null, lit = -1, torn = false;
+    const onResize = () => { sized = false; };
+    const size = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      crackCv.width = Math.round(W * ratio); crackCv.height = Math.round(H * ratio);
+      haloCv.width = Math.max(1, Math.round(W / 2)); haloCv.height = Math.max(1, Math.round(H / 2));
+      tearCv.width = W; tearCv.height = H;
+      sized = true; phase = null;
+    };
+    // this time round's crack (where the screen is hit), its dead lines set up, not yet shown
+    const crackFor = () => {
+      const [u, v] = SY_IMPACTS[round % SY_IMPACTS.length];
+      crack = syCrack(W, H, u * W, v * H, 7919 * (round + 3));
+      crack.lines.forEach((line, i) => {
+        const el = lines[i];
+        if (!el) return;
+        el.className = `${line.down ? "is-v" : "is-h"}${line.flicker ? " is-flicker" : ""}`;
+        el.style.cssText = `--p: ${line.pos.toFixed(1)}px; --w: ${line.width}px; --c: ${line.colour}; --f: ${line.period.toFixed(2)}s`;
+        el.hidden = true;
+      });
+      phase = null; lit = -1;
+    };
+    const wipe = () => {
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, crackCv.width, crackCv.height);
+      h.setTransform(1, 0, 0, 1, 0, 0); h.clearRect(0, 0, haloCv.width, haloCv.height);
+      lines.forEach((el) => { el.hidden = true; });
+      drawn = false; phase = null; lit = -1;
+    };
+    return {
+      mount(box) {
+        fx = box;
+        crackCv = fx.querySelector(".syx-crack"); haloCv = fx.querySelector(".syx-halo"); tearCv = fx.querySelector(".syx-tear");
+        g = crackCv.getContext("2d"); h = haloCv.getContext("2d"); tg = tearCv.getContext("2d");
+        lines = [...fx.querySelectorAll(".syx-lines i")];
+        noisy = tg.createPattern(syStatic(), "repeat");
+        stayBridge.mount(fx);
+        window.addEventListener("resize", onResize);
+        sized = false; crack = null; round = -1; armed = true; red = false; drawn = false; torn = false;
+      },
+      tick(at) {
+        if (!fx) return;
+        // the palette
+        const on = at >= 0 && syRedAt(at);
+        if (on !== red) { red = on; root.toggleAttribute("data-sy-red", on); }
+        // the crack: a new one each time round, at the first note; drawn while it grows (at the impact, as it
+        // spreads), otherwise only when it changes; gone once the red is
+        const t = at - SY_RED_IN;
+        if (t < 0) armed = true;
+        if (t >= 0 && at < SY_RED_OUT + 0.4) {
+          if (!sized) { size(); if (crack && !armed) crackFor(); }
+          if (armed) { armed = false; round++; crackFor(); }
+          const growing = t < 0.8 || (t >= SY_SPREAD && t < SY_SPREAD + 1.2), now = growing ? t : t < SY_SPREAD ? "cracked" : "spread";
+          if (growing || now !== phase) { syDrawCrack(g, h, crack, t, W, H, ratio); phase = now; drawn = true; }
+          const count = crack.lines.filter((line) => t >= line.when).length;
+          if (count !== lit) { lit = count; crack.lines.forEach((line, i) => { if (lines[i]) lines[i].hidden = t < line.when; }); }
+        } else if (drawn) wipe();
+        // the tears
+        const tear = crack && SY_TEARS.find(([beat, long]) => at >= beat * SY_BEAT && at < beat * SY_BEAT + long);
+        if (tear) {
+          const [beat, long, hard, flash = false] = tear, into = at - beat * SY_BEAT;
+          syTear(tg, W, H, crack, into / long, hard, flash, beat * 131 + Math.floor(into / 0.045), noisy);
+          if (!torn) { torn = true; root.toggleAttribute("data-sy-tear", true); }
+        } else if (torn) {
+          torn = false; root.removeAttribute("data-sy-tear");
+          tg.setTransform(1, 0, 0, 1, 0, 0); tg.clearRect(0, 0, tearCv.width, tearCv.height);
+        }
+        // track 2
+        stayBridge.tick(at);
+      },
+      unmount() {
+        window.removeEventListener("resize", onResize);
+        stayBridge.unmount();
+        root.removeAttribute("data-sy-red"); root.removeAttribute("data-sy-tear");
+        fx = null; crackCv = null; haloCv = null; tearCv = null; g = null; h = null; tg = null; lines = []; noisy = null; crack = null;
+        sized = false; red = false; drawn = false; torn = false;
+      },
+    };
+  })();
+
   const THEMES = {
     whiplash: {
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
@@ -9094,6 +11254,38 @@
       extras: ["cover.webp", "boy.webp", "girl.webp", "eye.webp", "embrace.webp", "hand-left.webp", "hand-right.webp", "hands.webp", "moon.webp", "butterfly-pink.webp", "butterfly-teal.webp",
         "lines-pink-1.webp", "lines-teal-2.webp", ...[1, 2, 3, 4, 5, 6].map((n) => `sparkle-${n}.webp`)],
     },
+    // I Really Want to Stay at Your House: Rosa Walton's song (in Night City, Hallie Coggins's), as it plays in
+    // Cyberpunk: Edgerunners: the fourth hidden track, glitching out of the café header's logo once Racing into
+    // the Night has been found (see the end of this file). Night City's neon and a braindance replaying a
+    // memory (stay.css): the header the replay of the two of them with the moon in its sights, the foot of the
+    // page the Earth seen from the moon, where she ended up. David and Lucy on their plates, a fixer's file on
+    // the back of each card, David's corrupted. The intro (8 bars) runs straight into track 1 (20 bars), then
+    // track 2 (8 bars). While track 1's voice is in, the page goes red, the screen cracked (see stayStage); track
+    // 2 shuts the page inside David's cyberskeleton, the end of the show seen through its visor (stayBridge). The
+    // MV (stayScene, "Jack in"): Lucy breaching the page to find him in her memories.
+    stay: {
+      group: "edgerunners", artist: "Rosa Walton",
+      era: "I Really Want to Stay at Your House", folder: "stay/", tag: "EDGERUNNERS", back: "dossier", scheme: "dark",
+      title: "Brew Houze × Cyberpunk: Edgerunners · I Really Want to Stay at Your House", toast: "Brew Houze × Rosa Walton · I Really Want to Stay at Your House 🌙",
+      sub: "I Really Want to Stay at Your House · Rosa Walton", h1: "Every Brew Houze app, all the way to the moon.",
+      footer: "Brew Houze × Cyberpunk: Edgerunners · I Really Want to Stay at Your House (Rosa Walton) · café management system",
+      introClip: "stay/intro.mp3", introStart: SY_START, introLength: SY_INTRO,
+      loops: [{ src: "stay/track-1.mp3", start: SY_START, length: SY_TRACK1 }, { src: "stay/track-2.mp3", start: SY_START, length: SY_TRACK2 }],
+      joined: true, intro: stayIntro, introClass: "sy-intro",
+      // The red: track 1's verse, from the voice's pickup to bar 17 (its beat animations on track 1's bars).
+      // Track 2: the cyberskeleton, its plates sliding in on track 1's last beat, shut, opening for Lucy, slammed
+      // back, breached.
+      stage: {
+        beat: SY_BEAT, parts: [SY_TRACK1, SY_TRACK2], grid: 0, fx: SY_FX,
+        sections: [[0, "calm"], [SY_RED_IN, "red"], [SY_RED_OUT, "calm"], [SY_TRACK1 - SY_BEAT, "lock"], [SY_TRACK1 + SY_B_UNLOCK, "open"],
+          [SY_TRACK1 + SY_B_SHUT, "slam"], [SY_TRACK1 + SY_B_BREACH, "breach"]],
+        ...stayStage,
+      },
+      scene: stayScene,
+      decor: SY_DECOR,
+      extras: ["david-back.webp", "lucy-back.webp", "logo.webp",
+        ...["danger", "target", "stripes", "chevrons", "code", "frame", "barcode"].map((name) => `hud-${name}.webp`)],
+    },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
   // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
@@ -9150,6 +11342,7 @@
         + (t.back === "emblem" ? `<span class="dr-plate-emblem" aria-hidden="true" style="--emblem: url('${siteUrl(`${t.folder}${key}-emblem.webp`)}')"></span>` : "")
         + (t.back === "chat" ? `<span class="dt-still" aria-hidden="true"><b><span>▶ PLAY</span><span>● REC</span></b><i>DEC 19 2022</i></span>` : "")
         + (t.back === "sheet" ? `<span class="br-alt" aria-hidden="true" style="background-image: url('${siteUrl(`${t.folder}${key}-alt.webp`)}')"><b>${escapeHtml(m.alt)}</b></span>` : "")
+        + (t.back === "dossier" ? stayPlate(m, photoOf(theme, key)) : "")
         + `<span class="ae-num">0${index + 1}</span><span class="ae-initial" aria-hidden="true">${escapeHtml(m.name[0])}</span>`
         + `<span class="ae-hangul" aria-hidden="true">${escapeHtml(m.hangul)}</span><p class="ae-name">${escapeHtml(m.name)}</p><p class="ae-role">${escapeHtml(m.short)}</p></li>`;
     }).join("")}</ol>`;
@@ -9167,6 +11360,7 @@
     ditto: { kicker: "❄ 12.19.2022", label: "Rewind to that winter" },
     breed: { kicker: "☻ This song connects worlds", label: "Let's give it a listen" },
     yoru: { kicker: "AM 4:00 · 夜明けまで", label: "Race into the night" },
+    stay: { kicker: "◢ Breach protocol", label: "Jack in" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
   // page, up whenever the theme is on (not only during the bridge).
@@ -9750,6 +11944,7 @@
     ditto: { logo: "ditto/logo-ditto.webp", tint: "#9AA6E8", mask: true },
     breed: { logo: "breed/smiley-ink.webp", tint: "#B1F700", mask: true },
     yoru: { logo: "yoru/moon.webp", tint: "#FF7A9C", mask: true },
+    stay: { logo: "stay/logo.webp", tint: "#FCEE0A", mask: false },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -9994,6 +12189,7 @@
   const pcCard = document.getElementById("ae-pc");
   let pcIndex = 0;
   let pcOpener = null;
+  let syStop = null; // David's corrupted card, while it is up (stayCorrupt)
   // ── The Dirty Work tarot back ──
   // A gold tarot card: double rules with corner medallions (the top-left one is the flip mark), the
   // arcana numeral, her back photo in an arched window with red lasers and rising dust, the title in
@@ -10039,6 +12235,8 @@
   function showMember(index) {
     if (!current) return;
     calmStorm();
+    syStop?.();
+    syStop = null;
     const t = THEMES[current];
     const group = groupOf(current);
     pcIndex = (index + group.order.length) % group.order.length;
@@ -10062,7 +12260,8 @@
     back.classList.toggle("is-chat", t.back === "chat");
     back.classList.toggle("is-sheet", t.back === "sheet");
     back.classList.toggle("is-sky", t.back === "sky");
-    back.innerHTML = t.back === "sky" ? yoruSkyBack(member, key, t, count) : t.back === "sheet" ? `
+    back.classList.toggle("is-dossier", t.back === "dossier");
+    back.innerHTML = t.back === "dossier" ? stayFileBack(member, key, t, count) : t.back === "sky" ? yoruSkyBack(member, key, t, count) : t.back === "sheet" ? `
       <button type="button" class="ae-pc-mark" data-flip title="Flip the card" aria-label="Flip back to the key visual">☻</button>
       <p class="br-file"><span>Character file · 0${pcIndex + 1}</span><b>${escapeHtml(member.hangul)}</b></p>
       <div class="br-file-sheet" role="img" aria-label="${escapeHtml(member.name)}’s character sheet" style="background-image: url('${siteUrl(`${t.folder}${key}-back.webp`)}')"></div>
@@ -10123,6 +12322,8 @@
     // Replaying the entrance each time a member is shown.
     back.insertAdjacentHTML("beforeend", '<i class="ae-pc-sheen" aria-hidden="true"></i>');
     pcCard.style.animation = "none"; void pcCard.offsetWidth; pcCard.style.animation = "";
+    // David's card is a dead man's: corrupted while it is up
+    if (current === "stay" && member.dead) syStop = stayCorrupt(pcCard.querySelector(".ae-pc-front"), photoOf(current, key), document.getElementById("ae-pc-title"));
   }
   // ── The card leans with the phone ──
   // On phones the open card follows the phone's tilt (the angle it is held at when the card opens
@@ -10188,6 +12389,8 @@
   function closeMember() {
     if (pcModal.hidden) return;
     pcModal.hidden = true;
+    syStop?.();
+    syStop = null;
     calmStorm();
     stopTilt();
     document.body.style.overflow = "";
@@ -10502,7 +12705,7 @@
     if (!track || !track.hidden) return;
     track.hidden = false;
     const found = BONUS.filter((bonus) => picker.querySelector(`.ae-pick[data-pick="${bonus}"]`)?.hidden === false).length;
-    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${["", "one was", "two were", "three were"][found] ?? `${found} were`} hidden`;
+    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${["", "one was", "two were", "three were", "four were"][found] ?? `${found} were`} hidden`;
   }
   const revealDitto = () => revealBonus("ditto");
   if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
@@ -10811,8 +13014,122 @@
     }
     if (leak && !flooding) leak.parentElement.hidden = !due || current !== null;
   };
-  onThemeApplied = () => { showMore(); showPeel(); showLeak(); };
+  // ── I Really Want to Stay at Your House: the secret after Racing into the Night ──
+  // Once Racing into the Night has been found here, the café header's own logo starts glitching (in the café
+  // look only): now and then it tears into colour and its words corrupt, then it is itself again. Clicking it
+  // (or Enter on it) lets the glitch take the screen, and the theme's intro boots up out of the static. That
+  // unlocks it for good: the logo is just the logo again, and the theme shows in the playlist as the fourth
+  // hidden track.
+  if (store.get(STAY_KEY) || current === "stay") revealBonus("stay");
+  const brand = document.querySelector(".hero .brand");
+  let haunted = false, taking = false, hauntTimer = 0, burstTimer = 0, scrambleTimer = 0;
+  const SY_SIGNALS = ["SIGNAL LOST", "N1GHT C1TY", "FLATLINE", "TO THE MOON"];
+  const garbled = (text, amount) => [...text].map((c) => (c !== " " && Math.random() < amount ? "▓▒░█#%&$01"[Math.floor(Math.random() * 10)] : c)).join("");
+  // a burst: the logo torn into colour, its words scrambling (now and then a word that is not the café's),
+  // for a moment; then the next, a little later
+  const hauntBurst = () => {
+    if (!haunted || taking) return;
+    brand.classList.add("is-burst");
+    let n = 0;
+    scrambleTimer = setInterval(() => {
+      n++;
+      brandName.textContent = garbled("Brew Houze", 0.3);
+      brandSub.textContent = n % 4 === 3 ? SY_SIGNALS[Math.floor(Math.random() * SY_SIGNALS.length)] : garbled(cafe.sub, 0.4);
+    }, 60);
+    burstTimer = setTimeout(() => {
+      clearInterval(scrambleTimer);
+      brandName.innerHTML = cafe.brand;
+      brandSub.textContent = cafe.sub;
+      brand.classList.remove("is-burst");
+    }, 180 + Math.random() * 360);
+    hauntTimer = setTimeout(hauntBurst, 1500 + Math.random() * 2800);
+  };
+  // (leaving the café look: the timers go, the theme's own words are left as they are)
+  const unhaunt = () => {
+    clearTimeout(hauntTimer); clearTimeout(burstTimer); clearInterval(scrambleTimer);
+    brand.classList.remove("sy-haunt", "is-burst");
+    brand.removeAttribute("role"); brand.removeAttribute("tabindex"); brand.removeAttribute("aria-label");
+    haunted = false;
+  };
+  // The takeover: from the logo's line the glitch spreads over the screen (the page jolting under it):
+  // bars of neon and of static, slices of black, until it is all static on black; done(layer) then.
+  function syTakeover(y0, done) {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const layer = document.createElement("canvas");
+    layer.className = "sy-takeover";
+    layer.setAttribute("aria-hidden", "true");
+    layer.width = Math.round(W * ratio); layer.height = Math.round(H * ratio);
+    document.body.append(layer);
+    document.body.classList.add("sy-corrupting");
+    const g = layer.getContext("2d"), noisy = g.createPattern(syStatic(), "repeat");
+    const began = performance.now(), long = 950;
+    const frame = (now) => {
+      const q = Math.min(1, (now - began) / long);
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      const reach = H * (0.06 + 1.3 * q * q);
+      for (let i = 0, n = Math.round(8 + 46 * q); i < n; i++) {
+        const y = y0 + (Math.random() * 2 - 1) * reach, h = 2 + Math.random() * (6 + 70 * q), kind = Math.random();
+        if (kind < 0.45) {
+          g.fillStyle = ["rgba(0, 229, 255, 0.6)", "rgba(255, 46, 151, 0.6)", "rgba(252, 238, 10, 0.55)"][i % 3];
+          g.fillRect(Math.random() * W * 0.7 - W * 0.1, y, W * (0.15 + Math.random() * 0.9), h);
+        } else if (kind < 0.8) {
+          g.save(); g.globalAlpha = 0.75; g.translate(-Math.random() * 160, 0); g.fillStyle = noisy; g.fillRect(0, y, W + 160, h); g.restore();
+        } else { g.fillStyle = "#04040A"; g.fillRect(0, y, W, h); }
+      }
+      if (q > 0.5) {
+        const k = (q - 0.5) / 0.5;
+        g.globalAlpha = k; g.fillStyle = "#03030A"; g.fillRect(0, 0, W, H);
+        g.globalAlpha = 0.55 * k; g.save(); g.translate(-Math.random() * 160, -Math.random() * 160); g.fillStyle = noisy; g.fillRect(0, 0, W + 160, H + 160); g.restore();
+        g.globalAlpha = 1;
+      }
+      if (q < 1) requestAnimationFrame(frame); else done(layer);
+    };
+    requestAnimationFrame(frame);
+  }
+  const unlockStay = () => {
+    if (!haunted || taking || switching) return;
+    taking = true;
+    clearTimeout(hauntTimer);
+    // the sound woken by the click itself (phones only start audio in a tap)
+    if (soundWanted()) playerFor("stay").prime();
+    warm("stay");
+    const finish = (layer) => {
+      store.set(STAY_KEY, new Date().toISOString());
+      revealBonus("stay");
+      closePicker();
+      taking = false;
+      unhaunt();
+      void switchTo("stay");
+      // the static goes once the intro, booting out of the same static, is over it
+      requestAnimationFrame(() => requestAnimationFrame(() => { layer?.remove(); document.body.classList.remove("sy-corrupting"); }));
+    };
+    if (!motionOK()) { finish(null); return; }
+    const at = brand.getBoundingClientRect();
+    syTakeover(at.top + at.height / 2, finish);
+  };
+  if (brand) {
+    brand.addEventListener("click", () => { if (haunted) unlockStay(); });
+    brand.addEventListener("keydown", (event) => { if (haunted && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); unlockStay(); } });
+    const ready = () => { if (haunted) warm("stay"); };
+    brand.addEventListener("pointerenter", ready);
+    brand.addEventListener("focus", ready);
+  }
+  const showGlitch = () => {
+    if (!brand) return;
+    const due = Boolean(store.get(YORU_KEY)) && !store.get(STAY_KEY) && current === null;
+    if (due && !haunted && !taking) {
+      haunted = true;
+      brand.classList.add("sy-haunt");
+      brand.setAttribute("role", "button");
+      brand.tabIndex = 0;
+      brand.setAttribute("aria-label", "The Brew Houze logo is glitching. Look closer");
+      hauntTimer = setTimeout(hauntBurst, 900);
+    } else if (!due && haunted && !taking) unhaunt();
+  };
+  onThemeApplied = () => { showMore(); showPeel(); showLeak(); showGlitch(); };
   showMore();
   showPeel();
   showLeak();
+  showGlitch();
 })();
