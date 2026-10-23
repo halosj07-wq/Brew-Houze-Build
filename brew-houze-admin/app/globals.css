@@ -1670,6 +1670,9 @@ strong.is-low { color: #B45309 !important; }
 .ins-charts-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ins-charts-head h3 { margin: 2px 0 4px; font-family: 'Hanken Grotesk', sans-serif; font-size: 20px; font-weight: 800; color: #3D2B1F; }
 .ins-chart-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+/* each card keeps its own height, so a chart isn't pushed to the bottom of a tall row */
+.ins-chart-grid { align-items: start; }
+.ins-chart-grid .dash-chart { flex: none; }
 .ins-chart-grid .ins-chart-wide { grid-column: 1 / -1; }
 .ins-chart-grid .dash-card-sub b { color: #6B4C3B; }
 .dash-bar.is-forecast { background: repeating-linear-gradient(135deg, #F3D9A4 0 6px, #EBC77F 6px 12px); outline: 1px dashed #D9A441; outline-offset: -1px; }

@@ -953,7 +953,7 @@ function DashBars({ bars, emptyLabel, format = compactPeso }: { bars: DashBar[];
           {bar.value > 0 && (!crowded || bar.key === peakKey || bar.highlight) && <span className="dash-bar-value">{format(bar.value)}</span>}
           <div className={`dash-bar${bar.highlight ? " is-highlight" : ""}${bar.forecast ? " is-forecast" : ""}${bar.value > 0 && bar.key === peakKey ? " is-peak" : ""}`} style={{ height: `${max > 0 ? Math.max(3, (bar.value / max) * 82) : 3}%` }} />
         </div>
-        <span className="dash-bar-label">{index % labelEvery === 0 || bar.highlight ? <><b>{bar.label}</b>{bar.sub && <span>{bar.sub}</span>}</> : " "}</span>
+        <span className="dash-bar-label">{index % labelEvery === 0 || bar.highlight ? <><b>{bar.label}</b>{bar.sub && <span>{bar.sub}</span>}</> : <><b aria-hidden="true">{" "}</b>{bar.sub && <span aria-hidden="true">{" "}</span>}</>}</span>
       </div>)}
     </div>
     {max === 0 && <p className="dash-chart-empty">{emptyLabel}</p>}
@@ -7195,7 +7195,7 @@ function InsightCharts({ start, end, chips }: { start: string; end: string; chip
         <DashBars bars={hourBars} emptyLabel="No orders in this period." format={(value) => String(value)} />
       </DashCard>
       <DashCard title="Best sellers" sub="By quantity sold in this period">
-        <HBars rows={charts.best.map((entry) => ({ key: entry.product, label: entry.product, value: entry.sold, display: `${entry.sold} sold`, note: peso(entry.sales) }))} max={bestMax} emptyLabel="No sales in this period." />
+        <HBars rows={charts.best.slice(0, 6).map((entry) => ({ key: entry.product, label: entry.product, value: entry.sold, display: `${entry.sold} sold · ${compactPeso(entry.sales)}` }))} max={bestMax} emptyLabel="No sales in this period." />
       </DashCard>
       <DashCard title="Stock forecast" sub={<>Days left at the last 14 days’ pace{charts.lowNow > 0 ? <> · <b>{charts.lowNow}</b> item{charts.lowNow === 1 ? " is" : "s are"} already low</> : ""}</>}>
         <HBars rows={charts.stock.map((entry) => ({
