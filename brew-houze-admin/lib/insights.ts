@@ -79,7 +79,7 @@ async function money(start: string, end: string) {
 
 // How long each stocked item lasts at its pace over the last 14 days (sales and write-offs, less
 // what voids and refunds put back). Portions count against their source item, as stock does.
-async function stockRunway(today: string) {
+async function stockRunwayItems() {
   const rows = (await pool.query(`
     WITH used AS (
       SELECT inventory_id, -SUM(quantity_delta) AS used
@@ -98,7 +98,7 @@ async function stockRunway(today: string) {
     WHERE i.is_archived = FALSE AND i.derived_from_inventory_id IS NULL
   `)).rows;
   const now = Date.now();
-  const items = rows.map((row) => {
+  return rows.map((row) => {
     const onHand = Math.max(0, n(row.quantity));
     const perDay = Math.max(0, n(row.used_14_days)) / 14;
     const daysLeft = perDay > 0 ? onHand / perDay : null;
@@ -112,6 +112,10 @@ async function stockRunway(today: string) {
       days_since_last_restock: row.days_since_restock === null ? null : n(row.days_since_restock),
     };
   });
+}
+
+async function stockRunway(today: string) {
+  const items = await stockRunwayItems();
   return {
     as_of: today,
     running_out_within_10_days: items.filter((item) => item.days_left !== null && item.days_left <= 10).sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0)).slice(0, 10),
@@ -236,6 +240,70 @@ export async function insightFacts(start: string, end: string, today: string) {
 }
 
 export type InsightFacts = Awaited<ReturnType<typeof insightFacts>>;
+
+// The charts on the Insights page, worked out from the records alone (no AI, nothing sent out):
+//   sales     net sales and orders for each day of the period
+//   forecast  the next 7 days' sales, each the average of the last 4 days the café sold on that weekday
+//             (within the last 8 weeks); days the café was closed don't pull the average down
+//   hours     orders per hour of the day over the period
+//   best      the 8 best sellers by quantity
+//   stock     items that run out within 14 days at their pace over the last 14 days
+export async function chartFacts(start: string, end: string, today: string) {
+  const historyStart = addDays(today, -56);
+  const [daily, history, hours, best, items] = await Promise.all([
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT bd::text AS day, COALESCE(SUM(total_amount), 0) AS sales, COUNT(*)::int AS orders
+      FROM o WHERE NOT reversed AND bd BETWEEN $1::date AND $2::date GROUP BY bd
+    `, [start, end]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT bd::text AS day, SUM(total_amount) AS sales
+      FROM o WHERE NOT reversed AND bd BETWEEN $1::date AND $2::date GROUP BY bd HAVING SUM(total_amount) > 0 ORDER BY bd DESC
+    `, [historyStart, today]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'UTC' AT TIME ZONE '${TZ}')::int AS hour, COUNT(*)::int AS orders
+      FROM o WHERE NOT reversed AND bd BETWEEN $1::date AND $2::date GROUP BY 1 ORDER BY 1
+    `, [start, end]),
+    pool.query(`
+      WITH ${ordersCte}
+      SELECT p.product_name, SUM(soi.quantity)::int AS sold, SUM(soi.quantity * soi.unit_price) AS sales
+      FROM o JOIN sales_order_items soi ON soi.order_id = o.order_id JOIN products p ON p.product_id = soi.product_id
+      WHERE NOT o.reversed AND o.bd BETWEEN $1::date AND $2::date
+      GROUP BY p.product_name ORDER BY sold DESC, sales DESC LIMIT 8
+    `, [start, end]),
+    stockRunwayItems(),
+  ]);
+  const byDay = new Map(daily.rows.map((row) => [String(row.day), row]));
+  const sales: { day: string; sales: number; orders: number }[] = [];
+  for (let day = start; day <= end; day = addDays(day, 1)) {
+    const row = byDay.get(day);
+    sales.push({ day, sales: round(n(row?.sales)), orders: n(row?.orders) });
+  }
+  const weekday = (day: string) => new Date(`${day}T00:00:00Z`).getUTCDay();
+  const openDays = history.rows.map((row) => ({ day: String(row.day), sales: n(row.sales) }));
+  const forecast: { day: string; sales: number; basedOn: number }[] = [];
+  for (let k = 1; k <= 7; k++) {
+    const day = addDays(today, k);
+    const same = openDays.filter((entry) => weekday(entry.day) === weekday(day)).slice(0, 4);
+    // (a weekday with no sales yet: the average of the last 7 open days)
+    const basis = same.length > 0 ? same : openDays.slice(0, 7);
+    forecast.push({ day, sales: basis.length ? round(basis.reduce((sum, entry) => sum + entry.sales, 0) / basis.length) : 0, basedOn: basis.length });
+  }
+  const runningOut = items.filter((item) => item.days_left !== null && item.days_left <= 14)
+    .sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0)).slice(0, 8);
+  return {
+    sales,
+    forecast,
+    hours: hours.rows.map((row) => ({ hour: n(row.hour), orders: n(row.orders) })),
+    best: best.rows.map((row) => ({ product: String(row.product_name), sold: n(row.sold), sales: round(n(row.sales)) })),
+    stock: runningOut.map((item) => ({ item: item.item, unit: item.unit, onHand: item.on_hand, perDay: item.used_per_day, daysLeft: item.days_left ?? 0, runsOut: item.runs_out_around })),
+    lowNow: items.filter((item) => item.on_hand <= item.low_stock_alert_at).length,
+  };
+}
+
+export type ChartFacts = Awaited<ReturnType<typeof chartFacts>>;
 
 // What Claude compares the trends against (Trends, see app/api/insights): the menu as it is now,
 // each product with its category, whether it is a drink or food, its price range and how many

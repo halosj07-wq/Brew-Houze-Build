@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { insightFacts, trendMenuFacts } from "@/lib/insights";
+import { chartFacts, insightFacts, trendMenuFacts } from "@/lib/insights";
 import { getSession } from "@/lib/sessions";
 
 // AI insights (see ai-insights-migration.sql): short predictive warnings and advice written by
@@ -225,8 +225,23 @@ async function askTrends(adminId: number, area: string) {
   return { data: mapInsight(row.rows[0]) } as const;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  // ?charts=1&start=&end=: the page's charts for a period, from the records alone (no AI, so it works
+  // with AI insights off and costs nothing)
+  const url = new URL(request.url);
+  if (url.searchParams.get("charts")) {
+    const start = url.searchParams.get("start") ?? "";
+    const end = url.searchParams.get("end") ?? "";
+    if (!DATE_RE.test(start) || !DATE_RE.test(end) || start > end) return NextResponse.json({ error: "Choose a valid period." }, { status: 400 });
+    try {
+      const today = new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+      return NextResponse.json({ data: await chartFacts(start, end, today) }, { headers: { "Cache-Control": "no-store" } });
+    } catch (error) {
+      console.error("GET /api/insights?charts failed:", error);
+      return NextResponse.json({ error: "Could not load the charts." }, { status: 500 });
+    }
+  }
   try {
     const [enabled, wait, history, area] = await Promise.all([isEnabled(), secondsUntilNext(), pool.query(`${insightSelect} ORDER BY ai.created_at DESC LIMIT 50`), trendArea()]);
     return NextResponse.json({ data: { enabled, configured: configured(), cooldownSeconds: wait, model: MODEL, trendArea: area, insights: history.rows.map(mapInsight) } }, { headers: { "Cache-Control": "no-store" } });

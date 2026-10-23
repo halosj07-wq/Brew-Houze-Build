@@ -884,7 +884,7 @@ type DashboardData = {
   recentOrders: DashboardOrder[];
   generatedAt: string;
 };
-type DashBar = { key: string; label: string; sub?: string; value: number; highlight?: boolean; title: string };
+type DashBar = { key: string; label: string; sub?: string; value: number; highlight?: boolean; forecast?: boolean; title: string };
 
 const DASHBOARD_REFRESH_MS = 30_000;
 const HOUR_MS = 3_600_000;
@@ -941,7 +941,7 @@ function shiftHourBars(shift: DashboardShift, hourly: DashboardData["hourly"], n
   return bars;
 }
 
-function DashBars({ bars, emptyLabel }: { bars: DashBar[]; emptyLabel: string }) {
+function DashBars({ bars, emptyLabel, format = compactPeso }: { bars: DashBar[]; emptyLabel: string; format?: (value: number) => string }) {
   const max = Math.max(0, ...bars.map((bar) => bar.value));
   const peakKey = max > 0 ? bars.find((bar) => bar.value === max)?.key : undefined;
   const crowded = bars.length > 8;
@@ -950,8 +950,8 @@ function DashBars({ bars, emptyLabel }: { bars: DashBar[]; emptyLabel: string })
     <div className={`dash-bars${crowded ? " is-crowded" : ""}`}>
       {bars.map((bar, index) => <div key={bar.key} className="dash-bar-col" title={bar.title}>
         <div className="dash-bar-track">
-          {bar.value > 0 && (!crowded || bar.key === peakKey || bar.highlight) && <span className="dash-bar-value">{compactPeso(bar.value)}</span>}
-          <div className={`dash-bar${bar.highlight ? " is-highlight" : ""}${bar.value > 0 && bar.key === peakKey ? " is-peak" : ""}`} style={{ height: `${max > 0 ? Math.max(3, (bar.value / max) * 82) : 3}%` }} />
+          {bar.value > 0 && (!crowded || bar.key === peakKey || bar.highlight) && <span className="dash-bar-value">{format(bar.value)}</span>}
+          <div className={`dash-bar${bar.highlight ? " is-highlight" : ""}${bar.forecast ? " is-forecast" : ""}${bar.value > 0 && bar.key === peakKey ? " is-peak" : ""}`} style={{ height: `${max > 0 ? Math.max(3, (bar.value / max) * 82) : 3}%` }} />
         </div>
         <span className="dash-bar-label">{index % labelEvery === 0 || bar.highlight ? <><b>{bar.label}</b>{bar.sub && <span>{bar.sub}</span>}</> : " "}</span>
       </div>)}
@@ -7101,10 +7101,117 @@ function insightCost(result: InsightResult): string | null {
   return `${(result.inputTokens + result.outputTokens).toLocaleString("en-PH")} tokens${result.searches > 0 ? ` · ${result.searches} web search${result.searches === 1 ? "" : "es"}` : ""} · about $${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
 }
 
+// The Insights page's charts (GET /api/insights?charts=1): the period's daily sales with a 7-day forecast,
+// the busiest hours, the best sellers and the stock forecast. Worked out from the records alone, so they
+// show even with AI insights off and cost nothing.
+type InsightChartData = {
+  sales: { day: string; sales: number; orders: number }[];
+  forecast: { day: string; sales: number; basedOn: number }[];
+  hours: { hour: number; orders: number }[];
+  best: { product: string; sold: number; sales: number }[];
+  stock: { item: string; unit: string; onHand: number; perDay: number; daysLeft: number; runsOut: string | null }[];
+  lowNow: number;
+};
+type HBarRow = { key: string; label: string; value: number; display: string; note?: string; tone?: "warn" | "danger" };
+
+function HBars({ rows, max, emptyLabel }: { rows: HBarRow[]; max: number; emptyLabel: string }) {
+  if (rows.length === 0) return <p className="ins-chart-empty">{emptyLabel}</p>;
+  return <ul className="ins-hbars">
+    {rows.map((row) => <li key={row.key} className={row.tone ? `is-${row.tone}` : undefined}>
+      <div className="ins-hbar-head"><span>{row.label}</span><b>{row.display}</b></div>
+      <div className="ins-hbar-track"><div className="ins-hbar-fill" style={{ width: `${max > 0 ? Math.max(3, Math.min(100, (row.value / max) * 100)) : 3}%` }} /></div>
+      {row.note && <em>{row.note}</em>}
+    </li>)}
+  </ul>;
+}
+
+function chartDay(day: string): { label: string; weekday: string } {
+  const date = new Date(`${day}T00:00:00Z`);
+  return { label: date.toLocaleDateString("en-PH", { timeZone: "UTC", month: "short", day: "numeric" }), weekday: date.toLocaleDateString("en-PH", { timeZone: "UTC", weekday: "short" }) };
+}
+
+function InsightCharts({ start, end, chips }: { start: string; end: string; chips: React.ReactNode }) {
+  const [charts, setCharts] = useState<InsightChartData | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setError("");
+      try {
+        const response = await fetch(`/api/insights?charts=1&start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the charts.");
+        if (active) setCharts(payload.data);
+      } catch (loadError) {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the charts.");
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [start, end]);
+
+  const salesBars: DashBar[] = charts ? [
+    ...charts.sales.map((entry) => {
+      const { label, weekday } = chartDay(entry.day);
+      return { key: entry.day, label, sub: weekday, value: entry.sales, title: `${weekday} ${label}: ${peso(entry.sales)} from ${entry.orders} order${entry.orders === 1 ? "" : "s"}` };
+    }),
+    ...charts.forecast.map((entry) => {
+      const { label, weekday } = chartDay(entry.day);
+      return { key: `f${entry.day}`, label, sub: weekday, value: entry.sales, forecast: true,
+        title: `Forecast for ${weekday} ${label}: about ${peso(entry.sales)} (average of the last ${entry.basedOn} open ${weekday}${entry.basedOn === 1 ? "" : "s"})` };
+    }),
+  ] : [];
+  const forecastTotal = charts ? charts.forecast.reduce((sum, entry) => sum + entry.sales, 0) : 0;
+  const periodTotal = charts ? charts.sales.reduce((sum, entry) => sum + entry.sales, 0) : 0;
+  const hourBars: DashBar[] = [];
+  if (charts && charts.hours.length > 0) {
+    const counts = new Map(charts.hours.map((entry) => [entry.hour, entry.orders]));
+    const first = Math.min(...charts.hours.map((entry) => entry.hour));
+    const last = Math.max(...charts.hours.map((entry) => entry.hour));
+    for (let hour = first; hour <= last; hour++) {
+      const orders = counts.get(hour) ?? 0;
+      hourBars.push({ key: String(hour), label: hourLabel(hour), value: orders, title: `${hourLabel(hour)}–${hourLabel((hour + 1) % 24)}: ${orders} order${orders === 1 ? "" : "s"}` });
+    }
+  }
+  const busiest = charts && charts.hours.length > 0 ? charts.hours.reduce((top, entry) => entry.orders > top.orders ? entry : top) : null;
+  const bestMax = charts ? Math.max(0, ...charts.best.map((entry) => entry.sold)) : 0;
+
+  return <section className="ins-charts">
+    <div className="ins-charts-head">
+      <div>
+        <p className="ins-kicker">📊 Charts from your records</p>
+        <h3>Sales, busy hours and stock forecast</h3>
+        <p className="inv-hint">Worked out from the café’s own records, so they show even with AI insights off and cost nothing. Claude’s advice below reads the same numbers.</p>
+      </div>
+      {chips}
+    </div>
+    {error && <div className="inv-alert" role="alert"><span>{error}</span></div>}
+    {!charts ? (!error && <div className="inv-empty">Loading the charts…</div>) : <div className="ins-chart-grid">
+      <DashCard className="ins-chart-wide" title="Daily sales and the next 7 days"
+        sub={<>{formatRange(start, end)}: {peso(periodTotal)} · next 7 days: about <b>{peso(forecastTotal)}</b> (forecast)</>}>
+        <DashBars bars={salesBars} emptyLabel="No sales in this period." />
+        <p className="ins-legend"><span className="is-actual" />Actual sales <span className="is-forecast" />Forecast: each day is the average of the last 4 days the café sold on that weekday</p>
+      </DashCard>
+      <DashCard title="Busiest hours" sub={busiest ? <>Orders per hour · busiest at <b>{hourLabel(busiest.hour)}</b></> : "Orders per hour"}>
+        <DashBars bars={hourBars} emptyLabel="No orders in this period." format={(value) => String(value)} />
+      </DashCard>
+      <DashCard title="Best sellers" sub="By quantity sold in this period">
+        <HBars rows={charts.best.map((entry) => ({ key: entry.product, label: entry.product, value: entry.sold, display: `${entry.sold} sold`, note: peso(entry.sales) }))} max={bestMax} emptyLabel="No sales in this period." />
+      </DashCard>
+      <DashCard title="Stock forecast" sub={<>Days left at the last 14 days’ pace{charts.lowNow > 0 ? <> · <b>{charts.lowNow}</b> item{charts.lowNow === 1 ? " is" : "s are"} already low</> : ""}</>}>
+        <HBars rows={charts.stock.map((entry) => ({
+          key: entry.item, label: entry.item, value: entry.daysLeft, display: `${entry.daysLeft} day${entry.daysLeft === 1 ? "" : "s"} left`,
+          note: `${entry.onHand.toLocaleString("en-PH")} ${entry.unit} left, about ${(entry.perDay >= 10 ? Math.round(entry.perDay) : Math.round(entry.perDay * 10) / 10).toLocaleString("en-PH")} a day${entry.runsOut ? ` · runs out ${entry.runsOut}` : ""}`,
+          tone: entry.daysLeft <= 3 ? "danger" as const : entry.daysLeft <= 7 ? "warn" as const : undefined,
+        }))} max={14} emptyLabel="Nothing runs out in the next 14 days at the current pace." />
+      </DashCard>
+    </div>}
+  </section>;
+}
+
 function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [today] = useState(() => getFinanceDateStamp());
   const presets = useMemo(() => financePresets(today).filter((entry) => ["week", "7", "month", "30"].includes(entry.id)), [today]);
-  const [presetId, setPresetId] = useState("7");
+  const [presetId, setPresetId] = useState("30");
   const [data, setData] = useState<InsightsData | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -7230,6 +7337,10 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       {!data.enabled && <div className="ins-setup is-off"><strong>AI insights are off.</strong> Turn them on with the switch above to ask Claude or read saved insights. While they are off, nothing is sent to Claude.</div>}
 
+      {view === "numbers" && preset && <InsightCharts start={preset.start} end={preset.end} chips={<div className="menu-chips" role="group" aria-label="Period">
+        {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
+      </div>} />}
+
       {/* Everything below is disabled while the switch is off. */}
       <div className={`ins-body${data.enabled ? "" : " is-off"}`} inert={!data.enabled} aria-disabled={!data.enabled}>
       {!data.configured && <div className="ins-setup"><strong>Not set up yet.</strong> Add the Claude API key to the admin app as <code>ANTHROPIC_API_KEY</code> (in <code>.env.local</code> and in the Vercel project settings), then reload this page. Saved insights stay readable.</div>}
@@ -7284,9 +7395,6 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </>}
       </> : <>
       <div className="fin-datebar">
-        <div className="menu-chips" role="group" aria-label="Period">
-          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
-        </div>
         <div className="ins-ask">
           <button type="button" className="inv-primary" onClick={() => void ask()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is reading the numbers…" : "Ask Claude for insights"}</button>
           <span className="inv-hint">{blocked ?? `${preset ? formatRange(preset.start, preset.end) : ""} · Claude Opus 5.5 · about $0.02 per request`}</span>
