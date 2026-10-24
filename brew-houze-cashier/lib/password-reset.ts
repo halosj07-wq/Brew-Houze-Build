@@ -130,6 +130,7 @@ export async function checkResetToken(token: string): Promise<{ valid: boolean; 
 
 export async function resetPasswordWithToken(token: string, newPassword: string): Promise<{ ok: true } | { error: string }> {
   if (newPassword.length < MIN_PASSWORD_LENGTH) return { error: `The new password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
+  if (!newPassword.trim()) return { error: "A password can't be only spaces." };
   if (Buffer.byteLength(newPassword, "utf8") > MAX_PASSWORD_LENGTH) return { error: `The new password is too long (max ${MAX_PASSWORD_LENGTH} characters).` };
 
   const client = await pool.connect();

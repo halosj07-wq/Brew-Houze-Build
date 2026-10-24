@@ -67,6 +67,9 @@ export async function PATCH(request: Request) {
     if (newPassword.length < 8) {
       return NextResponse.json({ error: "The new password must be at least 8 characters." }, { status: 400 });
     }
+    if (!newPassword.trim()) {
+      return NextResponse.json({ error: "A password can't be only spaces." }, { status: 400 });
+    }
     if (Buffer.byteLength(newPassword, "utf8") > 72) {
       return NextResponse.json({ error: "The new password is too long (max 72 characters)." }, { status: 400 });
     }

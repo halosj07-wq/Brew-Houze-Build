@@ -17,6 +17,7 @@ function isUniqueViolation(error: unknown) {
 
 function passwordProblem(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters for the password.`;
+  if (!password.trim()) return "A password can't be only spaces.";
   if (password.length > MAX_PASSWORD_LENGTH) return `Use at most ${MAX_PASSWORD_LENGTH} characters for the password.`;
   return null;
 }

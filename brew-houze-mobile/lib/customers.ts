@@ -47,6 +47,7 @@ export function usernameProblem(username: string): string | null {
 
 export function passwordProblem(password: string): string | null {
   if (password.length < MIN_PASSWORD_LENGTH) return `Passwords need at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (!password.trim()) return "A password can't be only spaces.";
   if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_LENGTH) return `That password is too long (at most ${MAX_PASSWORD_LENGTH} characters).`;
   return null;
 }
