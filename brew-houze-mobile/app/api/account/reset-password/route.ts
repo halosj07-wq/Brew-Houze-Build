@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Choose a new password." }, { status: 400 });
   }
   try {
-    const result = await resetCustomerPassword(String(body.token ?? ""), String(body.password ?? ""));
+    const result = await resetCustomerPassword(String(body.token ?? ""), String(body.password ?? ""), request);
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({ data: { ok: true } });
   } catch (error) {

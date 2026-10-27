@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
 import pool from "@/lib/db";
+import { logSecurityEvent } from "@/lib/security-log";
 import { staffPermissions, startSession } from "@/lib/sessions";
 
 // Roles that may use the Staff Portal.
@@ -31,6 +32,7 @@ export async function finishStaffLogin(adminId: number, request: Request): Promi
     ON CONFLICT DO NOTHING
   `, [admin.admin_id]);
   const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
+  await logSecurityEvent({ event: "login_success", portal: "staff", accountKind: "staff", accountId: Number(admin.admin_id), request });
   const response = NextResponse.json({ data: session });
   response.cookies.set(SESSION_COOKIE, createSessionToken({ ...session, sid: sessionId }), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: SESSION_MAX_AGE, path: "/" });
   return response;

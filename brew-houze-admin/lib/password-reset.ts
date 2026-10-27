@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
+import { passwordProblem } from "@/lib/password-policy";
+import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
 import { endAllSessions } from "@/lib/sessions";
 import { forgetTrustedDevices } from "@/lib/two-factor";
 
@@ -11,10 +13,7 @@ import { forgetTrustedDevices } from "@/lib/two-factor";
 const RESET_LINK_MINUTES = 30;
 const MAX_REQUESTS_PER_WINDOW = 3;
 const REQUEST_WINDOW_MINUTES = 15;
-export const MIN_PASSWORD_LENGTH = 8;
-// bcrypt only uses the first 72 bytes of a password, so longer ones are refused rather than
-// silently truncated.
-export const MAX_PASSWORD_LENGTH = 72;
+export { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 
 // Where reset links point. Never taken from the incoming request in production: the Host header
 // can be forged ("password reset poisoning"), and Vercel also serves each deployment on its own
@@ -114,6 +113,7 @@ export async function sendPasswordResetEmail(email: string, appUrl: string, port
   const link = `${appUrl.replace(/\/$/, "")}/?reset_token=${encodeURIComponent(token)}`;
   const message = buildEmail(String(fullName), link, portalName);
   await createTransport().sendMail({ from: process.env.MAIL_FROM, to: accountEmail, ...message });
+  await logSecurityEvent({ event: "password_reset_requested", portal: portalName === "Admin Portal" ? "admin" : "staff", accountKind: "staff", accountId: Number(adminId), detail: "Reset link emailed" });
 }
 
 // Checks a link before showing the "choose a new password" form.
@@ -128,10 +128,8 @@ export async function checkResetToken(token: string): Promise<{ valid: boolean; 
   return result.rowCount === 0 ? { valid: false } : { valid: true, email: maskEmail(String(result.rows[0].email)) };
 }
 
-export async function resetPasswordWithToken(token: string, newPassword: string): Promise<{ ok: true } | { error: string }> {
-  if (newPassword.length < MIN_PASSWORD_LENGTH) return { error: `The new password must be at least ${MIN_PASSWORD_LENGTH} characters.` };
-  if (!newPassword.trim()) return { error: "A password can't be only spaces." };
-  if (Buffer.byteLength(newPassword, "utf8") > MAX_PASSWORD_LENGTH) return { error: `The new password is too long (max ${MAX_PASSWORD_LENGTH} characters).` };
+export async function resetPasswordWithToken(token: string, newPassword: string, portal: "admin" | "staff", request: Request): Promise<{ ok: true } | { error: string }> {
+  if (!newPassword) return { error: "Enter a new password." };
 
   const client = await pool.connect();
   try {
@@ -149,6 +147,12 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
       return { error: "This reset link is invalid, already used, or expired. Request a new one from the login screen." };
     }
     const adminId = link.rows[0].admin_id;
+    const owner = (await client.query("SELECT full_name, email FROM admin_users WHERE admin_id = $1", [adminId])).rows[0];
+    const problem = passwordProblem(newPassword, { name: owner?.full_name, email: owner?.email });
+    if (problem) {
+      await client.query("ROLLBACK");
+      return { error: problem };
+    }
     await client.query("UPDATE admin_users SET password_hash = crypt($2, gen_salt('bf')) WHERE admin_id = $1", [adminId, newPassword]);
     // This link and any other pending links for the account stop working.
     await client.query("UPDATE password_reset_tokens SET used_at = CURRENT_TIMESTAMP WHERE admin_id = $1 AND used_at IS NULL", [adminId]);
@@ -156,6 +160,8 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
     await endAllSessions(Number(adminId), "password_reset", client);
     await forgetTrustedDevices("staff", Number(adminId), client);
     await client.query("COMMIT");
+    await logSecurityEvent({ event: "password_reset", portal, accountKind: "staff", accountId: Number(adminId), detail: "Reset with an emailed link; every device signed out", request });
+    if (owner?.email) sendSecurityAlert({ kind: "password_changed", email: String(owner.email), name: String(owner.full_name ?? ""), portal, request });
     return { ok: true };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);

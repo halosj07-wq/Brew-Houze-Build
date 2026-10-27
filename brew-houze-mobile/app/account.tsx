@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import "./account.css";
 import { PhoneField } from "@/lib/input-format";
+import { PASSWORD_HINT } from "@/lib/password-policy";
 
 // Customer accounts on the mobile menu. Kept apart from the menu page on purpose:
 //   useCustomerAccount()  all the data and API calls (keep this when the layout is redesigned)
@@ -603,7 +604,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
       }}>
         <Field label="Full name"><input value={signup.fullName} onChange={(event) => setSignup((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} autoFocus /></Field>
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
-        <Field label="Password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
+        <Field label="Password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
         <Field label="Mobile number (optional)" hint="For delivery updates from the café, e.g. 0917 123 4567."><PhoneField value={signup.phone} onChange={(phone) => setSignup((current) => ({ ...current, phone }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Email" hint="We send a sign-in code to it on a new phone, and a link if you forget your password."><input type="email" required value={signup.email} onChange={(event) => setSignup((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
@@ -651,7 +652,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
             <button type="button" className="add-order-button" onClick={() => { onResetDone(); go("forgot"); }}>Ask for a new link <span>→</span></button>
           </> : <>
             <p className="acct-intro">Choose a new password for <strong>@{resetInfo.username}</strong>. You will be signed out of your other phones.</p>
-            <Field label="New password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" autoFocus /></Field>
+            <Field label="New password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" autoFocus /></Field>
             <Field label="Type it again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
             <button type="submit" className="add-order-button" disabled={busy || !password || !password2}>{busy ? "Saving..." : "Save new password"} <span>→</span></button>
           </>}
@@ -676,7 +677,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
         void run(() => state.changePassword(login, password), () => { setLogin(""); finish("Password changed. Your other phones were signed out."); });
       }}>
         <Field label="Current password"><PasswordInput value={login} onChange={setLogin} autoComplete="current-password" autoFocus /></Field>
-        <Field label="New password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
+        <Field label="New password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the new password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
         <button type="submit" className="add-order-button" disabled={busy || !login || !password || !password2}>{busy ? "Saving..." : "Change password"} <span>→</span></button>
         <p className="acct-switch"><button type="button" onClick={onClose}>Cancel</button></p>

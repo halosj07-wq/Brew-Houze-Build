@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
-import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
+import { passwordProblem } from "@/lib/password-policy";
+import { logSecurityEvent } from "@/lib/security-log";
 import { runningCampaign } from "@/lib/loyalty";
 import { getSession } from "@/lib/sessions";
 import { forgetTrustedDevices, twoFactorEnabled } from "@/lib/two-factor";
@@ -17,13 +18,6 @@ type Db = PoolClient | typeof pool;
 
 function isUniqueViolation(error: unknown): error is { code: string; constraint?: string } {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");
-}
-
-function passwordProblem(password: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters for the password.`;
-  if (!password.trim()) return "A password can't be only spaces.";
-  if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_LENGTH) return `Use at most ${MAX_PASSWORD_LENGTH} characters for the password.`;
-  return null;
 }
 
 function usernameProblem(username: string): string | null {
@@ -184,7 +178,7 @@ export async function POST(request: Request) {
   const problem = !fullName ? "Enter the customer's name."
     : email && !EMAIL_RE.test(email) ? "Enter a valid email address, or leave it empty."
     : phoneText && !phone ? "Enter a mobile number like 0917 123 4567, or leave it empty."
-    : birthdayProblem(birthday) ?? (withLogin ? usernameProblem(username) ?? passwordProblem(password) : null);
+    : birthdayProblem(birthday) ?? (withLogin ? usernameProblem(username) ?? passwordProblem(password, { name: fullName, email, username }) : null);
   if (problem) return NextResponse.json({ error: problem }, { status: 400 });
   try {
     const result = await pool.query(`
@@ -247,7 +241,8 @@ export async function PATCH(request: Request) {
     if (body.action === "set_login") {
       const username = currentUsername ?? String(body.username ?? "").trim();
       const password = String(body.password ?? "");
-      const problem = usernameProblem(username) ?? passwordProblem(password);
+      const owner = (await pool.query("SELECT full_name, email FROM customers WHERE customer_id = $1", [id])).rows[0];
+      const problem = usernameProblem(username) ?? passwordProblem(password, { name: owner?.full_name, email: owner?.email, username });
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       // Signing in emails a code (two-step sign-in), so a login needs an email first.
       if (twoFactorEnabled()) {
@@ -262,6 +257,8 @@ export async function PATCH(request: Request) {
         const ended = await endCustomerSessions(id, "password_reset", client);
         await forgetTrustedDevices("customer", id, client);
         await client.query("COMMIT");
+        await logSecurityEvent({ event: "password_set_by_admin", portal: "admin", accountKind: "customer", accountId: id, loginKey: username, actorAdminId: auth.session.adminId,
+          detail: currentUsername ? "Temporary password set; every phone signed out" : `Login made with the username ${username}`, request });
         return NextResponse.json({ data: { username, signedOutDevices: ended } });
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);

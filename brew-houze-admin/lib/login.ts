@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
+import { logSecurityEvent } from "@/lib/security-log";
 import { isAllowedRole, startSession } from "@/lib/sessions";
 
 // The last step of signing in to the admin portal, shared by the password step (on a trusted
@@ -15,6 +16,7 @@ export async function finishAdminLogin(adminId: number, request: Request): Promi
     return NextResponse.json({ error: "This account does not have admin access. Use the staff portal instead." }, { status: 403 });
   }
   const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
+  await logSecurityEvent({ event: "login_success", portal: "admin", accountKind: "staff", accountId: Number(admin.admin_id), request });
   const response = NextResponse.json({
     data: { adminId: Number(admin.admin_id), fullName: admin.full_name, email: admin.email, role: admin.role },
   });

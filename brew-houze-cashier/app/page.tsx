@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
+import { passwordChecks, passwordProblem } from "@/lib/password-policy";
 import { livePollGate, onLive } from "@/lib/live";
 import { escposReceipt, needsSignature, rawbtIntentUrl, RECEIPT_BUSINESS, receiptDeliveryStatus, receiptFooter, receiptItemsByStation, receiptMoney, receiptNumber, receiptSubtotal, receiptTime, type ReceiptData } from "@/lib/receipt";
 import { forgetSession, isNetworkError, nextTicket, readOutbox, readSynced, rememberedMenu, rememberedSession, rememberedShift, rememberMenu, rememberSession, rememberShift, saveOfflineOrder, writeOutbox, writeSynced, type OfflineOrder, type OfflineReceiptLine, type OfflineSynced } from "@/lib/offline";
@@ -501,7 +502,8 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
     event.preventDefault();
     setPasswordMessage("");
     setPasswordError("");
-    if (newPassword.length < 8) { setPasswordError("Use at least 8 characters."); return; }
+    const weak = passwordProblem(newPassword, { name: user.fullName, email: user.email });
+    if (weak) { setPasswordError(weak); return; }
     if (newPassword !== confirmPassword) { setPasswordError("The new passwords do not match."); return; }
     setSavingPassword(true);
     try {
@@ -649,6 +651,8 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
           <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
             <li style={{ color: newPassword.length >= 8 ? "#15803D" : "#9C8278" }}>{newPassword.length >= 8 ? "✓" : "•"} At least 8 characters</li>
+            <li style={{ color: passwordChecks(newPassword).letterAndNumber ? "#15803D" : "#9C8278" }}>{passwordChecks(newPassword).letterAndNumber ? "✓" : "•"} A letter and a number</li>
+            <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
             <li style={{ color: confirmPassword !== "" && newPassword === confirmPassword ? "#15803D" : "#9C8278" }}>{confirmPassword !== "" && newPassword === confirmPassword ? "✓" : "•"} Both new passwords match</li>
           </ul>
           <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Changing your password signs out your other devices. This tablet stays signed in.</p>
@@ -4647,7 +4651,8 @@ function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    const weak = passwordProblem(password);
+    if (weak) { setError(weak); return; }
     if (password !== confirmPassword) { setError("The two passwords do not match."); return; }
     setSaving(true);
     setError("");
@@ -4683,6 +4688,8 @@ function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice
       <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
       <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
         <li style={{ color: longEnough ? "#15803D" : "#9C8278" }}>{longEnough ? "✓" : "•"} At least 8 characters</li>
+        <li style={{ color: passwordChecks(password).letterAndNumber ? "#15803D" : "#9C8278" }}>{passwordChecks(password).letterAndNumber ? "✓" : "•"} A letter and a number</li>
+        <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
         <li style={{ color: matches ? "#15803D" : "#9C8278" }}>{matches ? "✓" : "•"} Both passwords match</li>
       </ul>
       {error && <AuthAlert tone="error">{error}</AuthAlert>}

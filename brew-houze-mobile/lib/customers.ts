@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import type { PoolClient } from "pg";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
+import { type PasswordAbout, passwordProblem as policyPasswordProblem } from "@/lib/password-policy";
+import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
 import { forgetTrustedDevices } from "@/lib/two-factor";
 
 // Customer accounts for the mobile menu (see customer-accounts-migration.sql). An account is
@@ -18,9 +20,7 @@ export const CUSTOMER_COOKIE = "brew_houze_customer";
 // Customers stay signed in on their own phone for 90 days of not using it.
 const SESSION_DAYS = 90;
 const LAST_SEEN_REFRESH_MINUTES = 30;
-export const MIN_PASSWORD_LENGTH = 8;
-// bcrypt only uses the first 72 bytes, so longer passwords are refused rather than cut short.
-export const MAX_PASSWORD_LENGTH = 72;
+export { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-policy";
 // Wrong passwords: after this many for one username within the window, sign-in waits.
 const MAX_LOGIN_FAILURES = 5;
 const LOGIN_FAILURE_WINDOW_MINUTES = 15;
@@ -45,11 +45,9 @@ export function usernameProblem(username: string): string | null {
   return null;
 }
 
-export function passwordProblem(password: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `Passwords need at least ${MIN_PASSWORD_LENGTH} characters.`;
-  if (!password.trim()) return "A password can't be only spaces.";
-  if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_LENGTH) return `That password is too long (at most ${MAX_PASSWORD_LENGTH} characters).`;
-  return null;
+// The shared password rules (lib/password-policy.ts), checked against the customer's own details.
+export function passwordProblem(password: string, about: PasswordAbout = {}): string | null {
+  return policyPasswordProblem(password, about);
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -157,7 +155,7 @@ export async function checkCustomerPassword(customerId: number, password: unknow
 
 // Returns the customer for a username (or email) and password. Too many wrong passwords for one
 // username make it wait, whoever is trying, which slows down guessing.
-export async function signInCustomer(login: string, password: string): Promise<{ customerId: number } | { error: string; status: number }> {
+export async function signInCustomer(login: string, password: string, request?: Request): Promise<{ customerId: number } | { error: string; status: number }> {
   const key = login.trim().toLowerCase();
   if (!key || !password) return { error: "Enter your username and password.", status: 400 };
   const failures = await pool.query(
@@ -173,6 +171,10 @@ export async function signInCustomer(login: string, password: string): Promise<{
   `, [key, password.slice(0, 200)]);
   if (result.rowCount === 0) {
     await pool.query("INSERT INTO customer_login_failures (username_key) VALUES ($1)", [key.slice(0, 254)]);
+    await logSecurityEvent({ event: "login_failed", portal: "mobile", loginKey: key, detail: "Wrong password", request });
+    if (failures.rows[0].n + 1 >= MAX_LOGIN_FAILURES) {
+      await logSecurityEvent({ event: "account_locked", portal: "mobile", loginKey: key, detail: `${MAX_LOGIN_FAILURES} wrong passwords; locked for ${LOGIN_FAILURE_WINDOW_MINUTES} minutes`, request });
+    }
     // Old entries are not needed once they are past the window.
     await pool.query("DELETE FROM customer_login_failures WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '1 day'");
     return { error: "That username or password is incorrect.", status: 401 };
@@ -272,9 +274,8 @@ export async function checkCustomerResetToken(token: string): Promise<{ valid: b
   return result.rowCount === 0 ? { valid: false } : { valid: true, username: String(result.rows[0].username) };
 }
 
-export async function resetCustomerPassword(token: string, newPassword: string): Promise<{ ok: true } | { error: string }> {
-  const problem = passwordProblem(newPassword);
-  if (problem) return { error: problem };
+export async function resetCustomerPassword(token: string, newPassword: string, request?: Request): Promise<{ ok: true } | { error: string }> {
+  if (!newPassword) return { error: "Enter a new password." };
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -290,6 +291,12 @@ export async function resetCustomerPassword(token: string, newPassword: string):
       return { error: "This reset link is invalid, already used, or expired. Ask for a new one." };
     }
     const customerId = Number(link.rows[0].customer_id);
+    const owner = (await client.query("SELECT full_name, email, username FROM customers WHERE customer_id = $1", [customerId])).rows[0];
+    const problem = passwordProblem(newPassword, { name: owner?.full_name, email: owner?.email, username: owner?.username });
+    if (problem) {
+      await client.query("ROLLBACK");
+      return { error: problem };
+    }
     await client.query("UPDATE customers SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [customerId, newPassword]);
     await forgetTrustedDevices("customer", customerId, client);
     await client.query("UPDATE customer_password_resets SET used_at = CURRENT_TIMESTAMP WHERE customer_id = $1 AND used_at IS NULL", [customerId]);
@@ -297,6 +304,8 @@ export async function resetCustomerPassword(token: string, newPassword: string):
     // Whoever knew the old password is signed out everywhere.
     await endCustomerSessions(customerId, "password_reset", client);
     await client.query("COMMIT");
+    await logSecurityEvent({ event: "password_reset", portal: "mobile", accountKind: "customer", accountId: customerId, detail: "Reset with an emailed link; every phone signed out", request });
+    if (owner?.email) sendSecurityAlert({ kind: "password_changed", email: String(owner.email), name: String(owner.full_name ?? ""), portal: "mobile", request });
     return { ok: true };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
 import {
   birthdayProblem, checkCustomerPassword, cleanName, CUSTOMER_COOKIE, emailConfigured, emailProblem, endCustomerSessions,
   getCustomerSession, isUniqueViolation, passwordProblem,
@@ -128,12 +129,14 @@ export async function PATCH(request: Request) {
     }
     if (body.action === "change_password") {
       const newPassword = String(body.newPassword ?? "");
-      const problem = passwordProblem(newPassword);
+      const problem = passwordProblem(newPassword, { name: session.fullName, email: session.email, username: session.username });
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       if (!(await checkCustomerPassword(session.customerId, body.currentPassword))) return NextResponse.json({ error: "Your current password is incorrect.", field: "currentPassword" }, { status: 403 });
       await pool.query("UPDATE customers SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId, newPassword]);
       // Other phones signed in with the old password are signed out; this one stays.
       await endCustomerSessions(session.customerId, "password_changed", pool, true);
+      await logSecurityEvent({ event: "password_changed", portal: "mobile", accountKind: "customer", accountId: session.customerId, detail: "Changed on My Account", request });
+      if (session.email) sendSecurityAlert({ kind: "password_changed", email: session.email, name: session.fullName, portal: "mobile", request });
       return NextResponse.json({ data: { ok: true } });
     }
     if (body.action === "promo_emails") {

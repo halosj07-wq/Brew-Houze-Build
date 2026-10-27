@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { startCustomerSession } from "@/lib/customers";
+import { logSecurityEvent } from "@/lib/security-log";
 import { resendChallenge, verifyChallenge } from "@/lib/two-factor";
 
 // Step two of signing in (or of a new account) on a new phone (see lib/two-factor.ts):
@@ -26,6 +27,8 @@ export async function POST(request: Request) {
     const account = await pool.query("SELECT 1 FROM customers WHERE customer_id = $1 AND is_active = TRUE AND deleted_at IS NULL AND username IS NOT NULL", [verified.accountId]);
     if (account.rowCount === 0) return NextResponse.json({ error: "This account can no longer sign in." }, { status: 401 });
     await startCustomerSession(verified.accountId, request.headers.get("user-agent"));
+    await logSecurityEvent({ event: "new_device_verified", portal: "mobile", accountKind: "customer", accountId: verified.accountId, detail: "Emailed code entered; phone trusted for 30 days", request });
+    await logSecurityEvent({ event: "login_success", portal: "mobile", accountKind: "customer", accountId: verified.accountId, request });
     return NextResponse.json({ data: { ok: true } });
   } catch (error) {
     console.error("POST /api/account/verify-code failed:", error);

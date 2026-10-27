@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
-import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/lib/password-reset";
+import { passwordProblem } from "@/lib/password-policy";
+import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
 import { endAllSessions, getSession } from "@/lib/sessions";
 import { forgetTrustedDevices } from "@/lib/two-factor";
 
@@ -15,12 +16,7 @@ function isUniqueViolation(error: unknown) {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");
 }
 
-function passwordProblem(password: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters for the password.`;
-  if (!password.trim()) return "A password can't be only spaces.";
-  if (password.length > MAX_PASSWORD_LENGTH) return `Use at most ${MAX_PASSWORD_LENGTH} characters for the password.`;
-  return null;
-}
+const ROLE_NAMES: Record<string, string> = { cashier: "cashier", barista: "barista", kitchen: "kitchen staff", rider: "rider" };
 
 export async function GET() {
   const session = await getSession();
@@ -176,7 +172,7 @@ export async function POST(request: Request) {
     const password = String(body.password ?? "");
     if (!fullName) return NextResponse.json({ error: "Enter the employee's full name." }, { status: 400 });
     if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Enter a valid email address. It is used to sign in and to reset the password." }, { status: 400 });
-    const problem = passwordProblem(password);
+    const problem = passwordProblem(password, { name: fullName, email });
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
     const role = staffRole(body.role);
     if (!role) return NextResponse.json({ error: "Choose cashier, barista, kitchen staff or rider." }, { status: 400 });
@@ -187,6 +183,7 @@ export async function POST(request: Request) {
       VALUES ($1, $2, crypt($3, gen_salt('bf')), $7, TRUE, $4, $5, $6, $8)
       RETURNING admin_id
     `, [fullName, email, password, cashier && body.canVoidOrders === true, cashier && body.canRefundOrders === true, cashier && body.canOpenShift === true, role, cashier && body.canCloseShift === true]);
+    await logSecurityEvent({ event: "account_created", portal: "admin", accountKind: "staff", accountId: Number(result.rows[0].admin_id), actorAdminId: session.adminId, detail: `Added as ${ROLE_NAMES[role]}`, request });
     return NextResponse.json({ data: { id: Number(result.rows[0].admin_id) } }, { status: 201 });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: "Another account already uses this email." }, { status: 409 });
@@ -226,6 +223,7 @@ export async function PATCH(request: Request) {
         RETURNING role, can_void_orders, can_refund_orders, can_open_shift, can_close_shift
       `, [id, role]);
       const row = result.rows[0];
+      if (role !== currentRole) await logSecurityEvent({ event: "role_changed", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: `${ROLE_NAMES[currentRole]} to ${ROLE_NAMES[role]}`, request });
       return NextResponse.json({ data: { role: String(row.role), canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift), canCloseShift: Boolean(row.can_close_shift) } });
     }
 
@@ -233,6 +231,7 @@ export async function PATCH(request: Request) {
     // Their attendance ends too, since they are no longer signed in anywhere.
     if (body.action === "sign_out_everywhere") {
       const ended = await endAllSessions(id, "signed_out_by_admin");
+      await logSecurityEvent({ event: "signed_out_everywhere", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: `${ended} device${ended === 1 ? "" : "s"} signed out by an admin`, request });
       return NextResponse.json({ data: { signedOutDevices: ended } });
     }
 
@@ -241,19 +240,26 @@ export async function PATCH(request: Request) {
       const email = String(body.email ?? "").trim().toLowerCase();
       if (!fullName) return NextResponse.json({ error: "Enter the employee's full name." }, { status: 400 });
       if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+      const before = (await pool.query("SELECT full_name, email FROM admin_users WHERE admin_id = $1", [id])).rows[0];
       await pool.query("UPDATE admin_users SET full_name = $2, email = $3, updated_at = CURRENT_TIMESTAMP WHERE admin_id = $1", [id, fullName, email]);
+      const changes = [before?.full_name !== fullName ? "name" : null, String(before?.email ?? "").toLowerCase() !== email ? `email (was ${before?.email})` : null].filter(Boolean);
+      if (changes.length) await logSecurityEvent({ event: "account_updated", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: `Changed ${changes.join(" and ")}`, request });
       return NextResponse.json({ data: { id, fullName, email } });
     }
 
     // A temporary password from the admin. Every device is signed out so the old one stops working.
     if (body.action === "set_password") {
       const password = String(body.password ?? "");
-      const problem = passwordProblem(password);
+      const owner = (await pool.query("SELECT full_name, email FROM admin_users WHERE admin_id = $1", [id])).rows[0];
+      const problem = passwordProblem(password, { name: owner?.full_name, email: owner?.email });
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       await pool.query("UPDATE admin_users SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE admin_id = $1", [id, password]);
       // Every device signs in with a code again.
       await forgetTrustedDevices("staff", id, pool);
       const ended = await endAllSessions(id, "password_reset");
+      // This also ends a lockout: the old password no longer matters.
+      await logSecurityEvent({ event: "password_set_by_admin", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: "Temporary password set; every device signed out", request });
+      if (owner?.email) sendSecurityAlert({ kind: "password_changed", email: String(owner.email), name: String(owner.full_name ?? ""), portal: "staff", byAdmin: true, request });
       return NextResponse.json({ data: { signedOutDevices: ended } });
     }
 
@@ -262,6 +268,7 @@ export async function PATCH(request: Request) {
       const isActive = body.isActive === true;
       await pool.query("UPDATE admin_users SET is_active = $2, updated_at = CURRENT_TIMESTAMP WHERE admin_id = $1", [id, isActive]);
       const ended = isActive ? 0 : await endAllSessions(id, "signed_out_by_admin");
+      await logSecurityEvent({ event: isActive ? "account_reactivated" : "account_deactivated", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: isActive ? "Can sign in again" : `Can no longer sign in; ${ended} device${ended === 1 ? "" : "s"} signed out`, request });
       return NextResponse.json({ data: { isActive, signedOutDevices: ended } });
     }
 
@@ -279,6 +286,9 @@ export async function PATCH(request: Request) {
       RETURNING can_void_orders, can_refund_orders, can_open_shift, can_close_shift
     `, [id, flag(body.canVoidOrders), flag(body.canRefundOrders), flag(body.canOpenShift), flag(body.canCloseShift)]);
     const row = result.rows[0];
+    const changed = ([["Void orders", body.canVoidOrders], ["Refund orders", body.canRefundOrders], ["Open the store", body.canOpenShift], ["Close the shift", body.canCloseShift]] as const)
+      .filter(([, value]) => typeof value === "boolean").map(([label, value]) => `${label}: ${value ? "on" : "off"}`);
+    if (changed.length) await logSecurityEvent({ event: "permissions_changed", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: changed.join(", "), request });
     return NextResponse.json({ data: { canVoidOrders: Boolean(row.can_void_orders), canRefundOrders: Boolean(row.can_refund_orders), canOpenShift: Boolean(row.can_open_shift), canCloseShift: Boolean(row.can_close_shift) } });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: "Another account already uses this email." }, { status: 409 });
