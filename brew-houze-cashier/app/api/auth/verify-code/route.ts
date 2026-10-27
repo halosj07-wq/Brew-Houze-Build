@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { finishStaffLogin } from "@/lib/login";
+import { logSecurityEvent } from "@/lib/security-log";
 import { resendChallenge, verifyChallenge } from "@/lib/two-factor";
 
 // Step two of signing in on a new device (see lib/two-factor.ts):
@@ -22,6 +23,7 @@ export async function POST(request: Request) {
     const verified = await verifyChallenge(challenge, String(body.code ?? ""), "staff", request.headers.get("user-agent"));
     if ("error" in verified) return NextResponse.json({ error: verified.error }, { status: verified.status });
     if (verified.kind !== "staff") return NextResponse.json({ error: "Sign in again." }, { status: 400 });
+    await logSecurityEvent({ event: "new_device_verified", portal: "staff", accountKind: "staff", accountId: verified.accountId, detail: "Emailed code entered; device trusted for 30 days", request });
     return await finishStaffLogin(verified.accountId, request);
   } catch (error) {
     console.error("POST /api/auth/verify-code failed:", error);

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import {
   birthdayProblem, checkCustomerPassword, cleanName, CUSTOMER_COOKIE, emailConfigured, emailProblem, endCustomerSessions,
   getCustomerSession, isUniqueViolation, passwordProblem,
@@ -15,8 +16,10 @@ const NO_STORE = { "Cache-Control": "no-store" };
 // the menu works the same for guests).
 export async function GET() {
   try {
-    const session = await getCustomerSession();
+    const session = await getCustomerSession({ allowPasswordChange: true });
     if (!session) return NextResponse.json({ data: null, canResetByEmail: emailConfigured() }, { headers: NO_STORE });
+    // On a temporary password from the admin: only who they are, so the menu asks for their own.
+    if (session.mustChangePassword) return NextResponse.json({ data: null, mustChangePassword: { username: session.username, fullName: session.fullName }, canResetByEmail: emailConfigured() }, { headers: NO_STORE });
     const orders = await pool.query(`
       SELECT so.order_id, so.queue_number, so.status, so.total_amount, so.order_source, so.discount_label, so.discount_amount + so.vat_exempt_amount AS discount_total,
         TO_CHAR(so.created_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Manila', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"') AS created_at,
@@ -106,7 +109,7 @@ export async function GET() {
 
 // Edit details, change the password, or forget a remembered discount ID (forget_id).
 export async function PATCH(request: Request) {
-  const session = await getCustomerSession();
+  const session = await getCustomerSession({ allowPasswordChange: true });
   if (!session) return NextResponse.json({ error: "Please sign in again." }, { status: 401 });
   let body: { action?: unknown; on?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; phone?: unknown; currentPassword?: unknown; newPassword?: unknown };
   try {
@@ -114,6 +117,7 @@ export async function PATCH(request: Request) {
   } catch {
     return NextResponse.json({ error: "Nothing to save." }, { status: 400 });
   }
+  if (session.mustChangePassword && body.action !== "change_password") return NextResponse.json({ error: "Choose your own password first." }, { status: 403 });
   try {
     if (body.action === "update_profile") {
       const fullName = cleanName(body.fullName);
@@ -128,12 +132,16 @@ export async function PATCH(request: Request) {
     }
     if (body.action === "change_password") {
       const newPassword = String(body.newPassword ?? "");
-      const problem = passwordProblem(newPassword);
+      const problem = passwordProblem(newPassword, { name: session.fullName, email: session.email, username: session.username });
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+      if (newPassword === body.currentPassword) return NextResponse.json({ error: "Choose a password different from the current one." }, { status: 400 });
       if (!(await checkCustomerPassword(session.customerId, body.currentPassword))) return NextResponse.json({ error: "Your current password is incorrect.", field: "currentPassword" }, { status: 403 });
       await pool.query("UPDATE customers SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE customer_id = $1", [session.customerId, newPassword]);
       // Other phones signed in with the old password are signed out; this one stays.
       await endCustomerSessions(session.customerId, "password_changed", pool, true);
+      await setMustChangePassword("customer", session.customerId, false);
+      await logSecurityEvent({ event: "password_changed", portal: "mobile", accountKind: "customer", accountId: session.customerId, detail: session.mustChangePassword ? "Replaced the temporary password from the café" : "Changed on My Account", request });
+      if (session.email) sendSecurityAlert({ kind: "password_changed", email: session.email, name: session.fullName, portal: "mobile", request });
       return NextResponse.json({ data: { ok: true } });
     }
     if (body.action === "promo_emails") {

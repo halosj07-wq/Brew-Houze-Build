@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { logSecurityEvent } from "@/lib/security-log";
 import { normalizePhone } from "@/lib/delivery";
 import { birthdayProblem, cleanName, emailProblem, isUniqueViolation, passwordProblem, PRIVACY_NOTICE_VERSION, startCustomerSession, usernameProblem } from "@/lib/customers";
 import { startChallenge, twoFactorEnabled } from "@/lib/two-factor";
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
   const phoneText = String(body.phone ?? "").trim();
   const phone = phoneText ? normalizePhone(phoneText) : null;
   const problem = !fullName ? "Enter your name."
-    : usernameProblem(username) ?? passwordProblem(password)
+    : usernameProblem(username) ?? passwordProblem(password, { name: fullName, email, username })
     ?? (!email && twoFactorEnabled() ? "Enter your email: signing in sends a code to it." : null)
     ?? emailProblem(email) ?? birthdayProblem(birthday)
     ?? (phoneText && !phone ? "Enter a mobile number like 0917 123 4567, or leave it empty." : null)
@@ -37,6 +38,7 @@ export async function POST(request: Request) {
       RETURNING customer_id
     `, [username, fullName, email, password, birthday, PRIVACY_NOTICE_VERSION, phone]);
     const customerId = Number(result.rows[0].customer_id);
+    await logSecurityEvent({ event: "account_created", portal: "mobile", accountKind: "customer", accountId: customerId, loginKey: username, detail: "Signed up on the mobile menu", request });
     // The new account confirms its email with a code before it is signed in on this phone.
     if (twoFactorEnabled()) {
       const started = await startChallenge("customer", customerId, "mobile");

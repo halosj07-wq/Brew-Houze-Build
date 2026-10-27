@@ -3,13 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
+import { passwordChecks, passwordProblem } from "@/lib/password-policy";
 import { livePollGate, onLive } from "@/lib/live";
 import { escposReceipt, needsSignature, rawbtIntentUrl, RECEIPT_BUSINESS, receiptDeliveryStatus, receiptFooter, receiptItemsByStation, receiptMoney, receiptNumber, receiptSubtotal, receiptTime, type ReceiptData } from "@/lib/receipt";
 import { forgetSession, isNetworkError, nextTicket, readOutbox, readSynced, rememberedMenu, rememberedSession, rememberedShift, rememberMenu, rememberSession, rememberShift, saveOfflineOrder, writeOutbox, writeSynced, type OfflineOrder, type OfflineReceiptLine, type OfflineSynced } from "@/lib/offline";
 
 // line: the counter line, everything from the mobile menu waiting for the cashier (see CounterLine).
 type Page = "pos" | "line" | "queue" | "reversals" | "deliveries" | "accounts";
-type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean };
+type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean; mustChangePassword?: boolean };
 
 // Baristas and kitchen staff only see and manage their queue, riders only the deliveries (the
 // server refuses them everything else too). Cashiers and admins see every page.
@@ -501,7 +502,8 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
     event.preventDefault();
     setPasswordMessage("");
     setPasswordError("");
-    if (newPassword.length < 8) { setPasswordError("Use at least 8 characters."); return; }
+    const weak = passwordProblem(newPassword, { name: user.fullName, email: user.email });
+    if (weak) { setPasswordError(weak); return; }
     if (newPassword !== confirmPassword) { setPasswordError("The new passwords do not match."); return; }
     setSavingPassword(true);
     try {
@@ -649,6 +651,8 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
           <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
           <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
             <li style={{ color: newPassword.length >= 8 ? "#15803D" : "#9C8278" }}>{newPassword.length >= 8 ? "✓" : "•"} At least 8 characters</li>
+            <li style={{ color: passwordChecks(newPassword).letterAndNumber ? "#15803D" : "#9C8278" }}>{passwordChecks(newPassword).letterAndNumber ? "✓" : "•"} A letter and a number</li>
+            <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
             <li style={{ color: confirmPassword !== "" && newPassword === confirmPassword ? "#15803D" : "#9C8278" }}>{confirmPassword !== "" && newPassword === confirmPassword ? "✓" : "•"} Both new passwords match</li>
           </ul>
           <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Changing your password signs out your other devices. This tablet stays signed in.</p>
@@ -4617,6 +4621,61 @@ function Login({ onLoggedIn, notice = "" }: { onLoggedIn: (session: Session) => 
 
 // Opened from the emailed link (?reset_token=...). Checks the link first, then lets the person
 // choose a new password.
+// After signing in with a temporary password from the admin: they choose their own before they
+// can use the Staff Portal (the server refuses everything else until then).
+function FirstPasswordScreen({ session, onDone, onSignOut }: { session: Session; onDone: (session: Session) => void; onSignOut: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const checks = passwordChecks(password);
+  const matches = confirmPassword !== "" && password === confirmPassword;
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const weak = passwordProblem(password, { name: session.fullName, email: session.email });
+    if (weak) { setError(weak); return; }
+    if (password !== confirmPassword) { setError("The two passwords do not match."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/auth/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ currentPassword, newPassword: password }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Could not save the password.");
+      const me = await fetch("/api/auth/me", { cache: "no-store" });
+      const mine = await me.json().catch(() => ({}));
+      if (!me.ok) throw new Error(mine?.error || "Sign in again with your new password.");
+      onDone(mine.data);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the password.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <PortalAuthLayout>
+    <form onSubmit={save} className="login-card">
+      <p style={authEyebrow}>Welcome, {session.fullName.split(/\s+/)[0]}</p>
+      <h1 style={authTitle}>Choose your own password</h1>
+      <p style={authLead}>You signed in with a temporary password from the admin. Choose your own before you continue; only you will know it.</p>
+      <div style={{ marginTop: 10 }} />
+      <AuthPasswordField label="Temporary password" value={currentPassword} onChange={setCurrentPassword} autoComplete="current-password" placeholder="The one the admin gave you" autoFocus />
+      <AuthPasswordField label="New password" value={password} onChange={setPassword} autoComplete="new-password" placeholder="At least 8 characters" />
+      <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
+      <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+        <li style={{ color: checks.length ? "#15803D" : "#9C8278" }}>{checks.length ? "✓" : "•"} At least 8 characters</li>
+        <li style={{ color: checks.letterAndNumber ? "#15803D" : "#9C8278" }}>{checks.letterAndNumber ? "✓" : "•"} A letter and a number</li>
+        <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
+        <li style={{ color: matches ? "#15803D" : "#9C8278" }}>{matches ? "✓" : "•"} Both passwords match</li>
+      </ul>
+      {error && <AuthAlert tone="error">{error}</AuthAlert>}
+      <button type="submit" disabled={saving || !currentPassword || !password} className="login-submit">{saving ? "Saving…" : "Save and continue"}</button>
+      <button type="button" onClick={onSignOut} disabled={saving} style={{ ...authLinkButton, marginTop: 16, alignSelf: "center" }}>Sign out</button>
+    </form>
+  </PortalAuthLayout>;
+}
+
 function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice: string) => void }) {
   const [status, setStatus] = useState<"checking" | "invalid" | "ready">("checking");
   const [maskedEmail, setMaskedEmail] = useState("");
@@ -4647,7 +4706,8 @@ function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    const weak = passwordProblem(password);
+    if (weak) { setError(weak); return; }
     if (password !== confirmPassword) { setError("The two passwords do not match."); return; }
     setSaving(true);
     setError("");
@@ -4683,6 +4743,8 @@ function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice
       <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
       <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
         <li style={{ color: longEnough ? "#15803D" : "#9C8278" }}>{longEnough ? "✓" : "•"} At least 8 characters</li>
+        <li style={{ color: passwordChecks(password).letterAndNumber ? "#15803D" : "#9C8278" }}>{passwordChecks(password).letterAndNumber ? "✓" : "•"} A letter and a number</li>
+        <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
         <li style={{ color: matches ? "#15803D" : "#9C8278" }}>{matches ? "✓" : "•"} Both passwords match</li>
       </ul>
       {error && <AuthAlert tone="error">{error}</AuthAlert>}
@@ -5352,6 +5414,8 @@ function CloseShiftDialog({ shiftId, userName, onCancel, onClosed }: { shiftId: 
 
 export default function App() {
   const [user, setUser] = useState<Session | null>(null);
+  // Signed in with a temporary password from the admin: shown the "choose your own" screen first.
+  const [mustChange, setMustChange] = useState<Session | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   // Set when the page was opened from a password reset email (?reset_token=...).
   const [resetToken, setResetToken] = useState<string | null>(null);
@@ -5633,8 +5697,8 @@ export default function App() {
         const response = await fetch("/api/auth/me", { cache: "no-store" });
         if (active && response.ok) {
           const payload = await response.json();
-          setUser(payload.data);
-          rememberSession(payload.data);
+          if (payload.data?.mustChangePassword) setMustChange(payload.data);
+          else { setUser(payload.data); rememberSession(payload.data); }
         } else if (response.status === 401) forgetSession();
       } catch {
         // Offline: whoever was signed in on this tablet carries on (only to take counter orders;
@@ -5723,7 +5787,8 @@ export default function App() {
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="min-h-screen" style={{ background: "#F8F9FA" }} />;
-  if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); setUser(session); rememberSession(session); }} notice={loginNotice} />;
+  if (mustChange) return <FirstPasswordScreen session={mustChange} onDone={(session) => { setMustChange(null); setLoginNotice(""); setUser(session); rememberSession(session); }} onSignOut={() => { void fetch("/api/auth/logout", { method: "POST" }).finally(() => setMustChange(null)); }} />;
+  if (!user) return <Login onLoggedIn={(session) => { setLoginNotice(""); if (session.mustChangePassword) { setMustChange(session); return; } setUser(session); rememberSession(session); }} notice={loginNotice} />;
   const offlineContext: OfflineContextValue = {
     online, pending: outbox, syncing, shiftId: shift ? shift.shiftId : null, cashierId: user.adminId, cashierName: user.fullName,
     addOrder: (order) => { const saved = saveOfflineOrder(order); setOutbox(readOutbox()); return saved; },

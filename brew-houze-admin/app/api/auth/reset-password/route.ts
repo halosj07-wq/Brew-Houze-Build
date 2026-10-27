@@ -15,7 +15,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const body = await request.json() as { token?: unknown; password?: unknown };
-    const result = await resetPasswordWithToken(String(body?.token ?? ""), String(body?.password ?? ""));
+    const result = await resetPasswordWithToken(String(body?.token ?? ""), String(body?.password ?? ""), "admin", request);
     if ("error" in result) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({ data: { reset: true } });
   } catch (error) {

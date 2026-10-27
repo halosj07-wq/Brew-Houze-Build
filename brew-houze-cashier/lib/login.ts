@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSessionToken, SESSION_COOKIE, SESSION_MAX_AGE } from "@/lib/auth";
 import pool from "@/lib/db";
+import { logSecurityEvent } from "@/lib/security-log";
 import { staffPermissions, startSession } from "@/lib/sessions";
 
 // Roles that may use the Staff Portal.
@@ -15,7 +16,8 @@ export async function finishStaffLogin(adminId: number, request: Request): Promi
       COALESCE(can_void_orders, FALSE) AS can_void_orders,
       COALESCE(can_refund_orders, FALSE) AS can_refund_orders,
       COALESCE(can_open_shift, FALSE) AS can_open_shift,
-      COALESCE(can_close_shift, FALSE) AS can_close_shift
+      COALESCE(can_close_shift, FALSE) AS can_close_shift,
+      COALESCE((to_jsonb(admin_users) ->> 'must_change_password')::boolean, FALSE) AS must_change_password
     FROM admin_users
     WHERE admin_id = $1 AND is_active = TRUE AND LOWER(role) = ANY($2::text[])
   `, [adminId, STAFF_PORTAL_ROLES]);
@@ -31,7 +33,9 @@ export async function finishStaffLogin(adminId: number, request: Request): Promi
     ON CONFLICT DO NOTHING
   `, [admin.admin_id]);
   const sessionId = await startSession(Number(admin.admin_id), request.headers.get("user-agent"));
-  const response = NextResponse.json({ data: session });
+  await logSecurityEvent({ event: "login_success", portal: "staff", accountKind: "staff", accountId: Number(admin.admin_id), request });
+  // On a temporary password from the admin, the app asks for their own password before anything else.
+  const response = NextResponse.json({ data: { ...session, mustChangePassword: Boolean(admin.must_change_password) } });
   response.cookies.set(SESSION_COOKIE, createSessionToken({ ...session, sid: sessionId }), { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: SESSION_MAX_AGE, path: "/" });
   return response;
 }

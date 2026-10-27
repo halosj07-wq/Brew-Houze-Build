@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
+import { passwordProblem } from "@/lib/password-policy";
+import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import { endOtherSessions, getSession, listSessions } from "@/lib/sessions";
 
 // The signed-in person's own account page: profile, attendance and sales in the open shift,
 // signed-in devices, and password change.
 export async function GET() {
-  const session = await getSession();
+  const session = await getSession({ allowPasswordChange: true });
   if (!session?.sid) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const columnResult = await pool.query(`
@@ -48,7 +50,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const session = await getSession();
+  const session = await getSession({ allowPasswordChange: true });
   if (!session?.sid) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   try {
@@ -56,6 +58,7 @@ export async function PATCH(request: Request) {
 
     if (body.action === "sign_out_other_devices") {
       const ended = await endOtherSessions(session.adminId, session.sid, "signed_out");
+      await logSecurityEvent({ event: "signed_out_other_devices", portal: "staff", accountKind: "staff", accountId: session.adminId, detail: `${ended} other device${ended === 1 ? "" : "s"} signed out`, request });
       return NextResponse.json({ data: { signedOutDevices: ended } });
     }
 
@@ -64,12 +67,9 @@ export async function PATCH(request: Request) {
     if (!currentPassword || !newPassword) {
       return NextResponse.json({ error: "Current and new passwords are required." }, { status: 400 });
     }
-    if (newPassword.length < 8) {
-      return NextResponse.json({ error: "The new password must be at least 8 characters." }, { status: 400 });
-    }
-    if (Buffer.byteLength(newPassword, "utf8") > 72) {
-      return NextResponse.json({ error: "The new password is too long (max 72 characters)." }, { status: 400 });
-    }
+    const problem = passwordProblem(newPassword, { name: session.fullName, email: session.email });
+    if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    if (newPassword === currentPassword) return NextResponse.json({ error: "Choose a password different from the current one." }, { status: 400 });
     const result = await pool.query(`
       UPDATE admin_users
       SET password_hash = crypt($2, gen_salt('bf'))
@@ -84,6 +84,9 @@ export async function PATCH(request: Request) {
     }
     // Anyone else who knew the old password is signed out; this device stays signed in.
     const ended = await endOtherSessions(session.adminId, session.sid, "password_reset");
+    await setMustChangePassword("staff", session.adminId, false);
+    await logSecurityEvent({ event: "password_changed", portal: "staff", accountKind: "staff", accountId: session.adminId, detail: session.mustChangePassword ? "Replaced the temporary password from the admin" : "Changed on My Account", request });
+    sendSecurityAlert({ kind: "password_changed", email: session.email, name: session.fullName, portal: "staff", request });
     return NextResponse.json({ data: { signedOutDevices: ended } });
   } catch (error) {
     console.error("PATCH /api/auth/account failed:", error);

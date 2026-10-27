@@ -1664,3 +1664,63 @@ strong.is-low { color: #B45309 !important; }
 .gq-form h3 { margin: 0; font-family: 'Hanken Grotesk', sans-serif; font-size: 17px; font-weight: 800; color: #3D2B1F; }
 .gq-form p { margin: 0; color: #6B4C3B; font-size: 13px; line-height: 1.55; }
 .gq-notice { color: #15803D !important; font-weight: 700; }
+
+/* Insights charts (from the records, no AI) */
+.ins-charts { display: flex; flex-direction: column; gap: 14px; }
+.ins-charts-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.ins-charts-head h3 { margin: 2px 0 4px; font-family: 'Hanken Grotesk', sans-serif; font-size: 20px; font-weight: 800; color: #3D2B1F; }
+.ins-chart-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+/* each card keeps its own height, so a chart isn't pushed to the bottom of a tall row */
+.ins-chart-grid { align-items: start; }
+.ins-chart-grid .dash-chart { flex: none; }
+.ins-chart-grid .ins-chart-wide { grid-column: 1 / -1; }
+.ins-chart-grid .dash-card-sub b { color: #6B4C3B; }
+.dash-bar.is-forecast { background: repeating-linear-gradient(135deg, #F3D9A4 0 6px, #EBC77F 6px 12px); outline: 1px dashed #D9A441; outline-offset: -1px; }
+.dash-bar-col:hover .dash-bar.is-forecast { background: repeating-linear-gradient(135deg, #EBC77F 0 6px, #E0B45E 6px 12px); }
+.ins-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 12px 0 0; color: #9C8278; font-size: 12px; }
+.ins-legend span { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-left: 8px; }
+.ins-legend span:first-child { margin-left: 0; }
+.ins-legend .is-actual { background: #C8A993; }
+.ins-legend .is-forecast { background: repeating-linear-gradient(135deg, #F3D9A4 0 4px, #EBC77F 4px 8px); outline: 1px dashed #D9A441; }
+.ins-hbars { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 11px; }
+.ins-hbars li { display: flex; flex-direction: column; gap: 4px; }
+.ins-hbar-head { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; color: #3D2B1F; }
+.ins-hbar-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ins-hbar-head b { flex: none; color: #6B4C3B; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.ins-hbar-track { height: 9px; border-radius: 99px; background: #F3ECE6; overflow: hidden; }
+.ins-hbar-fill { height: 100%; border-radius: 99px; background: #C8A993; transition: width 400ms cubic-bezier(0.2, 0.8, 0.3, 1); }
+.ins-hbars li.is-warn .ins-hbar-fill { background: #F59E0B; }
+.ins-hbars li.is-danger .ins-hbar-fill { background: #DC2626; }
+.ins-hbars li.is-danger .ins-hbar-head b { color: #B91C1C; }
+.ins-hbars em { color: #9C8278; font-size: 11.5px; font-style: normal; }
+.ins-chart-empty { margin: 18px 0; text-align: center; color: #9C8278; font-size: 13px; }
+@media (max-width: 1100px) { .ins-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 720px) { .ins-chart-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Security page tables: below 1100px each row becomes a card, so nothing scrolls off the side */
+@media (max-width: 1100px) {
+  .sec-table thead { display: none; }
+  .sec-table, .sec-table tbody { display: block; }
+  .sec-table tr { display: grid; gap: 8px 16px; padding: 14px 0; border-bottom: 1px solid #F3ECE5; }
+  .sec-table tr:last-child { border-bottom: none; }
+  .sec-table td { display: block; min-width: 0; padding: 0; border: none; text-align: left; }
+  /* The finance tables hide their 5th column on phones; here it holds Devices and Where. */
+  .sec-table.is-accounts td.sec-devices, .sec-table.is-log td.sec-where { display: block; }
+  .sec-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; color: #9C8278; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; }
+  .sec-table.is-accounts tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "account account status" "signin password devices" "actions actions actions"; }
+  .sec-table.is-accounts .sec-account { grid-area: account; }
+  .sec-table.is-accounts .sec-status { grid-area: status; justify-self: end; }
+  .sec-table.is-accounts .sec-signin { grid-area: signin; white-space: normal !important; }
+  .sec-table.is-accounts .sec-password { grid-area: password; white-space: normal !important; }
+  .sec-table.is-accounts .sec-devices { grid-area: devices; text-align: right; }
+  .sec-table.is-accounts .sec-actions { grid-area: actions; }
+  .sec-table.is-accounts .sec-actions > div { justify-content: flex-start; flex-wrap: wrap; white-space: normal !important; }
+  .sec-table.is-accounts .sec-actions:not(:has(button)):not(:has(span)) { display: none; }
+  .sec-table.is-log tr { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "when what" "account account" "details details" "where where"; }
+  .sec-table.is-log .sec-when { grid-area: when; }
+  .sec-table.is-log .sec-what { grid-area: what; justify-self: end; }
+  .sec-table.is-log .sec-account { grid-area: account; }
+  .sec-table.is-log .sec-details { grid-area: details; }
+  .sec-table.is-log .sec-details:empty { display: none; }
+  .sec-table.is-log .sec-where { grid-area: where; }
+}

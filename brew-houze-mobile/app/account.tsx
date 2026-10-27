@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import "./account.css";
 import { PhoneField } from "@/lib/input-format";
+import { PASSWORD_HINT } from "@/lib/password-policy";
 
 // Customer accounts on the mobile menu. Kept apart from the menu page on purpose:
 //   useCustomerAccount()  all the data and API calls (keep this when the layout is redesigned)
@@ -88,13 +89,16 @@ export function useCustomerAccount() {
   const [account, setAccount] = useState<CustomerAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [canResetByEmail, setCanResetByEmail] = useState(false);
+  // Signed in with a temporary password from the café: they choose their own before anything else.
+  const [mustChange, setMustChange] = useState<{ username: string; fullName: string } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/account", { cache: "no-store" });
-      const payload = await response.json() as { data?: CustomerAccount | null; canResetByEmail?: boolean };
+      const payload = await response.json() as { data?: CustomerAccount | null; canResetByEmail?: boolean; mustChangePassword?: { username: string; fullName: string } };
       if (response.ok) {
         setAccount(payload.data ?? null);
+        setMustChange(payload.mustChangePassword ?? null);
         setCanResetByEmail(Boolean(payload.canResetByEmail));
       }
     } catch {
@@ -115,13 +119,14 @@ export function useCustomerAccount() {
     account,
     loading,
     canResetByEmail,
+    mustChange,
     refresh,
     signIn: async (login: string, password: string) => afterSignIn(await send("/api/account/login", "POST", { login, password })),
     register: async (form: { fullName: string; username: string; password: string; email: string; birthday: string; consent: boolean; phone: string }) => afterSignIn(await send("/api/account/register", "POST", form)),
     // Two-step sign-in: the code emailed after the password (or a new account) on a new phone.
     verifyCode: async (challenge: string, code: string) => afterSignIn(await send("/api/account/verify-code", "POST", { challenge, code })),
     resendCode: async (challenge: string) => send("/api/account/verify-code", "POST", { challenge, action: "resend" }),
-    signOut: async () => { const result = await send("/api/account/logout", "POST"); if (result.ok) setAccount(null); return result; },
+    signOut: async () => { const result = await send("/api/account/logout", "POST"); if (result.ok) { setAccount(null); setMustChange(null); } return result; },
     updateProfile: async (form: { fullName: string; email: string; birthday: string; phone: string }) => afterSignIn(await send("/api/account", "PATCH", { action: "update_profile", ...form })),
     // Delivery addresses.
     saveAddress: async (draft: AddressDraft) => afterSignIn(await send("/api/account/addresses", draft.id ? "PATCH" : "POST", { ...draft, zoneId: Number(draft.zoneId) })),
@@ -477,6 +482,48 @@ export function OrderHistory({ state, onSignIn, onReceipt }: { state: CustomerAc
 // straight to the addresses (straight to a new one when there are none) and returns to the cart.
 // start: the form to open (from the Account tab). onNotice: a short message for the page once a
 // form is done ("Details saved."), since the sheet closes.
+// After signing in with a temporary password from the café: the customer chooses their own before
+// their account works again (the server treats them as a guest until then).
+export function FirstPasswordSheet({ state }: { state: CustomerAccountState }) {
+  const [current, setCurrent] = useState("");
+  const [password, setPassword] = useState("");
+  const [password2, setPassword2] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (!state.mustChange) return null;
+  const who = state.mustChange;
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (password !== password2) { setError("The two new passwords do not match."); return; }
+    setBusy(true);
+    setError("");
+    const result = await state.changePassword(current, password);
+    if (result.ok) await state.refresh();
+    else setError(result.error);
+    setBusy(false);
+  }
+
+  return <div className="bh-backdrop acct-backdrop">
+    <section className="bh-sheet acct-sheet" role="dialog" aria-modal="true" aria-label="Choose your own password">
+      <div className="bh-sheet-head">
+        <div><p className="bh-eyebrow">WELCOME, {who.fullName.split(/\s+/)[0].toUpperCase()}</p><h2>Choose your own password</h2></div>
+      </div>
+      <div className="bh-sheet-scroll acct-sheet-body">
+        {error && <p className="error-message" role="alert">{error}</p>}
+        <form className="acct-form" onSubmit={(event) => void save(event)}>
+          <p className="acct-intro">You signed in with a temporary password from the café. Choose your own before you continue; only you will know it.</p>
+          <Field label="Temporary password"><PasswordInput value={current} onChange={setCurrent} autoComplete="current-password" autoFocus /></Field>
+          <Field label="New password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
+          <Field label="Type the new password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
+          <button type="submit" className="add-order-button" disabled={busy || !current || !password || !password2}>{busy ? "Saving..." : "Save and continue"} <span>→</span></button>
+          <p className="acct-switch"><button type="button" disabled={busy} onClick={() => void state.signOut()}>Sign out</button></p>
+        </form>
+      </div>
+    </section>
+  </div>;
+}
+
 export function AccountSheet({ state, resetToken, startClaim = false, startAddresses = false, start, onClose, onResetDone, onNotice }: { state: CustomerAccountState; resetToken: string | null; startClaim?: boolean; startAddresses?: boolean; start?: AccountForm; onClose: () => void; onResetDone: () => void; onNotice?: (message: string) => void }) {
   const signedIn = Boolean(state.account);
   const [view, setView] = useState<View>(resetToken ? "reset" : startClaim ? (signedIn ? "claim" : "signin") : startAddresses && signedIn ? "addresses" : start && (signedIn || start === "signin" || start === "register") ? start : "signin");
@@ -603,7 +650,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
       }}>
         <Field label="Full name"><input value={signup.fullName} onChange={(event) => setSignup((current) => ({ ...current, fullName: event.target.value }))} autoComplete="name" maxLength={120} autoFocus /></Field>
         <Field label="Username" hint="3 to 30 letters, numbers, dots or underscores. You sign in with this."><input value={signup.username} onChange={(event) => setSignup((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} autoComplete="username" autoCapitalize="none" maxLength={30} /></Field>
-        <Field label="Password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
+        <Field label="Password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
         <Field label="Mobile number (optional)" hint="For delivery updates from the café, e.g. 0917 123 4567."><PhoneField value={signup.phone} onChange={(phone) => setSignup((current) => ({ ...current, phone }))} autoComplete="tel" maxLength={16} /></Field>
         <Field label="Email" hint="We send a sign-in code to it on a new phone, and a link if you forget your password."><input type="email" required value={signup.email} onChange={(event) => setSignup((current) => ({ ...current, email: event.target.value }))} autoComplete="email" autoCapitalize="none" maxLength={254} /></Field>
@@ -651,7 +698,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
             <button type="button" className="add-order-button" onClick={() => { onResetDone(); go("forgot"); }}>Ask for a new link <span>→</span></button>
           </> : <>
             <p className="acct-intro">Choose a new password for <strong>@{resetInfo.username}</strong>. You will be signed out of your other phones.</p>
-            <Field label="New password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" autoFocus /></Field>
+            <Field label="New password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" autoFocus /></Field>
             <Field label="Type it again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
             <button type="submit" className="add-order-button" disabled={busy || !password || !password2}>{busy ? "Saving..." : "Save new password"} <span>→</span></button>
           </>}
@@ -676,7 +723,7 @@ export function AccountSheet({ state, resetToken, startClaim = false, startAddre
         void run(() => state.changePassword(login, password), () => { setLogin(""); finish("Password changed. Your other phones were signed out."); });
       }}>
         <Field label="Current password"><PasswordInput value={login} onChange={setLogin} autoComplete="current-password" autoFocus /></Field>
-        <Field label="New password" hint="At least 8 characters."><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
+        <Field label="New password" hint={PASSWORD_HINT}><PasswordInput value={password} onChange={setPassword} autoComplete="new-password" /></Field>
         <Field label="Type the new password again"><PasswordInput value={password2} onChange={setPassword2} autoComplete="new-password" /></Field>
         <button type="submit" className="add-order-button" disabled={busy || !login || !password || !password2}>{busy ? "Saving..." : "Change password"} <span>→</span></button>
         <p className="acct-switch"><button type="button" onClick={onClose}>Cancel</button></p>

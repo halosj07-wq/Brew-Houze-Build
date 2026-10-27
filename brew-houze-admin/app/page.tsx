@@ -5,9 +5,10 @@ import Image from "next/image";
 import * as XLSX from "xlsx";
 import { excelPayment, excelReturnMethod, excelStatus, getFinanceDateStamp } from "@/lib/excel-format";
 import { MoneyField, PhoneField } from "@/lib/input-format";
+import { PASSWORD_HINT, passwordChecks, passwordProblem } from "@/lib/password-policy";
 import { manilaWhen, PROMOTION_MESSAGE_MAX, PROMOTION_TITLE_MAX, type PromotionKind, type PromotionStatus } from "@/lib/promotions";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "promotions" | "discounts" | "delivery" | "accounts" | "account" | "archives";
+type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "promotions" | "discounts" | "delivery" | "accounts" | "security" | "account" | "archives";
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -323,13 +324,14 @@ const navItems: { id: Page; label: string; short: string; Icon: React.FC<{ size?
   { id: "discounts", label: "Discounts", short: "Discounts", Icon: IconTag },
   { id: "delivery", label: "Delivery", short: "Delivery", Icon: IconTruck },
   { id: "accounts", label: "Accounts & Employees", short: "Employees", Icon: IconUsers },
+  { id: "security", label: "Security", short: "Security", Icon: IconShield },
   { id: "archives", label: "Archives", short: "Archives", Icon: IconArchive },
 ];
 
 const navGroups: { label: string; items: Page[] }[] = [
   { label: "Overview", items: ["dashboard", "shift"] },
   { label: "Menu & Stock", items: ["inventory", "products"] },
-  { label: "Business", items: ["finance", "treasury", "insights", "customers", "loyalty", "promotions", "discounts", "delivery", "accounts", "archives"] },
+  { label: "Business", items: ["finance", "treasury", "insights", "customers", "loyalty", "promotions", "discounts", "delivery", "accounts", "security", "archives"] },
 ];
 
 // Destinations on the phone tab bar; everything else is under "More".
@@ -772,7 +774,8 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
     event.preventDefault();
     setPasswordMessage("");
     setPasswordError("");
-    if (newPassword.length < 8) { setPasswordError("Use at least 8 characters."); return; }
+    const weak = passwordProblem(newPassword, { name: user.fullName, email: user.email });
+    if (weak) { setPasswordError(weak); return; }
     if (newPassword !== confirmPassword) { setPasswordError("The new passwords do not match."); return; }
     setSavingPassword(true);
     try {
@@ -849,6 +852,8 @@ function AccountManagement({ user, onSignOut }: { user: AdminSession; onSignOut:
           <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
           <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
             <li style={{ color: newPassword.length >= 8 ? "#15803D" : "#9C8278" }}>{newPassword.length >= 8 ? "✓" : "•"} At least 8 characters</li>
+            <li style={{ color: passwordChecks(newPassword).letterAndNumber ? "#15803D" : "#9C8278" }}>{passwordChecks(newPassword).letterAndNumber ? "✓" : "•"} A letter and a number</li>
+            <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
             <li style={{ color: confirmPassword !== "" && newPassword === confirmPassword ? "#15803D" : "#9C8278" }}>{confirmPassword !== "" && newPassword === confirmPassword ? "✓" : "•"} Both new passwords match</li>
           </ul>
           <p style={{ margin: "10px 0 0", color: "#9C8278", fontSize: 12 }}>Changing your password signs out your other devices. This one stays signed in.</p>
@@ -884,7 +889,7 @@ type DashboardData = {
   recentOrders: DashboardOrder[];
   generatedAt: string;
 };
-type DashBar = { key: string; label: string; sub?: string; value: number; highlight?: boolean; title: string };
+type DashBar = { key: string; label: string; sub?: string; value: number; highlight?: boolean; forecast?: boolean; title: string };
 
 const DASHBOARD_REFRESH_MS = 30_000;
 const HOUR_MS = 3_600_000;
@@ -941,7 +946,7 @@ function shiftHourBars(shift: DashboardShift, hourly: DashboardData["hourly"], n
   return bars;
 }
 
-function DashBars({ bars, emptyLabel }: { bars: DashBar[]; emptyLabel: string }) {
+function DashBars({ bars, emptyLabel, format = compactPeso }: { bars: DashBar[]; emptyLabel: string; format?: (value: number) => string }) {
   const max = Math.max(0, ...bars.map((bar) => bar.value));
   const peakKey = max > 0 ? bars.find((bar) => bar.value === max)?.key : undefined;
   const crowded = bars.length > 8;
@@ -950,10 +955,10 @@ function DashBars({ bars, emptyLabel }: { bars: DashBar[]; emptyLabel: string })
     <div className={`dash-bars${crowded ? " is-crowded" : ""}`}>
       {bars.map((bar, index) => <div key={bar.key} className="dash-bar-col" title={bar.title}>
         <div className="dash-bar-track">
-          {bar.value > 0 && (!crowded || bar.key === peakKey || bar.highlight) && <span className="dash-bar-value">{compactPeso(bar.value)}</span>}
-          <div className={`dash-bar${bar.highlight ? " is-highlight" : ""}${bar.value > 0 && bar.key === peakKey ? " is-peak" : ""}`} style={{ height: `${max > 0 ? Math.max(3, (bar.value / max) * 82) : 3}%` }} />
+          {bar.value > 0 && (!crowded || bar.key === peakKey || bar.highlight) && <span className="dash-bar-value">{format(bar.value)}</span>}
+          <div className={`dash-bar${bar.highlight ? " is-highlight" : ""}${bar.forecast ? " is-forecast" : ""}${bar.value > 0 && bar.key === peakKey ? " is-peak" : ""}`} style={{ height: `${max > 0 ? Math.max(3, (bar.value / max) * 82) : 3}%` }} />
         </div>
-        <span className="dash-bar-label">{index % labelEvery === 0 || bar.highlight ? <><b>{bar.label}</b>{bar.sub && <span>{bar.sub}</span>}</> : " "}</span>
+        <span className="dash-bar-label">{index % labelEvery === 0 || bar.highlight ? <><b>{bar.label}</b>{bar.sub && <span>{bar.sub}</span>}</> : <><b aria-hidden="true">{" "}</b>{bar.sub && <span aria-hidden="true">{" "}</span>}</>}</span>
       </div>)}
     </div>
     {max === 0 && <p className="dash-chart-empty">{emptyLabel}</p>}
@@ -7101,10 +7106,117 @@ function insightCost(result: InsightResult): string | null {
   return `${(result.inputTokens + result.outputTokens).toLocaleString("en-PH")} tokens${result.searches > 0 ? ` · ${result.searches} web search${result.searches === 1 ? "" : "es"}` : ""} · about $${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
 }
 
+// The Insights page's charts (GET /api/insights?charts=1): the period's daily sales with a 7-day forecast,
+// the busiest hours, the best sellers and the stock forecast. Worked out from the records alone, so they
+// show even with AI insights off and cost nothing.
+type InsightChartData = {
+  sales: { day: string; sales: number; orders: number }[];
+  forecast: { day: string; sales: number; basedOn: number }[];
+  hours: { hour: number; orders: number }[];
+  best: { product: string; sold: number; sales: number }[];
+  stock: { item: string; unit: string; onHand: number; perDay: number; daysLeft: number; runsOut: string | null }[];
+  lowNow: number;
+};
+type HBarRow = { key: string; label: string; value: number; display: string; note?: string; tone?: "warn" | "danger" };
+
+function HBars({ rows, max, emptyLabel }: { rows: HBarRow[]; max: number; emptyLabel: string }) {
+  if (rows.length === 0) return <p className="ins-chart-empty">{emptyLabel}</p>;
+  return <ul className="ins-hbars">
+    {rows.map((row) => <li key={row.key} className={row.tone ? `is-${row.tone}` : undefined}>
+      <div className="ins-hbar-head"><span>{row.label}</span><b>{row.display}</b></div>
+      <div className="ins-hbar-track"><div className="ins-hbar-fill" style={{ width: `${max > 0 ? Math.max(3, Math.min(100, (row.value / max) * 100)) : 3}%` }} /></div>
+      {row.note && <em>{row.note}</em>}
+    </li>)}
+  </ul>;
+}
+
+function chartDay(day: string): { label: string; weekday: string } {
+  const date = new Date(`${day}T00:00:00Z`);
+  return { label: date.toLocaleDateString("en-PH", { timeZone: "UTC", month: "short", day: "numeric" }), weekday: date.toLocaleDateString("en-PH", { timeZone: "UTC", weekday: "short" }) };
+}
+
+function InsightCharts({ start, end, chips }: { start: string; end: string; chips: React.ReactNode }) {
+  const [charts, setCharts] = useState<InsightChartData | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setError("");
+      try {
+        const response = await fetch(`/api/insights?charts=1&start=${start}&end=${end}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not load the charts.");
+        if (active) setCharts(payload.data);
+      } catch (loadError) {
+        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the charts.");
+      }
+    }, 0);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [start, end]);
+
+  const salesBars: DashBar[] = charts ? [
+    ...charts.sales.map((entry) => {
+      const { label, weekday } = chartDay(entry.day);
+      return { key: entry.day, label, sub: weekday, value: entry.sales, title: `${weekday} ${label}: ${peso(entry.sales)} from ${entry.orders} order${entry.orders === 1 ? "" : "s"}` };
+    }),
+    ...charts.forecast.map((entry) => {
+      const { label, weekday } = chartDay(entry.day);
+      return { key: `f${entry.day}`, label, sub: weekday, value: entry.sales, forecast: true,
+        title: `Forecast for ${weekday} ${label}: about ${peso(entry.sales)} (average of the last ${entry.basedOn} open ${weekday}${entry.basedOn === 1 ? "" : "s"})` };
+    }),
+  ] : [];
+  const forecastTotal = charts ? charts.forecast.reduce((sum, entry) => sum + entry.sales, 0) : 0;
+  const periodTotal = charts ? charts.sales.reduce((sum, entry) => sum + entry.sales, 0) : 0;
+  const hourBars: DashBar[] = [];
+  if (charts && charts.hours.length > 0) {
+    const counts = new Map(charts.hours.map((entry) => [entry.hour, entry.orders]));
+    const first = Math.min(...charts.hours.map((entry) => entry.hour));
+    const last = Math.max(...charts.hours.map((entry) => entry.hour));
+    for (let hour = first; hour <= last; hour++) {
+      const orders = counts.get(hour) ?? 0;
+      hourBars.push({ key: String(hour), label: hourLabel(hour), value: orders, title: `${hourLabel(hour)}–${hourLabel((hour + 1) % 24)}: ${orders} order${orders === 1 ? "" : "s"}` });
+    }
+  }
+  const busiest = charts && charts.hours.length > 0 ? charts.hours.reduce((top, entry) => entry.orders > top.orders ? entry : top) : null;
+  const bestMax = charts ? Math.max(0, ...charts.best.map((entry) => entry.sold)) : 0;
+
+  return <section className="ins-charts">
+    <div className="ins-charts-head">
+      <div>
+        <p className="ins-kicker">📊 Charts from your records</p>
+        <h3>Sales, busy hours and stock forecast</h3>
+        <p className="inv-hint">Worked out from the café’s own records, so they show even with AI insights off and cost nothing. Claude’s advice below reads the same numbers.</p>
+      </div>
+      {chips}
+    </div>
+    {error && <div className="inv-alert" role="alert"><span>{error}</span></div>}
+    {!charts ? (!error && <div className="inv-empty">Loading the charts…</div>) : <div className="ins-chart-grid">
+      <DashCard className="ins-chart-wide" title="Daily sales and the next 7 days"
+        sub={<>{formatRange(start, end)}: {peso(periodTotal)} · next 7 days: about <b>{peso(forecastTotal)}</b> (forecast)</>}>
+        <DashBars bars={salesBars} emptyLabel="No sales in this period." />
+        <p className="ins-legend"><span className="is-actual" />Actual sales <span className="is-forecast" />Forecast: each day is the average of the last 4 days the café sold on that weekday</p>
+      </DashCard>
+      <DashCard title="Busiest hours" sub={busiest ? <>Orders per hour · busiest at <b>{hourLabel(busiest.hour)}</b></> : "Orders per hour"}>
+        <DashBars bars={hourBars} emptyLabel="No orders in this period." format={(value) => String(value)} />
+      </DashCard>
+      <DashCard title="Best sellers" sub="By quantity sold in this period">
+        <HBars rows={charts.best.slice(0, 6).map((entry) => ({ key: entry.product, label: entry.product, value: entry.sold, display: `${entry.sold} sold · ${compactPeso(entry.sales)}` }))} max={bestMax} emptyLabel="No sales in this period." />
+      </DashCard>
+      <DashCard title="Stock forecast" sub={<>Days left at the last 14 days’ pace{charts.lowNow > 0 ? <> · <b>{charts.lowNow}</b> item{charts.lowNow === 1 ? " is" : "s are"} already low</> : ""}</>}>
+        <HBars rows={charts.stock.map((entry) => ({
+          key: entry.item, label: entry.item, value: entry.daysLeft, display: `${entry.daysLeft} day${entry.daysLeft === 1 ? "" : "s"} left`,
+          note: `${entry.onHand.toLocaleString("en-PH")} ${entry.unit} left, about ${(entry.perDay >= 10 ? Math.round(entry.perDay) : Math.round(entry.perDay * 10) / 10).toLocaleString("en-PH")} a day${entry.runsOut ? ` · runs out ${entry.runsOut}` : ""}`,
+          tone: entry.daysLeft <= 3 ? "danger" as const : entry.daysLeft <= 7 ? "warn" as const : undefined,
+        }))} max={14} emptyLabel="Nothing runs out in the next 14 days at the current pace." />
+      </DashCard>
+    </div>}
+  </section>;
+}
+
 function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [today] = useState(() => getFinanceDateStamp());
   const presets = useMemo(() => financePresets(today).filter((entry) => ["week", "7", "month", "30"].includes(entry.id)), [today]);
-  const [presetId, setPresetId] = useState("7");
+  const [presetId, setPresetId] = useState("30");
   const [data, setData] = useState<InsightsData | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -7230,6 +7342,10 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       {!data.enabled && <div className="ins-setup is-off"><strong>AI insights are off.</strong> Turn them on with the switch above to ask Claude or read saved insights. While they are off, nothing is sent to Claude.</div>}
 
+      {view === "numbers" && preset && <InsightCharts start={preset.start} end={preset.end} chips={<div className="menu-chips" role="group" aria-label="Period">
+        {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
+      </div>} />}
+
       {/* Everything below is disabled while the switch is off. */}
       <div className={`ins-body${data.enabled ? "" : " is-off"}`} inert={!data.enabled} aria-disabled={!data.enabled}>
       {!data.configured && <div className="ins-setup"><strong>Not set up yet.</strong> Add the Claude API key to the admin app as <code>ANTHROPIC_API_KEY</code> (in <code>.env.local</code> and in the Vercel project settings), then reload this page. Saved insights stay readable.</div>}
@@ -7284,9 +7400,6 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </>}
       </> : <>
       <div className="fin-datebar">
-        <div className="menu-chips" role="group" aria-label="Period">
-          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
-        </div>
         <div className="ins-ask">
           <button type="button" className="inv-primary" onClick={() => void ask()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is reading the numbers…" : "Ask Claude for insights"}</button>
           <span className="inv-hint">{blocked ?? `${preset ? formatRange(preset.start, preset.end) : ""} · Claude Opus 5.5 · about $0.02 per request`}</span>
@@ -7386,6 +7499,10 @@ const safeReasons: Record<"deposit" | "withdraw" | "payout" | "cashOut" | "corre
 
 function IconSafe({ size = 20 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="15" rx="2" /><circle cx="12" cy="11.5" r="3.2" /><path d="M12 8.3v1M12 13.7v1M8.8 11.5h1M14.2 11.5h1M6 19v2M18 19v2" /></svg>;
+}
+
+function IconShield({ size = 20 }: { size?: number }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.1 8.3 7.5 9.5 4.4-1.2 7.5-4.9 7.5-9.5V6L12 3Z" /><path d="m9 12 2.2 2.2L15.5 10" /></svg>;
 }
 
 function IconWallet({ size = 20 }: { size?: number }) {
@@ -7921,11 +8038,15 @@ function logDuration(log: EmployeeTimeLog, now: number): number {
 }
 
 // A readable temporary password: no look-alike characters (0/O, 1/l/I).
+// Drawn again until it follows the password rules (it needs a letter and a number).
 function generateTemporaryPassword(): string {
   const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint32Array(10);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+  for (;;) {
+    const bytes = new Uint32Array(10);
+    crypto.getRandomValues(bytes);
+    const candidate = Array.from(bytes, (value) => alphabet[value % alphabet.length]).join("");
+    if (!passwordProblem(candidate)) return candidate;
+  }
 }
 
 function PermissionSwitch({ checked, title, description, onChange, disabled = false }: { checked: boolean; title: string; description: string; onChange: (checked: boolean) => void; disabled?: boolean }) {
@@ -8005,7 +8126,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<{ name: string; email: string; password: string } | null>(null);
-  const problem = !draft.fullName.trim() ? "Enter their full name." : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim()) ? "Enter a valid email address." : draft.password.length < 8 ? "Give a temporary password of at least 8 characters." : "";
+  const problem = !draft.fullName.trim() ? "Enter their full name." : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim()) ? "Enter a valid email address." : passwordProblem(draft.password, { name: draft.fullName, email: draft.email }) ?? "";
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -8046,7 +8167,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" /></WizardField>
           <WizardField label="Email" hint="Used to sign in and to reset a forgotten password."><input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@gmail.com" style={packagingInput} autoComplete="off" /></WizardField>
         </div>
-        <WizardField label="Temporary password" hint="At least 8 characters. Share it with them in person.">
+        <WizardField label="Temporary password" hint={`${PASSWORD_HINT} Share it with them in person; they choose their own the first time they sign in.`}>
           <div className="flex gap-2">
             <input type={showPassword ? "text" : "password"} value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="Type or generate one" style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" />
             <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setShowPassword((value) => !value)}>{showPassword ? "Hide" : "Show"}</button>
@@ -8071,7 +8192,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   </Modal>;
 }
 
-function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload, onExport }: { account: CashierAccount; now: number; exporting: boolean; onClose: () => void; onChanged: (account: CashierAccount) => void; onReload: () => Promise<void>; onExport: () => void }) {
+function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload, onExport, onOpenSecurity }: { account: CashierAccount; now: number; exporting: boolean; onClose: () => void; onChanged: (account: CashierAccount) => void; onReload: () => Promise<void>; onExport: () => void; onOpenSecurity: (focus: SecurityFocus) => void }) {
   const confirmAction = useConfirm();
   const [tab, setTab] = useState<"access" | "activity" | "attendance">("access");
   // Filters for the Sales activity and Attendance tabs (on the records loaded for this person).
@@ -8119,7 +8240,6 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
   const salesFiltered = salesPeriod !== "all" || salesStatus !== "all" || salesShift !== "all" || salesQuery !== "";
   const attendanceFiltered = attendancePeriod !== "all" || attendanceShift !== "all";
   const [profile, setProfile] = useState({ fullName: account.fullName, email: account.email });
-  const [password, setPassword] = useState("");
   const [working, setWorking] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -8161,13 +8281,6 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
     if (!profileChanged) return;
     const saved = await patch({ action: "update_profile", fullName: profile.fullName.trim(), email: profile.email.trim() }, "profile", "Could not save the details.");
     if (saved) { onChanged({ ...account, fullName: saved.fullName, email: saved.email }); setNotice("Details saved."); }
-  }
-
-  async function savePassword() {
-    if (password.length < 8) { setError("Use at least 8 characters for the password."); return; }
-    if (!(await confirmAction({ title: `Set a new password for ${account.fullName}?`, message: "Their old password stops working, and they are signed out of every device. Give them the new password in person.", confirmLabel: "Set password", tone: "default" }))) return;
-    const saved = await patch({ action: "set_password", password }, "password", "Could not set the password.");
-    if (saved) { setNotice(`New password set: ${password}. They were signed out of ${saved.signedOutDevices} device${saved.signedOutDevices === 1 ? "" : "s"}.`); setPassword(""); await onReload(); }
   }
 
   async function setActive(isActive: boolean) {
@@ -8230,12 +8343,10 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
           <AccountDevicesPanel account={account} onSignedOut={() => { onChanged({ ...account, sessions: [], onDutySince: null }); void onReload(); }} />
 
           <section className="acc-block">
-            <header className="acc-block-head"><div><h3>Password</h3><p>Forgot it? They can also use “Forgot password” on the sign-in screen.</p></div></header>
-            <div className="flex flex-wrap gap-2">
-              <input type="text" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New temporary password" style={{ ...packagingInput, flex: "1 1 200px", width: "auto", fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" aria-label="New temporary password" />
-              <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setPassword(generateTemporaryPassword())}>Generate</button>
-              <button type="button" className="inv-mini" style={{ height: 42, background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void savePassword()} disabled={working === "password" || password.length === 0}>{working === "password" ? "Saving…" : "Set password"}</button>
-            </div>
+            <header className="acc-block-head">
+              <div><h3>Password &amp; sign-in</h3><p>Set a temporary password, unlock the account or see their sign-ins on the Security page. Forgot it? They can also use “Forgot password” on the sign-in screen.</p></div>
+              <button type="button" className="inv-mini" onClick={() => onOpenSecurity({ kind: "staff", login: account.email })}><IconShield size={13} />Open in Security</button>
+            </header>
           </section>
 
           <section className={`acc-block ${account.isActive ? "is-danger" : ""}`}>
@@ -8487,7 +8598,7 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   const problem = !draft.fullName.trim() ? "Enter their name."
     : draft.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim()) ? "Enter a valid email, or leave it empty."
     : draft.withLogin && !/^[A-Za-z0-9][A-Za-z0-9._]{2,29}$/.test(draft.username.trim()) ? "Usernames have 3 to 30 letters, numbers, dots or underscores."
-    : draft.withLogin && draft.password.length < 8 ? "Give a temporary password of at least 8 characters." : "";
+    : draft.withLogin ? passwordProblem(draft.password, { name: draft.fullName, email: draft.email, username: draft.username }) ?? "" : "";
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -8551,7 +8662,7 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   </Modal>;
 }
 
-function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: Customer; onClose: () => void; onChanged: (customer: Customer) => void; onReload: () => Promise<void> }) {
+function CustomerDialog({ customer, onClose, onChanged, onReload, onOpenSecurity }: { customer: Customer; onClose: () => void; onChanged: (customer: Customer) => void; onReload: () => Promise<void>; onOpenSecurity: (focus: SecurityFocus) => void }) {
   const confirmAction = useConfirm();
   const [tab, setTab] = useState<"profile" | "purchases" | "stars">("profile");
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
@@ -8561,8 +8672,6 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "", phone: customer.phone ?? "" });
   const [notes, setNotes] = useState(customer.notes);
   const [login, setLogin] = useState({ username: "", password: "" });
-  // A new temporary password for an existing login: typed or generated, like an employee's.
-  const [tempPassword, setTempPassword] = useState("");
   const [working, setWorking] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -8592,13 +8701,6 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
     } finally {
       setWorking(null);
     }
-  }
-
-  async function setTemporaryPassword() {
-    const password = tempPassword.trim();
-    if (!password) return;
-    if (!(await confirmAction({ title: `Set a temporary password for ${customer.fullName}?`, message: "Their old password stops working and they are signed out of every phone. Tell them the new one in person.", confirmLabel: "Set password", tone: "default" }))) return;
-    await act<{ username: string; signedOutDevices: number }>("password", { action: "set_login", password }, "Could not set the password.", (data) => { setNotice(`New temporary password for @${data.username}: ${password}`); setTempPassword(""); void onReload(); });
   }
 
   async function erase() {
@@ -8668,17 +8770,13 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
           <section className="acc-block">
             <header className="acc-block-head"><div><h3>Mobile menu login</h3><p>{customer.hasLogin ? `@${customer.username} · ${customer.devices ? `signed in on ${customer.devices} phone${customer.devices === 1 ? "" : "s"}` : "not signed in anywhere"}` : "No login yet. Give them one so their mobile orders are saved to this profile."}</p></div></header>
             {customer.hasLogin
-              ? <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap gap-2">
-                  <input type="text" value={tempPassword} onChange={(event) => setTempPassword(event.target.value)} placeholder="New temporary password" style={{ ...packagingInput, flex: "1 1 200px", width: "auto", fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" aria-label="New temporary password" disabled={!customer.isActive} />
-                  <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setTempPassword(generateTemporaryPassword())} disabled={!customer.isActive}>Generate</button>
-                  <button type="button" className="inv-mini" style={{ height: 42, background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void setTemporaryPassword()} disabled={working !== null || !customer.isActive || tempPassword.trim().length === 0}>{working === "password" ? "Saving…" : "Set password"}</button>
-                </div>
-                {customer.devices > 0 && <div><button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ signedOutDevices: number }>("signout", { action: "sign_out_everywhere" }, "Could not sign them out.", (data) => { setNotice(`Signed out of ${data.signedOutDevices} phone${data.signedOutDevices === 1 ? "" : "s"}.`); void onReload(); })}>Sign out everywhere</button></div>}
+              ? <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="inv-hint" style={{ margin: 0 }}>A temporary password, unlocking, signing out their phones and their sign-ins are on the Security page.</p>
+                <button type="button" className="inv-mini" onClick={() => onOpenSecurity({ kind: "customer", login: customer.username ?? "" })}><IconShield size={13} />Open in Security</button>
               </div>
               : <form className="inv-step-grid" onSubmit={(event) => { event.preventDefault(); const password = login.password || generateTemporaryPassword(); void act<{ username: string }>("login", { action: "set_login", username: login.username.trim(), password }, "Could not make the login.", (data) => { setNotice(`Login made. Username: ${data.username} · temporary password: ${password}`); setLogin({ username: "", password: "" }); void onReload(); }); }}>
                 <WizardField label="Username"><input value={login.username} onChange={(event) => setLogin((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} style={packagingInput} maxLength={30} autoComplete="off" /></WizardField>
-                <WizardField label="Temporary password" hint="Leave empty to generate one."><div className="flex gap-2"><input value={login.password} onChange={(event) => setLogin((current) => ({ ...current, password: event.target.value }))} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" /><button type="submit" className="ui-button ui-button-primary" disabled={!login.username.trim() || working !== null || !customer.isActive}>{working === "login" ? "…" : "Make login"}</button></div></WizardField>
+                <WizardField label="Temporary password" hint="Leave empty to generate one. They choose their own the first time they sign in."><div className="flex gap-2"><input value={login.password} onChange={(event) => setLogin((current) => ({ ...current, password: event.target.value }))} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" /><button type="submit" className="ui-button ui-button-primary" disabled={!login.username.trim() || working !== null || !customer.isActive}>{working === "login" ? "…" : "Make login"}</button></div></WizardField>
               </form>}
           </section>
 
@@ -8736,7 +8834,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   </Modal>;
 }
 
-function Customers() {
+function Customers({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) => void }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -8858,7 +8956,7 @@ function Customers() {
             </>}
     </div>
     {adding && <AddCustomerDialog onClose={() => setAdding(false)} onCreated={loadCustomers} />}
-    {selected && <CustomerDialog key={selected.id} customer={selected} onClose={() => setSelectedId(null)} onChanged={(changed) => setCustomers((current) => current.map((customer) => customer.id === changed.id ? changed : customer))} onReload={loadCustomers} />}
+    {selected && <CustomerDialog key={selected.id} customer={selected} onClose={() => setSelectedId(null)} onChanged={(changed) => setCustomers((current) => current.map((customer) => customer.id === changed.id ? changed : customer))} onReload={loadCustomers} onOpenSecurity={onOpenSecurity} />}
   </div>;
 }
 
@@ -10354,7 +10452,394 @@ function ZoneDialog({ zone, onClose, onSaved }: { zone: DeliveryZoneAdmin | null
   </Modal>;
 }
 
-function Accounts() {
+// The Security page (GET/POST /api/security-events), in three tabs:
+// - Activity log: sign-ins, wrong passwords and lockouts, new devices, password changes and
+//   changes to employee accounts, from all three apps.
+// - Passwords & sign-in: every login (staff and customers) with its status, last sign-in, last
+//   password change and signed-in devices; set a temporary password, unlock, sign out everywhere.
+//   The Employee and Customer dialogs send the admin here for these.
+// - Protection: what the system does on its own.
+type SecurityEventRow = {
+  id: number; event: string; portal: string | null; accountKind: string | null; accountId: number | null; accountName: string | null; accountRole: string | null;
+  loginKey: string | null; actorName: string | null; detail: string | null; ip: string | null; device: string | null; createdAt: string;
+};
+type SecurityLocked = { kind: "staff" | "customer"; loginKey: string; name: string | null; until: string };
+type SecurityData = {
+  ready: boolean;
+  summary: { failed24h: number; signins24h: number; locks7d: number; newDevices7d: number; passwords30d: number } | null;
+  locked: SecurityLocked[];
+  events: SecurityEventRow[];
+};
+type SecurityAccount = {
+  kind: "staff" | "customer"; id: number; name: string; login: string; email: string | null; role: string; isActive: boolean;
+  devices: number; lastSignIn: string | null; passwordChanged: string | null;
+};
+// Which account the Employee or Customer dialog asked to open.
+type SecurityFocus = { kind: "staff" | "customer"; login: string };
+
+const securityEventInfo: Record<string, { label: string; tone: "good" | "warn" | "bad" | "info" }> = {
+  login_success: { label: "Signed in", tone: "good" },
+  login_failed: { label: "Wrong password", tone: "warn" },
+  login_refused: { label: "Refused: no access", tone: "warn" },
+  account_locked: { label: "Locked", tone: "bad" },
+  account_unlocked: { label: "Unlocked", tone: "info" },
+  new_device_code_sent: { label: "New device: code sent", tone: "info" },
+  new_device_verified: { label: "New device verified", tone: "good" },
+  password_changed: { label: "Password changed", tone: "info" },
+  password_reset_requested: { label: "Reset link emailed", tone: "info" },
+  password_reset: { label: "Password reset", tone: "info" },
+  password_set_by_admin: { label: "Password set by admin", tone: "info" },
+  signed_out_other_devices: { label: "Signed out other devices", tone: "info" },
+  signed_out_everywhere: { label: "Signed out everywhere", tone: "warn" },
+  account_created: { label: "Account added", tone: "good" },
+  account_updated: { label: "Details changed", tone: "info" },
+  role_changed: { label: "Role changed", tone: "warn" },
+  permissions_changed: { label: "Permissions changed", tone: "warn" },
+  account_deactivated: { label: "Deactivated", tone: "bad" },
+  account_reactivated: { label: "Reactivated", tone: "good" },
+};
+const securityPortalNames: Record<string, string> = { admin: "Admin Portal", staff: "Staff Portal", mobile: "Mobile Menu" };
+const securityToneColors = { good: { color: "#15803D", background: "#F0FDF4" }, warn: { color: "#B45309", background: "#FFFBEB" }, bad: { color: "#B91C1C", background: "#FEF2F2" }, info: { color: "#6B4C3B", background: "#F7F1EA" } };
+const securityPill = (tone: keyof typeof securityToneColors): React.CSSProperties => ({ display: "inline-block", padding: "3px 9px", borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", ...securityToneColors[tone] });
+const securityDay = (value: string) => new Date(value).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric" });
+const securityAccountRole = (account: SecurityAccount) => account.kind === "customer" ? "Customer" : account.role === "admin" ? "Admin" : staffRoleLabel(account.role);
+
+function SecurityPage({ focus }: { focus: SecurityFocus | null }) {
+  const [tab, setTab] = useState<"activity" | "passwords" | "protection">(focus ? "passwords" : "activity");
+  const [data, setData] = useState<SecurityData | null>(null);
+  const [accounts, setAccounts] = useState<SecurityAccount[] | null>(null);
+  const [locked, setLocked] = useState<SecurityLocked[]>([]);
+  const [ready, setReady] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  // Activity log filters
+  const [group, setGroup] = useState<"all" | "signins" | "failed" | "passwords" | "accounts">("all");
+  const [days, setDays] = useState(7);
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  // Passwords & sign-in filters
+  const [accountSearch, setAccountSearch] = useState(focus?.login ?? "");
+  const [accountFilter, setAccountFilter] = useState<"all" | "staff" | "customer" | "locked" | "inactive">(focus?.kind ?? "all");
+  const [working, setWorking] = useState<string | null>(null);
+  const [passwordFor, setPasswordFor] = useState<SecurityAccount | null>(null);
+  const confirmAction = useConfirm();
+
+  // The log's search waits for typing to pause.
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQuery(search.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  const loadLog = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/security-events?days=${days}&group=${group}&q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the security log.");
+      setData(payload.data);
+      setLocked(payload.data.locked ?? []);
+      setReady(payload.data.ready !== false);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the security log.");
+    }
+  }, [days, group, query]);
+
+  const loadAccounts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/security-events?view=accounts", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the accounts.");
+      setAccounts(payload.data.accounts ?? []);
+      setLocked(payload.data.locked ?? []);
+      setReady(payload.data.ready !== false);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the accounts.");
+    }
+  }, []);
+
+  useEffect(() => {
+    const load = tab === "passwords" ? loadAccounts : loadLog;
+    const first = window.setTimeout(() => { void load(); }, 0);
+    const interval = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 15_000);
+    return () => { window.clearTimeout(first); window.clearInterval(interval); };
+  }, [tab, loadLog, loadAccounts]);
+
+  async function run(key: string, action: () => Promise<string>) {
+    setWorking(key);
+    setNotice("");
+    setError("");
+    try {
+      setNotice(await action());
+      await (tab === "passwords" ? loadAccounts() : loadLog());
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Something went wrong. Please try again.");
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  const unlock = (entry: SecurityLocked) => run(`unlock-${entry.loginKey}`, async () => {
+    const response = await fetch("/api/security-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unlock", kind: entry.kind, loginKey: entry.loginKey }) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || "Could not unlock the account.");
+    return `${entry.name ?? entry.loginKey} can sign in again.`;
+  });
+
+  async function signOutEverywhere(account: SecurityAccount) {
+    if (!(await confirmAction({ title: `Sign ${account.name} out everywhere?`, message: account.kind === "staff" ? "Every device they are signed in on is signed out right away, and their attendance ends." : "Every phone they are signed in on is signed out right away.", confirmLabel: "Sign out everywhere", tone: "default" }))) return;
+    await run(`signout-${account.kind}-${account.id}`, async () => {
+      const response = await fetch(account.kind === "staff" ? "/api/cashier-accounts" : "/api/customers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, action: "sign_out_everywhere" }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Could not sign them out.");
+      const ended = Number(payload.data?.signedOutDevices ?? 0);
+      return `${account.name} was signed out of ${ended} device${ended === 1 ? "" : "s"}.`;
+    });
+  }
+
+  const lockedFor = (account: SecurityAccount) => locked.find((entry) => entry.kind === account.kind && (entry.loginKey === account.login.toLowerCase() || (account.email && entry.loginKey === account.email.toLowerCase())));
+  const accountQuery = accountSearch.trim().toLowerCase();
+  const shownAccounts = (accounts ?? []).filter((account) => {
+    if (accountFilter === "staff" && account.kind !== "staff") return false;
+    if (accountFilter === "customer" && account.kind !== "customer") return false;
+    if (accountFilter === "locked" && !lockedFor(account)) return false;
+    if (accountFilter === "inactive" && account.isActive) return false;
+    return !accountQuery || account.name.toLowerCase().includes(accountQuery) || account.login.toLowerCase().includes(accountQuery) || (account.email ?? "").toLowerCase().includes(accountQuery);
+  });
+  const summary = data?.summary;
+  const events = data?.events ?? [];
+
+  const lockedCard = locked.length > 0 && <DashCard title="Locked right now" sub="Too many wrong passwords. Each unlocks by itself after 15 minutes, or unlock it now if you know it was them.">
+    <ul className="acc-list">
+      {locked.map((entry) => <li key={`${entry.kind}-${entry.loginKey}`}>
+        <span><strong>{entry.name ?? entry.loginKey}</strong><em>{entry.name ? `${entry.loginKey} · ` : ""}{entry.kind === "staff" ? "Staff" : "Customer"} · until {clockTime(entry.until)}</em></span>
+        <button type="button" className="inv-secondary" disabled={working !== null} onClick={() => void unlock(entry)}>{working === `unlock-${entry.loginKey}` ? "Unlocking…" : "Unlock"}</button>
+      </li>)}
+    </ul>
+  </DashCard>;
+
+  return <div className="inv-wrap">
+    <div className="inv">
+      <div className="inv-head">
+        <div className="inv-tabs" role="tablist" aria-label="Security sections">
+          {([["activity", "Activity log", null, IconClock], ["passwords", "Passwords & sign-in", locked.length || null, IconUsers], ["protection", "Protection", null, IconShield]] as const).map(([id, label, count, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setNotice(""); setError(""); }}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count" style={{ background: "#B91C1C", color: "#FFFFFF" }}>{count}</span>}</button>)}
+        </div>
+      </div>
+
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="inv-alert" role="status" style={{ background: "#F0FDF4", borderColor: "#BBF7D0", color: "#15803D" }}><span>{notice}</span><button type="button" onClick={() => setNotice("")} title="Dismiss" style={{ color: "#15803D" }}><IconX size={14} /></button></div>}
+
+      {!ready ? <div className="inv-onboard">
+        <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconShield size={24} /></span>
+        <h2>The security log is not set up yet</h2>
+        <p>Run security-log-migration.sql in the Supabase SQL editor. Sign-ins, lockouts and password changes are recorded from then on.</p>
+      </div> : <>
+        {tab === "activity" && <>
+          <div className="inv-summary">
+            <button type="button" className="inv-stat" aria-pressed={group === "failed"} onClick={() => setGroup(group === "failed" ? "all" : "failed")}><span>Wrong passwords</span><strong style={{ color: summary && summary.failed24h > 0 ? "#B45309" : undefined }}>{summary ? summary.failed24h : "–"}</strong><em>last 24 hours · {summary ? summary.signins24h : 0} sign-ins</em></button>
+            <button type="button" className="inv-stat" onClick={() => { setAccountFilter(locked.length ? "locked" : "all"); setTab("passwords"); }}><span>Locked now</span><strong style={{ color: locked.length > 0 ? "#B91C1C" : "#15803D" }}>{data ? locked.length : "–"}</strong><em>{summary ? `${summary.locks7d} lockout${summary.locks7d === 1 ? "" : "s"} in 7 days` : "after 5 wrong passwords"}</em></button>
+            <button type="button" className="inv-stat" aria-pressed={group === "signins"} onClick={() => setGroup(group === "signins" ? "all" : "signins")}><span>New devices</span><strong>{summary ? summary.newDevices7d : "–"}</strong><em>verified with an emailed code, 7 days</em></button>
+            <button type="button" className="inv-stat" aria-pressed={group === "passwords"} onClick={() => setGroup(group === "passwords" ? "all" : "passwords")}><span>Password changes</span><strong>{summary ? summary.passwords30d : "–"}</strong><em>changed, reset or set, 30 days</em></button>
+          </div>
+
+          {lockedCard}
+
+          <div className="inv-toolbar">
+            <div className="inv-search is-wide">
+              <IconSearch size={14} />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, username or IP" />
+              {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+            <div className="inv-range" role="group" aria-label="Show">
+              {([["all", "Everything"], ["signins", "Sign-ins"], ["failed", "Failed & locked"], ["passwords", "Passwords"], ["accounts", "Account changes"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={group === id} onClick={() => setGroup(id)}>{label}</button>)}
+            </div>
+            <div className="inv-range" role="group" aria-label="Period">
+              {([[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
+            </div>
+          </div>
+
+          <DashCard title="Security log" sub="Every sign-in and account change in the Admin Portal, Staff Portal and Mobile Menu, newest first (up to 300)">
+            {!data ? <p className="dash-empty">Loading the security log…</p>
+              : events.length === 0 ? <p className="dash-empty">Nothing recorded for this filter.</p>
+                : <div className="fin-table-wrap">
+                  <table className="fin-table sec-table is-log">
+                    <thead><tr><th>When</th><th>What</th><th>Account</th><th>Details</th><th>Where</th></tr></thead>
+                    <tbody>
+                      {events.map((entry) => {
+                        const info = securityEventInfo[entry.event] ?? { label: entry.event.replace(/_/g, " "), tone: "info" as const };
+                        const who = entry.accountName ?? entry.loginKey ?? "Unknown account";
+                        const kind = entry.accountKind === "customer" ? "Customer" : entry.accountRole?.toLowerCase() === "admin" ? "Admin" : entry.accountRole ? staffRoleLabel(entry.accountRole) : entry.accountKind === "staff" ? "Staff" : "No such account";
+                        return <tr key={entry.id}>
+                          <td className="sec-when" style={{ whiteSpace: "nowrap" }}><strong>{clockTime(entry.createdAt)}</strong><span className="fin-table-sub">{securityDay(entry.createdAt)}</span></td>
+                          <td className="sec-what"><span style={securityPill(info.tone)}>{info.label}</span></td>
+                          <td className="sec-account"><strong>{who}</strong><span className="fin-table-sub">{kind}{entry.accountName && entry.loginKey ? ` · ${entry.loginKey}` : ""}</span></td>
+                          <td className="sec-details">{entry.detail ?? ""}{entry.actorName && <span className="fin-table-sub">by {entry.actorName}</span>}</td>
+                          <td className="sec-where"><span>{entry.portal ? securityPortalNames[entry.portal] ?? entry.portal : ""}</span><span className="fin-table-sub">{[entry.device, entry.ip].filter(Boolean).join(" · ")}</span></td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table>
+                </div>}
+          </DashCard>
+        </>}
+
+        {tab === "passwords" && <>
+          {lockedCard}
+
+          <div className="inv-toolbar">
+            <div className="inv-search is-wide">
+              <IconSearch size={14} />
+              <input value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="Search name, email or username" />
+              {accountSearch && <button type="button" onClick={() => setAccountSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+            <div className="inv-range" role="group" aria-label="Show">
+              {([["all", "Everyone"], ["staff", "Staff"], ["customer", "Customers"], ["locked", `Locked${locked.length ? ` (${locked.length})` : ""}`], ["inactive", "Deactivated"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={accountFilter === id} onClick={() => setAccountFilter(id)}>{label}</button>)}
+            </div>
+          </div>
+
+          <DashCard title="Passwords & sign-in" sub="Every login to the Admin Portal, Staff Portal and Mobile Menu. Reset a forgotten password, unlock a locked account, or sign a lost phone out.">
+            {accounts === null ? <p className="dash-empty">Loading the accounts…</p>
+              : shownAccounts.length === 0 ? <p className="dash-empty">No accounts match. <button type="button" className="inv-link" onClick={() => { setAccountSearch(""); setAccountFilter("all"); }}>Show everyone</button></p>
+                : <div className="fin-table-wrap">
+                  <table className="fin-table sec-table is-accounts">
+                    <thead><tr><th>Account</th><th>Status</th><th>Last sign-in</th><th>Password</th><th className="is-num">Devices</th><th /></tr></thead>
+                    <tbody>
+                      {shownAccounts.map((account) => {
+                        const lock = lockedFor(account);
+                        const key = `${account.kind}-${account.id}`;
+                        return <tr key={key}>
+                          <td className="sec-account"><strong>{account.name}</strong><span className="fin-table-sub">{securityAccountRole(account)} · {account.kind === "customer" ? `@${account.login}` : account.login}</span></td>
+                          <td className="sec-status">{lock ? <span style={securityPill("bad")}>Locked until {clockTime(lock.until)}</span> : account.isActive ? <span style={securityPill("good")}>Active</span> : <span style={securityPill("info")}>Deactivated</span>}</td>
+                          <td className="sec-signin" data-label="Last sign-in" style={{ whiteSpace: "nowrap" }}>{account.lastSignIn ? <><strong>{clockTime(account.lastSignIn)}</strong><span className="fin-table-sub">{securityDay(account.lastSignIn)}</span></> : <span className="fin-table-sub">Not since logging began</span>}</td>
+                          <td className="sec-password" data-label="Password" style={{ whiteSpace: "nowrap" }}>{account.passwordChanged ? <><span>Changed {securityDay(account.passwordChanged)}</span><span className="fin-table-sub">{clockTime(account.passwordChanged)}</span></> : <span className="fin-table-sub">Not changed since logging began</span>}</td>
+                          <td className="is-num sec-devices" data-label="Devices">{account.devices}</td>
+                          <td className="sec-actions">
+                            <div className="flex justify-end gap-2" style={{ whiteSpace: "nowrap" }}>
+                              {lock && <button type="button" className="inv-mini" disabled={working !== null} onClick={() => void unlock(lock)}>{working === `unlock-${lock.loginKey}` ? "Unlocking…" : "Unlock"}</button>}
+                              {account.role === "admin"
+                                ? <span className="fin-table-sub" style={{ alignSelf: "center" }}>Own password: My Account</span>
+                                : <button type="button" className="inv-mini" disabled={working !== null || !account.isActive} onClick={() => setPasswordFor(account)}>Reset password</button>}
+                              {account.devices > 0 && account.role !== "admin" && <button type="button" className="inv-mini" disabled={working !== null} onClick={() => void signOutEverywhere(account)}>{working === `signout-${key}` ? "Signing out…" : "Sign out everywhere"}</button>}
+                            </div>
+                          </td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table>
+                </div>}
+          </DashCard>
+        </>}
+
+        {tab === "protection" && <>
+          <DashCard title="How accounts are protected" sub="What the system does on its own">
+            <ul className="acc-list">
+              <li><span><strong>5 wrong passwords lock the account for 15 minutes</strong><em>Even the right password is refused while locked, and the owner gets an email. An admin can unlock it in Passwords &amp; sign-in.</em></span></li>
+              <li><span><strong>A new device needs a code from email</strong><em>A stolen password is not enough: the 6-digit code goes to the account&apos;s own email. The device is trusted for 30 days.</em></span></li>
+              <li><span><strong>Strong passwords only</strong><em>Checked by the server every time a password is set, in all three apps (rules below).</em></span></li>
+              <li><span><strong>Password changes are announced</strong><em>The owner is emailed, and every other device is signed out.</em></span></li>
+              <li><span><strong>The admin never keeps someone else&apos;s password</strong><em>A forgotten password is reset with an emailed link that only they can use, or with a temporary password they must replace the first time they sign in.</em></span></li>
+              <li><span><strong>Every action is checked against the role</strong><em>Baristas, kitchen staff and riders only reach their queue; a cashier cannot open the Admin Portal; voids, refunds and drawer changes need the password again.</em></span></li>
+              <li><span><strong>Every page is sent with security headers</strong><em>HTTPS only, no framing by other sites, and no camera, microphone or location access beyond what the café uses.</em></span></li>
+            </ul>
+          </DashCard>
+          <DashCard title="Password rules" sub="For staff and customer passwords, set by anyone">
+            <ul className="acc-list">
+              <li><span><strong>8 to 72 characters</strong><em>Spaces are allowed; a password of only spaces is not.</em></span></li>
+              <li><span><strong>At least one letter and one number</strong><em>For example &quot;kape at 7 umaga&quot;.</em></span></li>
+              <li><span><strong>Not a common password</strong><em>&quot;password123&quot;, &quot;12345678&quot;, &quot;iloveyou1&quot; and the like are refused.</em></span></li>
+              <li><span><strong>Not the person&apos;s own name, email or username, nor the café&apos;s name</strong><em>Those are the first things someone would guess.</em></span></li>
+            </ul>
+          </DashCard>
+        </>}
+      </>}
+    </div>
+
+    {passwordFor && <SetPasswordDialog account={passwordFor} onClose={() => setPasswordFor(null)} onDone={(message) => { setPasswordFor(null); setNotice(message); void loadAccounts(); }} />}
+  </div>;
+}
+
+// Resetting someone's password, two ways: email them a reset link (they choose the password, the
+// admin never sees it), or give a temporary password that they must change the first time they
+// sign in. Either way they are told by email.
+function SetPasswordDialog({ account, onClose, onDone }: { account: SecurityAccount; onClose: () => void; onDone: (message: string) => void }) {
+  const [mode, setMode] = useState<"link" | "temporary">(account.email ? "link" : "temporary");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const about = { name: account.name, email: account.email, username: account.kind === "customer" ? account.login : null };
+  const checks = passwordChecks(password);
+  const app = account.kind === "staff" ? "Staff Portal" : "Mobile Menu";
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (mode === "temporary") {
+      const weak = passwordProblem(password, about);
+      if (weak) { setError(weak); return; }
+    }
+    setSaving(true);
+    try {
+      const response = mode === "link"
+        ? await fetch("/api/security-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send_reset", kind: account.kind, id: account.id }) })
+        : await fetch(account.kind === "staff" ? "/api/cashier-accounts" : "/api/customers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(account.kind === "staff" ? { id: account.id, action: "set_password", password } : { id: account.id, action: "set_login", password }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || (mode === "link" ? "Could not send the reset link." : "Could not set the password."));
+      if (mode === "link") onDone(`Reset link sent to ${payload.data?.sentTo ?? account.email}. ${account.name} chooses the new password; you never see it.`);
+      else {
+        const ended = Number(payload.data?.signedOutDevices ?? 0);
+        onDone(`Temporary password for ${account.name}: ${password}. Give it to them in person; they must choose their own the first time they sign in. Signed out of ${ended} device${ended === 1 ? "" : "s"}.`);
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Something went wrong. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const choice = (id: "link" | "temporary", title: string, text: string, disabled = false) => <button type="button" role="radio" aria-checked={mode === id} disabled={disabled || saving} onClick={() => { setMode(id); setError(""); }}
+    style={{ display: "flex", gap: 12, alignItems: "flex-start", textAlign: "left", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${mode === id ? "#D97706" : "#E8DDD5"}`, background: mode === id ? "#FFF7ED" : "#FFFFFF", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.55 : 1 }}>
+    <span aria-hidden="true" style={{ flex: "none", width: 18, height: 18, marginTop: 2, borderRadius: 999, border: `2px solid ${mode === id ? "#D97706" : "#C9B9A8"}`, boxShadow: mode === id ? "inset 0 0 0 3px #FFFFFF" : undefined, background: mode === id ? "#D97706" : "#FFFFFF" }} />
+    <span><strong style={{ display: "block", fontSize: 14, color: "#3D2B1F" }}>{title}</strong><span style={{ display: "block", marginTop: 2, fontSize: 12.5, lineHeight: 1.5, color: "#9C8278" }}>{text}</span></span>
+  </button>;
+
+  return <Modal onClose={onClose} closeDisabled={saving} labelledBy="set-password-title">
+    <form onSubmit={save} className="flex flex-col gap-4 rounded-2xl" style={{ background: "#FDF9F5", width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <header className="flex items-center gap-3">
+        <UserAvatar name={account.name} size={44} />
+        <div style={{ minWidth: 0 }}>
+          <h2 id="set-password-title" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#3D2B1F" }}>Reset password</h2>
+          <p style={{ margin: "2px 0 0", color: "#9C8278", fontSize: 13 }}>{account.name} · {securityAccountRole(account)}</p>
+        </div>
+      </header>
+      <div role="radiogroup" aria-label="How to reset" className="flex flex-col gap-2">
+        {choice("link", "Email them a reset link (recommended)", account.email
+          ? `The ${app} emails ${account.email} a link to choose a new password. Only they will know it. Their current password works until they use the link.`
+          : "This account has no email. Add one first, or give a temporary password.", !account.email)}
+        {choice("temporary", "Give a temporary password", "For someone at the counter right now. Their old password stops, every device is signed out, and they must choose their own password the first time they sign in.")}
+      </div>
+      {mode === "temporary" && <>
+        <WizardField label="Temporary password">
+          <div className="flex gap-2">
+            <input type="text" value={password} onChange={(event) => setPassword(event.target.value)} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" autoFocus aria-label="Temporary password" />
+            <button type="button" className="inv-mini" style={{ height: 40 }} onClick={() => setPassword(generateTemporaryPassword())}>Generate</button>
+          </div>
+        </WizardField>
+        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+          <li style={{ color: checks.length ? "#15803D" : "#9C8278" }}>{checks.length ? "✓" : "•"} At least 8 characters</li>
+          <li style={{ color: checks.letterAndNumber ? "#15803D" : "#9C8278" }}>{checks.letterAndNumber ? "✓" : "•"} A letter and a number</li>
+          <li style={{ color: "#9C8278" }}>• Not their name, email or username, the café&apos;s name or a common password</li>
+        </ul>
+      </>}
+      {error && <p role="alert" className="acc-error">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <button type="button" className="inv-mini" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="inv-mini" style={{ background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} disabled={saving || (mode === "temporary" && password.length === 0)}>{saving ? (mode === "link" ? "Sending…" : "Saving…") : mode === "link" ? "Send reset link" : "Set temporary password"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function Accounts({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) => void }) {
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
@@ -10600,7 +11085,7 @@ function Accounts() {
     </div>
 
     {adding && <AddEmployeeDialog onClose={() => setAdding(false)} onCreated={loadAccounts} />}
-    {selected && <EmployeeDialog key={selected.id} account={selected} now={now} exporting={exportingAccountId === selected.id} onClose={() => setSelectedId(null)} onChanged={(updated) => setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account))} onReload={loadAccounts} onExport={() => exportEmployeeReport(selected)} />}
+    {selected && <EmployeeDialog key={selected.id} account={selected} now={now} exporting={exportingAccountId === selected.id} onClose={() => setSelectedId(null)} onChanged={(updated) => setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account))} onReload={loadAccounts} onExport={() => exportEmployeeReport(selected)} onOpenSecurity={onOpenSecurity} />}
   </div>;
 }
 
@@ -11189,7 +11674,8 @@ function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice
 
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    const weak = passwordProblem(password);
+    if (weak) { setError(weak); return; }
     if (password !== confirmPassword) { setError("The two passwords do not match."); return; }
     setSaving(true);
     setError("");
@@ -11225,6 +11711,8 @@ function PasswordResetScreen({ token, onDone }: { token: string; onDone: (notice
       <AuthPasswordField label="Confirm new password" value={confirmPassword} onChange={setConfirmPassword} autoComplete="new-password" placeholder="Type it again" />
       <ul style={{ listStyle: "none", margin: "12px 0 0", padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
         <li style={{ color: longEnough ? "#15803D" : "#9C8278" }}>{longEnough ? "✓" : "•"} At least 8 characters</li>
+        <li style={{ color: passwordChecks(password).letterAndNumber ? "#15803D" : "#9C8278" }}>{passwordChecks(password).letterAndNumber ? "✓" : "•"} A letter and a number</li>
+        <li style={{ color: "#9C8278" }}>• Not your name, your email, the café&apos;s name or a common password</li>
         <li style={{ color: matches ? "#15803D" : "#9C8278" }}>{matches ? "✓" : "•"} Both passwords match</li>
       </ul>
       {error && <AuthAlert tone="error">{error}</AuthAlert>}
@@ -11252,6 +11740,8 @@ export default function App() {
   }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // The account the Employee or Customer dialog asked the Security page to open.
+  const [securityFocus, setSecurityFocus] = useState<SecurityFocus | null>(null);
   const [page, setPage] = useState<Page>("dashboard");
   const [showSignOut, setShowSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -11493,7 +11983,7 @@ export default function App() {
     }
   }
 
-  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", insights: "Insights", customers: "Customers", loyalty: "Loyalty Campaigns", promotions: "Promotions & Events", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", account: "My Account", archives: "Archives" };
+  const pageTitles: Record<Page, string> = { dashboard: "Dashboard", shift: "Shift",inventory: "Inventory Management", products: "Menu", finance: "Finance", treasury: "Treasury", insights: "Insights", customers: "Customers", loyalty: "Loyalty Campaigns", promotions: "Promotions & Events", discounts: "Discounts", delivery: "Delivery", accounts: "Accounts & Employees", security: "Security", account: "My Account", archives: "Archives" };
 
   if (resetToken) return <PasswordResetScreen token={resetToken} onDone={finishPasswordReset} />;
   if (authLoading) return <div className="flex items-center justify-center min-h-screen" style={{ background: "#F8F9FA", color: "#9C8278" }}>Loading admin portal...</div>;
@@ -11501,7 +11991,13 @@ export default function App() {
 
   function goTo(nextPage: Page) {
     setMoreOpen(false);
+    setSecurityFocus(null);
     handlePageChange(nextPage);
+  }
+
+  function openSecurity(focus: SecurityFocus) {
+    goTo("security");
+    setSecurityFocus(focus);
   }
 
   return <ConfirmProvider><div className="admin-shell">
@@ -11516,12 +12012,13 @@ export default function App() {
         {page === "finance" && <Finance />}
         {page === "treasury" && <Treasury />}
         {page === "insights" && <InsightsPage onNavigate={goTo} />}
-        {page === "customers" && <Customers />}
+        {page === "customers" && <Customers onOpenSecurity={openSecurity} />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
         {page === "promotions" && <Promotions products={products} />}
         {page === "discounts" && <Discounts />}
         {page === "delivery" && <Delivery />}
-        {page === "accounts" && <Accounts />}
+        {page === "accounts" && <Accounts onOpenSecurity={openSecurity} />}
+        {page === "security" && <SecurityPage key={securityFocus ? `${securityFocus.kind}-${securityFocus.login}` : "all"} focus={securityFocus} />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}
       </div>
