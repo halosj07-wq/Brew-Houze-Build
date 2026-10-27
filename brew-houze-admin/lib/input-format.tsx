@@ -82,11 +82,22 @@ function useFormattedBox(shown: string, pattern: RegExp) {
   return { ref, read };
 }
 
-// decimals: 2 for pesos; more for a unit cost (₱0.0425 per ml).
-export function MoneyField({ value, onChange, decimals = 2, ...rest }: BoxProps & { value: string | number | null | undefined; onChange: (plain: string) => void; decimals?: number }) {
+// decimals: 2 for pesos; more for a unit cost (₱0.0425 per ml). max: the most the box takes
+// (₱9,999,999.99 unless set, for example 100 for a percent); more is brought down to it, and the
+// input guard (app/input-guard.tsx) says why.
+export const MONEY_MAX = 9_999_999.99;
+export function MoneyField({ value, onChange, decimals = 2, max = MONEY_MAX, ...rest }: BoxProps & { value: string | number | null | undefined; onChange: (plain: string) => void; decimals?: number; max?: number }) {
   const shown = groupMoney(value);
   const { ref, read } = useFormattedBox(shown, /[\d.]/);
-  return <input {...rest} ref={ref} type="text" inputMode="decimal" autoComplete="off" value={shown} onChange={(event) => onChange(plainMoney(read(event), decimals))} />;
+  return <input {...rest} ref={ref} type="text" inputMode="decimal" autoComplete="off" value={shown} onChange={(event) => {
+    const plain = plainMoney(read(event), decimals);
+    if (plain !== "" && Number(plain) > max) {
+      window.dispatchEvent(new CustomEvent("input-limit", { detail: `The most this box takes is ${groupMoney(max)}.` }));
+      onChange(String(max));
+      return;
+    }
+    onChange(plain);
+  }} />;
 }
 
 export function PhoneField({ value, onChange, ...rest }: BoxProps & { value: string; onChange: (formatted: string) => void }) {

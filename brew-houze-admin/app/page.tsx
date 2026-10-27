@@ -9202,7 +9202,7 @@ function CampaignFormDialog({ campaign, kind: newKind = "seasonal", products, ca
           <button type="button" aria-pressed={reward.rewardType === "discount"} onClick={() => setReward(reward.key, { rewardType: "discount" })}>Discount</button>
         </div>
         {reward.rewardType === "discount" && <div className="loy-reward-covers">
-          <label className="loy-price-input"><select value={reward.discountKind} onChange={(event) => setReward(reward.key, { discountKind: event.target.value as "percent" | "fixed" })} aria-label="Discount type" style={{ border: 0, background: "transparent", color: "#3D2B1F", fontWeight: 700 }}><option value="percent">% off</option><option value="fixed">₱ off</option></select><MoneyField value={reward.discountValue} onChange={(typed) => setReward(reward.key, { discountValue: typed })} placeholder={reward.discountKind === "percent" ? "10" : "30"} aria-label="Discount amount" /></label>
+          <label className="loy-price-input"><select value={reward.discountKind} onChange={(event) => { const kind = event.target.value as "percent" | "fixed"; setReward(reward.key, { discountKind: kind, ...(kind === "percent" && Number(reward.discountValue) > 100 ? { discountValue: "100" } : {}) }); }} aria-label="Discount type" style={{ border: 0, background: "transparent", color: "#3D2B1F", fontWeight: 700 }}><option value="percent">% off</option><option value="fixed">₱ off</option></select><MoneyField value={reward.discountValue} onChange={(typed) => setReward(reward.key, { discountValue: typed })} max={reward.discountKind === "percent" ? 100 : 100000} placeholder={reward.discountKind === "percent" ? "10" : "30"} aria-label="Discount amount" /></label>
           {reward.discountKind === "percent" ? <label className="loy-price-input"><span>Cap ₱</span><MoneyField value={reward.maxDiscount} onChange={(typed) => setReward(reward.key, { maxDiscount: typed })} placeholder="no cap" aria-label="Most it can take off" /></label> : <span />}
           <label className="loy-price-input"><span>Min. order ₱</span><MoneyField value={reward.minOrderAmount} onChange={(typed) => setReward(reward.key, { minOrderAmount: typed })} placeholder="none" aria-label="Minimum order" /></label>
         </div>}
@@ -9277,8 +9277,8 @@ function CampaignFormDialog({ campaign, kind: newKind = "seasonal", products, ca
             </WizardField>
           </div>
           <div className="inv-step-grid" style={{ marginTop: 12 }}>
-            <WizardField label="Most stars per order" hint="Empty: no limit."><input type="number" min={1} step={1} value={draft.maxPerOrder} onChange={(event) => set("maxPerOrder", event.target.value)} style={packagingInput} /></WizardField>
-            <WizardField label="Most stars per day" hint="Per customer. Empty: no limit."><input type="number" min={1} step={1} value={draft.maxPerDay} onChange={(event) => set("maxPerDay", event.target.value)} style={packagingInput} /></WizardField>
+            <WizardField label="Most stars per order" hint="Empty: no limit."><input type="number" min={1} max={1000} step={1} value={draft.maxPerOrder} onChange={(event) => set("maxPerOrder", event.target.value)} style={packagingInput} /></WizardField>
+            <WizardField label="Most stars per day" hint="Per customer. Empty: no limit."><input type="number" min={1} max={1000} step={1} value={draft.maxPerDay} onChange={(event) => set("maxPerDay", event.target.value)} style={packagingInput} /></WizardField>
           </div>
           <p className="loy-preview"><IconStar size={14} /> Customers earn {campaignRuleText(previewRules)}</p>
         </section>
@@ -9945,11 +9945,11 @@ function DiscountFormDialog({ discount, onClose, onSaved }: { discount: Discount
       <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
         <WizardField label="Name" hint="Shown to the cashier and on the receipt."><input data-autofocus value={draft.name} onChange={(event) => set("name", event.target.value)} placeholder="e.g. National athlete" style={packagingInput} maxLength={60} /></WizardField>
         <div className="flex gap-2 flex-wrap" role="radiogroup" aria-label="Kind of discount">
-          <button type="button" role="radio" aria-checked={draft.discountKind === "percent"} style={choice(draft.discountKind === "percent")} onClick={() => set("discountKind", "percent")}><strong style={{ display: "block", color: "#3D2B1F" }}>Percentage</strong><span style={{ fontSize: 12, color: "#9C8278" }}>e.g. 10% off their items</span></button>
+          <button type="button" role="radio" aria-checked={draft.discountKind === "percent"} style={choice(draft.discountKind === "percent")} onClick={() => { set("discountKind", "percent"); if (Number(draft.discountValue) > 100) set("discountValue", "100"); }}><strong style={{ display: "block", color: "#3D2B1F" }}>Percentage</strong><span style={{ fontSize: 12, color: "#9C8278" }}>e.g. 10% off their items</span></button>
           <button type="button" role="radio" aria-checked={draft.discountKind === "fixed"} style={choice(draft.discountKind === "fixed")} onClick={() => set("discountKind", "fixed")}><strong style={{ display: "block", color: "#3D2B1F" }}>Fixed amount</strong><span style={{ fontSize: 12, color: "#9C8278" }}>e.g. ₱20 off per person</span></button>
         </div>
         <div className="inv-step-grid">
-          <WizardField label={draft.discountKind === "percent" ? "Percent off" : "Amount off (₱)"}><MoneyField value={draft.discountValue} onChange={(typed) => set("discountValue", typed)} style={packagingInput} /></WizardField>
+          <WizardField label={draft.discountKind === "percent" ? "Percent off" : "Amount off (₱)"}><MoneyField value={draft.discountValue} onChange={(typed) => set("discountValue", typed)} max={draft.discountKind === "percent" ? 100 : 100000} style={packagingInput} /></WizardField>
           {draft.discountKind === "percent" && <WizardField label="Most it takes off (₱, optional)" hint="Empty: no limit."><MoneyField value={draft.maxDiscount} onChange={(typed) => set("maxDiscount", typed)} style={packagingInput} /></WizardField>}
         </div>
         <PermissionSwitch checked={draft.requiresId} title="Needs an ID number" description="The cashier must type the ID number and confirm they checked the ID." onChange={(checked) => set("requiresId", checked)} />

@@ -1,4 +1,5 @@
 import "./globals.css";
+import DialogAlerts from "./dialog-alerts";
 import InputGuard from "./input-guard";
 
 export const metadata = {
@@ -9,7 +10,7 @@ export const metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body>{children}<InputGuard /></body>
+      <body>{children}<InputGuard /><DialogAlerts /></body>
     </html>
   );
 }
