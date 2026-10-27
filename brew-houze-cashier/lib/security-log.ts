@@ -114,6 +114,18 @@ export async function recordStaffLoginFailure(loginKey: string, portal: "admin" 
   return until;
 }
 
+// "Must change the password on next sign-in" (see must-change-password-migration.sql): set when the
+// admin gives someone a password, cleared when they choose their own. Called outside any
+// transaction: before the migration is run the column is missing, and that is only ignored.
+export async function setMustChangePassword(kind: "staff" | "customer", accountId: number, value: boolean): Promise<void> {
+  try {
+    if (kind === "staff") await pool.query("UPDATE admin_users SET must_change_password = $2 WHERE admin_id = $1", [accountId, value]);
+    else await pool.query("UPDATE customers SET must_change_password = $2 WHERE customer_id = $1", [accountId, value]);
+  } catch (error) {
+    if (!(error && typeof error === "object" && (error as { code?: string }).code === "42703")) throw error;
+  }
+}
+
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] ?? character);
 }

@@ -4,7 +4,7 @@ import type { PoolClient } from "pg";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
 import { type PasswordAbout, passwordProblem as policyPasswordProblem } from "@/lib/password-policy";
-import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
+import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import { forgetTrustedDevices } from "@/lib/two-factor";
 
 // Customer accounts for the mobile menu (see customer-accounts-migration.sql). An account is
@@ -29,7 +29,7 @@ const MAX_RESETS_PER_WINDOW = 3;
 // Shown at sign-up and stored with the consent, so a later change of wording is traceable.
 export const PRIVACY_NOTICE_VERSION = "2026-09-28";
 
-export type CustomerSession = { customerId: number; username: string; fullName: string; email: string | null; birthday: string | null };
+export type CustomerSession = { customerId: number; username: string; fullName: string; email: string | null; birthday: string | null; mustChangePassword?: boolean };
 
 export function hashToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -100,19 +100,24 @@ export async function startCustomerSession(customerId: number, userAgent: string
   });
 }
 
-// The signed-in customer, or null. Also slides the 90 days forward while the phone is in use.
-export async function getCustomerSession(): Promise<CustomerSession | null> {
+// The signed-in customer, or null. Also slides the 90 days forward while the phone is in use. A
+// customer still on a temporary password from the admin (must_change_password) counts as signed
+// out (a guest) everywhere except where they choose their own password: those routes pass
+// allowPasswordChange and see mustChangePassword.
+export async function getCustomerSession(options: { allowPasswordChange?: boolean } = {}): Promise<CustomerSession | null> {
   const sessionId = (await cookies()).get(CUSTOMER_COOKIE)?.value;
   if (!sessionId || sessionId.length > 100) return null;
   const result = await pool.query(`
     SELECT s.session_id, s.last_seen_at < CURRENT_TIMESTAMP - make_interval(mins => $2) AS stale,
-      c.customer_id, c.username, c.full_name, c.email, TO_CHAR(c.birthday, 'YYYY-MM-DD') AS birthday
+      c.customer_id, c.username, c.full_name, c.email, TO_CHAR(c.birthday, 'YYYY-MM-DD') AS birthday,
+      COALESCE((to_jsonb(c) ->> 'must_change_password')::boolean, FALSE) AS must_change_password
     FROM customer_sessions s
     JOIN customers c ON c.customer_id = s.customer_id AND c.is_active = TRUE AND c.deleted_at IS NULL AND c.username IS NOT NULL
     WHERE s.token_hash = $1 AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
   `, [hashToken(sessionId), LAST_SEEN_REFRESH_MINUTES]);
   const row = result.rows[0];
   if (!row) return null;
+  if (row.must_change_password && !options.allowPasswordChange) return null;
   if (row.stale) {
     await pool.query("UPDATE customer_sessions SET last_seen_at = CURRENT_TIMESTAMP, expires_at = CURRENT_TIMESTAMP + make_interval(days => $2) WHERE session_id = $1", [row.session_id, SESSION_DAYS]);
   }
@@ -122,6 +127,7 @@ export async function getCustomerSession(): Promise<CustomerSession | null> {
     fullName: String(row.full_name),
     email: (row.email as string | null) ?? null,
     birthday: (row.birthday as string | null) ?? null,
+    mustChangePassword: Boolean(row.must_change_password),
   };
 }
 
@@ -304,6 +310,7 @@ export async function resetCustomerPassword(token: string, newPassword: string, 
     // Whoever knew the old password is signed out everywhere.
     await endCustomerSessions(customerId, "password_reset", client);
     await client.query("COMMIT");
+    await setMustChangePassword("customer", customerId, false);
     await logSecurityEvent({ event: "password_reset", portal: "mobile", accountKind: "customer", accountId: customerId, detail: "Reset with an emailed link; every phone signed out", request });
     if (owner?.email) sendSecurityAlert({ kind: "password_changed", email: String(owner.email), name: String(owner.full_name ?? ""), portal: "mobile", request });
     return { ok: true };

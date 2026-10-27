@@ -5,8 +5,14 @@ import { getSession } from "@/lib/sessions";
 
 // The Security page (see security-log-migration.sql):
 //   GET  ?days=7&group=all&q=text   the log, newest first, with a summary and who is locked now
+//   GET  ?view=accounts             every login (staff and customers): status, last sign-in, last
+//                                   password change, signed-in devices, and who is locked now
 //   POST { action: "unlock", kind: "staff" | "customer", loginKey }   ends a lockout early
-// Admins only.
+//   POST { action: "send_reset", kind: "staff" | "customer", id }      emails them a reset link:
+//        the Staff Portal (STAFF_APP_URL) or the Mobile Menu (MOBILE_APP_URL) sends its own "forgot
+//        password" email, so they choose the password themselves and the admin never sees it
+// Setting a temporary password and signing an account out everywhere use the employee and
+// customer APIs (/api/cashier-accounts, /api/customers), which log them here. Admins only.
 
 const TZ = "Asia/Manila";
 const iso = (column: string) => `TO_CHAR(${column} AT TIME ZONE '${TZ}', 'YYYY-MM-DD"T"HH24:MI:SS.MS"+08:00"')`;
@@ -30,6 +36,61 @@ async function requireAdmin() {
 
 const isMissingTable = (error: unknown) => Boolean(error && typeof error === "object" && (error as { code?: string }).code === "42P01");
 
+type Locked = { kind: "staff" | "customer"; loginKey: string; name: string | null; until: string };
+
+// Locked right now: staff emails (this log) and customer usernames (customer_login_failures).
+async function lockedNow(): Promise<Locked[]> {
+  const staffKeys = await pool.query(`
+    SELECT DISTINCT e.login_key, u.full_name
+    FROM security_events e LEFT JOIN admin_users u ON LOWER(u.email) = e.login_key
+    WHERE e.event = 'login_failed' AND e.portal IN ('admin', 'staff') AND e.login_key IS NOT NULL
+      AND e.created_at > CURRENT_TIMESTAMP - make_interval(mins => $1)
+  `, [LOCK_MINUTES]);
+  const locked: Locked[] = [];
+  for (const row of staffKeys.rows) {
+    const until = await staffLockedUntil(String(row.login_key));
+    if (until) locked.push({ kind: "staff", loginKey: String(row.login_key), name: (row.full_name as string | null) ?? null, until: until.toISOString() });
+  }
+  const customerLocks = await pool.query(`
+    SELECT f.username_key, MAX(c.full_name) AS full_name, (MIN(f.created_at) + make_interval(mins => $1)) AS until
+    FROM customer_login_failures f LEFT JOIN customers c ON LOWER(c.username) = f.username_key OR LOWER(c.email) = f.username_key
+    WHERE f.created_at > CURRENT_TIMESTAMP - make_interval(mins => $1)
+    GROUP BY f.username_key
+    HAVING COUNT(*) >= $2
+  `, [LOCK_MINUTES, MAX_FAILED_LOGINS]);
+  for (const row of customerLocks.rows) locked.push({ kind: "customer", loginKey: String(row.username_key), name: (row.full_name as string | null) ?? null, until: new Date(row.until).toISOString() });
+  return locked;
+}
+
+const PASSWORD_EVENTS = ["password_changed", "password_reset", "password_set_by_admin"];
+
+// Every login: the staff accounts and the customers who have a username.
+async function accountsView() {
+  const staff = await pool.query(`
+    SELECT u.admin_id AS id, u.full_name, u.email AS login, u.email, LOWER(u.role) AS role, u.is_active,
+      (SELECT COUNT(*)::int FROM user_sessions s WHERE s.admin_id = u.admin_id AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP) AS devices,
+      (SELECT ${iso("MAX(e.created_at)")} FROM security_events e WHERE e.account_kind = 'staff' AND e.account_id = u.admin_id AND e.event = 'login_success') AS last_sign_in,
+      (SELECT ${iso("MAX(e.created_at)")} FROM security_events e WHERE e.account_kind = 'staff' AND e.account_id = u.admin_id AND e.event = ANY($1::text[])) AS password_changed
+    FROM admin_users u
+    ORDER BY LOWER(u.role) = 'admin' DESC, u.is_active DESC, u.full_name
+  `, [PASSWORD_EVENTS]);
+  const customers = await pool.query(`
+    SELECT c.customer_id AS id, c.full_name, c.username AS login, c.email, c.is_active,
+      (SELECT COUNT(*)::int FROM customer_sessions s WHERE s.customer_id = c.customer_id AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP) AS devices,
+      (SELECT ${iso("MAX(e.created_at)")} FROM security_events e WHERE e.account_kind = 'customer' AND e.account_id = c.customer_id AND e.event = 'login_success') AS last_sign_in,
+      (SELECT ${iso("MAX(e.created_at)")} FROM security_events e WHERE e.account_kind = 'customer' AND e.account_id = c.customer_id AND e.event = ANY($1::text[])) AS password_changed
+    FROM customers c
+    WHERE c.username IS NOT NULL AND c.deleted_at IS NULL
+    ORDER BY c.is_active DESC, c.full_name
+  `, [PASSWORD_EVENTS]);
+  const row = (kind: "staff" | "customer") => (r: Record<string, unknown>) => ({
+    kind, id: Number(r.id), name: String(r.full_name ?? ""), login: String(r.login ?? ""), email: (r.email as string | null) ?? null,
+    role: kind === "staff" ? String(r.role) : "customer", isActive: Boolean(r.is_active), devices: Number(r.devices ?? 0),
+    lastSignIn: (r.last_sign_in as string | null) ?? null, passwordChanged: (r.password_changed as string | null) ?? null,
+  });
+  return [...staff.rows.map(row("staff")), ...customers.rows.map(row("customer"))];
+}
+
 export async function GET(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
@@ -39,6 +100,9 @@ export async function GET(request: Request) {
   const events = GROUPS[group] === undefined ? null : GROUPS[group];
   const query = String(url.searchParams.get("q") ?? "").trim().toLowerCase().slice(0, 100);
   try {
+    if (url.searchParams.get("view") === "accounts") {
+      return NextResponse.json({ data: { ready: true, accounts: await accountsView(), locked: await lockedNow() } }, { headers: NO_STORE });
+    }
     const rows = await pool.query(`
       SELECT e.event_id, e.event, e.portal, e.account_kind, e.account_id, e.login_key, e.detail, e.ip, e.device, ${iso("e.created_at")} AS created_at,
         CASE WHEN e.account_kind = 'staff' THEN u.full_name WHEN e.account_kind = 'customer' THEN c.full_name END AS account_name,
@@ -66,27 +130,7 @@ export async function GET(request: Request) {
       WHERE created_at > CURRENT_TIMESTAMP - INTERVAL '30 days'
     `);
 
-    // Locked right now: staff emails (this log) and customer usernames (customer_login_failures).
-    const staffKeys = await pool.query(`
-      SELECT DISTINCT e.login_key, u.full_name
-      FROM security_events e LEFT JOIN admin_users u ON LOWER(u.email) = e.login_key
-      WHERE e.event = 'login_failed' AND e.portal IN ('admin', 'staff') AND e.login_key IS NOT NULL
-        AND e.created_at > CURRENT_TIMESTAMP - make_interval(mins => $1)
-    `, [LOCK_MINUTES]);
-    const locked: { kind: "staff" | "customer"; loginKey: string; name: string | null; until: string }[] = [];
-    for (const row of staffKeys.rows) {
-      const until = await staffLockedUntil(String(row.login_key));
-      if (until) locked.push({ kind: "staff", loginKey: String(row.login_key), name: (row.full_name as string | null) ?? null, until: until.toISOString() });
-    }
-    const customerLocks = await pool.query(`
-      SELECT f.username_key, MAX(c.full_name) AS full_name, (MIN(f.created_at) + make_interval(mins => $1)) AS until
-      FROM customer_login_failures f LEFT JOIN customers c ON LOWER(c.username) = f.username_key OR LOWER(c.email) = f.username_key
-      WHERE f.created_at > CURRENT_TIMESTAMP - make_interval(mins => $1)
-      GROUP BY f.username_key
-      HAVING COUNT(*) >= $2
-    `, [LOCK_MINUTES, MAX_FAILED_LOGINS]);
-    for (const row of customerLocks.rows) locked.push({ kind: "customer", loginKey: String(row.username_key), name: (row.full_name as string | null) ?? null, until: new Date(row.until).toISOString() });
-
+    const locked = await lockedNow();
     const s = summary.rows[0];
     return NextResponse.json({
       data: {
@@ -103,7 +147,7 @@ export async function GET(request: Request) {
     }, { headers: NO_STORE });
   } catch (error) {
     // Before security-log-migration.sql is run, the page says so instead of failing.
-    if (isMissingTable(error)) return NextResponse.json({ data: { ready: false, summary: null, locked: [], events: [] } }, { headers: NO_STORE });
+    if (isMissingTable(error)) return NextResponse.json({ data: { ready: false, summary: null, locked: [], events: [], accounts: [] } }, { headers: NO_STORE });
     console.error("GET /api/security-events failed:", error);
     return NextResponse.json({ error: "Could not load the security log." }, { status: 500 });
   }
@@ -113,7 +157,8 @@ export async function POST(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   try {
-    const body = await request.json() as { action?: unknown; kind?: unknown; loginKey?: unknown };
+    const body = await request.json() as { action?: unknown; kind?: unknown; loginKey?: unknown; id?: unknown };
+    if (body.action === "send_reset") return await sendResetLink(body.kind === "customer" ? "customer" : "staff", Number(body.id), auth.session.adminId, request);
     const loginKey = String(body.loginKey ?? "").trim().toLowerCase().slice(0, 254);
     if (body.action !== "unlock" || !loginKey) return NextResponse.json({ error: "Choose an account to unlock." }, { status: 400 });
     if (body.kind === "customer") {
@@ -130,4 +175,22 @@ export async function POST(request: Request) {
     console.error("POST /api/security-events failed:", error);
     return NextResponse.json({ error: "Could not unlock the account." }, { status: 500 });
   }
+}
+
+async function sendResetLink(kind: "staff" | "customer", id: number, adminId: number, request: Request) {
+  if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "Choose an account." }, { status: 400 });
+  const account = kind === "staff"
+    ? (await pool.query("SELECT full_name, email, LOWER(email) AS login FROM admin_users WHERE admin_id = $1 AND is_active = TRUE AND LOWER(role) <> 'admin'", [id])).rows[0]
+    : (await pool.query("SELECT full_name, email, username AS login FROM customers WHERE customer_id = $1 AND is_active = TRUE AND deleted_at IS NULL AND username IS NOT NULL", [id])).rows[0];
+  if (!account) return NextResponse.json({ error: "That account cannot be reset from here." }, { status: 404 });
+  if (!account.email) return NextResponse.json({ error: "This account has no email for a reset link. Give a temporary password instead." }, { status: 400 });
+  const setting = kind === "staff" ? "STAFF_APP_URL" : "MOBILE_APP_URL";
+  const base = process.env[setting]?.trim().replace(/\/$/, "");
+  if (!base) return NextResponse.json({ error: `Reset links need ${setting} (the ${kind === "staff" ? "Staff Portal" : "Mobile Menu"}'s address) in the Admin Portal's settings. Give a temporary password for now.` }, { status: 503 });
+  const response = await fetch(kind === "staff" ? `${base}/api/auth/forgot-password` : `${base}/api/account/forgot-password`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(kind === "staff" ? { email: account.email } : { login: account.login }), cache: "no-store",
+  }).catch(() => null);
+  if (!response?.ok) return NextResponse.json({ error: `The ${kind === "staff" ? "Staff Portal" : "Mobile Menu"} could not send the email right now. Try again, or give a temporary password.` }, { status: 502 });
+  await logSecurityEvent({ event: "password_reset_requested", portal: "admin", accountKind: kind, accountId: id, actorAdminId: adminId, detail: "Reset link emailed by an admin; they choose the new password", request });
+  return NextResponse.json({ data: { sentTo: String(account.email) } });
 }

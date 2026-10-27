@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { passwordProblem } from "@/lib/password-policy";
-import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
+import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import { endOtherSessions, getSession, listSessions } from "@/lib/sessions";
 
 // The signed-in person's own account page: profile, attendance and sales in the open shift,
 // signed-in devices, and password change.
 export async function GET() {
-  const session = await getSession();
+  const session = await getSession({ allowPasswordChange: true });
   if (!session?.sid) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const columnResult = await pool.query(`
@@ -50,7 +50,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const session = await getSession();
+  const session = await getSession({ allowPasswordChange: true });
   if (!session?.sid) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
   try {
@@ -69,6 +69,7 @@ export async function PATCH(request: Request) {
     }
     const problem = passwordProblem(newPassword, { name: session.fullName, email: session.email });
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
+    if (newPassword === currentPassword) return NextResponse.json({ error: "Choose a password different from the current one." }, { status: 400 });
     const result = await pool.query(`
       UPDATE admin_users
       SET password_hash = crypt($2, gen_salt('bf'))
@@ -83,7 +84,8 @@ export async function PATCH(request: Request) {
     }
     // Anyone else who knew the old password is signed out; this device stays signed in.
     const ended = await endOtherSessions(session.adminId, session.sid, "password_reset");
-    await logSecurityEvent({ event: "password_changed", portal: "staff", accountKind: "staff", accountId: session.adminId, detail: "Changed on My Account", request });
+    await setMustChangePassword("staff", session.adminId, false);
+    await logSecurityEvent({ event: "password_changed", portal: "staff", accountKind: "staff", accountId: session.adminId, detail: session.mustChangePassword ? "Replaced the temporary password from the admin" : "Changed on My Account", request });
     sendSecurityAlert({ kind: "password_changed", email: session.email, name: session.fullName, portal: "staff", request });
     return NextResponse.json({ data: { signedOutDevices: ended } });
   } catch (error) {

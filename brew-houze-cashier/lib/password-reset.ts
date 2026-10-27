@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import pool from "@/lib/db";
 import { passwordProblem } from "@/lib/password-policy";
-import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
+import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import { endAllSessions } from "@/lib/sessions";
 import { forgetTrustedDevices } from "@/lib/two-factor";
 
@@ -160,6 +160,7 @@ export async function resetPasswordWithToken(token: string, newPassword: string,
     await endAllSessions(Number(adminId), "password_reset", client);
     await forgetTrustedDevices("staff", Number(adminId), client);
     await client.query("COMMIT");
+    await setMustChangePassword("staff", Number(adminId), false);
     await logSecurityEvent({ event: "password_reset", portal, accountKind: "staff", accountId: Number(adminId), detail: "Reset with an emailed link; every device signed out", request });
     if (owner?.email) sendSecurityAlert({ kind: "password_changed", email: String(owner.email), name: String(owner.full_name ?? ""), portal, request });
     return { ok: true };

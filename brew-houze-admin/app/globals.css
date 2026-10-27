@@ -1696,3 +1696,31 @@ strong.is-low { color: #B45309 !important; }
 .ins-chart-empty { margin: 18px 0; text-align: center; color: #9C8278; font-size: 13px; }
 @media (max-width: 1100px) { .ins-chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 720px) { .ins-chart-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Security page tables: below 1100px each row becomes a card, so nothing scrolls off the side */
+@media (max-width: 1100px) {
+  .sec-table thead { display: none; }
+  .sec-table, .sec-table tbody { display: block; }
+  .sec-table tr { display: grid; gap: 8px 16px; padding: 14px 0; border-bottom: 1px solid #F3ECE5; }
+  .sec-table tr:last-child { border-bottom: none; }
+  .sec-table td { display: block; min-width: 0; padding: 0; border: none; text-align: left; }
+  /* The finance tables hide their 5th column on phones; here it holds Devices and Where. */
+  .sec-table.is-accounts td.sec-devices, .sec-table.is-log td.sec-where { display: block; }
+  .sec-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; color: #9C8278; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.07em; text-transform: uppercase; }
+  .sec-table.is-accounts tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "account account status" "signin password devices" "actions actions actions"; }
+  .sec-table.is-accounts .sec-account { grid-area: account; }
+  .sec-table.is-accounts .sec-status { grid-area: status; justify-self: end; }
+  .sec-table.is-accounts .sec-signin { grid-area: signin; white-space: normal !important; }
+  .sec-table.is-accounts .sec-password { grid-area: password; white-space: normal !important; }
+  .sec-table.is-accounts .sec-devices { grid-area: devices; text-align: right; }
+  .sec-table.is-accounts .sec-actions { grid-area: actions; }
+  .sec-table.is-accounts .sec-actions > div { justify-content: flex-start; flex-wrap: wrap; white-space: normal !important; }
+  .sec-table.is-accounts .sec-actions:not(:has(button)):not(:has(span)) { display: none; }
+  .sec-table.is-log tr { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "when what" "account account" "details details" "where where"; }
+  .sec-table.is-log .sec-when { grid-area: when; }
+  .sec-table.is-log .sec-what { grid-area: what; justify-self: end; }
+  .sec-table.is-log .sec-account { grid-area: account; }
+  .sec-table.is-log .sec-details { grid-area: details; }
+  .sec-table.is-log .sec-details:empty { display: none; }
+  .sec-table.is-log .sec-where { grid-area: where; }
+}

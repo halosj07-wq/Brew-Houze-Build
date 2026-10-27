@@ -50,8 +50,10 @@ export async function startSession(adminId: number, userAgent: string | null): P
 }
 
 // The signed-in account for this request, or null. Name, role and permissions are read fresh,
-// so changes made by an admin apply immediately.
-export async function getSession() {
+// so changes made by an admin apply immediately. An account still on a temporary password from the
+// admin (must_change_password) counts as signed out everywhere except where it chooses its own
+// password: those routes pass allowPasswordChange and see mustChangePassword.
+export async function getSession(options: { allowPasswordChange?: boolean } = {}) {
   const token = verifySessionToken((await cookies()).get(SESSION_COOKIE)?.value);
   if (!token?.sid) return null;
   const result = await pool.query(`
@@ -61,13 +63,15 @@ export async function getSession() {
       COALESCE(u.can_void_orders, FALSE) AS can_void_orders,
       COALESCE(u.can_refund_orders, FALSE) AS can_refund_orders,
       COALESCE(u.can_open_shift, FALSE) AS can_open_shift,
-      COALESCE(u.can_close_shift, FALSE) AS can_close_shift
+      COALESCE(u.can_close_shift, FALSE) AS can_close_shift,
+      COALESCE((to_jsonb(u) ->> 'must_change_password')::boolean, FALSE) AS must_change_password
     FROM user_sessions s
     JOIN admin_users u ON u.admin_id = s.admin_id AND u.is_active = TRUE AND LOWER(u.role) = ANY($4::text[])
     WHERE s.token_hash = $1 AND s.app = $2 AND s.ended_at IS NULL AND s.expires_at > CURRENT_TIMESTAMP
   `, [hashSessionId(token.sid), APP, LAST_SEEN_REFRESH_MINUTES, ALLOWED_ROLES]);
   if (result.rowCount === 0) return null;
   const row = result.rows[0];
+  if (row.must_change_password && !options.allowPasswordChange) return null;
   if (row.stale) await pool.query("UPDATE user_sessions SET last_seen_at = CURRENT_TIMESTAMP WHERE session_id = $1", [row.session_id]);
   return {
     adminId: Number(row.admin_id),
@@ -77,6 +81,7 @@ export async function getSession() {
     ...staffPermissions(row.role, row),
     sid: token.sid,
     exp: token.exp,
+    mustChangePassword: Boolean(row.must_change_password),
   };
 }
 

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { passwordProblem } from "@/lib/password-policy";
-import { logSecurityEvent, sendSecurityAlert } from "@/lib/security-log";
+import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import { endAllSessions, getSession } from "@/lib/sessions";
 import { forgetTrustedDevices } from "@/lib/two-factor";
 
@@ -183,6 +183,8 @@ export async function POST(request: Request) {
       VALUES ($1, $2, crypt($3, gen_salt('bf')), $7, TRUE, $4, $5, $6, $8)
       RETURNING admin_id
     `, [fullName, email, password, cashier && body.canVoidOrders === true, cashier && body.canRefundOrders === true, cashier && body.canOpenShift === true, role, cashier && body.canCloseShift === true]);
+    // The admin chose this password, so they choose their own on first sign-in.
+    await setMustChangePassword("staff", Number(result.rows[0].admin_id), true);
     await logSecurityEvent({ event: "account_created", portal: "admin", accountKind: "staff", accountId: Number(result.rows[0].admin_id), actorAdminId: session.adminId, detail: `Added as ${ROLE_NAMES[role]}`, request });
     return NextResponse.json({ data: { id: Number(result.rows[0].admin_id) } }, { status: 201 });
   } catch (error) {
@@ -254,11 +256,13 @@ export async function PATCH(request: Request) {
       const problem = passwordProblem(password, { name: owner?.full_name, email: owner?.email });
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       await pool.query("UPDATE admin_users SET password_hash = crypt($2, gen_salt('bf')), updated_at = CURRENT_TIMESTAMP WHERE admin_id = $1", [id, password]);
+      // A temporary password: they must choose their own the first time they sign in with it.
+      await setMustChangePassword("staff", id, true);
       // Every device signs in with a code again.
       await forgetTrustedDevices("staff", id, pool);
       const ended = await endAllSessions(id, "password_reset");
       // This also ends a lockout: the old password no longer matters.
-      await logSecurityEvent({ event: "password_set_by_admin", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: "Temporary password set; every device signed out", request });
+      await logSecurityEvent({ event: "password_set_by_admin", portal: "admin", accountKind: "staff", accountId: id, actorAdminId: session.adminId, detail: "Temporary password set (must be changed on first sign-in); every device signed out", request });
       if (owner?.email) sendSecurityAlert({ kind: "password_changed", email: String(owner.email), name: String(owner.full_name ?? ""), portal: "staff", byAdmin: true, request });
       return NextResponse.json({ data: { signedOutDevices: ended } });
     }

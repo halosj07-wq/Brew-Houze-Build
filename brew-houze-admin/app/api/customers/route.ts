@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { passwordProblem } from "@/lib/password-policy";
-import { logSecurityEvent } from "@/lib/security-log";
+import { logSecurityEvent, setMustChangePassword } from "@/lib/security-log";
 import { runningCampaign } from "@/lib/loyalty";
 import { getSession } from "@/lib/sessions";
 import { forgetTrustedDevices, twoFactorEnabled } from "@/lib/two-factor";
@@ -186,6 +186,8 @@ export async function POST(request: Request) {
       VALUES ($1, NULLIF($2, ''), NULLIF($3, '')::date, NULLIF($4, ''), NULLIF($5, ''), CASE WHEN $6 = '' THEN NULL ELSE crypt($6, gen_salt('bf')) END, $7, $8)
       RETURNING customer_id
     `, [fullName, email, birthday, notes, withLogin ? username : "", withLogin ? password : "", auth.session.adminId, phone]);
+    // A login made by the admin: the customer chooses their own password the first time.
+    if (withLogin) await setMustChangePassword("customer", Number(result.rows[0].customer_id), true);
     return NextResponse.json({ data: { id: Number(result.rows[0].customer_id) } }, { status: 201 });
   } catch (error) {
     if (isUniqueViolation(error)) return NextResponse.json({ error: uniqueMessage(error) }, { status: 409 });
@@ -257,8 +259,9 @@ export async function PATCH(request: Request) {
         const ended = await endCustomerSessions(id, "password_reset", client);
         await forgetTrustedDevices("customer", id, client);
         await client.query("COMMIT");
+        await setMustChangePassword("customer", id, true);
         await logSecurityEvent({ event: "password_set_by_admin", portal: "admin", accountKind: "customer", accountId: id, loginKey: username, actorAdminId: auth.session.adminId,
-          detail: currentUsername ? "Temporary password set; every phone signed out" : `Login made with the username ${username}`, request });
+          detail: currentUsername ? "Temporary password set (must be changed on first sign-in); every phone signed out" : `Login made with the username ${username}`, request });
         return NextResponse.json({ data: { username, signedOutDevices: ended } });
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);

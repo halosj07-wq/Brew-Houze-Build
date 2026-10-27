@@ -8167,7 +8167,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
           <WizardField label="Full name"><input data-autofocus value={draft.fullName} onChange={(event) => setDraft((current) => ({ ...current, fullName: event.target.value }))} placeholder="e.g. Maria Santos" style={packagingInput} autoComplete="off" /></WizardField>
           <WizardField label="Email" hint="Used to sign in and to reset a forgotten password."><input type="email" value={draft.email} onChange={(event) => setDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@gmail.com" style={packagingInput} autoComplete="off" /></WizardField>
         </div>
-        <WizardField label="Temporary password" hint={`${PASSWORD_HINT} Share it with them in person.`}>
+        <WizardField label="Temporary password" hint={`${PASSWORD_HINT} Share it with them in person; they choose their own the first time they sign in.`}>
           <div className="flex gap-2">
             <input type={showPassword ? "text" : "password"} value={draft.password} onChange={(event) => setDraft((current) => ({ ...current, password: event.target.value }))} placeholder="Type or generate one" style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" />
             <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setShowPassword((value) => !value)}>{showPassword ? "Hide" : "Show"}</button>
@@ -8192,7 +8192,7 @@ function AddEmployeeDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   </Modal>;
 }
 
-function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload, onExport }: { account: CashierAccount; now: number; exporting: boolean; onClose: () => void; onChanged: (account: CashierAccount) => void; onReload: () => Promise<void>; onExport: () => void }) {
+function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload, onExport, onOpenSecurity }: { account: CashierAccount; now: number; exporting: boolean; onClose: () => void; onChanged: (account: CashierAccount) => void; onReload: () => Promise<void>; onExport: () => void; onOpenSecurity: (focus: SecurityFocus) => void }) {
   const confirmAction = useConfirm();
   const [tab, setTab] = useState<"access" | "activity" | "attendance">("access");
   // Filters for the Sales activity and Attendance tabs (on the records loaded for this person).
@@ -8240,7 +8240,6 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
   const salesFiltered = salesPeriod !== "all" || salesStatus !== "all" || salesShift !== "all" || salesQuery !== "";
   const attendanceFiltered = attendancePeriod !== "all" || attendanceShift !== "all";
   const [profile, setProfile] = useState({ fullName: account.fullName, email: account.email });
-  const [password, setPassword] = useState("");
   const [working, setWorking] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -8282,14 +8281,6 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
     if (!profileChanged) return;
     const saved = await patch({ action: "update_profile", fullName: profile.fullName.trim(), email: profile.email.trim() }, "profile", "Could not save the details.");
     if (saved) { onChanged({ ...account, fullName: saved.fullName, email: saved.email }); setNotice("Details saved."); }
-  }
-
-  async function savePassword() {
-    const weak = passwordProblem(password, { name: account.fullName, email: account.email });
-    if (weak) { setError(weak); return; }
-    if (!(await confirmAction({ title: `Set a new password for ${account.fullName}?`, message: "Their old password stops working, and they are signed out of every device. Give them the new password in person.", confirmLabel: "Set password", tone: "default" }))) return;
-    const saved = await patch({ action: "set_password", password }, "password", "Could not set the password.");
-    if (saved) { setNotice(`New password set: ${password}. They were signed out of ${saved.signedOutDevices} device${saved.signedOutDevices === 1 ? "" : "s"}.`); setPassword(""); await onReload(); }
   }
 
   async function setActive(isActive: boolean) {
@@ -8352,12 +8343,10 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
           <AccountDevicesPanel account={account} onSignedOut={() => { onChanged({ ...account, sessions: [], onDutySince: null }); void onReload(); }} />
 
           <section className="acc-block">
-            <header className="acc-block-head"><div><h3>Password</h3><p>Forgot it? They can also use “Forgot password” on the sign-in screen.</p></div></header>
-            <div className="flex flex-wrap gap-2">
-              <input type="text" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="New temporary password" style={{ ...packagingInput, flex: "1 1 200px", width: "auto", fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" aria-label="New temporary password" />
-              <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setPassword(generateTemporaryPassword())}>Generate</button>
-              <button type="button" className="inv-mini" style={{ height: 42, background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void savePassword()} disabled={working === "password" || password.length === 0}>{working === "password" ? "Saving…" : "Set password"}</button>
-            </div>
+            <header className="acc-block-head">
+              <div><h3>Password &amp; sign-in</h3><p>Set a temporary password, unlock the account or see their sign-ins on the Security page. Forgot it? They can also use “Forgot password” on the sign-in screen.</p></div>
+              <button type="button" className="inv-mini" onClick={() => onOpenSecurity({ kind: "staff", login: account.email })}><IconShield size={13} />Open in Security</button>
+            </header>
           </section>
 
           <section className={`acc-block ${account.isActive ? "is-danger" : ""}`}>
@@ -8673,7 +8662,7 @@ function AddCustomerDialog({ onClose, onCreated }: { onClose: () => void; onCrea
   </Modal>;
 }
 
-function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: Customer; onClose: () => void; onChanged: (customer: Customer) => void; onReload: () => Promise<void> }) {
+function CustomerDialog({ customer, onClose, onChanged, onReload, onOpenSecurity }: { customer: Customer; onClose: () => void; onChanged: (customer: Customer) => void; onReload: () => Promise<void>; onOpenSecurity: (focus: SecurityFocus) => void }) {
   const confirmAction = useConfirm();
   const [tab, setTab] = useState<"profile" | "purchases" | "stars">("profile");
   const [detail, setDetail] = useState<CustomerDetail | null>(null);
@@ -8683,8 +8672,6 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   const [profile, setProfile] = useState({ fullName: customer.fullName, email: customer.email ?? "", birthday: customer.birthday ?? "", phone: customer.phone ?? "" });
   const [notes, setNotes] = useState(customer.notes);
   const [login, setLogin] = useState({ username: "", password: "" });
-  // A new temporary password for an existing login: typed or generated, like an employee's.
-  const [tempPassword, setTempPassword] = useState("");
   const [working, setWorking] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -8714,13 +8701,6 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
     } finally {
       setWorking(null);
     }
-  }
-
-  async function setTemporaryPassword() {
-    const password = tempPassword.trim();
-    if (!password) return;
-    if (!(await confirmAction({ title: `Set a temporary password for ${customer.fullName}?`, message: "Their old password stops working and they are signed out of every phone. Tell them the new one in person.", confirmLabel: "Set password", tone: "default" }))) return;
-    await act<{ username: string; signedOutDevices: number }>("password", { action: "set_login", password }, "Could not set the password.", (data) => { setNotice(`New temporary password for @${data.username}: ${password}`); setTempPassword(""); void onReload(); });
   }
 
   async function erase() {
@@ -8790,17 +8770,13 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
           <section className="acc-block">
             <header className="acc-block-head"><div><h3>Mobile menu login</h3><p>{customer.hasLogin ? `@${customer.username} · ${customer.devices ? `signed in on ${customer.devices} phone${customer.devices === 1 ? "" : "s"}` : "not signed in anywhere"}` : "No login yet. Give them one so their mobile orders are saved to this profile."}</p></div></header>
             {customer.hasLogin
-              ? <div className="flex flex-col gap-3">
-                <div className="flex flex-wrap gap-2">
-                  <input type="text" value={tempPassword} onChange={(event) => setTempPassword(event.target.value)} placeholder="New temporary password" style={{ ...packagingInput, flex: "1 1 200px", width: "auto", fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" aria-label="New temporary password" disabled={!customer.isActive} />
-                  <button type="button" className="inv-mini" style={{ height: 42 }} onClick={() => setTempPassword(generateTemporaryPassword())} disabled={!customer.isActive}>Generate</button>
-                  <button type="button" className="inv-mini" style={{ height: 42, background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} onClick={() => void setTemporaryPassword()} disabled={working !== null || !customer.isActive || tempPassword.trim().length === 0}>{working === "password" ? "Saving…" : "Set password"}</button>
-                </div>
-                {customer.devices > 0 && <div><button type="button" className="ui-button ui-button-secondary" disabled={working !== null} onClick={() => void act<{ signedOutDevices: number }>("signout", { action: "sign_out_everywhere" }, "Could not sign them out.", (data) => { setNotice(`Signed out of ${data.signedOutDevices} phone${data.signedOutDevices === 1 ? "" : "s"}.`); void onReload(); })}>Sign out everywhere</button></div>}
+              ? <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="inv-hint" style={{ margin: 0 }}>A temporary password, unlocking, signing out their phones and their sign-ins are on the Security page.</p>
+                <button type="button" className="inv-mini" onClick={() => onOpenSecurity({ kind: "customer", login: customer.username ?? "" })}><IconShield size={13} />Open in Security</button>
               </div>
               : <form className="inv-step-grid" onSubmit={(event) => { event.preventDefault(); const password = login.password || generateTemporaryPassword(); void act<{ username: string }>("login", { action: "set_login", username: login.username.trim(), password }, "Could not make the login.", (data) => { setNotice(`Login made. Username: ${data.username} · temporary password: ${password}`); setLogin({ username: "", password: "" }); void onReload(); }); }}>
                 <WizardField label="Username"><input value={login.username} onChange={(event) => setLogin((current) => ({ ...current, username: event.target.value.replace(/\s/g, "") }))} style={packagingInput} maxLength={30} autoComplete="off" /></WizardField>
-                <WizardField label="Temporary password" hint="Leave empty to generate one."><div className="flex gap-2"><input value={login.password} onChange={(event) => setLogin((current) => ({ ...current, password: event.target.value }))} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" /><button type="submit" className="ui-button ui-button-primary" disabled={!login.username.trim() || working !== null || !customer.isActive}>{working === "login" ? "…" : "Make login"}</button></div></WizardField>
+                <WizardField label="Temporary password" hint="Leave empty to generate one. They choose their own the first time they sign in."><div className="flex gap-2"><input value={login.password} onChange={(event) => setLogin((current) => ({ ...current, password: event.target.value }))} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" /><button type="submit" className="ui-button ui-button-primary" disabled={!login.username.trim() || working !== null || !customer.isActive}>{working === "login" ? "…" : "Make login"}</button></div></WizardField>
               </form>}
           </section>
 
@@ -8858,7 +8834,7 @@ function CustomerDialog({ customer, onClose, onChanged, onReload }: { customer: 
   </Modal>;
 }
 
-function Customers() {
+function Customers({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) => void }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -8980,7 +8956,7 @@ function Customers() {
             </>}
     </div>
     {adding && <AddCustomerDialog onClose={() => setAdding(false)} onCreated={loadCustomers} />}
-    {selected && <CustomerDialog key={selected.id} customer={selected} onClose={() => setSelectedId(null)} onChanged={(changed) => setCustomers((current) => current.map((customer) => customer.id === changed.id ? changed : customer))} onReload={loadCustomers} />}
+    {selected && <CustomerDialog key={selected.id} customer={selected} onClose={() => setSelectedId(null)} onChanged={(changed) => setCustomers((current) => current.map((customer) => customer.id === changed.id ? changed : customer))} onReload={loadCustomers} onOpenSecurity={onOpenSecurity} />}
   </div>;
 }
 
@@ -10476,9 +10452,13 @@ function ZoneDialog({ zone, onClose, onSaved }: { zone: DeliveryZoneAdmin | null
   </Modal>;
 }
 
-// The Security page (GET/POST /api/security-events): sign-ins, wrong passwords and lockouts, new
-// devices, password changes and changes to employee accounts, from all three apps; and the
-// accounts locked right now, which the admin can unlock early.
+// The Security page (GET/POST /api/security-events), in three tabs:
+// - Activity log: sign-ins, wrong passwords and lockouts, new devices, password changes and
+//   changes to employee accounts, from all three apps.
+// - Passwords & sign-in: every login (staff and customers) with its status, last sign-in, last
+//   password change and signed-in devices; set a temporary password, unlock, sign out everywhere.
+//   The Employee and Customer dialogs send the admin here for these.
+// - Protection: what the system does on its own.
 type SecurityEventRow = {
   id: number; event: string; portal: string | null; accountKind: string | null; accountId: number | null; accountName: string | null; accountRole: string | null;
   loginKey: string | null; actorName: string | null; detail: string | null; ip: string | null; device: string | null; createdAt: string;
@@ -10490,6 +10470,12 @@ type SecurityData = {
   locked: SecurityLocked[];
   events: SecurityEventRow[];
 };
+type SecurityAccount = {
+  kind: "staff" | "customer"; id: number; name: string; login: string; email: string | null; role: string; isActive: boolean;
+  devices: number; lastSignIn: string | null; passwordChanged: string | null;
+};
+// Which account the Employee or Customer dialog asked to open.
+type SecurityFocus = { kind: "staff" | "customer"; login: string };
 
 const securityEventInfo: Record<string, { label: string; tone: "good" | "warn" | "bad" | "info" }> = {
   login_success: { label: "Signed in", tone: "good" },
@@ -10514,140 +10500,346 @@ const securityEventInfo: Record<string, { label: string; tone: "good" | "warn" |
 };
 const securityPortalNames: Record<string, string> = { admin: "Admin Portal", staff: "Staff Portal", mobile: "Mobile Menu" };
 const securityToneColors = { good: { color: "#15803D", background: "#F0FDF4" }, warn: { color: "#B45309", background: "#FFFBEB" }, bad: { color: "#B91C1C", background: "#FEF2F2" }, info: { color: "#6B4C3B", background: "#F7F1EA" } };
+const securityPill = (tone: keyof typeof securityToneColors): React.CSSProperties => ({ display: "inline-block", padding: "3px 9px", borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", ...securityToneColors[tone] });
+const securityDay = (value: string) => new Date(value).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric" });
+const securityAccountRole = (account: SecurityAccount) => account.kind === "customer" ? "Customer" : account.role === "admin" ? "Admin" : staffRoleLabel(account.role);
 
-function SecurityPage() {
+function SecurityPage({ focus }: { focus: SecurityFocus | null }) {
+  const [tab, setTab] = useState<"activity" | "passwords" | "protection">(focus ? "passwords" : "activity");
   const [data, setData] = useState<SecurityData | null>(null);
+  const [accounts, setAccounts] = useState<SecurityAccount[] | null>(null);
+  const [locked, setLocked] = useState<SecurityLocked[]>([]);
+  const [ready, setReady] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  // Activity log filters
   const [group, setGroup] = useState<"all" | "signins" | "failed" | "passwords" | "accounts">("all");
   const [days, setDays] = useState(7);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
-  const [unlocking, setUnlocking] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  // Passwords & sign-in filters
+  const [accountSearch, setAccountSearch] = useState(focus?.login ?? "");
+  const [accountFilter, setAccountFilter] = useState<"all" | "staff" | "customer" | "locked" | "inactive">(focus?.kind ?? "all");
+  const [working, setWorking] = useState<string | null>(null);
+  const [passwordFor, setPasswordFor] = useState<SecurityAccount | null>(null);
+  const confirmAction = useConfirm();
 
-  // The search waits for typing to pause.
+  // The log's search waits for typing to pause.
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery(search.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
 
-  const load = useCallback(async () => {
+  const loadLog = useCallback(async () => {
     try {
       const response = await fetch(`/api/security-events?days=${days}&group=${group}&q=${encodeURIComponent(query)}`, { cache: "no-store" });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not load the security log.");
       setData(payload.data);
+      setLocked(payload.data.locked ?? []);
+      setReady(payload.data.ready !== false);
       setError("");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load the security log.");
     }
   }, [days, group, query]);
 
+  const loadAccounts = useCallback(async () => {
+    try {
+      const response = await fetch("/api/security-events?view=accounts", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not load the accounts.");
+      setAccounts(payload.data.accounts ?? []);
+      setLocked(payload.data.locked ?? []);
+      setReady(payload.data.ready !== false);
+      setError("");
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Could not load the accounts.");
+    }
+  }, []);
+
   useEffect(() => {
+    const load = tab === "passwords" ? loadAccounts : loadLog;
     const first = window.setTimeout(() => { void load(); }, 0);
     const interval = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 15_000);
     return () => { window.clearTimeout(first); window.clearInterval(interval); };
-  }, [load]);
+  }, [tab, loadLog, loadAccounts]);
 
-  async function unlock(entry: SecurityLocked) {
-    setUnlocking(entry.loginKey);
+  async function run(key: string, action: () => Promise<string>) {
+    setWorking(key);
     setNotice("");
+    setError("");
     try {
-      const response = await fetch("/api/security-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unlock", kind: entry.kind, loginKey: entry.loginKey }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error || "Could not unlock the account.");
-      setNotice(`${entry.name ?? entry.loginKey} can sign in again.`);
-      await load();
-    } catch (unlockError) {
-      setError(unlockError instanceof Error ? unlockError.message : "Could not unlock the account.");
+      setNotice(await action());
+      await (tab === "passwords" ? loadAccounts() : loadLog());
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "Something went wrong. Please try again.");
     } finally {
-      setUnlocking(null);
+      setWorking(null);
     }
   }
 
+  const unlock = (entry: SecurityLocked) => run(`unlock-${entry.loginKey}`, async () => {
+    const response = await fetch("/api/security-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "unlock", kind: entry.kind, loginKey: entry.loginKey }) });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload?.error || "Could not unlock the account.");
+    return `${entry.name ?? entry.loginKey} can sign in again.`;
+  });
+
+  async function signOutEverywhere(account: SecurityAccount) {
+    if (!(await confirmAction({ title: `Sign ${account.name} out everywhere?`, message: account.kind === "staff" ? "Every device they are signed in on is signed out right away, and their attendance ends." : "Every phone they are signed in on is signed out right away.", confirmLabel: "Sign out everywhere", tone: "default" }))) return;
+    await run(`signout-${account.kind}-${account.id}`, async () => {
+      const response = await fetch(account.kind === "staff" ? "/api/cashier-accounts" : "/api/customers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: account.id, action: "sign_out_everywhere" }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "Could not sign them out.");
+      const ended = Number(payload.data?.signedOutDevices ?? 0);
+      return `${account.name} was signed out of ${ended} device${ended === 1 ? "" : "s"}.`;
+    });
+  }
+
+  const lockedFor = (account: SecurityAccount) => locked.find((entry) => entry.kind === account.kind && (entry.loginKey === account.login.toLowerCase() || (account.email && entry.loginKey === account.email.toLowerCase())));
+  const accountQuery = accountSearch.trim().toLowerCase();
+  const shownAccounts = (accounts ?? []).filter((account) => {
+    if (accountFilter === "staff" && account.kind !== "staff") return false;
+    if (accountFilter === "customer" && account.kind !== "customer") return false;
+    if (accountFilter === "locked" && !lockedFor(account)) return false;
+    if (accountFilter === "inactive" && account.isActive) return false;
+    return !accountQuery || account.name.toLowerCase().includes(accountQuery) || account.login.toLowerCase().includes(accountQuery) || (account.email ?? "").toLowerCase().includes(accountQuery);
+  });
   const summary = data?.summary;
   const events = data?.events ?? [];
 
+  const lockedCard = locked.length > 0 && <DashCard title="Locked right now" sub="Too many wrong passwords. Each unlocks by itself after 15 minutes, or unlock it now if you know it was them.">
+    <ul className="acc-list">
+      {locked.map((entry) => <li key={`${entry.kind}-${entry.loginKey}`}>
+        <span><strong>{entry.name ?? entry.loginKey}</strong><em>{entry.name ? `${entry.loginKey} · ` : ""}{entry.kind === "staff" ? "Staff" : "Customer"} · until {clockTime(entry.until)}</em></span>
+        <button type="button" className="inv-secondary" disabled={working !== null} onClick={() => void unlock(entry)}>{working === `unlock-${entry.loginKey}` ? "Unlocking…" : "Unlock"}</button>
+      </li>)}
+    </ul>
+  </DashCard>;
+
   return <div className="inv-wrap">
     <div className="inv">
-      {data && !data.ready ? <div className="inv-onboard">
+      <div className="inv-head">
+        <div className="inv-tabs" role="tablist" aria-label="Security sections">
+          {([["activity", "Activity log", null, IconClock], ["passwords", "Passwords & sign-in", locked.length || null, IconUsers], ["protection", "Protection", null, IconShield]] as const).map(([id, label, count, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setNotice(""); setError(""); }}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count" style={{ background: "#B91C1C", color: "#FFFFFF" }}>{count}</span>}</button>)}
+        </div>
+      </div>
+
+      {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
+      {notice && <div className="inv-alert" role="status" style={{ background: "#F0FDF4", borderColor: "#BBF7D0", color: "#15803D" }}><span>{notice}</span><button type="button" onClick={() => setNotice("")} title="Dismiss" style={{ color: "#15803D" }}><IconX size={14} /></button></div>}
+
+      {!ready ? <div className="inv-onboard">
         <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconShield size={24} /></span>
         <h2>The security log is not set up yet</h2>
         <p>Run security-log-migration.sql in the Supabase SQL editor. Sign-ins, lockouts and password changes are recorded from then on.</p>
       </div> : <>
-        <div className="inv-summary">
-          <button type="button" className="inv-stat" aria-pressed={group === "failed"} onClick={() => setGroup(group === "failed" ? "all" : "failed")}><span>Wrong passwords</span><strong style={{ color: summary && summary.failed24h > 0 ? "#B45309" : undefined }}>{summary ? summary.failed24h : "–"}</strong><em>last 24 hours · {summary ? summary.signins24h : 0} sign-ins</em></button>
-          <div className="inv-stat is-static"><span>Locked now</span><strong style={{ color: data && data.locked.length > 0 ? "#B91C1C" : "#15803D" }}>{data ? data.locked.length : "–"}</strong><em>{summary ? `${summary.locks7d} lockout${summary.locks7d === 1 ? "" : "s"} in 7 days` : "after 5 wrong passwords"}</em></div>
-          <button type="button" className="inv-stat" aria-pressed={group === "signins"} onClick={() => setGroup(group === "signins" ? "all" : "signins")}><span>New devices</span><strong>{summary ? summary.newDevices7d : "–"}</strong><em>verified with an emailed code, 7 days</em></button>
-          <button type="button" className="inv-stat" aria-pressed={group === "passwords"} onClick={() => setGroup(group === "passwords" ? "all" : "passwords")}><span>Password changes</span><strong>{summary ? summary.passwords30d : "–"}</strong><em>changed, reset or set, 30 days</em></button>
-        </div>
-
-        {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
-        {notice && <div className="inv-alert" role="status" style={{ background: "#F0FDF4", borderColor: "#BBF7D0", color: "#15803D" }}><span>{notice}</span><button type="button" onClick={() => setNotice("")} title="Dismiss"><IconX size={14} /></button></div>}
-
-        {data && data.locked.length > 0 && <DashCard title="Locked right now" sub="Too many wrong passwords. Each unlocks by itself after 15 minutes, or unlock it now if you know it was them.">
-          <ul className="acc-list">
-            {data.locked.map((entry) => <li key={`${entry.kind}-${entry.loginKey}`}>
-              <span><strong>{entry.name ?? entry.loginKey}</strong><em>{entry.name ? `${entry.loginKey} · ` : ""}{entry.kind === "staff" ? "Staff / admin" : "Customer"} · until {clockTime(entry.until)}</em></span>
-              <button type="button" className="inv-secondary" disabled={unlocking === entry.loginKey} onClick={() => void unlock(entry)}>{unlocking === entry.loginKey ? "Unlocking…" : "Unlock"}</button>
-            </li>)}
-          </ul>
-        </DashCard>}
-
-        <div className="inv-toolbar">
-          <div className="inv-search is-wide">
-            <IconSearch size={14} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, username or IP" />
-            {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+        {tab === "activity" && <>
+          <div className="inv-summary">
+            <button type="button" className="inv-stat" aria-pressed={group === "failed"} onClick={() => setGroup(group === "failed" ? "all" : "failed")}><span>Wrong passwords</span><strong style={{ color: summary && summary.failed24h > 0 ? "#B45309" : undefined }}>{summary ? summary.failed24h : "–"}</strong><em>last 24 hours · {summary ? summary.signins24h : 0} sign-ins</em></button>
+            <button type="button" className="inv-stat" onClick={() => { setAccountFilter(locked.length ? "locked" : "all"); setTab("passwords"); }}><span>Locked now</span><strong style={{ color: locked.length > 0 ? "#B91C1C" : "#15803D" }}>{data ? locked.length : "–"}</strong><em>{summary ? `${summary.locks7d} lockout${summary.locks7d === 1 ? "" : "s"} in 7 days` : "after 5 wrong passwords"}</em></button>
+            <button type="button" className="inv-stat" aria-pressed={group === "signins"} onClick={() => setGroup(group === "signins" ? "all" : "signins")}><span>New devices</span><strong>{summary ? summary.newDevices7d : "–"}</strong><em>verified with an emailed code, 7 days</em></button>
+            <button type="button" className="inv-stat" aria-pressed={group === "passwords"} onClick={() => setGroup(group === "passwords" ? "all" : "passwords")}><span>Password changes</span><strong>{summary ? summary.passwords30d : "–"}</strong><em>changed, reset or set, 30 days</em></button>
           </div>
-          <div className="inv-range" role="group" aria-label="Show">
-            {([["all", "Everything"], ["signins", "Sign-ins"], ["failed", "Failed & locked"], ["passwords", "Passwords"], ["accounts", "Account changes"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={group === id} onClick={() => setGroup(id)}>{label}</button>)}
-          </div>
-          <div className="inv-range" role="group" aria-label="Period">
-            {([[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
-          </div>
-        </div>
 
-        <DashCard title="Security log" sub="Every sign-in and account change in the Admin Portal, Staff Portal and Mobile Menu, newest first (up to 300)">
-          {!data ? <p className="dash-empty">Loading the security log…</p>
-            : events.length === 0 ? <p className="dash-empty">Nothing recorded for this filter.</p>
-              : <div className="fin-table-wrap">
-                <table className="fin-table">
-                  <thead><tr><th>When</th><th>What</th><th>Account</th><th>Details</th><th>Where</th></tr></thead>
-                  <tbody>
-                    {events.map((entry) => {
-                      const info = securityEventInfo[entry.event] ?? { label: entry.event.replace(/_/g, " "), tone: "info" as const };
-                      const tone = securityToneColors[info.tone];
-                      const who = entry.accountName ?? entry.loginKey ?? "Unknown account";
-                      const kind = entry.accountKind === "customer" ? "Customer" : entry.accountRole?.toLowerCase() === "admin" ? "Admin" : entry.accountRole ? staffRoleLabel(entry.accountRole) : entry.accountKind === "staff" ? "Staff" : "No such account";
-                      return <tr key={entry.id}>
-                        <td style={{ whiteSpace: "nowrap" }}><strong>{clockTime(entry.createdAt)}</strong><span className="fin-table-sub">{new Date(entry.createdAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric" })}</span></td>
-                        <td><span style={{ display: "inline-block", padding: "3px 9px", borderRadius: 999, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", ...tone }}>{info.label}</span></td>
-                        <td><strong>{who}</strong><span className="fin-table-sub">{kind}{entry.accountName && entry.loginKey ? ` · ${entry.loginKey}` : ""}</span></td>
-                        <td>{entry.detail ?? ""}{entry.actorName && <span className="fin-table-sub">by {entry.actorName}</span>}</td>
-                        <td><span>{entry.portal ? securityPortalNames[entry.portal] ?? entry.portal : ""}</span><span className="fin-table-sub">{[entry.device, entry.ip].filter(Boolean).join(" · ")}</span></td>
-                      </tr>;
-                    })}
-                  </tbody>
-                </table>
-              </div>}
-        </DashCard>
+          {lockedCard}
 
-        <DashCard title="How accounts are protected" sub="What the system does on its own">
-          <ul className="acc-list">
-            <li><span><strong>5 wrong passwords lock the account for 15 minutes</strong><em>Even the right password is refused while locked, and the owner gets an email. An admin can unlock it here.</em></span></li>
-            <li><span><strong>A new device needs a code from email</strong><em>A stolen password is not enough: the 6-digit code goes to the account&apos;s own email. The device is trusted for 30 days.</em></span></li>
-            <li><span><strong>Strong passwords only</strong><em>At least 8 characters with a letter and a number; common passwords, the person&apos;s own name or email, and the café&apos;s name are refused.</em></span></li>
-            <li><span><strong>Password changes are announced</strong><em>The owner is emailed, and every other device is signed out.</em></span></li>
-            <li><span><strong>Every page is sent with security headers</strong><em>HTTPS only, no framing by other sites, and no camera, microphone or location access beyond what the café uses.</em></span></li>
-          </ul>
-        </DashCard>
+          <div className="inv-toolbar">
+            <div className="inv-search is-wide">
+              <IconSearch size={14} />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search name, email, username or IP" />
+              {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+            <div className="inv-range" role="group" aria-label="Show">
+              {([["all", "Everything"], ["signins", "Sign-ins"], ["failed", "Failed & locked"], ["passwords", "Passwords"], ["accounts", "Account changes"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={group === id} onClick={() => setGroup(id)}>{label}</button>)}
+            </div>
+            <div className="inv-range" role="group" aria-label="Period">
+              {([[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
+            </div>
+          </div>
+
+          <DashCard title="Security log" sub="Every sign-in and account change in the Admin Portal, Staff Portal and Mobile Menu, newest first (up to 300)">
+            {!data ? <p className="dash-empty">Loading the security log…</p>
+              : events.length === 0 ? <p className="dash-empty">Nothing recorded for this filter.</p>
+                : <div className="fin-table-wrap">
+                  <table className="fin-table sec-table is-log">
+                    <thead><tr><th>When</th><th>What</th><th>Account</th><th>Details</th><th>Where</th></tr></thead>
+                    <tbody>
+                      {events.map((entry) => {
+                        const info = securityEventInfo[entry.event] ?? { label: entry.event.replace(/_/g, " "), tone: "info" as const };
+                        const who = entry.accountName ?? entry.loginKey ?? "Unknown account";
+                        const kind = entry.accountKind === "customer" ? "Customer" : entry.accountRole?.toLowerCase() === "admin" ? "Admin" : entry.accountRole ? staffRoleLabel(entry.accountRole) : entry.accountKind === "staff" ? "Staff" : "No such account";
+                        return <tr key={entry.id}>
+                          <td className="sec-when" style={{ whiteSpace: "nowrap" }}><strong>{clockTime(entry.createdAt)}</strong><span className="fin-table-sub">{securityDay(entry.createdAt)}</span></td>
+                          <td className="sec-what"><span style={securityPill(info.tone)}>{info.label}</span></td>
+                          <td className="sec-account"><strong>{who}</strong><span className="fin-table-sub">{kind}{entry.accountName && entry.loginKey ? ` · ${entry.loginKey}` : ""}</span></td>
+                          <td className="sec-details">{entry.detail ?? ""}{entry.actorName && <span className="fin-table-sub">by {entry.actorName}</span>}</td>
+                          <td className="sec-where"><span>{entry.portal ? securityPortalNames[entry.portal] ?? entry.portal : ""}</span><span className="fin-table-sub">{[entry.device, entry.ip].filter(Boolean).join(" · ")}</span></td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table>
+                </div>}
+          </DashCard>
+        </>}
+
+        {tab === "passwords" && <>
+          {lockedCard}
+
+          <div className="inv-toolbar">
+            <div className="inv-search is-wide">
+              <IconSearch size={14} />
+              <input value={accountSearch} onChange={(event) => setAccountSearch(event.target.value)} placeholder="Search name, email or username" />
+              {accountSearch && <button type="button" onClick={() => setAccountSearch("")} title="Clear search"><IconX size={12} /></button>}
+            </div>
+            <div className="inv-range" role="group" aria-label="Show">
+              {([["all", "Everyone"], ["staff", "Staff"], ["customer", "Customers"], ["locked", `Locked${locked.length ? ` (${locked.length})` : ""}`], ["inactive", "Deactivated"]] as const).map(([id, label]) => <button key={id} type="button" aria-pressed={accountFilter === id} onClick={() => setAccountFilter(id)}>{label}</button>)}
+            </div>
+          </div>
+
+          <DashCard title="Passwords & sign-in" sub="Every login to the Admin Portal, Staff Portal and Mobile Menu. Reset a forgotten password, unlock a locked account, or sign a lost phone out.">
+            {accounts === null ? <p className="dash-empty">Loading the accounts…</p>
+              : shownAccounts.length === 0 ? <p className="dash-empty">No accounts match. <button type="button" className="inv-link" onClick={() => { setAccountSearch(""); setAccountFilter("all"); }}>Show everyone</button></p>
+                : <div className="fin-table-wrap">
+                  <table className="fin-table sec-table is-accounts">
+                    <thead><tr><th>Account</th><th>Status</th><th>Last sign-in</th><th>Password</th><th className="is-num">Devices</th><th /></tr></thead>
+                    <tbody>
+                      {shownAccounts.map((account) => {
+                        const lock = lockedFor(account);
+                        const key = `${account.kind}-${account.id}`;
+                        return <tr key={key}>
+                          <td className="sec-account"><strong>{account.name}</strong><span className="fin-table-sub">{securityAccountRole(account)} · {account.kind === "customer" ? `@${account.login}` : account.login}</span></td>
+                          <td className="sec-status">{lock ? <span style={securityPill("bad")}>Locked until {clockTime(lock.until)}</span> : account.isActive ? <span style={securityPill("good")}>Active</span> : <span style={securityPill("info")}>Deactivated</span>}</td>
+                          <td className="sec-signin" data-label="Last sign-in" style={{ whiteSpace: "nowrap" }}>{account.lastSignIn ? <><strong>{clockTime(account.lastSignIn)}</strong><span className="fin-table-sub">{securityDay(account.lastSignIn)}</span></> : <span className="fin-table-sub">Not since logging began</span>}</td>
+                          <td className="sec-password" data-label="Password" style={{ whiteSpace: "nowrap" }}>{account.passwordChanged ? <><span>Changed {securityDay(account.passwordChanged)}</span><span className="fin-table-sub">{clockTime(account.passwordChanged)}</span></> : <span className="fin-table-sub">Not changed since logging began</span>}</td>
+                          <td className="is-num sec-devices" data-label="Devices">{account.devices}</td>
+                          <td className="sec-actions">
+                            <div className="flex justify-end gap-2" style={{ whiteSpace: "nowrap" }}>
+                              {lock && <button type="button" className="inv-mini" disabled={working !== null} onClick={() => void unlock(lock)}>{working === `unlock-${lock.loginKey}` ? "Unlocking…" : "Unlock"}</button>}
+                              {account.role === "admin"
+                                ? <span className="fin-table-sub" style={{ alignSelf: "center" }}>Own password: My Account</span>
+                                : <button type="button" className="inv-mini" disabled={working !== null || !account.isActive} onClick={() => setPasswordFor(account)}>Reset password</button>}
+                              {account.devices > 0 && account.role !== "admin" && <button type="button" className="inv-mini" disabled={working !== null} onClick={() => void signOutEverywhere(account)}>{working === `signout-${key}` ? "Signing out…" : "Sign out everywhere"}</button>}
+                            </div>
+                          </td>
+                        </tr>;
+                      })}
+                    </tbody>
+                  </table>
+                </div>}
+          </DashCard>
+        </>}
+
+        {tab === "protection" && <>
+          <DashCard title="How accounts are protected" sub="What the system does on its own">
+            <ul className="acc-list">
+              <li><span><strong>5 wrong passwords lock the account for 15 minutes</strong><em>Even the right password is refused while locked, and the owner gets an email. An admin can unlock it in Passwords &amp; sign-in.</em></span></li>
+              <li><span><strong>A new device needs a code from email</strong><em>A stolen password is not enough: the 6-digit code goes to the account&apos;s own email. The device is trusted for 30 days.</em></span></li>
+              <li><span><strong>Strong passwords only</strong><em>Checked by the server every time a password is set, in all three apps (rules below).</em></span></li>
+              <li><span><strong>Password changes are announced</strong><em>The owner is emailed, and every other device is signed out.</em></span></li>
+              <li><span><strong>The admin never keeps someone else&apos;s password</strong><em>A forgotten password is reset with an emailed link that only they can use, or with a temporary password they must replace the first time they sign in.</em></span></li>
+              <li><span><strong>Every action is checked against the role</strong><em>Baristas, kitchen staff and riders only reach their queue; a cashier cannot open the Admin Portal; voids, refunds and drawer changes need the password again.</em></span></li>
+              <li><span><strong>Every page is sent with security headers</strong><em>HTTPS only, no framing by other sites, and no camera, microphone or location access beyond what the café uses.</em></span></li>
+            </ul>
+          </DashCard>
+          <DashCard title="Password rules" sub="For staff and customer passwords, set by anyone">
+            <ul className="acc-list">
+              <li><span><strong>8 to 72 characters</strong><em>Spaces are allowed; a password of only spaces is not.</em></span></li>
+              <li><span><strong>At least one letter and one number</strong><em>For example &quot;kape at 7 umaga&quot;.</em></span></li>
+              <li><span><strong>Not a common password</strong><em>&quot;password123&quot;, &quot;12345678&quot;, &quot;iloveyou1&quot; and the like are refused.</em></span></li>
+              <li><span><strong>Not the person&apos;s own name, email or username, nor the café&apos;s name</strong><em>Those are the first things someone would guess.</em></span></li>
+            </ul>
+          </DashCard>
+        </>}
       </>}
     </div>
+
+    {passwordFor && <SetPasswordDialog account={passwordFor} onClose={() => setPasswordFor(null)} onDone={(message) => { setPasswordFor(null); setNotice(message); void loadAccounts(); }} />}
   </div>;
 }
 
-function Accounts() {
+// Resetting someone's password, two ways: email them a reset link (they choose the password, the
+// admin never sees it), or give a temporary password that they must change the first time they
+// sign in. Either way they are told by email.
+function SetPasswordDialog({ account, onClose, onDone }: { account: SecurityAccount; onClose: () => void; onDone: (message: string) => void }) {
+  const [mode, setMode] = useState<"link" | "temporary">(account.email ? "link" : "temporary");
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const about = { name: account.name, email: account.email, username: account.kind === "customer" ? account.login : null };
+  const checks = passwordChecks(password);
+  const app = account.kind === "staff" ? "Staff Portal" : "Mobile Menu";
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (mode === "temporary") {
+      const weak = passwordProblem(password, about);
+      if (weak) { setError(weak); return; }
+    }
+    setSaving(true);
+    try {
+      const response = mode === "link"
+        ? await fetch("/api/security-events", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "send_reset", kind: account.kind, id: account.id }) })
+        : await fetch(account.kind === "staff" ? "/api/cashier-accounts" : "/api/customers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(account.kind === "staff" ? { id: account.id, action: "set_password", password } : { id: account.id, action: "set_login", password }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || (mode === "link" ? "Could not send the reset link." : "Could not set the password."));
+      if (mode === "link") onDone(`Reset link sent to ${payload.data?.sentTo ?? account.email}. ${account.name} chooses the new password; you never see it.`);
+      else {
+        const ended = Number(payload.data?.signedOutDevices ?? 0);
+        onDone(`Temporary password for ${account.name}: ${password}. Give it to them in person; they must choose their own the first time they sign in. Signed out of ${ended} device${ended === 1 ? "" : "s"}.`);
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Something went wrong. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const choice = (id: "link" | "temporary", title: string, text: string, disabled = false) => <button type="button" role="radio" aria-checked={mode === id} disabled={disabled || saving} onClick={() => { setMode(id); setError(""); }}
+    style={{ display: "flex", gap: 12, alignItems: "flex-start", textAlign: "left", padding: "12px 14px", borderRadius: 12, border: `1.5px solid ${mode === id ? "#D97706" : "#E8DDD5"}`, background: mode === id ? "#FFF7ED" : "#FFFFFF", cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.55 : 1 }}>
+    <span aria-hidden="true" style={{ flex: "none", width: 18, height: 18, marginTop: 2, borderRadius: 999, border: `2px solid ${mode === id ? "#D97706" : "#C9B9A8"}`, boxShadow: mode === id ? "inset 0 0 0 3px #FFFFFF" : undefined, background: mode === id ? "#D97706" : "#FFFFFF" }} />
+    <span><strong style={{ display: "block", fontSize: 14, color: "#3D2B1F" }}>{title}</strong><span style={{ display: "block", marginTop: 2, fontSize: 12.5, lineHeight: 1.5, color: "#9C8278" }}>{text}</span></span>
+  </button>;
+
+  return <Modal onClose={onClose} closeDisabled={saving} labelledBy="set-password-title">
+    <form onSubmit={save} className="flex flex-col gap-4 rounded-2xl" style={{ background: "#FDF9F5", width: "100%", maxWidth: 480, padding: 24, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <header className="flex items-center gap-3">
+        <UserAvatar name={account.name} size={44} />
+        <div style={{ minWidth: 0 }}>
+          <h2 id="set-password-title" style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#3D2B1F" }}>Reset password</h2>
+          <p style={{ margin: "2px 0 0", color: "#9C8278", fontSize: 13 }}>{account.name} · {securityAccountRole(account)}</p>
+        </div>
+      </header>
+      <div role="radiogroup" aria-label="How to reset" className="flex flex-col gap-2">
+        {choice("link", "Email them a reset link (recommended)", account.email
+          ? `The ${app} emails ${account.email} a link to choose a new password. Only they will know it. Their current password works until they use the link.`
+          : "This account has no email. Add one first, or give a temporary password.", !account.email)}
+        {choice("temporary", "Give a temporary password", "For someone at the counter right now. Their old password stops, every device is signed out, and they must choose their own password the first time they sign in.")}
+      </div>
+      {mode === "temporary" && <>
+        <WizardField label="Temporary password">
+          <div className="flex gap-2">
+            <input type="text" value={password} onChange={(event) => setPassword(event.target.value)} style={{ ...packagingInput, fontFamily: "JetBrains Mono, monospace" }} autoComplete="new-password" autoFocus aria-label="Temporary password" />
+            <button type="button" className="inv-mini" style={{ height: 40 }} onClick={() => setPassword(generateTemporaryPassword())}>Generate</button>
+          </div>
+        </WizardField>
+        <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5 }}>
+          <li style={{ color: checks.length ? "#15803D" : "#9C8278" }}>{checks.length ? "✓" : "•"} At least 8 characters</li>
+          <li style={{ color: checks.letterAndNumber ? "#15803D" : "#9C8278" }}>{checks.letterAndNumber ? "✓" : "•"} A letter and a number</li>
+          <li style={{ color: "#9C8278" }}>• Not their name, email or username, the café&apos;s name or a common password</li>
+        </ul>
+      </>}
+      {error && <p role="alert" className="acc-error">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <button type="button" className="inv-mini" onClick={onClose} disabled={saving}>Cancel</button>
+        <button type="submit" className="inv-mini" style={{ background: "#3D2B1F", color: "#FDF9F5", borderColor: "#3D2B1F" }} disabled={saving || (mode === "temporary" && password.length === 0)}>{saving ? (mode === "link" ? "Sending…" : "Saving…") : mode === "link" ? "Send reset link" : "Set temporary password"}</button>
+      </div>
+    </form>
+  </Modal>;
+}
+
+function Accounts({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) => void }) {
   const [accounts, setAccounts] = useState<CashierAccount[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
@@ -10893,7 +11085,7 @@ function Accounts() {
     </div>
 
     {adding && <AddEmployeeDialog onClose={() => setAdding(false)} onCreated={loadAccounts} />}
-    {selected && <EmployeeDialog key={selected.id} account={selected} now={now} exporting={exportingAccountId === selected.id} onClose={() => setSelectedId(null)} onChanged={(updated) => setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account))} onReload={loadAccounts} onExport={() => exportEmployeeReport(selected)} />}
+    {selected && <EmployeeDialog key={selected.id} account={selected} now={now} exporting={exportingAccountId === selected.id} onClose={() => setSelectedId(null)} onChanged={(updated) => setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account))} onReload={loadAccounts} onExport={() => exportEmployeeReport(selected)} onOpenSecurity={onOpenSecurity} />}
   </div>;
 }
 
@@ -11548,6 +11740,8 @@ export default function App() {
   }
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // The account the Employee or Customer dialog asked the Security page to open.
+  const [securityFocus, setSecurityFocus] = useState<SecurityFocus | null>(null);
   const [page, setPage] = useState<Page>("dashboard");
   const [showSignOut, setShowSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
@@ -11797,7 +11991,13 @@ export default function App() {
 
   function goTo(nextPage: Page) {
     setMoreOpen(false);
+    setSecurityFocus(null);
     handlePageChange(nextPage);
+  }
+
+  function openSecurity(focus: SecurityFocus) {
+    goTo("security");
+    setSecurityFocus(focus);
   }
 
   return <ConfirmProvider><div className="admin-shell">
@@ -11812,13 +12012,13 @@ export default function App() {
         {page === "finance" && <Finance />}
         {page === "treasury" && <Treasury />}
         {page === "insights" && <InsightsPage onNavigate={goTo} />}
-        {page === "customers" && <Customers />}
+        {page === "customers" && <Customers onOpenSecurity={openSecurity} />}
         {page === "loyalty" && <Loyalty products={products} categories={categories} />}
         {page === "promotions" && <Promotions products={products} />}
         {page === "discounts" && <Discounts />}
         {page === "delivery" && <Delivery />}
-        {page === "accounts" && <Accounts />}
-        {page === "security" && <SecurityPage />}
+        {page === "accounts" && <Accounts onOpenSecurity={openSecurity} />}
+        {page === "security" && <SecurityPage key={securityFocus ? `${securityFocus.kind}-${securityFocus.login}` : "all"} focus={securityFocus} />}
         {page === "archives" && <Archives />}
         {page === "account" && <AccountManagement user={authUser} onSignOut={() => setShowSignOut(true)} />}
       </div>

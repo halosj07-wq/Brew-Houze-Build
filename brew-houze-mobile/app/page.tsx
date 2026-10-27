@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { AccountPage, AccountSheet, CartAccountNote, discountText, OrderHistory, rewardMismatch, usableRewards, useCustomerAccount, type AccountForm, type LoyaltyReward } from "./account";
+import { AccountPage, AccountSheet, FirstPasswordSheet, CartAccountNote, discountText, OrderHistory, rewardMismatch, usableRewards, useCustomerAccount, type AccountForm, type LoyaltyReward } from "./account";
 import { IdCheckStatus, IdDiscountSheet, type IdCheckState, type IdCoverage, type IdDiscountRule, type VatSetting } from "./id-discount";
 import { PhoneField } from "@/lib/input-format";
 import { downloadReceipt, ReceiptSheet } from "./receipt";
@@ -1601,6 +1601,7 @@ export default function MenuPage() {
       </section>
     </div>}
     {/* From the Stars sign, wait until the account has loaded so a signed-in customer goes straight to their stars. */}
+    <FirstPasswordSheet state={customer} />
     {accountOpen && !(claimStart && customer.loading) && <AccountSheet state={customer} resetToken={resetToken} startClaim={claimStart} startAddresses={accountAddresses} start={accountForm} onClose={() => { setAccountOpen(false); setAccountAddresses(false); setAccountForm(undefined); setResetToken(null); setClaimStart(false); }} onResetDone={() => setResetToken(null)} onNotice={setAddedNote} />}
     {idSheet && activeIdRule && <IdDiscountSheet mode={idSheet} rule={activeIdRule} vat={idVat} lines={idSheetLines} saved={savedId} signedIn={Boolean(customer.account)} payLabel={idPayLabel}
       onSendPhoto={sendIdPhoto} onPaySaved={(coverage) => payWithIdDiscount({ saved_id: coverage })} onClose={() => setIdSheet(null)} />}
