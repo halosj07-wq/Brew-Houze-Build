@@ -1,7 +1,7 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
-// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css, breed.css, yoru.css and
-// stay.css; photos and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/, kiss-n-tell/, ditto/,
-// breed/, yoru/ and stay/).
+// dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css, breed.css, yoru.css,
+// stay.css and spicy.css; photos and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/,
+// kiss-n-tell/, ditto/, breed/, yoru/, stay/ and spicy/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
 // Armageddon, Drama, Rich Man or Kiss N Tell, straight from any of them. Each
@@ -32,7 +32,10 @@
   // Racing into the Night has been found (see "I Really Want to Stay at Your House: the secret after Racing
   // into the Night" at the end).
   const STAY_KEY = "brew-houze-stay-unlocked";
-  const BONUS = ["ditto", "breed", "yoru", "stay"]; // the hidden tracks, after the six, in the order they are found
+  // Spicy, the one after that, is a fire alarm on the café header's wall once I Really Want to Stay at Your
+  // House has been found (see "Spicy: the secret after I Really Want to Stay at Your House" at the end).
+  const SPICY_KEY = "brew-houze-spicy-unlocked";
+  const BONUS = ["ditto", "breed", "yoru", "stay", "spicy"]; // the hidden tracks, after the six, in the order they are found
   const visited = () => { try { const list = JSON.parse(store.get(VISITED_KEY) ?? "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
   let onThemeApplied = null; // set by the Ditto unlock once it is ready
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -10878,6 +10881,1112 @@
     };
   })();
 
+  // ── Spicy (aespa, 2023): the fifth hidden track, a fire alarm on the café header's wall once Stay has been
+  // found (see the end of this file). 115 BPM; the three files' music starts 1352 samples in (as Racing into the
+  // Night's and Stay's), and each is whole beats: the intro 20 (5 bars; its last beat silent, the drop), track 1
+  // 32 (8 bars), track 2 33 (8 bars and a beat). ──
+  const SP_BEAT = 60 / 115;
+  const SP_START = 1352 / 44100;
+  const SP_INTRO = 20 * SP_BEAT, SP_TRACK1 = 32 * SP_BEAT, SP_TRACK2 = 33 * SP_BEAT;
+  // Its flames: chrome flames, the tribal flames of Y2K decals, rising from below the screen (the alarm's
+  // takeover, then the intro). spFlames(W, H) lays out three rows of tongues for a W×H screen (seeded: the same
+  // layout every time, so the intro picks up the takeover's last frame) and returns draw(g, ms, grow): grow 0
+  // (none) to 1 (over the top of the screen, the screen behind them filled), ms swaying their tips (held, it
+  // holds them, embers and all). Options scale them for a smaller box (the intro's cover): reach (how tall),
+  // fill (how high the dark behind them climbs) and gap (how far apart, so how many). A tongue is
+  // an S-curved centre line tapering to its point, with a barb or two on its outer side; it is filled with a
+  // chrome gradient across it (its row's colours around a white highlight), outlined in ink and streaked with
+  // light. Embers rise off the tips.
+  const SP_CHROME = {
+    back: ["#140008", "#4A0420", "#8E0838", "#D2205E", "#F98AB5", "#C81F5A", "#5C0526", "#140008"],
+    mid: ["#300012", "#A3002F", "#FF2D6F", "#FF9CC2", "#FFFFFF", "#FFD3E6", "#8E6BFF", "#FF3F8E", "#C0003C", "#2B0012"],
+    front: ["#1C1722", "#5C5664", "#C9C3D2", "#FFFFFF", "#F6E3EE", "#8E8696", "#FF5C9E", "#26182A"],
+  };
+  let spFlameTime = 0; // the takeover's sway clock when it handed over (the intro carries on from it)
+  function spFlames(W, H, { reach: tall = 1, fill = 1, gap: spread = 1 } = {}) {
+    let seed = 20230508;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    // [row, gap between tongues, reach (of the screen's height) low and high, how late it starts (of grow), half
+    // width at the base (of the gap) low and high]
+    const rows = [["back", 92, 0.95, 1.45, 0, 0.4, 0.56], ["mid", 124, 0.7, 1.1, 0.07, 0.34, 0.48], ["front", 176, 0.34, 0.58, 0.13, 0.28, 0.38]].map(([name, gap, low, high, late, thin, thick]) => {
+      const n = Math.ceil(W / (gap * spread)) + 2, step = W / (n - 2);
+      return {
+        name, colours: SP_CHROME[name],
+        tongues: Array.from({ length: n }, (_, i) => {
+          const lean = (rand() * 2 - 1) * 0.2;
+          return {
+            x: (i - 0.5 + rand() * 0.8) * step, w: step * (thin + rand() * (thick - thin)), reach: (low + rand() * (high - low)) * tall,
+            lean, curl: (0.17 + rand() * 0.15) * (rand() < 0.5 ? -1 : 1), late: late + rand() * 0.12,
+            sway: 1.7 + rand() * 1.9, phase: rand() * Math.PI * 2,
+            // flicks: [where along it (0 base, 1 tip), its side (+1 or -1), its length (of the base's half width)]
+            barbs: Array.from({ length: 1 + Math.floor(rand() * 2) }, (_, k) => [0.22 + k * 0.24 + rand() * 0.12, rand() < 0.7 ? (lean >= 0 ? -1 : 1) : (lean >= 0 ? 1 : -1), 0.4 + rand() * 0.35]),
+          };
+        }),
+      };
+    });
+    const quad = (a, c, b, q) => [(1 - q) * (1 - q) * a[0] + 2 * (1 - q) * q * c[0] + q * q * b[0], (1 - q) * (1 - q) * a[1] + 2 * (1 - q) * q * c[1] + q * q * b[1]];
+    const base = H + 30, N = 30;
+    const embers = [];
+    // A tongue h px tall: its outline (both sides with their barbs), filled, outlined and streaked.
+    const tongue = (g, f, h, ms, colours, row) => {
+      const s = Math.sin(ms / 1000 * f.sway + f.phase);
+      const x0 = f.x, tipX = x0 + (f.lean + 0.09 * s) * h, tipY = base - h, curl = (f.curl + 0.06 * s) * h;
+      const c1x = x0 - curl, c1y = base - h * 0.4, c2x = tipX + curl * 1.3, c2y = base - h * 0.76;
+      const C = [];
+      for (let k = 0; k <= N; k++) {
+        const u = k / N, v = 1 - u;
+        const px = v * v * v * x0 + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u * u * u * tipX;
+        const py = v * v * v * base + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u * u * u * tipY;
+        const dx = 3 * v * v * (c1x - x0) + 6 * v * u * (c2x - c1x) + 3 * u * u * (tipX - c2x);
+        const dy = 3 * v * v * (c1y - base) + 6 * v * u * (c2y - c1y) + 3 * u * u * (tipY - c2y);
+        const len = Math.hypot(dx, dy) || 1;
+        // wide low down, whipping out to a long thin point
+        const wid = f.w * Math.pow(v, 1.45) * (1 + 1.1 * u);
+        C.push({ x: px, y: py, nx: -dy / len, ny: dx / len, tx: dx / len, ty: dy / len, wid });
+      }
+      const sides = [1, -1].map((side) => {
+        const pts = [];
+        const barb = f.barbs.find(([u, s2]) => s2 === side && Math.round(u * N) >= 2 && Math.round(u * N) <= N - 3);
+        const k0 = barb ? Math.round(barb[0] * N) : -9;
+        for (let k = 0; k <= N; k++) {
+          const c = C[k];
+          if (k === k0) {
+            // a flick: out from the edge in a curve to its point (outward, and on up along the tongue), then a
+            // curved notch back into the edge
+            const len = barb[2] * f.w, a = C[k - 1], b = C[k + 2];
+            const from = [a.x + side * a.nx * a.wid, a.y + side * a.ny * a.wid];
+            const ctrl = [c.x + side * c.nx * (c.wid + len * 0.75), c.y + side * c.ny * (c.wid + len * 0.75)];
+            const tip = [b.x + side * b.nx * (b.wid + len * 0.7) + b.tx * len * 1.1, b.y + side * b.ny * (b.wid + len * 0.7) + b.ty * len * 1.1];
+            for (const q of [0.25, 0.5, 0.75]) pts.push(quad(from, ctrl, tip, q));
+            pts.push(tip);
+            const notch = [b.x + side * b.nx * b.wid * 0.55, b.y + side * b.ny * b.wid * 0.55];
+            pts.push([(tip[0] + notch[0]) / 2 - side * b.nx * len * 0.12, (tip[1] + notch[1]) / 2 - side * b.ny * len * 0.12], notch);
+            continue;
+          }
+          if (k === k0 + 1 || k === k0 + 2) continue;
+          pts.push([c.x + side * c.nx * c.wid, c.y + side * c.ny * c.wid]);
+        }
+        return pts;
+      });
+      g.beginPath();
+      sides[0].forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+      for (let i = sides[1].length - 1; i >= 0; i--) g.lineTo(sides[1][i][0], sides[1][i][1]);
+      g.closePath();
+      // chrome across it, at its middle
+      const m = C[10], reachW = f.w * 1.3;
+      const grad = g.createLinearGradient(m.x - m.nx * reachW, m.y - m.ny * reachW, m.x + m.nx * reachW, m.y + m.ny * reachW);
+      colours.forEach((colour, i) => grad.addColorStop(i / (colours.length - 1), colour));
+      g.fillStyle = grad;
+      g.fill();
+      g.lineWidth = 1.4;
+      g.strokeStyle = row === "back" ? "rgba(20, 0, 9, 0.6)" : "rgba(26, 0, 12, 0.88)";
+      g.stroke();
+      // the highlight's streak, along the light side
+      g.beginPath();
+      for (let k = 3; k <= N - 6; k++) { const c = C[k], o = c.wid * 0.34; if (k === 3) g.moveTo(c.x + c.nx * o, c.y + c.ny * o); else g.lineTo(c.x + c.nx * o, c.y + c.ny * o); }
+      g.lineCap = "round";
+      g.lineWidth = Math.max(1.2, f.w * 0.06);
+      g.strokeStyle = row === "back" ? "rgba(255, 214, 232, 0.32)" : "rgba(255, 255, 255, 0.78)";
+      g.stroke();
+      return [tipX, tipY];
+    };
+    const ember = document.createElement("canvas");
+    ember.width = ember.height = 24;
+    const eg = ember.getContext("2d"), glow = eg.createRadialGradient(12, 12, 0, 12, 12, 12);
+    glow.addColorStop(0, "rgba(255, 246, 250, 1)"); glow.addColorStop(0.35, "rgba(255, 92, 158, 0.9)"); glow.addColorStop(1, "rgba(255, 45, 111, 0)");
+    eg.fillStyle = glow; eg.fillRect(0, 0, 24, 24);
+    let last = null;
+    return function draw(g, ms, grow) {
+      const dt = last === null ? 16 : Math.min(50, Math.max(0, ms - last));
+      last = ms;
+      // the screen behind the flames: filled from the bottom (slower than the tongues, covering it all at the
+      // end), with a glow above where it reaches
+      const fillTop = base - (H + 60) * Math.pow(grow, 2.2) * fill;
+      if (grow > 0) {
+        const glowTop = fillTop - 200;
+        const haze = g.createLinearGradient(0, glowTop, 0, fillTop);
+        haze.addColorStop(0, "rgba(255, 45, 111, 0)"); haze.addColorStop(1, "rgba(255, 45, 111, 0.42)");
+        g.fillStyle = haze; g.fillRect(0, glowTop, W, fillTop - glowTop);
+        const deep = g.createLinearGradient(0, Math.max(0, fillTop), 0, H);
+        deep.addColorStop(0, "#5A0526"); deep.addColorStop(1, "#140008");
+        g.fillStyle = deep; g.fillRect(0, fillTop, W, base - fillTop);
+      }
+      const tips = [];
+      for (const row of rows) {
+        for (const f of row.tongues) {
+          const p = Math.min(1, Math.max(0, (grow - f.late) / (1 - f.late)));
+          if (p <= 0) continue;
+          const h = (1 - Math.pow(1 - p, 2.2)) * f.reach * H + 20;
+          tips.push(tongue(g, f, h, ms, row.colours, row.name));
+        }
+      }
+      // embers off the tips, rising and drifting, fading
+      if (dt > 0 && grow > 0.05 && grow < 1.01 && tips.length) {
+        for (let k = 0; k < 2; k++) {
+          const [x, y] = tips[Math.floor(Math.random() * tips.length)];
+          if (y > -20 && y < H) embers.push({ x: x + (Math.random() - 0.5) * 30, y, vx: (Math.random() - 0.5) * 60, vy: -(120 + Math.random() * 220), age: 0, life: 500 + Math.random() * 700, size: 6 + Math.random() * 12 });
+        }
+      }
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      for (let i = embers.length - 1; i >= 0; i--) {
+        const e = embers[i];
+        e.age += dt;
+        if (e.age > e.life) { embers.splice(i, 1); continue; }
+        e.x += (e.vx + Math.sin((e.age + i * 97) / 140) * 40) * dt / 1000;
+        e.y += e.vy * dt / 1000;
+        g.globalAlpha = 1 - e.age / e.life;
+        g.drawImage(ember, e.x - e.size / 2, e.y - e.size / 2, e.size, e.size);
+      }
+      g.restore();
+    };
+  }
+  // Spicy's intro, "ISSUE #1": the flames the alarm raised forge the cover of SPICY, a Y2K teen magazine with aespa
+  // as its ICON, made on the clip's hits (SP_HIT: bar, sixteenth). Bar 1's eight stabs stamp the masthead in
+  // white-hot, a piece a stab (S P I C Y ® ICON: æSPA), each knocking the flame wall down while the camera pulls
+  // back from the masthead to the whole cover; the pickup runs the warning strip across its top. Bar 2: the four
+  // drop in as photo strips on the groove's hits, their yellow tags after them, and the cover's own flames light
+  // along its foot. Bar 3: the cover lines, the date stamped, the issue number, sparkles on the claps. Bar 4: the
+  // quiz badge, the barcode printed, the MY WORLD logo, and the alarm's pepper charm in a cover-mount bag. Bar 5:
+  // a gloss sweeps the cover; in the silence before the drop everything holds (the embers in the air, the
+  // masthead glowing) while the camera leans in, and the drop cuts to the page. The groove's hits (sixteenths 0,
+  // 6, 10) punch the camera and pulse the 3D pieces floating round the cover.
+  const SP_HIT = (bar, sixteenth) => (SP_START + ((bar - 1) * 16 + sixteenth) * SP_BEAT / 4) * 1000; // ms into the clip
+  const SP_STABS = [0, 2, 4, 6, 8, 10, 12, 14].map((n) => SP_HIT(1, n));
+  const SP_STRIPS = [SP_HIT(2, 0), SP_HIT(2, 6), SP_HIT(2, 10), SP_HIT(2, 12)];
+  const SP_GROOVE = [2, 3, 4, 5].flatMap((bar) => (bar === 5 ? [0, 6] : [0, 6, 10]).map((n) => SP_HIT(bar, n)));
+  const SP_CLAPS = [SP_HIT(3, 4), SP_HIT(3, 12), SP_HIT(4, 4), SP_HIT(4, 12)];
+  const SP_HOLD = SP_HIT(5, 8); // the music stops: the breath before the drop
+  // where each face is across her photo (a strip shows about half its width)
+  const SP_FACES = { karina: 36, giselle: 28, winter: 26, ningning: 48 };
+  // the 3D pieces floating round the cover: [file, size (vmin), turn (deg)]
+  const SP_FLOATS = [["el-star", 15, -12], ["el-heart", 13, 10], ["el-ring", 15, 8], ["el-flower", 12, -18], ["el-puffy", 11, 14], ["el-sun", 12, 0], ["el-shoot", 14, -8], ["el-burst", 10, 20], ["pepper", 21, -24], ["pepper-curl", 23, 16]];
+  const spicyIntro = {
+    end: SP_HIT(6, 0),
+    cues: [[0, "stamp"], [SP_HIT(2, 0), "cover"], [SP_HIT(3, 0), "lines"], [SP_HIT(4, 0), "extras"], [SP_HIT(5, 0), "gloss"], [SP_HOLD, "hold"]],
+    mount(box, photos) {
+      const group = groupOf("spicy");
+      const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      const wide = W >= H;
+      // the cover: 3:4, as big as fits (its type is sized off it: cqw, cqh)
+      const cw = Math.min(W * 0.92, H * 0.645), ch = cw * 4 / 3;
+      box.style.setProperty("--cw", `${cw.toFixed(1)}px`);
+      const star = (points) => `polygon(${Array.from({ length: points * 2 }, (_, k) => { const a = (k / (points * 2)) * Math.PI * 2, r = k % 2 ? 37 : 50; return `${(50 + Math.cos(a) * r).toFixed(1)}% ${(50 + Math.sin(a) * r).toFixed(1)}%`; }).join(", ")})`;
+      const spots = wide
+        ? [[8, 16], [21, 72], [12, 44], [26, 20], [7, 86], [79, 17], [93, 47], [75, 76], [91, 84], [93, 14]]
+        : [[12, 7], [88, 9], [50, 4], [31, 14], [70, 15], [13, 91], [88, 93], [50, 96], [30, 85], [70, 86]];
+      box.innerHTML = `<div class="sp-in-back"><i class="sp-in-glow"></i>${SP_FLOATS.map(([file, size], i) => `<img class="sp-in-float" src="${siteUrl(`spicy/${file}.webp`)}" alt="" draggable="false" style="--size: ${size}vmin; left: ${spots[i][0]}%; top: ${spots[i][1]}%" />`).join("")}</div>`
+        + `<div class="sp-in-cam is-body"><div class="sp-cover-box"><div class="sp-cover">`
+        + `<div class="sp-cv-strips">${group.order.map((key, i) => `<div class="sp-cv-strip" style="--fx: ${SP_FACES[key] ?? 50}%"><img src="${photos[i]?.src ?? siteUrl(photoOf("spicy", key))}" alt="" draggable="false" /><i class="sp-cv-duo"></i></div>`).join("")}</div>`
+        + `<canvas class="sp-cv-fire"></canvas>`
+        + `<div class="sp-cv-tags">${group.order.map((key, i) => `<b class="sp-cv-tag" style="--i: ${i}">★ ${escapeHtml(group.members[key].name.toUpperCase())}</b>`).join("")}</div>`
+        + `<p class="sp-cv-issue">ISSUE #1</p>`
+        + `<div class="sp-cv-lines"><p class="sp-cv-line">‘MY WORLD’ ALBUM</p><p class="sp-cv-line">&amp; ‘SPICY’ M/V RELEASE</p><p class="sp-cv-date">★ MAY 08 2023 ★</p></div>`
+        + `<p class="sp-cv-mini">★ THE 3RD MINI ALBUM</p>`
+        + `<img class="sp-cv-myworld" src="${siteUrl("spicy/myworld-green.webp")}" alt="" draggable="false" />`
+        + `<div class="sp-cv-badge"><b>HOW SPICY<br />ARE YOU?</b><small>TAKE THE QUIZ ▸</small></div>`
+        + `<div class="sp-cv-code"><i></i><span>ISSUE 01 · 2023</span></div><i class="sp-cv-scan"></i>`
+        + `<div class="sp-cv-gift"><i class="sp-cv-bag"></i><img class="sp-cv-charm" src="${siteUrl("spicy/charm.webp")}" alt="" draggable="false" /><small>PEPPER CHARM</small><b class="sp-cv-burst" style="clip-path: ${star(14)}">FREE<br />GIFT!</b></div>`
+        + [0, 1, 2, 3].map((n) => `<img class="sp-cv-spark" style="--n: ${n}" src="${siteUrl(n % 2 ? "spicy/el-star.webp" : "spicy/sparkle.webp")}" alt="" draggable="false" />`).join("")
+        + `<i class="sp-cv-gloss"></i>`
+        + `</div></div></div>`
+        + `<canvas class="sp-in-fire"></canvas>`
+        + `<div class="sp-in-cam is-top"><div class="sp-cover-box">`
+        + `<div class="sp-cv-warn"><span>WARNING : CONTENTS EXTREMELY SPICY · UNAUTHORIZED COOLING IS PROHIBITED · BREW HOUZE × æSPA · WARNING : CONTENTS EXTREMELY SPICY · UNAUTHORIZED COOLING IS PROHIBITED · BREW HOUZE × æSPA ·</span></div>`
+        + `<div class="sp-cv-mast"><span class="sp-cv-spicy">${["S", "P", "I", "C", "Y"].map((c) => `<b class="sp-cv-l">${c}${c === "P" ? '<i class="sp-cv-star">✦</i>' : ""}</b>`).join("")}<b class="sp-cv-l sp-cv-reg">®</b></span>`
+        + `<span class="sp-cv-icon"><b class="sp-cv-l">ICON:</b><b class="sp-cv-l">æSPA</b></span></div>`
+        + `</div></div>`;
+      const $ = (selector) => box.querySelector(selector), $$ = (selector) => [...box.querySelectorAll(selector)];
+      // (its pictures decoded now, off the main thread, so none stalls a frame when it first shows)
+      $$("img").forEach((img) => img.decode?.().catch(() => undefined));
+      const cams = $$(".sp-in-cam"), letters = $$(".sp-cv-l"), strips = $$(".sp-cv-strip"), tags = $$(".sp-cv-tag"), lines = $$(".sp-cv-line"), sparks = $$(".sp-cv-spark"), floats = $$(".sp-in-float");
+      const date = $(".sp-cv-date"), issue = $(".sp-cv-issue"), mini = $(".sp-cv-mini"), badge = $(".sp-cv-badge"), code = $(".sp-cv-code"), scan = $(".sp-cv-scan");
+      const myworld = $(".sp-cv-myworld"), gift = $(".sp-cv-gift"), charm = $(".sp-cv-charm"), gloss = $(".sp-cv-gloss"), warn = $(".sp-cv-warn"), glow = $(".sp-in-glow");
+      // the screen's flames (the alarm's, knocked down by the stamps) and the cover's own (along its foot)
+      const fire = $(".sp-in-fire");
+      fire.width = Math.round(W * ratio); fire.height = Math.round(H * ratio);
+      const fg = fire.getContext("2d"), screenFlames = spFlames(W, H);
+      const coverFire = $(".sp-cv-fire");
+      coverFire.width = Math.round(cw * ratio); coverFire.height = Math.round(ch * ratio);
+      const cg = coverFire.getContext("2d"), coverFlames = spFlames(cw, ch, { reach: 0.2, fill: 0.1, gap: 0.55 });
+      const clamp01 = (x) => Math.min(1, Math.max(0, x));
+      const since = (now, at, long) => clamp01((now - at) / long);
+      const outCubic = (x) => 1 - (1 - x) ** 3;
+      const outBack = (x) => (x <= 0 ? 0 : 1 + 2.7 * (x - 1) ** 3 + 1.7 * (x - 1) ** 2);
+      const kick = (now, hits, long) => hits.reduce((sum, at) => (now >= at ? sum + Math.exp(-(now - at) / long) : sum), 0);
+      // a stamp: a ring of heat and sparks off the letter as it lands
+      const rings = [], bits = [];
+      const stamp = (el) => {
+        const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height * 0.55;
+        rings.push({ x, y, size: Math.max(r.width, r.height) * 0.75, age: 0 });
+        for (let k = 0; k < 18; k++) {
+          const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.7, v = 260 + Math.random() * 540;
+          bits.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, age: 0, life: 420 + Math.random() * 420, size: 1.6 + Math.random() * 2.8 });
+        }
+      };
+      const S0 = wide ? 1.75 : 1.5; // the camera's pull-back
+      let stamped = 0, lastLive = null;
+      const paint = (now) => {
+        const live = Math.min(now, SP_HOLD); // (what holds still in the silence)
+        const dt = lastLive === null ? 0 : Math.max(0, live - lastLive);
+        lastLive = live;
+        // the camera: pulled back over bar 1, from the masthead to the whole cover; punched by the stabs and the
+        // groove; in the silence, leaning in on the masthead
+        const back = outCubic(since(now, SP_STABS[0], SP_HIT(2, 0) - SP_STABS[0]));
+        const lean = since(now, SP_HOLD, SP_HIT(6, 0) - SP_HOLD) ** 3;
+        let s = 1 + (S0 - 1) * (1 - back) + 0.035 * kick(now, SP_STABS, 80) + 0.016 * kick(now, SP_GROOVE, 130) + 0.03 * kick(now, [SP_HIT(5, 0)], 240);
+        let fx = 0.3 + 0.2 * back, fy = 0.17 + 0.33 * back;
+        s *= 1 + 0.1 * lean; fx += (0.36 - fx) * lean * 0.8; fy += (0.14 - fy) * lean * 0.8;
+        const cam = `translate(${(-s * (fx - 0.5) * cw).toFixed(1)}px, ${(-s * (fy - 0.5) * ch).toFixed(1)}px) scale(${s.toFixed(4)})`;
+        cams.forEach((el) => { el.style.transform = cam; });
+        // the masthead: each piece slammed down white-hot on its stab, cooling to its colour; glowing again in the hold
+        letters.forEach((el, i) => {
+          const at = SP_STABS[i];
+          if (now < at) { el.style.opacity = "0"; return; }
+          const p = since(now, at, 110), q = since(now, at + 110, 170);
+          el.style.opacity = String(Math.min(1, 0.35 + p * 2));
+          el.style.transform = `scale(${((1.9 - 0.9 * p * p) * (1 + 0.07 * Math.sin(q * Math.PI) * (1 - q))).toFixed(3)})`;
+          el.style.setProperty("--heat", Math.max(1 - outCubic(since(now, at, 750)), 0.6 * outCubic(since(now, SP_HOLD, 900))).toFixed(3));
+        });
+        while (stamped < SP_STABS.length && now >= SP_STABS[stamped]) stamp(letters[stamped++]);
+        warn.style.setProperty("--warn", outCubic(since(now, SP_HIT(1, 15), 260)).toFixed(3));
+        // the four, and their tags
+        strips.forEach((el, i) => {
+          const at = SP_STRIPS[i];
+          el.style.transform = `translateY(${((i % 2 ? 1 : -1) * 104 * (1 - outBack(since(now, at, 300)))).toFixed(2)}%)`;
+          el.style.setProperty("--duo", (1 - outCubic(since(now, at + 80, 700))).toFixed(3));
+          const q = since(now, at + 140, 320);
+          tags[i].style.opacity = q > 0 ? "1" : "0";
+          tags[i].style.transform = `translateX(-50%) scale(${outBack(q).toFixed(3)}) rotate(${i % 2 ? 4 : -4}deg)`;
+        });
+        // the cover lines, the date, the issue
+        lines.forEach((el, i) => {
+          const p = since(now, [SP_HIT(3, 0), SP_HIT(3, 6)][i], 300);
+          el.style.opacity = p > 0 ? "1" : "0";
+          el.style.transform = `translateX(${((1 - outCubic(p)) * cw * 0.75).toFixed(1)}px) skewX(${(-16 * (1 - p)).toFixed(2)}deg)`;
+        });
+        { const at = SP_HIT(3, 10), p = since(now, at, 260);
+          date.style.opacity = String(since(now, at, 50));
+          date.style.transform = `scale(${(2.3 - 1.3 * outBack(p)).toFixed(3)}) rotate(${(-9 * (1 - p)).toFixed(2)}deg)`; }
+        { const p = outCubic(since(now, SP_HIT(3, 13), 260));
+          for (const el of [issue, mini]) { el.style.opacity = String(p); el.style.transform = `translateY(${((1 - p) * 18).toFixed(1)}px)`; } }
+        sparks.forEach((el, i) => {
+          const p = since(now, SP_CLAPS[i], 340);
+          el.style.opacity = p > 0 ? "1" : "0";
+          el.style.transform = `scale(${(outBack(p) * (1 + 0.08 * Math.sin(live / 300 + i))).toFixed(3)}) rotate(${(-40 * (1 - p) + 8 * Math.sin(live / 900 + i * 2)).toFixed(1)}deg)`;
+        });
+        // bar 4: the badge, the barcode, the logo, the free gift (its charm swinging from the drop)
+        { const p = since(now, SP_HIT(4, 0), 520), e = outBack(p);
+          badge.style.opacity = p > 0 ? "1" : "0";
+          badge.style.transform = `rotate(${(-40 + 34 * e).toFixed(2)}deg) scale(${(0.3 + 0.7 * e).toFixed(3)})`; }
+        { const p = outCubic(since(now, SP_HIT(4, 6), 360));
+          code.style.setProperty("--print", p.toFixed(3)); scan.style.setProperty("--print", p.toFixed(3));
+          scan.style.opacity = p > 0 && p < 1 ? "1" : "0"; }
+        { const p = since(now, SP_HIT(4, 10), 460), e = outBack(p);
+          myworld.style.opacity = p > 0 ? "1" : "0";
+          myworld.style.transform = `translateY(${((1 - e) * 40).toFixed(1)}%) scale(${(0.5 + 0.5 * e).toFixed(3)}) rotate(${(-8 * (1 - e)).toFixed(2)}deg)`; }
+        { const at = SP_HIT(4, 12), p = since(now, at, 420), e = outBack(p);
+          gift.style.opacity = p > 0 ? "1" : "0";
+          gift.style.transform = `translateY(${(-(1 - e) * ch * 0.7).toFixed(1)}px) rotate(${(-6 + 16 * (1 - e)).toFixed(2)}deg)`;
+          const swing = now >= at ? 22 * Math.sin((live - at) / 150) * Math.exp(-(live - at) / 700) + 5 * Math.sin(live / 520) : 0;
+          charm.style.transform = `translateX(-50%) rotate(${swing.toFixed(2)}deg)`; }
+        // bar 5: the gloss; then the hold
+        { const p = since(now, SP_HIT(5, 0), 800);
+          gloss.style.transform = `translateX(${(-100 + 200 * outCubic(p)).toFixed(1)}%)`;
+          gloss.style.opacity = p > 0 && p < 1 ? "1" : "0"; }
+        box.classList.toggle("is-hold", now >= SP_HOLD);
+        // round the cover: its glow and the 3D pieces, out once the flames are down, pulsing on the groove
+        const groove = Math.min(1.5, kick(now, SP_GROOVE, 150));
+        glow.style.opacity = (0.4 + 0.3 * groove + 0.4 * lean).toFixed(3);
+        floats.forEach((el, i) => {
+          const [, , turn] = SP_FLOATS[i];
+          const p = since(now, SP_HIT(2, 0) + i * 70, 520);
+          el.style.opacity = String(Math.min(1, p * 2));
+          el.style.transform = `translate(-50%, -50%) translate(${(Math.sin(live / 2300 + i * 1.7) * 1.4).toFixed(2)}vmin, ${(Math.cos(live / 2700 + i * 2.3) * 1.8).toFixed(2)}vmin) rotate(${(turn + 9 * Math.sin(live / 3100 + i)).toFixed(1)}deg) scale(${(outBack(p) * (1 + 0.06 * groove)).toFixed(3)})`;
+        });
+        // the cover's flames, lit from bar 2
+        cg.setTransform(ratio, 0, 0, ratio, 0, 0);
+        cg.clearRect(0, 0, cw, ch);
+        const lit = outCubic(since(now, SP_HIT(2, 0), 700));
+        if (lit > 0) coverFlames(cg, live, lit);
+        // the screen: the alarm's flames, a step down at each stab (gone by bar 2, their embers rising on a
+        // moment), and the stamps' rings and sparks
+        fg.setTransform(ratio, 0, 0, ratio, 0, 0);
+        fg.clearRect(0, 0, W, H);
+        let knocked = 0;
+        for (const at of SP_STABS) knocked += outCubic(since(now, at, 200));
+        knocked += outCubic(since(now, SP_HIT(1, 15), 220));
+        if (now < SP_HIT(3, 0)) screenFlames(fg, spFlameTime + live, Math.max(0, 1 - knocked / 9));
+        fg.save();
+        fg.globalCompositeOperation = "lighter";
+        for (let i = rings.length - 1; i >= 0; i--) {
+          const r = rings[i];
+          r.age += dt;
+          const q = r.age / 300;
+          if (q >= 1) { rings.splice(i, 1); continue; }
+          fg.strokeStyle = `rgba(255, 190, 215, ${(1 - q).toFixed(3)})`;
+          fg.lineWidth = 4 * (1 - q) + 0.5;
+          fg.beginPath(); fg.arc(r.x, r.y, r.size * (0.3 + 0.9 * outCubic(q)), 0, Math.PI * 2); fg.stroke();
+        }
+        for (let i = bits.length - 1; i >= 0; i--) {
+          const b = bits[i];
+          b.age += dt;
+          if (b.age > b.life) { bits.splice(i, 1); continue; }
+          b.vy += 1100 * dt / 1000; b.x += b.vx * dt / 1000; b.y += b.vy * dt / 1000;
+          fg.globalAlpha = 1 - b.age / b.life;
+          fg.fillStyle = i % 3 ? "#FF8CC0" : "#FFFFFF";
+          fg.fillRect(b.x - b.size / 2, b.y - b.size / 2, b.size, b.size);
+        }
+        fg.restore();
+      };
+      const show = (step) => { if (step === 0) paint(0); };
+      show.tick = paint;
+      return show;
+    },
+  };
+
+  // Spicy's stage. Track 1 is the theme as it is. Track 2 is the pepper rain: a burning chrome pepper drops on each
+  // of its first 26 beats (and on the "and" of a few), falling across the screen, and a tap blows one up: +1 on the
+  // Spice Meter, SP_GOAL to fill it. Filled, the meter overheats through the rest of track 2 (3, 2, 1 on its last beats)
+  // and the theme turns into its burning variant from the next downbeat (armVariant: the music goes on into the
+  // flaming loop). Not filled, the meter cools and starts again at the next track 2. The rain is the same every
+  // round (seeded) and follows the music's clock.
+  const SP_GOAL = 15;
+  // the flaming loop (the burning variant's): 29 beats, then 35 (16 bars), its music from the same 1352 samples in
+  const SP_FLAME1 = 29 * SP_BEAT, SP_FLAME2 = 35 * SP_BEAT;
+  // the rain: [beat of track 2 it drops on, x across the screen (0-1, clear of the meter at the right), its
+  // picture, how much it sways, its turn and spin]
+  const SP_RAIN = (() => {
+    let seed = 5082023;
+    const rand = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
+    const beats = [...Array.from({ length: 26 }, (_, n) => n), 3.5, 7.5, 11.5, 15.5, 19.5, 23.5].sort((a, b) => a - b);
+    let last = 0.5;
+    return beats.map((beat) => {
+      let x;
+      do { x = 0.06 + rand() * 0.78; } while (Math.abs(x - last) < 0.2);
+      last = x;
+      return { beat, x, pic: rand() < 0.5 ? "pepper" : rand() < 0.6 ? "pepper-curl" : "charm", sway: 0.5 + rand(), phase: rand() * 6.28, tilt: (rand() * 2 - 1) * 30, spin: (rand() * 2 - 1) * 70 };
+    });
+  })();
+  const spicyStage = (() => {
+    let fx = null, peps = [], meter = null, segs = [], count = null, shu = null, cue = null, hint = null;
+    let inRain = false, caught = 0, won = false, ignited = false, rounds = 0, lastCount = "", W = 0, H = 0, size = 80, ratio = 1;
+    // the fire (a canvas behind the peppers) and the explosions (one in front), their sprites, what is in the air
+    let fire = null, fg = null, blast = null, bg = null, flames = [], sprites = null, sparks = [], booms = [], last = null;
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      size = Math.round(Math.min(96, Math.max(64, Math.min(W, H) * 0.12)));
+      fx?.style.setProperty("--pep", `${size}px`);
+      for (const canvas of [fire, blast]) if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+    };
+    // soft round sprites, drawn once: the fire's glow, an ember, the fireball's puff, smoke
+    const sprite = (px, stops) => {
+      const c = document.createElement("canvas");
+      c.width = c.height = px;
+      const g = c.getContext("2d"), grad = g.createRadialGradient(px / 2, px / 2, 0, px / 2, px / 2, px / 2);
+      stops.forEach(([at, colour]) => grad.addColorStop(at, colour));
+      g.fillStyle = grad; g.fillRect(0, 0, px, px);
+      return c;
+    };
+    const makeSprites = () => ({
+      glow: sprite(64, [[0, "rgba(255, 250, 225, 1)"], [0.25, "rgba(255, 196, 92, 0.92)"], [0.55, "rgba(255, 92, 44, 0.5)"], [1, "rgba(255, 45, 100, 0)"]]),
+      ember: sprite(16, [[0, "rgba(255, 255, 240, 1)"], [0.4, "rgba(255, 170, 60, 0.9)"], [1, "rgba(255, 80, 40, 0)"]]),
+      puff: sprite(96, [[0, "rgba(255, 244, 210, 1)"], [0.3, "rgba(255, 176, 64, 0.92)"], [0.65, "rgba(255, 72, 54, 0.5)"], [1, "rgba(255, 40, 90, 0)"]]),
+      cinder: sprite(96, [[0, "rgba(255, 150, 60, 1)"], [0.4, "rgba(255, 78, 48, 0.72)"], [0.75, "rgba(200, 30, 70, 0.3)"], [1, "rgba(160, 20, 60, 0)"]]),
+      smoke: sprite(96, [[0, "rgba(150, 96, 116, 0.5)"], [0.6, "rgba(110, 60, 82, 0.24)"], [1, "rgba(80, 40, 60, 0)"]]),
+    });
+    // the meter at n caught (a pepper's heat in Scoville units, for show)
+    const showMeter = (n) => {
+      meter.style.setProperty("--heat", (n / SP_GOAL).toFixed(3));
+      count.textContent = String(n);
+      shu.textContent = `${(n * 160000).toLocaleString("en-US")} SHU`;
+      segs.forEach((seg, i) => seg.classList.toggle("is-lit", i < n));
+    };
+    // a caught pepper explodes where it is: a white-hot flash, a fireball of puffs (turning to smoke), a shockwave,
+    // sparks flying out and falling, and the pepper itself in shards spinning off (the last one, the meter filling,
+    // twice the size)
+    const explode = (p, big) => {
+      const scale = big ? 1.9 : 1, a0 = Math.random() * Math.PI * 2;
+      booms.push({
+        x: p.cx, y: p.cy, age: 0, img: p.el, turn: p.turn, scale,
+        shards: Array.from({ length: 6 }, (_, k) => {
+          const a = a0 + (k / 6) * Math.PI * 2, mid = a + Math.PI / 6, v = (240 + Math.random() * 280) * Math.sqrt(scale);
+          return { a, b: a + Math.PI / 3, vx: Math.cos(mid) * v, vy: Math.sin(mid) * v - 140, spin: (Math.random() * 2 - 1) * 10 };
+        }),
+        puffs: Array.from({ length: big ? 14 : 9 }, () => {
+          const a = Math.random() * Math.PI * 2, v = (40 + Math.random() * 130) * scale;
+          return { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 70, r: 0.28 + Math.random() * 0.34 };
+        }),
+        // tongues of fire flung out, pointing the way they fly
+        tongues: Array.from({ length: big ? 11 : 7 }, (_, k) => {
+          const a = (k / (big ? 11 : 7)) * Math.PI * 2 + Math.random() * 0.5, v = (170 + Math.random() * 230) * Math.sqrt(scale);
+          return { a, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 60, flame: k % 3, s: 0.55 + Math.random() * 0.45 };
+        }),
+      });
+      for (let k = 0, n = big ? 48 : 26; k < n; k++) {
+        const a = Math.random() * Math.PI * 2, v = (260 + Math.random() * 620) * Math.sqrt(scale);
+        sparks.push({ x: p.cx, y: p.cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 160, age: 0, life: 0.35 + Math.random() * 0.5, w: 1.4 + Math.random() * 2.2 });
+      }
+    };
+    const onDown = (event) => {
+      const p = peps.find((pep) => pep.el === event.target);
+      if (!p || p.caught || !inRain) return;
+      event.preventDefault();
+      p.caught = true;
+      p.el.classList.add("is-caught");
+      p.el.style.visibility = "hidden";
+      caught = Math.min(SP_GOAL, caught + 1);
+      showMeter(caught);
+      const full = caught >= SP_GOAL;
+      explode(p, full);
+      spBoom(full ? "full" : "boom");
+      if (full && !won) { won = true; fx.classList.add("is-full"); armVariant("burn"); }
+    };
+    const clearAir = () => {
+      flames = []; sparks = []; booms = []; last = null;
+      for (const g of [fg, bg]) if (g) { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, W * ratio, H * ratio); }
+    };
+    const startRain = () => {
+      inRain = true; caught = 0; won = false; ignited = false; rounds++;
+      peps.forEach((p) => { p.caught = false; p.el.classList.remove("is-caught"); p.el.style.visibility = "hidden"; });
+      clearAir();
+      showMeter(0);
+      hint.textContent = rounds === 1 ? "Catch the peppers!" : "Again! Catch 15";
+      fx.classList.remove("is-cool", "is-full");
+      fx.classList.add("is-raining");
+      // (the burning loop, its fire and its pictures, loaded while the peppers fall)
+      warmVariant("burn");
+      spFire.warm("ground", "wall");
+      if (rounds === 1) ["fire-row", "fire-tall", "fire-wave", "fire-blaze", ...["skull", "spike", "cherry", "pop", "chain", "wings", "star", "glass"].map((name) => `st-${name}`),
+        ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-back`)].forEach((name) => { new Image().src = siteUrl(`spicy/${name}.webp`); });
+    };
+    const endRain = () => {
+      inRain = false;
+      fx.classList.remove("is-raining", "is-hinting");
+      if (!won) fx.classList.add("is-cool");
+      peps.forEach((p) => { p.el.style.visibility = "hidden"; });
+      cue.className = "sp-cue";
+    };
+    // the fire behind the peppers and the explosions in front, a frame on (dt seconds)
+    const paintAir = (dt, t, burning) => {
+      fg.setTransform(ratio, 0, 0, ratio, 0, 0);
+      fg.clearRect(0, 0, W, H);
+      fg.globalCompositeOperation = "lighter";
+      // each burning pepper: a flame standing up off it (flickering), glow and embers rising behind it
+      for (const p of burning) {
+        if (dt > 0) for (let k = 0; k < 2; k++) {
+          const ember = Math.random() < 0.18;
+          flames.push({ x: p.cx + (Math.random() - 0.5) * size * 0.3, y: p.cy + (Math.random() - 0.5) * size * 0.3, vx: (Math.random() - 0.5) * 44, vy: -(70 + Math.random() * 120) * (ember ? 1.6 : 1),
+            age: 0, life: ember ? 0.7 + Math.random() * 0.5 : 0.3 + Math.random() * 0.28, r: size * (ember ? 0.06 + Math.random() * 0.05 : 0.2 + Math.random() * 0.2), ember });
+        }
+        const flame = sprites.fire[p.flame];
+        if (flame.complete && flame.naturalWidth) {
+          const h = size * (1.3 + 0.16 * Math.sin(t * 17 + p.seed) + 0.09 * Math.sin(t * 29 + p.seed * 2)), w = h * (flame.naturalWidth / flame.naturalHeight) * (0.92 + 0.1 * Math.sin(t * 23 + p.seed));
+          fg.globalAlpha = 0.9;
+          fg.drawImage(flame, p.cx - w / 2 + Math.sin(t * 11 + p.seed) * size * 0.05, p.cy + size * 0.28 - h, w, h);
+          fg.globalAlpha = 1;
+        }
+      }
+      if (flames.length > 420) flames.splice(0, flames.length - 420);
+      for (let i = flames.length - 1; i >= 0; i--) {
+        const f = flames[i];
+        f.age += dt;
+        if (f.age >= f.life) { flames.splice(i, 1); continue; }
+        f.x += f.vx * dt; f.y += f.vy * dt;
+        const q = f.age / f.life, r = f.r * (f.ember ? 1 : 1 - 0.55 * q);
+        fg.globalAlpha = (1 - q) * (f.ember ? 1 : 0.8);
+        fg.drawImage(f.ember ? sprites.ember : sprites.glow, f.x - r, f.y - r, r * 2, r * 2);
+      }
+      fg.globalAlpha = 1;
+      fg.globalCompositeOperation = "source-over";
+      // the explosions
+      bg.setTransform(ratio, 0, 0, ratio, 0, 0);
+      bg.clearRect(0, 0, W, H);
+      for (let i = booms.length - 1; i >= 0; i--) {
+        const b = booms[i];
+        b.age += dt;
+        const a = b.age, s = size * b.scale;
+        if (a > 1.1) { booms.splice(i, 1); continue; }
+        // smoke, rising and spreading as the fire goes
+        for (const u of b.puffs) {
+          const q = Math.min(1, a / 1.1), r = s * u.r * (1.4 + 2.6 * q);
+          bg.globalAlpha = Math.max(0, q < 0.25 ? q / 0.25 : 1 - (q - 0.25) / 0.75) * 0.75;
+          bg.drawImage(sprites.smoke, b.x + u.vx * a * 0.8 - r, b.y + u.vy * a * 0.8 - 40 * a - r, r * 2, r * 2);
+        }
+        // the shards of the pepper
+        for (const u of b.shards) {
+          if (a > 0.9) break;
+          bg.save();
+          bg.globalAlpha = 1 - a / 0.9;
+          bg.translate(b.x + u.vx * a, b.y + u.vy * a + 600 * a * a);
+          bg.rotate(b.turn + u.spin * a);
+          bg.beginPath(); bg.moveTo(0, 0); bg.arc(0, 0, size, u.a, u.b); bg.closePath(); bg.clip();
+          bg.drawImage(b.img, -size / 2, -size / 2, size, size);
+          bg.restore();
+        }
+        bg.globalCompositeOperation = "lighter";
+        // the fireball, white-hot at first, burning down to orange and red
+        if (a < 0.7) for (const u of b.puffs) {
+          const q = a / 0.7, r = s * u.r * (1 + 2.2 * (1 - (1 - q) ** 3)), x = b.x + u.vx * a - r, y = b.y + u.vy * a - r;
+          const hot = Math.max(0, 1 - a / 0.22);
+          bg.globalAlpha = (1 - q) ** 1.5 * hot;
+          if (hot > 0) bg.drawImage(sprites.puff, x, y, r * 2, r * 2);
+          bg.globalAlpha = (1 - q) ** 1.3 * (1 - hot * 0.6);
+          bg.drawImage(sprites.cinder, x, y, r * 2, r * 2);
+        }
+        // the tongues of fire, flung out and burning away
+        if (a < 0.6) for (const u of b.tongues) {
+          const flame = sprites.fire[u.flame];
+          if (!flame.complete || !flame.naturalWidth) continue;
+          const q = a / 0.6, travel = (1 - Math.exp(-4 * a)) / 4;
+          const h = s * u.s * (1.4 - 0.7 * q), w = h * flame.naturalWidth / flame.naturalHeight;
+          bg.save();
+          bg.globalAlpha = (1 - q) ** 1.2;
+          bg.translate(b.x + u.vx * travel * 1.6, b.y + u.vy * travel * 1.6);
+          bg.rotate(u.a + Math.PI / 2);
+          bg.drawImage(flame, -w / 2, -h * 0.85, w, h);
+          bg.restore();
+        }
+        // the flash and the shockwave
+        if (a < 0.16) {
+          const q = a / 0.16, r = s * (0.6 + 2.4 * q);
+          const flash = bg.createRadialGradient(b.x, b.y, 0, b.x, b.y, r);
+          flash.addColorStop(0, `rgba(255, 255, 255, ${(1 - q).toFixed(3)})`); flash.addColorStop(0.35, `rgba(255, 236, 160, ${(0.85 * (1 - q)).toFixed(3)})`); flash.addColorStop(1, "rgba(255, 120, 60, 0)");
+          bg.globalAlpha = 1; bg.fillStyle = flash; bg.beginPath(); bg.arc(b.x, b.y, r, 0, Math.PI * 2); bg.fill();
+        }
+        if (a < 0.34) {
+          const q = a / 0.34;
+          bg.globalAlpha = 1 - q; bg.strokeStyle = "rgba(255, 214, 150, 1)"; bg.lineWidth = 7 * (1 - q) + 1;
+          bg.beginPath(); bg.arc(b.x, b.y, s * (0.4 + 2.6 * (1 - (1 - q) ** 2)), 0, Math.PI * 2); bg.stroke();
+        }
+        bg.globalCompositeOperation = "source-over";
+        bg.globalAlpha = 1;
+      }
+      // the sparks: streaks along their flight, falling
+      bg.globalCompositeOperation = "lighter";
+      for (let i = sparks.length - 1; i >= 0; i--) {
+        const k = sparks[i];
+        k.age += dt;
+        if (k.age >= k.life) { sparks.splice(i, 1); continue; }
+        k.vy += 1300 * dt; k.vx *= 1 - 1.2 * dt;
+        k.x += k.vx * dt; k.y += k.vy * dt;
+        const q = k.age / k.life;
+        bg.globalAlpha = 1 - q;
+        bg.strokeStyle = q < 0.3 ? "#FFF6D8" : q < 0.6 ? "#FFC25A" : "#FF6A3C";
+        bg.lineWidth = k.w * (1.3 - 0.6 * q);
+        bg.beginPath(); bg.moveTo(k.x, k.y); bg.lineTo(k.x - k.vx * 0.03, k.y - k.vy * 0.03); bg.stroke();
+      }
+      bg.globalAlpha = 1;
+      bg.globalCompositeOperation = "source-over";
+    };
+    return {
+      beat: SP_BEAT, parts: [SP_TRACK1, SP_TRACK2], grid: SP_TRACK1,
+      sections: [[0, "calm"], [SP_TRACK1, "rain"]],
+      fx: `<div class="sp-rain"><canvas class="sp-rain-fire"></canvas>${SP_RAIN.map((p) => `<img class="sp-pep" src="${siteUrl(`spicy/${p.pic}.webp`)}" alt="" draggable="false" />`).join("")}<canvas class="sp-rain-blast"></canvas></div>`
+        + `<div class="sp-meter"><p class="sp-meter-title">SPICE<br />METER</p><div class="sp-meter-tube">${Array.from({ length: SP_GOAL }, (_, i) => `<b style="--i: ${i}"></b>`).join("")}</div>`
+        + `<p class="sp-meter-count"><b>0</b>/${SP_GOAL}</p><p class="sp-meter-shu">0 SHU</p></div>`
+        + `<p class="sp-hint"></p><b class="sp-cue"></b>`,
+      mount(el) {
+        fx = el;
+        peps = [...el.querySelectorAll(".sp-pep")].map((pep, i) => ({ el: pep, drop: SP_RAIN[i], caught: false, cx: 0, cy: 0, turn: 0, flame: i % 3, seed: i * 1.7 }));
+        meter = el.querySelector(".sp-meter"); segs = [...meter.querySelectorAll(".sp-meter-tube b")];
+        count = meter.querySelector(".sp-meter-count b"); shu = meter.querySelector(".sp-meter-shu");
+        cue = el.querySelector(".sp-cue"); hint = el.querySelector(".sp-hint");
+        fire = el.querySelector(".sp-rain-fire"); fg = fire.getContext("2d");
+        blast = el.querySelector(".sp-rain-blast"); bg = blast.getContext("2d");
+        sprites = { ...makeSprites(), fire: ["a", "b", "c"].map((n) => { const img = new Image(); img.src = siteUrl(`spicy/fire-one-${n}.webp`); return img; }) };
+        el.querySelector(".sp-rain").addEventListener("pointerdown", onDown);
+        resize();
+        window.addEventListener("resize", resize);
+        inRain = false; rounds = 0;
+      },
+      tick(at, section) {
+        if (!fx) return;
+        const raining = at >= 0 && section === "rain";
+        const dt = last === null || at < 0 ? 0 : Math.min(0.05, Math.max(0, at - last));
+        last = at < 0 ? null : at;
+        if (!raining) {
+          if (inRain) endRain();
+          // (what is still in the air goes on until it is gone)
+          if (booms.length || sparks.length || flames.length) paintAir(dt, at, []);
+          return;
+        }
+        if (!inRain) startRain();
+        const t = at - SP_TRACK1; // seconds into track 2
+        fx.classList.toggle("is-hinting", t < SP_BEAT * 7);
+        // the peppers, falling and burning
+        const fall = Math.min(3.6, Math.max(2.6, H / 290)), burning = [];
+        for (const p of peps) {
+          const age = t - p.drop.beat * SP_BEAT;
+          if (p.caught || age < 0 || age > fall) { p.el.style.visibility = "hidden"; continue; }
+          const x = p.drop.x * W + Math.sin(age * 2.2 + p.drop.phase) * 22 * p.drop.sway - size / 2;
+          const y = -size * 1.2 + (H + size * 2.4) * (age / fall);
+          p.cx = x + size / 2; p.cy = y + size / 2; p.turn = (p.drop.tilt + p.drop.spin * age) * Math.PI / 180;
+          p.el.style.visibility = "visible";
+          p.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) rotate(${(p.drop.tilt + p.drop.spin * age).toFixed(1)}deg)`;
+          burning.push(p);
+        }
+        paintAir(dt, t, burning);
+        // full: the countdown on track 2's last three beats, into the burning loop
+        const beat = Math.floor(t / SP_BEAT), left = 33 - beat;
+        const text = won && left >= 1 && left <= 3 ? String(left) : "";
+        if (text !== lastCount) {
+          lastCount = text;
+          cue.textContent = text;
+          cue.className = "sp-cue";
+          if (text) { void cue.offsetWidth; cue.className = "sp-cue is-on"; }
+        }
+        // and on the 1 the meter blows up: the ignition's fireball rolls out of it (covering the screen by the
+        // downbeat, when the burning loop comes in)
+        if (won && !ignited && beat >= 32) {
+          ignited = true;
+          const at = meter.getBoundingClientRect();
+          meter.classList.add("is-blown");
+          spIgnition.start(at.left + at.width / 2, at.top + at.height / 2);
+          spWhoosh();
+        }
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        fx?.classList.remove("is-raining", "is-hinting", "is-cool", "is-full");
+        fx = null; peps = []; meter = null; segs = []; count = null; shu = null; cue = null; hint = null;
+        fire = null; fg = null; blast = null; bg = null; flames = []; sparks = []; booms = []; last = null; sprites = null;
+        inRain = false; lastCount = "";
+      },
+    };
+  })();
+  // The burning variant's ignition. start(x, y): on track 2's last beat (the countdown's 1) the full meter blows up
+  // and a fireball rolls out of it, its edge licking flames, until it fills the screen (by the downbeat, when the
+  // variant comes in underneath). reveal(): from the downbeat the white-hot sheet burns away from a few points,
+  // browned, charred and glowing at its edges, embers flying off them, onto the page on fire. (A sheet that is
+  // never revealed, the music not having followed, burns away by itself.)
+  const spIgnition = (() => {
+    let canvas = null, g = null, raf = 0, W = 0, H = 0, ratio = 1, x0 = 0, y0 = 0, blastAt = 0, burnAt = 0, last = 0, failsafe = 0;
+    let holes = [], embers = [], flames = [], spark = null;
+    const BLAST = 500, BURN = 1500;
+    const far = (x, y) => Math.hypot(Math.max(x, W - x), Math.max(y, H - y));
+    const setup = () => {
+      if (canvas) return;
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      canvas = document.createElement("canvas");
+      canvas.className = "sp-ignition";
+      canvas.setAttribute("aria-hidden", "true");
+      canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+      document.body.append(canvas);
+      g = canvas.getContext("2d");
+      flames = ["a", "b", "c"].map((n) => { const img = new Image(); img.src = siteUrl(`spicy/fire-one-${n}.webp`); return img; });
+      spark = document.createElement("canvas");
+      spark.width = spark.height = 20;
+      const s = spark.getContext("2d"), glow = s.createRadialGradient(10, 10, 0, 10, 10, 10);
+      glow.addColorStop(0, "rgba(255, 246, 200, 1)"); glow.addColorStop(0.4, "rgba(255, 150, 50, 0.9)"); glow.addColorStop(1, "rgba(255, 60, 30, 0)");
+      s.fillStyle = glow; s.fillRect(0, 0, 20, 20);
+      last = performance.now();
+      raf = requestAnimationFrame(paint);
+    };
+    const stop = () => {
+      cancelAnimationFrame(raf); clearTimeout(failsafe);
+      canvas?.remove();
+      canvas = null; g = null; blastAt = 0; burnAt = 0; holes = []; embers = [];
+    };
+    const start = (x, y) => {
+      if (!motionOK() || blastAt) return;
+      setup();
+      x0 = x; y0 = y; blastAt = performance.now();
+      clearTimeout(failsafe);
+      failsafe = setTimeout(() => reveal(), 1700);
+    };
+    const reveal = () => {
+      if (!motionOK()) { stop(); return; }
+      setup();
+      if (burnAt) return;
+      clearTimeout(failsafe);
+      burnAt = performance.now();
+      if (!blastAt) { x0 = W / 2; y0 = H / 2; blastAt = burnAt - BLAST; }
+      // where it burns through first: where the blast came from, the middle, and a few spots round the screen
+      const spots = [[x0, y0], [W * 0.5, H * 0.45], [W * 0.18, H * 0.25], [W * 0.82, H * 0.2], [W * 0.22, H * 0.82], [W * 0.78, H * 0.8]];
+      holes = spots.map(([x, y], k) => ({ x: x + (Math.random() - 0.5) * W * 0.08, y: y + (Math.random() - 0.5) * H * 0.08, delay: k ? 80 + Math.random() * 260 : 0,
+        reach: far(x, y) * 1.12, p: [Math.random() * 6.3, Math.random() * 6.3, Math.random() * 6.3] }));
+    };
+    // a hole's edge: a noisy circle
+    const edge = (h, r) => {
+      g.beginPath();
+      for (let k = 0; k <= 56; k++) {
+        const a = (k / 56) * Math.PI * 2, rr = r * (1 + 0.16 * Math.sin(5 * a + h.p[0]) + 0.08 * Math.sin(11 * a + h.p[1]) + 0.05 * Math.sin(23 * a + h.p[2]));
+        const x = h.x + Math.cos(a) * rr, y = h.y + Math.sin(a) * rr;
+        if (k) g.lineTo(x, y); else g.moveTo(x, y);
+      }
+      g.closePath();
+    };
+    const paint = () => {
+      if (!g) return;
+      const now = performance.now(), dt = Math.min(0.05, Math.max(0, now - last) / 1000);
+      last = now;
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.globalCompositeOperation = "source-over";
+      g.clearRect(0, 0, W, H);
+      const reach = far(x0, y0) * 1.04, b = Math.min(1, (now - blastAt) / BLAST), r = Math.max(1, reach * (1 - (1 - b) ** 3));
+      // the sheet: the fireball, white-hot in the middle, orange at its edge (the whole screen once it is out)
+      const heat = g.createRadialGradient(x0, y0, 0, x0, y0, r);
+      heat.addColorStop(0, "#FFFFFF"); heat.addColorStop(0.42, "#FFF6DC"); heat.addColorStop(0.78, "#FFC46B"); heat.addColorStop(1, "#FF7A2A");
+      g.fillStyle = heat;
+      g.beginPath(); g.arc(x0, y0, r, 0, Math.PI * 2); g.fill();
+      // its edge, while it rolls out: tongues of flame all round it, pointing out
+      if (b < 1) {
+        for (let k = 0; k < 20; k++) {
+          const flame = flames[k % 3];
+          if (!flame.complete || !flame.naturalWidth) continue;
+          const a = (k / 20) * Math.PI * 2 + b * 0.6, h = Math.max(30, r * 0.28) * (0.8 + 0.4 * Math.sin(k * 2.3 + now / 90)), w = h * flame.naturalWidth / flame.naturalHeight;
+          g.save();
+          g.translate(x0 + Math.cos(a) * r * 0.97, y0 + Math.sin(a) * r * 0.97);
+          g.rotate(a + Math.PI / 2);
+          g.drawImage(flame, -w / 2, -h * 0.92, w, h);
+          g.restore();
+        }
+      }
+      // the burn: holes spreading, the paper browned and charred round them, the edge glowing
+      if (burnAt) {
+        const t = now - burnAt;
+        const shapes = holes.map((h) => {
+          const q = Math.min(1, Math.max(0, (t - h.delay) / (BURN - 120 - h.delay)));
+          return [h, h.reach * q ** 1.25];
+        }).filter(([, rr]) => rr > 1);
+        for (const [h, rr] of shapes) {
+          edge(h, rr + 6);
+          g.lineJoin = "round";
+          g.strokeStyle = "rgba(120, 58, 22, 0.35)"; g.lineWidth = 46; g.stroke();
+          g.strokeStyle = "rgba(42, 14, 5, 0.9)"; g.lineWidth = 22; g.stroke();
+          g.strokeStyle = "rgba(255, 90, 31, 0.9)"; g.lineWidth = 10; g.stroke();
+          g.strokeStyle = "rgba(255, 224, 122, 1)"; g.lineWidth = 3; g.stroke();
+          // embers off the edge
+          for (let k = 0; k < 3; k++) {
+            const a = Math.random() * Math.PI * 2;
+            embers.push({ x: h.x + Math.cos(a) * rr, y: h.y + Math.sin(a) * rr, vx: Math.cos(a) * (40 + Math.random() * 120), vy: Math.sin(a) * 60 - 80 - Math.random() * 120, age: 0, life: 0.5 + Math.random() * 0.7, s: 6 + Math.random() * 10 });
+          }
+        }
+        g.globalCompositeOperation = "destination-out";
+        for (const [h, rr] of shapes) { edge(h, rr); g.fill(); }
+        g.globalCompositeOperation = "source-over";
+      }
+      // the embers
+      for (let i = embers.length - 1; i >= 0; i--) {
+        const e = embers[i];
+        e.age += dt;
+        if (e.age >= e.life) { embers.splice(i, 1); continue; }
+        e.vy += 40 * dt; e.x += e.vx * dt; e.y += e.vy * dt;
+        g.globalAlpha = 1 - e.age / e.life;
+        g.drawImage(spark, e.x - e.s / 2, e.y - e.s / 2, e.s, e.s);
+      }
+      g.globalAlpha = 1;
+      if (burnAt && now - burnAt >= BURN && !embers.length) { stop(); return; }
+      if (burnAt && now - burnAt >= BURN + 900) { stop(); return; }
+      raf = requestAnimationFrame(paint);
+    };
+    return { start, reveal, stop };
+  })();
+  // Spicy's fire, for real: the user's fire footage (filmed on black) cut into two loops, fire-ground.mp4 (a low fire
+  // along the ground) and fire-wall.mp4 (a wall of flames), keyed off the black live in WebGL into a canvas per clip.
+  // The flames' brightness (the green counting more than the red, so the red glow over them stays faint) gives the
+  // alpha, and a fire ramp the colour (deep red at the edges, red, orange, gold, white-hot in the core), so they burn
+  // on the light page as they would on black; and it is made to tile (towards its sides each frame fades into its own
+  // middle, so copies side by side meet without a seam). One decode feeds every fire on the page: use(...names) plays
+  // the clips, sync() (each frame, before drawing) keys each one's newest frame, frame(name) is a clip's keyed canvas
+  // (null until it plays), row() tiles a clip along a line, release() stops them all. html[data-sp-fire] is set while
+  // every clip in use plays (the CSS's PNG flames hidden); without WebGL, or with the video kept from playing (a phone
+  // saving power), it never is, and the PNG flames stay.
+  const spFire = (() => {
+    const FILES = { ground: "spicy/fire-ground.mp4", wall: "spicy/fire-wall.mp4" };
+    const VERT = "attribute vec2 p; varying vec2 uv; void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }";
+    const FRAG = "precision mediump float; uniform sampler2D tex; varying vec2 uv;"
+      + " vec4 key(vec2 at) { vec3 c = texture2D(tex, at).rgb; float l = max(c.r * 0.72, c.g * 1.3); float a = smoothstep(0.06, 0.46, l);"
+      + " vec3 col = l < 0.3 ? mix(vec3(0.42, 0.05, 0.02), vec3(0.95, 0.24, 0.05), l / 0.3)"
+      + " : l < 0.65 ? mix(vec3(0.95, 0.24, 0.05), vec3(1.0, 0.6, 0.1), (l - 0.3) / 0.35)"
+      + " : mix(vec3(1.0, 0.6, 0.1), vec3(1.0, 0.93, 0.62), min(1.0, (l - 0.65) / 0.35));"
+      + " return vec4(col * a, a); }"
+      + " void main() { float w = 1.0 - smoothstep(0.0, 0.25, uv.x) + smoothstep(0.75, 1.0, uv.x);"
+      + " gl_FragColor = mix(key(uv), key(vec2(fract(uv.x + 0.5), uv.y)), w); }";
+    const clips = {};
+    let able = null, on = false;
+    const keyer = (video, lost) => {
+      const canvas = document.createElement("canvas");
+      let gl = null;
+      try { gl = canvas.getContext("webgl", { premultipliedAlpha: true, preserveDrawingBuffer: true, antialias: false, depth: false }); } catch { gl = null; }
+      if (!gl) return null;
+      canvas.addEventListener("webglcontextlost", lost);
+      const shader = (type, text) => { const s = gl.createShader(type); gl.shaderSource(s, text); gl.compileShader(s); return s; };
+      const program = gl.createProgram();
+      gl.attachShader(program, shader(gl.VERTEX_SHADER, VERT)); gl.attachShader(program, shader(gl.FRAGMENT_SHADER, FRAG));
+      gl.linkProgram(program);
+      if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
+      gl.useProgram(program);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      const at = gl.getAttribLocation(program, "p");
+      gl.enableVertexAttribArray(at); gl.vertexAttribPointer(at, 2, gl.FLOAT, false, 0, 0);
+      gl.bindTexture(gl.TEXTURE_2D, gl.createTexture());
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return {
+        canvas,
+        key() {
+          if (gl.isContextLost() || video.readyState < 2 || !video.videoWidth) return false;
+          if (canvas.width !== video.videoWidth) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; gl.viewport(0, 0, canvas.width, canvas.height); }
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+          gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+          return true;
+        },
+      };
+    };
+    const make = (name) => {
+      const video = document.createElement("video");
+      video.muted = true; video.loop = true; video.playsInline = true; video.preload = "auto";
+      video.setAttribute("muted", ""); video.setAttribute("playsinline", "");
+      video.src = siteUrl(FILES[name]);
+      // (a lost context: the fire goes, the PNG flames come back)
+      const k = keyer(video, () => { able = false; api.release(); });
+      if (!k) return null;
+      const clip = { video, k, users: 0, playing: false, ready: false, at: -1, keyed: 0 };
+      video.addEventListener("playing", () => { clip.playing = true; });
+      return clip;
+    };
+    document.addEventListener("visibilitychange", () => {
+      for (const clip of Object.values(clips)) if (clip?.users) { if (document.hidden) clip.video.pause(); else void clip.video.play().catch(() => undefined); }
+    });
+    const api = {
+      // whether this device can key the fire at all (WebGL)
+      able() {
+        if (able === null) { try { able = Boolean(document.createElement("canvas").getContext("webgl")); } catch { able = false; } }
+        return able;
+      },
+      // the clips loaded ahead (not playing yet)
+      warm(...names) { if (api.able()) for (const name of names) if (!(name in clips)) clips[name] = make(name); },
+      use(...names) {
+        if (!api.able() || !motionOK()) return;
+        for (const name of names) {
+          if (!(name in clips)) clips[name] = make(name);
+          const clip = clips[name];
+          if (clip && !clip.users++) void clip.video.play().catch(() => undefined);
+        }
+      },
+      // each frame: every clip in use keyed afresh when its video has moved on a frame (30 a second; or after a
+      // tenth of a second, where currentTime moves in larger steps), and html[data-sp-fire] on while they all play
+      sync() {
+        let all = able === true, any = false;
+        for (const name of Object.keys(clips)) {
+          const clip = clips[name];
+          if (!clip?.users) continue;
+          any = true;
+          if (!api.frame(name)) all = false;
+        }
+        const lit = all && any;
+        if (lit !== on) { on = lit; root.toggleAttribute("data-sp-fire", on); }
+        return on;
+      },
+      // a clip's keyed canvas, with its newest frame (null until it plays)
+      frame(name) {
+        const clip = clips[name];
+        if (!clip?.users || !clip.playing) return null;
+        const at = Math.floor(clip.video.currentTime * 30), now = performance.now();
+        if ((at !== clip.at || now - clip.keyed > 100) && clip.k.key()) { clip.at = at; clip.keyed = now; clip.ready = true; }
+        return clip.ready ? clip.k.canvas : null;
+      },
+      release() {
+        for (const clip of Object.values(clips)) if (clip?.users) { clip.users = 0; clip.playing = false; clip.ready = false; clip.at = -1; clip.video.pause(); }
+        on = false;
+        root.removeAttribute("data-sp-fire");
+      },
+      // the clip tiled along a line, from x0 to x1, its foot on foot, h tall, the tiles shifted by phase
+      row(g, name, x0, x1, foot, h, phase = 0) {
+        const img = api.frame(name);
+        if (!img || h < 2) return;
+        const w = h * img.width / img.height;
+        for (let x = phase + Math.floor((x0 - phase) / w) * w; x < x1; x += w) g.drawImage(img, x, foot - h, w, h);
+      },
+    };
+    return api;
+  })();
+  // The burning variant's stage: the flaming loop (29 + 35 beats: one loop of 16 bars). The real fire (spFire) burns
+  // along the foot of the screen (drawn under the embers), jumping on the kicks (the groove's sixteenths 0 and 10 of
+  // each bar), and on the page: along the header's foot and behind its burning word (a canvas in the header's decor),
+  // behind each grid and in the footer (canvases put in on mount), each drawn while it is on screen.
+  // Embers rise off the foot of the screen all the time, in bursts on the kicks, and fly off the pointer as it moves.
+  // Through flaming track 2 the heat rises: the fire climbs the screen bar by bar (--bn-heat), the page sways in it
+  // (html[data-sp-heat]), until the chorus comes back in a flash and the fire drops. (Without the real fire, the PNG
+  // flames burn instead: .bn-floor and the CSS's.)
+  const spicyBurnStage = (() => {
+    let fx = null, canvas = null, g = null, W = 0, H = 0, ratio = 1, embers = [], last = null, lastKick = -1, inHeat = false, pointer = null, ember = null;
+    let spots = [], hero = null, seen = null, fit = null;
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+    };
+    const spawn = (x, y, burst) => embers.push({ x, y, vx: (Math.random() - 0.5) * (burst ? 150 : 46), vy: -(70 + Math.random() * (burst ? 280 : 130)), age: 0, life: 1.1 + Math.random() * 1.6, s: 5 + Math.random() * 9, wob: Math.random() * 6.3 });
+    const onMove = (event) => { if (event.pointerType !== "touch") pointer = [event.clientX, event.clientY, performance.now()]; };
+    // a fire on the page: its canvas, drawn by paint(spot) while it is on screen (own: put in by the stage)
+    const spot = (el, paint, own) => {
+      const s = { el, g: el.getContext("2d"), paint, own, w: 0, h: 0, r: 1, seen: false, drawn: false };
+      spots.push(s);
+      seen.observe(el); fit.observe(el);
+      return s;
+    };
+    const place = (cls, parent, paint) => {
+      const el = document.createElement("canvas");
+      el.className = cls;
+      el.setAttribute("aria-hidden", "true");
+      parent.append(el);
+      return spot(el, paint, true);
+    };
+    // a fire's box (x, y, w, h) faded out at its sides (side wide), its foot and its top (that tall): erased there, so
+    // only where nothing else is drawn
+    const feather = (c, x, y, w, h, side, foot, top = 0) => {
+      c.globalCompositeOperation = "destination-out";
+      for (const [x0, y0, x1, y1, box] of [[x, 0, x + side, 0, [x, y, side, h]], [x + w, 0, x + w - side, 0, [x + w - side, y, side, h]],
+        [0, y + h, 0, y + h - foot, [x, y + h - foot, w, foot]], [0, y, 0, y + top, [x, y, w, top]]]) {
+        if (box[2] <= 0 || box[3] <= 0) continue;
+        const fade = c.createLinearGradient(x0, y0, x1, y1);
+        fade.addColorStop(0, "#000"); fade.addColorStop(1, "rgba(0, 0, 0, 0)");
+        c.fillStyle = fade;
+        c.fillRect(...box);
+      }
+      c.globalCompositeOperation = "source-over";
+    };
+    // the header: fire along its foot, and the burning word burning (the wall's flames rising off it, behind it)
+    const paintHero = (s) => {
+      const c = s.g;
+      spFire.row(c, "wall", 0, s.w, s.h + 8, Math.min(190, s.h * 0.26), 37);
+      spFire.row(c, "ground", 0, s.w, s.h + 6, Math.min(118, s.h * 0.16), -113);
+      if (!s.word?.isConnected) s.word = document.querySelector(".hero .bn-w.is-fire");
+      if (!s.word) return;
+      // (its box on whole pixels, so the fading leaves no line at its sides)
+      const box = s.el.getBoundingClientRect(), r = s.word.getBoundingClientRect(), px = (v) => Math.round(v * s.r) / s.r;
+      const x = px(r.left - box.left - r.width * 0.06), w = px(r.width * 1.12), foot = px(r.top - box.top + r.height * 0.62), h = px(r.height * 1.3);
+      c.save();
+      c.beginPath(); c.rect(x, foot - h, w, h); c.clip();
+      spFire.row(c, "wall", x, x + w, foot, h, x - r.width * 0.4);
+      c.restore();
+      feather(c, x, foot - h, w, h, w * 0.26, h * 0.34, h * 0.12);
+    };
+    const paint = (dt, fire, heat, kick) => {
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      // the fire along the foot of the screen: climbing in the heat, jumping on the kicks
+      if (fire) {
+        const fh = H * (0.12 + heat * 0.36) * (1 + kick * 0.16);
+        spFire.row(g, "wall", 0, W, H + 6, fh, 211);
+        spFire.row(g, "ground", 0, W, H + 8, fh * 0.62, -91);
+      }
+      if (embers.length > 360) embers.splice(0, embers.length - 360);
+      for (let i = embers.length - 1; i >= 0; i--) {
+        const e = embers[i];
+        e.age += dt;
+        if (e.age >= e.life || e.y < -20) { embers.splice(i, 1); continue; }
+        e.x += (e.vx + Math.sin(e.age * 3 + e.wob) * 24) * dt; e.y += e.vy * dt;
+        g.globalAlpha = Math.min(1, (1 - e.age / e.life) * 1.4);
+        g.drawImage(ember, e.x - e.s / 2, e.y - e.s / 2, e.s, e.s);
+      }
+      g.globalAlpha = 1;
+    };
+    return {
+      beat: SP_BEAT, parts: [SP_FLAME1, SP_FLAME2], grid: 0,
+      sections: [[0, "blaze"], [SP_FLAME1, "heat"]],
+      fx: `<div class="bn-floor"><i class="is-a"></i><i class="is-b"></i><i class="is-c"></i></div><canvas class="bn-embers"></canvas><i class="bn-flash"></i>`,
+      mount(el) {
+        fx = el;
+        canvas = el.querySelector(".bn-embers"); g = canvas.getContext("2d");
+        ember = document.createElement("canvas");
+        ember.width = ember.height = 24;
+        const s = ember.getContext("2d"), glow = s.createRadialGradient(12, 12, 0, 12, 12, 12);
+        glow.addColorStop(0, "rgba(255, 244, 190, 1)"); glow.addColorStop(0.3, "rgba(255, 170, 50, 1)"); glow.addColorStop(0.62, "rgba(255, 70, 25, 0.75)"); glow.addColorStop(1, "rgba(220, 30, 20, 0)");
+        s.fillStyle = glow; s.fillRect(0, 0, 24, 24);
+        resize();
+        window.addEventListener("resize", resize);
+        window.addEventListener("pointermove", onMove, { passive: true });
+        last = null; lastKick = -1; inHeat = false;
+        // the real fire, and the page's canvases for it (the header's comes with its decor, found on the first tick)
+        spFire.use("ground", "wall");
+        seen = new IntersectionObserver((entries) => { for (const e of entries) { const at = spots.find((x) => x.el === e.target); if (at) at.seen = e.isIntersecting; } }, { rootMargin: "60px" });
+        fit = new ResizeObserver((entries) => {
+          const r = Math.min(window.devicePixelRatio || 1, 1.25);
+          for (const e of entries) {
+            const at = spots.find((x) => x.el === e.target);
+            if (!at) continue;
+            // (drawn to its whole pixel width)
+            at.el.width = Math.max(1, Math.round(e.contentRect.width * r)); at.el.height = Math.max(1, Math.round(e.contentRect.height * r));
+            at.w = at.el.width / r; at.h = at.el.height / r; at.r = r;
+            at.drawn = false;
+          }
+        });
+        document.querySelectorAll("main .grid").forEach((grid, i) => place("bn-gfire", grid, (at) => {
+          spFire.row(at.g, "wall", 0, at.w, at.h, at.h * 0.92, 61 + i * 173);
+          spFire.row(at.g, "ground", 0, at.w, at.h + 4, at.h * 0.6, -29 - i * 97);
+          feather(at.g, 0, 0, at.w, at.h, Math.min(110, at.w * 0.09), at.h * 0.32);
+        }));
+        const footer = document.querySelector("footer");
+        if (footer) place("bn-ffire", footer, (at) => {
+          spFire.row(at.g, "wall", 0, at.w, at.h + 6, at.h * 0.86, 140);
+          spFire.row(at.g, "ground", 0, at.w, at.h + 8, at.h * 0.5, -60);
+        });
+      },
+      tick(at, section) {
+        if (!fx || at < 0) return;
+        // the page's fires first (measured before the styles below change)
+        const fire = spFire.sync();
+        if (!hero) { const el = document.querySelector(".bn-decor > .bn-fire"); if (el) hero = spot(el, paintHero, false); }
+        for (const s of spots) {
+          if (fire && s.seen && s.w) { s.g.setTransform(s.r, 0, 0, s.r, 0, 0); s.g.clearRect(0, 0, s.w, s.h); s.paint(s); s.drawn = true; }
+          else if (!fire && s.drawn) { s.g.setTransform(1, 0, 0, 1, 0, 0); s.g.clearRect(0, 0, s.el.width, s.el.height); s.drawn = false; }
+        }
+        const dt = last === null ? 0 : Math.min(0.05, Math.max(0, at - last));
+        last = at;
+        const b = at / SP_BEAT, bar = Math.floor(b / 4) * 4, kick = b - bar >= 2.5 ? bar + 2.5 : bar;
+        const jump = Math.exp(-((b - kick) * SP_BEAT) / 0.14);
+        fx.style.setProperty("--bn-kick", jump.toFixed(3));
+        // the heat: rising through flaming track 2 (its 35 beats), gone when the chorus is back (in a flash)
+        const heat = section === "heat" ? Math.min(1, (b - 29) / 33) ** 1.2 : 0;
+        fx.style.setProperty("--bn-heat", heat.toFixed(3));
+        root.toggleAttribute("data-sp-heat", heat > 0.3);
+        if (inHeat && section !== "heat") { fx.classList.remove("is-flash"); void fx.offsetWidth; fx.classList.add("is-flash"); }
+        inHeat = section === "heat";
+        if (dt > 0) {
+          if (kick !== lastKick) { lastKick = kick; for (let k = 0, n = 12 + heat * 30; k < n; k++) spawn(Math.random() * W, H + 8, true); }
+          for (let k = Math.floor((24 + heat * 90) * dt + Math.random()); k > 0; k--) spawn(Math.random() * W, H + 6, false);
+          if (pointer && performance.now() - pointer[2] < 80) for (let k = 0; k < 2; k++) spawn(pointer[0] + (Math.random() - 0.5) * 10, pointer[1] - 4, false);
+        }
+        paint(dt, fire, heat, jump);
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        window.removeEventListener("pointermove", onMove);
+        root.removeAttribute("data-sp-heat");
+        spFire.release();
+        seen?.disconnect(); fit?.disconnect();
+        for (const s of spots) if (s.own) s.el.remove();
+        spots = []; hero = null; seen = null; fit = null;
+        fx = null; canvas = null; g = null; embers = []; ember = null; pointer = null;
+      },
+    };
+  })();
+  // The header on fire (the burning variant's decor): the issue's cover, a burnt hole in it, tossed at an angle; the
+  // Y2K charms, 3D pieces, the chrome peppers and the MY WORLD logo slapped all over; flames along the header's foot
+  // (the real fire on .bn-fire, drawn by the burning stage; the PNG flames without it).
+  const SP_BURN_DECOR = `<div class="bn-decor" aria-hidden="true"><canvas class="bn-fire"></canvas><div class="bn-cover"><i class="bn-cover-art"></i><i class="bn-cover-rim"></i></div>`
+    + ["skull", "spike", "cherry", "pop", "chain", "wings", "star", "glass"].map((name) => `<i class="bn-st is-${name}"></i>`).join("")
+    + `<i class="bn-el is-star"></i><i class="bn-el is-heart"></i><i class="bn-world"></i><i class="bn-pepper"></i><i class="bn-pepper is-curl"></i>`
+    + `<div class="bn-fireline"><i class="is-a"></i><i class="is-b"></i><i class="is-c"></i></div></div>`;
+  // its headline: knocked about word by word, the last word burning
+  const SP_BURN_H1 = [["Every", -5, 0], ["Brew", 3, -6], ["Houze", -2, 4], ["app.", 6, -2], ["Now", -4, 6], ["on", 5, -4], ["fire.", -3, 2]]
+    .map(([word, turn, lift], i, all) => `<span class="bn-w${i === all.length - 1 ? " is-fire" : ""}" style="--r: ${turn}deg; --y: ${lift}px">${word}</span>`).join(" ");
+  // The burning variant coming in (on the flaming loop's first downbeat): the white-hot sheet burns away onto the
+  // page on fire (its decor, headline and sub, the four on their other photos).
+  const spIgnite = (name) => {
+    if (name !== "burn") return;
+    spIgnition.reveal();
+    decor.innerHTML = SP_BURN_DECOR;
+    heading.innerHTML = SP_BURN_H1;
+    brandSub.textContent = "Spicy · on fire";
+    lineup.querySelectorAll(".ae-member").forEach((plate) => { const photo = plate.querySelector(".ae-photo"); if (photo) photo.src = siteUrl(`spicy/${plate.dataset.member}-back.webp`); });
+    toast("🔥 Spicy · it's burning");
+  };
+
   const THEMES = {
     whiplash: {
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
@@ -11286,6 +12395,26 @@
       extras: ["david-back.webp", "lucy-back.webp", "logo.webp",
         ...["danger", "target", "stripes", "chevrons", "code", "frame", "barcode"].map((name) => `hud-${name}.webp`)],
     },
+    // Spicy: aespa's, from MY WORLD (2023), the fifth hidden track, pulled out of the fire alarm on the café
+    // header's wall once Stay has been found (see the end of this file). The intro (5 bars, "ISSUE #1": the
+    // flames forge the cover of SPICY, a Y2K teen magazine) runs straight into track 1 (8 bars), then track 2
+    // (8 bars and a beat). The four on the album's photo cards, front and back.
+    spicy: {
+      era: "Spicy", folder: "spicy/", tag: "SPICY", back: "image", scheme: "dark",
+      title: "Brew Houze × aespa · Spicy", toast: "Brew Houze × aespa · Spicy 🌶",
+      sub: "Spicy · System portal", h1: "Every Brew Houze app. Extra spicy.", footer: "Brew Houze × aespa · Spicy · café management system",
+      introClip: "spicy/intro.mp3", introStart: SP_START, introLength: SP_INTRO,
+      loops: [{ src: "spicy/track-1.mp3", start: SP_START, length: SP_TRACK1 }, { src: "spicy/track-2.mp3", start: SP_START, length: SP_TRACK2 }],
+      joined: true, intro: spicyIntro, introClass: "sp-intro",
+      // Track 2's pepper rain (spicyStage): the Spice Meter filled turns the theme into its burning variant, the
+      // music going on into the flaming loop (29 + 35 beats) until the theme changes.
+      stage: spicyStage,
+      variants: { burn: { loops: [{ src: "spicy/flame-1.mp3", start: SP_START, length: SP_FLAME1 }, { src: "spicy/flame-2.mp3", start: SP_START, length: SP_FLAME2 }], stage: spicyBurnStage } },
+      onVariant: (name) => spIgnite(name),
+      fonts: ["400 1em 'Bagel Fat One'", "800 1em 'Barlow Condensed'", "700 1em 'Space Mono'", "900 1em Unbounded", "800 1em Unbounded"],
+      extras: ["pepper.webp", "pepper-curl.webp", "charm.webp", "sparkle.webp", "myworld-pink.webp", "myworld-green.webp", ...SP_FLOATS.slice(0, 8).map(([file]) => `${file}.webp`),
+        ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-back.webp`)],
+    },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
   // photos and extras (loaded ahead with them: the intro and the card backs use them) are warmed
@@ -11406,7 +12535,38 @@
   // in the intro; the section) every frame, unmount() when the theme changes.
   let mountedStage = null;
   let stageClock = 0;
-  const stageOf = (theme) => THEMES[theme]?.stage ?? null;
+  // ── A theme's variant: another loop and stage it turns into while it is on (THEMES[x].variants[name] = { loops,
+  // stage }: Spicy's burning one). armVariant(name) asks for it from the end of the part heard now: the music goes
+  // on into the variant's loop on the very next sample (without the music, it comes in where the page clock's loop
+  // turns over). It is on once heard: html[data-variant], the variant's stage, THEMES[x].onVariant(name). It lasts
+  // while the theme is on (changing theme turns it off). ──
+  let variantOn = null, variantArmed = null, variantSyncing = false, stageLastAt = 0;
+  const stageOf = (theme) => (variantOn && THEMES[theme]?.variants?.[variantOn]?.stage) || THEMES[theme]?.stage || null;
+  const variantOf = (name) => (current ? THEMES[current].variants?.[name] ?? null : null);
+  // (its loop decoded ahead, so it can come in on time)
+  function warmVariant(name) {
+    const v = variantOf(name);
+    if (v && soundWanted()) void playerFor(current).preloadSet(name, v.loops).catch(() => undefined);
+  }
+  function armVariant(name) {
+    const v = variantOf(name);
+    if (!v || variantOn === name || variantArmed === name) return false;
+    variantArmed = name;
+    const player = players[current];
+    if (player?.playing()) void player.switchSet(name, v.loops).then((ok) => { if (!ok && variantArmed === name && !variantOn) variantArmed = null; });
+    return true;
+  }
+  // (clock: where the stage's loop clock starts, so the variant's loop goes on from the turn over)
+  function setVariant(name, clock) {
+    variantOn = name;
+    variantArmed = null;
+    stageLastAt = 0;
+    if (name) root.dataset.variant = name; else delete root.dataset.variant;
+    if (!current) return;
+    players[current]?.preferSet(name ?? "main");
+    startStage(current, clock);
+    THEMES[current].onVariant?.(name);
+  }
   const stageCycle = (stage) => stage.parts ? stage.parts.reduce((sum, part) => sum + part, 0) : stage.cycle;
   function setStage(name, lag = 0) {
     if (name === stageName) return;
@@ -11459,16 +12619,29 @@
     if (!stage) return;
     const player = players[current];
     let at = null; // seconds into the loop; -1 during the intro
-    if (player && player.playing()) {
-      const heard = player.position();
-      if (heard) {
-        at = heard.index < 0 ? -1 : (stage.parts ? stage.parts.slice(0, heard.index).reduce((sum, part) => sum + part, 0) : 0) + heard.offset;
-        if (at >= 0) stageClock = performance.now() - at * 1000;
+    let heard = player && player.playing() ? player.position() : null;
+    if (heard && heard.index >= 0) {
+      const set = heard.set === "main" ? null : heard.set;
+      // the variant asked for is heard now: it is on (its stage takes over)
+      if (set && set === variantArmed) { setVariant(set); return; }
+      // a variant on while the music plays another loop (the sound came back on): the music is asked to follow,
+      // and the stage keeps the page clock until it does
+      if (set !== variantOn) {
+        const v = variantOn ? variantOf(variantOn) : null;
+        if (v && !variantSyncing) { variantSyncing = true; void player.switchSet(variantOn, v.loops).finally(() => { variantSyncing = false; }); }
+        heard = null;
       }
-    } else {
+    }
+    if (heard) {
+      at = heard.index < 0 ? -1 : (stage.parts ? stage.parts.slice(0, heard.index).reduce((sum, part) => sum + part, 0) : 0) + heard.offset;
+      if (at >= 0) stageClock = performance.now() - at * 1000;
+    } else if (!player || !player.playing() || variantOn) {
       const cycle = stageCycle(stage);
       at = (((performance.now() - stageClock) / 1000) % cycle + cycle) % cycle;
+      // (without the music, the variant asked for comes in where the loop turns over)
+      if (variantArmed && !variantOn && at < stageLastAt) { setVariant(variantArmed, performance.now() - at * 1000); return; }
     }
+    if (at !== null && at >= 0) stageLastAt = at;
     if (at !== null) {
       if (at < 0) { setStage("calm"); restoreLyrics(); stage.tick?.(-1, "calm"); }
       else {
@@ -11486,7 +12659,7 @@
     }
     stageFrame = requestAnimationFrame(stageTick);
   }
-  function startStage(theme) {
+  function startStage(theme, clock = performance.now()) {
     cancelAnimationFrame(stageFrame);
     stageName = "";
     restoreLyrics();
@@ -11499,7 +12672,7 @@
     stageFx.innerHTML = stage.fx;
     mountedStage = stage;
     stage.mount?.(stageFx);
-    stageClock = performance.now();
+    stageClock = clock;
     setStage("calm");
     if (motionOK()) stageFrame = requestAnimationFrame(stageTick);
   }
@@ -11514,6 +12687,10 @@
 
   function applyTheme(theme) {
     current = theme;
+    // (a variant lasts while its theme is on: each theme starts as itself)
+    variantOn = null; variantArmed = null; stageLastAt = 0;
+    delete root.dataset.variant;
+    if (theme) players[theme]?.preferSet("main");
     calmStorm();
     if (theme) startStage(theme); else stopStage();
     const t = theme ? THEMES[theme] : null;
@@ -11545,6 +12722,10 @@
     let gain = null;
     let parts = null;
     let introPart = null;
+    // its sets of parts: "main" (srcs) and any loop a theme turns into (a variant: preloadSet, switchSet). setName is
+    // the set queued now; preferred, the one start() plays from the top.
+    let setName = "main", preferred = "main";
+    const sets = {}, setLoads = {};
     let loading = null;
     let sources = [];
     let nextAt = 0;
@@ -11586,7 +12767,7 @@
     const load = () => {
       if (!loading) {
         loading = Promise.all([Promise.all(srcs.map(decode)), introSrc ? decode(introSrc) : null])
-          .then(([decoded, intro]) => { parts = decoded; introPart = intro; }, (error) => { loading = null; throw error; });
+          .then(([decoded, intro]) => { sets.main = decoded; parts ??= decoded; introPart = intro; }, (error) => { loading = null; throw error; });
       }
       return loading;
     };
@@ -11599,8 +12780,8 @@
     const schedule = () => {
       while (parts && nextAt < ctx.currentTime + 6) {
         const part = parts[index];
-        timeline.push({ index, at: nextAt, end: nextAt + part.duration });
         const node = ctx.createBufferSource();
+        timeline.push({ index, at: nextAt, end: nextAt + part.duration, set: setName, node });
         node.buffer = part.buffer;
         node.connect(gain);
         node.start(nextAt, part.offset, part.duration);
@@ -11642,6 +12823,11 @@
       const stamp = ctx.state === "running" ? ctx.getOutputTimestamp?.() : null;
       return stamp?.contextTime > 0 ? stamp.contextTime + (performance.now() - stamp.performanceTime) / 1000 : ctx.currentTime - (ctx.outputLatency || 0);
     };
+    // (from the top: the preferred set's first part)
+    const fromTop = () => {
+      const want = sets[preferred] ? preferred : "main";
+      parts = sets[want]; setName = want; index = 0;
+    };
     const running = async () => {
       try { await Promise.race([ctx.resume(), new Promise((ok) => setTimeout(ok, 400))]); } catch { /* not allowed yet */ }
       return ctx.state === "running";
@@ -11656,8 +12842,35 @@
         const now = ctx.currentTime - (ctx.outputLatency || 0);
         timeline = timeline.filter((entry) => entry.end > now - 2);
         const entry = timeline.find((item) => now >= item.at && now < item.end);
-        return entry ? { index: entry.index, offset: now - entry.at } : null;
+        return entry ? { index: entry.index, offset: now - entry.at, set: entry.set } : null;
       },
+      // Another set of parts (a theme's variant loop): decoded ahead (preloadSet); switchSet goes into it from the
+      // end of the part heard now (what was queued after that cancelled, its first part on the very next sample).
+      // Resolves false when nothing is playing or the part after is already going.
+      preloadSet(name, entries) {
+        context();
+        return (setLoads[name] ??= Promise.all(entries.map(decode)).then((decoded) => { sets[name] = decoded; }, (error) => { delete setLoads[name]; throw error; }));
+      },
+      async switchSet(name, entries) {
+        try { await player.preloadSet(name, entries); } catch { return false; }
+        if (setName === name) return true;
+        if (!ctx || !timer || ctx.state !== "running") return false;
+        const now = ctx.currentTime - (ctx.outputLatency || 0);
+        const heardNow = timeline.find((entry) => now >= entry.at && now < entry.end);
+        const at = heardNow ? heardNow.end : nextAt;
+        if (at < ctx.currentTime + 0.03) return false;
+        timeline = timeline.filter((entry) => {
+          if (entry.at < at - 1e-4) return true;
+          try { entry.node?.stop(); } catch { /* never started */ }
+          sources = sources.filter((node) => node !== entry.node);
+          return false;
+        });
+        parts = sets[name]; setName = name; index = 0; nextAt = at;
+        schedule();
+        return true;
+      },
+      // the set start() plays from the top (a variant on: its loop, decoded by then)
+      preferSet(name) { preferred = name; },
       // Decoded ahead (before the click) so a joined intro can start at once.
       preload() { load().catch(() => undefined); },
       // A joined theme: its intro clip, then the loop from the sample the intro ends on. Resolves the
@@ -11676,10 +12889,10 @@
         node.buffer = introPart.buffer;
         node.connect(gain);
         node.start(at, introPart.offset, introPart.duration);
-        timeline.push({ index: -1, at, end: at + introPart.duration });
+        timeline.push({ index: -1, at, end: at + introPart.duration, set: "main", node });
         node.onended = () => { sources = sources.filter((s) => s !== node); };
         sources.push(node);
-        index = 0;
+        fromTop();
         nextAt = at + introPart.duration;
         schedule();
         timer = setInterval(schedule, 1000);
@@ -11705,10 +12918,10 @@
         node.buffer = part.buffer;
         node.connect(gain);
         node.start(at, part.offset, part.duration);
-        timeline.push({ index: -1, at, end: at + part.duration });
+        timeline.push({ index: -1, at, end: at + part.duration, set: "main", node });
         node.onended = () => { sources = sources.filter((s) => s !== node); };
         sources.push(node);
-        index = 0;
+        fromTop();
         nextAt = at + part.duration;
         schedule();
         timer = setInterval(schedule, 1000);
@@ -11717,12 +12930,12 @@
       async start() {
         const mine = ++generation;
         context();
-        try { await load(); } catch { return false; }
+        try { await load(); await (preferred !== "main" ? setLoads[preferred] : null); } catch { return false; }
         if (!(await running()) || mine !== generation) return false;
         halt();
         gain.gain.cancelScheduledValues(ctx.currentTime);
         gain.gain.setValueAtTime(VOLUME, ctx.currentTime);
-        index = 0;
+        fromTop();
         nextAt = ctx.currentTime + 0.06;
         schedule();
         timer = setInterval(schedule, 1000);
@@ -11793,6 +13006,8 @@
     if (THEMES[theme].joined) playerFor(theme).preload(); else clipFor(theme);
     if (warmed[theme]) return;
     const t = THEMES[theme];
+    // (a theme whose intro sets type in its own fonts loads them now, so the intro never shows a stand-in font)
+    t.fonts?.forEach((font) => document.fonts?.load(font).catch(() => undefined));
     warmed[theme] = [...groupOf(theme).order.map((key) => photoOf(theme, key)), ...flashesOf(theme), ...(t.extras ?? []).map((file) => `${t.folder}${file}`)].map((src) => { const img = new Image(); img.src = src; return img; });
   }
 
@@ -11945,6 +13160,7 @@
     breed: { logo: "breed/smiley-ink.webp", tint: "#B1F700", mask: true },
     yoru: { logo: "yoru/moon.webp", tint: "#FF7A9C", mask: true },
     stay: { logo: "stay/logo.webp", tint: "#FCEE0A", mask: false },
+    spicy: { logo: "spicy/myworld-pink.webp", tint: "#FF2D7A", mask: false },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -12705,7 +13921,7 @@
     if (!track || !track.hidden) return;
     track.hidden = false;
     const found = BONUS.filter((bonus) => picker.querySelector(`.ae-pick[data-pick="${bonus}"]`)?.hidden === false).length;
-    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${["", "one was", "two were", "three were", "four were"][found] ?? `${found} were`} hidden`;
+    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${["", "one was", "two were", "three were", "four were", "five were"][found] ?? `${found} were`} hidden`;
   }
   const revealDitto = () => revealBonus("ditto");
   if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
@@ -13127,9 +14343,316 @@
       hauntTimer = setTimeout(hauntBurst, 900);
     } else if (!due && haunted && !taking) unhaunt();
   };
-  onThemeApplied = () => { showMore(); showPeel(); showLeak(); showGlitch(); };
+  // ── Spicy: the secret after I Really Want to Stay at Your House ──
+  // Once Stay has been found here, a fire alarm is on the café header's wall (in the café look only): the red
+  // pull station with its strobe above it, someone's chrome chili pepper charm hooked on its handle (swaying,
+  // swinging harder at the pointer) and a sparkle sticker slapped on its corner. Pulling it (a click, or Enter)
+  // rings the bell: the strobe flashes, the café warms up, and chrome flames rise over the screen into the
+  // theme's intro. That unlocks it for good: the alarm is gone, and the theme shows in the playlist as the fifth
+  // hidden track.
+  if (store.get(SPICY_KEY) || current === "spicy") revealBonus("spicy");
+  const heroWrap = document.querySelector(".hero .wrap");
+  let alarm = null, pulled = false;
+  const SP_ALARM = `<span class="sp-alarm-strobe" aria-hidden="true"><svg viewBox="0 0 76 62">
+      <defs><linearGradient id="sp-st-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" /><stop offset="1" stop-color="#D8D1DB" /></linearGradient></defs>
+      <rect x="2" y="2" width="72" height="58" rx="9" fill="url(#sp-st-body)" stroke="#B7ADBB" stroke-width="1.2" />
+      <rect x="13" y="9" width="50" height="3.2" rx="1.6" fill="#C2B8C6" /><rect x="13" y="15" width="50" height="3.2" rx="1.6" fill="#C2B8C6" /><rect x="13" y="21" width="50" height="3.2" rx="1.6" fill="#C2B8C6" />
+      <text class="sp-st-word" x="38" y="37.5">FIRE</text>
+      <rect class="sp-st-lens" x="19" y="41" width="38" height="14" rx="4" /><rect x="21.5" y="43" width="15" height="2.6" rx="1.3" fill="#FFFFFF" opacity="0.85" />
+      <circle class="sp-st-led" cx="66" cy="10" r="2.3" />
+    </svg></span>
+    <span class="sp-alarm-unit" aria-hidden="true"><svg viewBox="0 0 100 190">
+      <defs>
+        <linearGradient id="sp-al-face" x1="0" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FF5A6C" /><stop offset="0.4" stop-color="#E8122E" /><stop offset="1" stop-color="#9E0A1F" /></linearGradient>
+        <linearGradient id="sp-al-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF9AA6" /><stop offset="0.16" stop-color="#E11632" /><stop offset="1" stop-color="#5C0410" /></linearGradient>
+        <linearGradient id="sp-al-grip" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" /><stop offset="0.65" stop-color="#EEE9F0" /><stop offset="1" stop-color="#C4BBC8" /></linearGradient>
+      </defs>
+      <rect x="3" y="3" width="94" height="126" rx="13" fill="url(#sp-al-rim)" />
+      <rect x="8" y="8" width="84" height="116" rx="9" fill="url(#sp-al-face)" />
+      <path d="M13 13h44c-17 3-30 11-38 25-4-7-6-15-6-25z" fill="#FFFFFF" opacity="0.3" />
+      <circle cx="50" cy="15" r="2" fill="#F6D9DE" /><circle cx="50" cy="117" r="2" fill="#B8505F" />
+      <text class="sp-al-fire" x="50" y="38">FIRE</text>
+      <rect x="20" y="45" width="60" height="38" rx="7" fill="#64040F" /><rect x="20" y="45" width="60" height="7" rx="3.5" fill="#2A0006" opacity="0.5" />
+      <text class="sp-al-alarm" x="50" y="99">ALARM</text>
+      <text class="sp-al-print" x="50" y="111">IN CASE OF SPICE</text>
+      <g class="sp-al-handle">
+        <rect x="24" y="47" width="52" height="25" rx="5" fill="url(#sp-al-grip)" /><rect x="24" y="69" width="52" height="4" rx="2" fill="#A99EAE" />
+        <text class="sp-al-pull" x="50" y="57.5">PULL</text><text class="sp-al-pull" x="50" y="66.5">DOWN</text>
+        <g class="sp-al-charm">
+          <circle cx="70" cy="75" r="2.6" fill="none" stroke="#ECE7F0" stroke-width="1.3" />
+          <path d="M70 78.6V110" stroke="#E4DEEA" stroke-width="2.3" stroke-linecap="round" stroke-dasharray="0.01 3" />
+          <circle cx="70" cy="112.5" r="1.7" fill="none" stroke="#ECE7F0" stroke-width="1.1" />
+          <image href="${siteUrl("spicy/charm.webp")}" x="59" y="113.3" width="25.5" height="70" />
+        </g>
+      </g>
+      <image href="${siteUrl("spicy/sparkle.webp")}" x="70" y="-8" width="32" height="33" transform="rotate(14 86 8)" />
+    </svg></span>`;
+  // The alarm's sound, when the visitor has the sound on (made here: no file). "pull": the handle snapping down
+  // onto its latch. "bell": the bell ringing (a hammer striking its dome twenty times a second) for a couple of
+  // seconds, or until the returned stop(seconds of fade).
+  function alarmSound(kind) {
+    if (!soundWanted()) return () => {};
+    keySound("wake"); // (Ditto's keyboard's: the same audio context and noise)
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return () => {};
+    void ctx.resume();
+    const now = ctx.currentTime + 0.005;
+    const out = ctx.createGain();
+    out.connect(ctx.destination);
+    // a burst of noise through a band: a click
+    const tick = (at, freq, level, decay) => {
+      const source = ctx.createBufferSource();
+      source.buffer = keysNoise;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass"; band.frequency.value = freq; band.Q.value = 1.1;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(level, at + 0.001);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2, decay + 0.02);
+    };
+    if (kind === "pull") {
+      out.gain.value = 0.5;
+      const knock = (at, freq, level, decay) => {
+        const osc = ctx.createOscillator();
+        osc.type = "triangle";
+        osc.frequency.setValueAtTime(freq, at);
+        osc.frequency.exponentialRampToValueAtTime(freq * 0.6, at + decay);
+        const env = ctx.createGain();
+        env.gain.setValueAtTime(0.0001, at);
+        env.gain.exponentialRampToValueAtTime(level, at + 0.002);
+        env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+        osc.connect(env).connect(out);
+        osc.start(at);
+        osc.stop(at + decay + 0.02);
+      };
+      // the handle giving, then hitting its latch
+      tick(now, 1500, 0.8, 0.03); knock(now + 0.01, 160, 0.6, 0.06);
+      tick(now + 0.075, 2700, 1, 0.025); knock(now + 0.075, 96, 0.9, 0.1);
+      return () => {};
+    }
+    const LONG = 2.4, RATE = 20;
+    out.gain.setValueAtTime(0.0001, now);
+    out.gain.exponentialRampToValueAtTime(0.2, now + 0.015);
+    out.gain.setValueAtTime(0.2, now + LONG - 0.3);
+    out.gain.exponentialRampToValueAtTime(0.0001, now + LONG);
+    const soft = ctx.createBiquadFilter();
+    soft.type = "lowpass"; soft.frequency.value = 6500;
+    soft.connect(out);
+    // the dome: a bell's uneven partials, struck again and again (each strike bright, dying away)
+    const dome = ctx.createGain();
+    dome.gain.value = 0;
+    dome.connect(soft);
+    const partials = [[1, 1], [2.42, 0.5], [2.76, 0.36], [4.07, 0.22], [5.4, 0.15]].map(([ratio, level]) => {
+      const osc = ctx.createOscillator();
+      osc.frequency.value = 880 * ratio;
+      const gain = ctx.createGain();
+      gain.gain.value = level * 0.45;
+      osc.connect(gain).connect(dome);
+      osc.start(now);
+      osc.stop(now + LONG + 0.05);
+      return osc;
+    });
+    for (let k = 0; k < LONG * RATE; k++) {
+      const at = now + k / RATE;
+      dome.gain.setValueAtTime(1, at);
+      dome.gain.exponentialRampToValueAtTime(0.28, at + 1 / RATE - 0.004);
+      tick(at, 5200, 0.22, 0.008);
+    }
+    let stopped = false;
+    return (fade = 0.3) => {
+      if (stopped) return;
+      stopped = true;
+      const t = ctx.currentTime;
+      out.gain.cancelScheduledValues(t);
+      out.gain.setValueAtTime(Math.max(0.0001, out.gain.value), t);
+      out.gain.exponentialRampToValueAtTime(0.0001, t + fade);
+      partials.forEach((osc) => { try { osc.stop(t + fade + 0.05); } catch { /* already stopped */ } });
+    };
+  }
+  // A pepper blown up in Spicy's rain, when the sound is on (made here: no file): a blast (noise through a lowpass
+  // closing down), a thump, crackle after; "full", the meter filling: bigger, and a tone rising out of it.
+  function spBoom(kind = "boom") {
+    if (!soundWanted()) return;
+    keySound("wake"); // (Ditto's keyboard's: the same audio context and noise)
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const now = ctx.currentTime + 0.003, big = kind === "full";
+    const out = ctx.createGain();
+    out.gain.value = big ? 0.4 : 0.3;
+    out.connect(ctx.destination);
+    const blast = ctx.createBufferSource();
+    blast.buffer = keysNoise; blast.loop = true;
+    const low = ctx.createBiquadFilter();
+    low.type = "lowpass";
+    low.frequency.setValueAtTime(big ? 3400 : 2600, now);
+    low.frequency.exponentialRampToValueAtTime(130, now + (big ? 0.6 : 0.34));
+    const roar = ctx.createGain();
+    roar.gain.setValueAtTime(0.0001, now);
+    roar.gain.exponentialRampToValueAtTime(1, now + 0.005);
+    roar.gain.exponentialRampToValueAtTime(0.0001, now + (big ? 0.85 : 0.46));
+    blast.connect(low).connect(roar).connect(out);
+    blast.start(now, Math.random() * 0.1);
+    blast.stop(now + (big ? 0.9 : 0.5));
+    const thump = ctx.createOscillator();
+    thump.type = "sine";
+    thump.frequency.setValueAtTime(big ? 150 : 124, now);
+    thump.frequency.exponentialRampToValueAtTime(36, now + 0.26);
+    const body = ctx.createGain();
+    body.gain.setValueAtTime(0.0001, now);
+    body.gain.exponentialRampToValueAtTime(big ? 1 : 0.85, now + 0.004);
+    body.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+    thump.connect(body).connect(out);
+    thump.start(now);
+    thump.stop(now + 0.36);
+    // the crackle: clicks of noise through a high band, scattered after
+    for (let k = 0, n = big ? 8 : 4; k < n; k++) {
+      const at = now + 0.05 + Math.random() * (big ? 0.5 : 0.28);
+      const source = ctx.createBufferSource();
+      source.buffer = keysNoise;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass"; band.frequency.value = 2400 + Math.random() * 3000; band.Q.value = 1.4;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(0.5, at + 0.002);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + 0.03);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2, 0.04);
+    }
+    if (big) {
+      const rise = ctx.createOscillator();
+      rise.type = "sine";
+      rise.frequency.setValueAtTime(520, now + 0.05);
+      rise.frequency.exponentialRampToValueAtTime(1560, now + 0.45);
+      const tone = ctx.createGain();
+      tone.gain.setValueAtTime(0.0001, now + 0.05);
+      tone.gain.exponentialRampToValueAtTime(0.6, now + 0.07);
+      tone.gain.exponentialRampToValueAtTime(0.0001, now + 0.62);
+      rise.connect(tone).connect(out);
+      rise.start(now + 0.05);
+      rise.stop(now + 0.66);
+    }
+  }
+  // Spicy's ignition, when the sound is on (made here: no file): a rush of fire, noise through a band sweeping up and
+  // swelling, cut off on the downbeat.
+  function spWhoosh() {
+    if (!soundWanted()) return;
+    keySound("wake"); // (Ditto's keyboard's: the same audio context and noise)
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const now = ctx.currentTime + 0.003;
+    const out = ctx.createGain();
+    out.gain.value = 0.34;
+    out.connect(ctx.destination);
+    const rush = ctx.createBufferSource();
+    rush.buffer = keysNoise; rush.loop = true;
+    const band = ctx.createBiquadFilter();
+    band.type = "bandpass"; band.Q.value = 0.7;
+    band.frequency.setValueAtTime(240, now);
+    band.frequency.exponentialRampToValueAtTime(4200, now + 0.48);
+    const swell = ctx.createGain();
+    swell.gain.setValueAtTime(0.0001, now);
+    swell.gain.exponentialRampToValueAtTime(1, now + 0.44);
+    swell.gain.exponentialRampToValueAtTime(0.0001, now + 0.56);
+    rush.connect(band).connect(swell).connect(out);
+    rush.start(now);
+    rush.stop(now + 0.6);
+  }
+  // The alarm going off, from the strobe (x0, y0): its two flashes over the screen (pink over the page, white at
+  // the strobe), and the flames rising from below until they cover it; done(layer) then.
+  function spAlarm(x0, y0, done) {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const layer = document.createElement("canvas");
+    layer.className = "sp-takeover";
+    layer.setAttribute("aria-hidden", "true");
+    layer.width = Math.round(W * ratio); layer.height = Math.round(H * ratio);
+    document.body.append(layer);
+    const g = layer.getContext("2d");
+    const draw = spFlames(W, H);
+    const far = Math.hypot(Math.max(x0, W - x0), Math.max(y0, H - y0));
+    const began = performance.now(), long = 1420;
+    const frame = (now) => {
+      const t = now - began;
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      for (const at of [60, 520]) {
+        const k = (t - at) / 190;
+        if (k < 0 || k > 1) continue;
+        const a = (1 - k) * (1 - k);
+        g.fillStyle = `rgba(255, 46, 104, ${(0.22 * a).toFixed(3)})`;
+        g.fillRect(0, 0, W, H);
+        const core = g.createRadialGradient(x0, y0, 0, x0, y0, far * 0.7);
+        core.addColorStop(0, `rgba(255, 255, 255, ${(0.95 * a).toFixed(3)})`);
+        core.addColorStop(0.07, `rgba(255, 214, 230, ${(0.62 * a).toFixed(3)})`);
+        core.addColorStop(0.38, `rgba(255, 70, 128, ${(0.16 * a).toFixed(3)})`);
+        core.addColorStop(1, "rgba(255, 70, 128, 0)");
+        g.fillStyle = core;
+        g.fillRect(0, 0, W, H);
+      }
+      spFlameTime = t;
+      draw(g, t, Math.min(1, Math.max(0, (t - 150) / 1180)));
+      if (t < long) requestAnimationFrame(frame); else done(layer);
+    };
+    requestAnimationFrame(frame);
+  }
+  const pullAlarm = () => {
+    if (!alarm || pulled || switching) return;
+    pulled = true;
+    // the sound woken by the click itself (phones only start audio in a tap)
+    if (soundWanted()) playerFor("spicy").prime();
+    warm("spicy");
+    alarm.classList.add("is-pulled");
+    alarmSound("pull");
+    let bell = () => {}, ringing = 0;
+    const finish = (layer) => {
+      clearTimeout(ringing);
+      store.set(SPICY_KEY, new Date().toISOString());
+      revealBonus("spicy");
+      closePicker();
+      bell(0.35);
+      void switchTo("spicy");
+      // the flames go once the intro, the same flames, is over them
+      requestAnimationFrame(() => requestAnimationFrame(() => { layer?.remove(); document.body.classList.remove("sp-alarmed"); }));
+      alarm?.remove();
+      alarm = null;
+      heroWrap.parentElement.classList.remove("has-alarm");
+      pulled = false;
+    };
+    if (!motionOK()) { finish(null); return; }
+    ringing = setTimeout(() => { bell = alarmSound("bell"); alarm?.classList.add("is-ringing"); document.body.classList.add("sp-alarmed"); }, 60);
+    // (the strobe; on a phone, where the alarm has none, the pull station's top)
+    const strobe = alarm.querySelector(".sp-alarm-strobe").getBoundingClientRect();
+    const unit = alarm.querySelector(".sp-alarm-unit").getBoundingClientRect();
+    const at = strobe.width ? strobe : unit;
+    spAlarm(at.left + at.width / 2, at.top + (strobe.width ? at.height * 0.78 : 8), finish);
+  };
+  const showAlarm = () => {
+    if (!heroWrap) return;
+    const due = Boolean(store.get(STAY_KEY)) && !store.get(SPICY_KEY);
+    if (due && !alarm) {
+      alarm = document.createElement("button");
+      alarm.type = "button";
+      alarm.className = "sp-alarm";
+      alarm.setAttribute("aria-label", "A fire alarm on the wall, a chili pepper charm hooked on its handle. Pull it");
+      alarm.innerHTML = SP_ALARM;
+      const ready = () => warm("spicy");
+      alarm.addEventListener("pointerenter", ready, { once: true });
+      alarm.addEventListener("focus", ready, { once: true });
+      alarm.addEventListener("click", pullAlarm);
+      heroWrap.append(alarm);
+    }
+    if (alarm && !pulled) {
+      alarm.hidden = !due || current !== null;
+      heroWrap.parentElement.classList.toggle("has-alarm", !alarm.hidden);
+    }
+  };
+  onThemeApplied = () => { showMore(); showPeel(); showLeak(); showGlitch(); showAlarm(); };
   showMore();
   showPeel();
   showLeak();
   showGlitch();
+  showAlarm();
 })();
