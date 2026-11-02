@@ -11987,6 +11987,1768 @@
     toast("🔥 Spicy · it's burning");
   };
 
+  // ── Spicy's MV, "Off the scale" (spicyScene; its button is up only while the page burns) ──
+  // The film is spicy/mv.mp4, the user's "mv clip.mp4" whole (the MV's last 76 s, 1280x720 30 fps, its own sound).
+  // At 115 BPM bar n's downbeat is at 0.4227 + (n - 1) bars (SP_MV_BAR; found by matching the flaming loop inside its
+  // sound): bar 1 is verse 2's end, bars 2-9 the pre-chorus (the stained-glass hall; the fire close-up on bar 9),
+  // 10-17 the second chorus (the street), bar 17's last beat the interlude's pickup, 18-25 the bridge, 26-33 the last
+  // chorus. The music stops on bar 34's downbeat (69.33 s, the last stab); the locker and the logos after. The chorus
+  // kicks fall on sixteenths 0 and 10 of the bar.
+  // Order up: one SPICY, extra hot. The MV goes through Brew Houze's own system as an order, and the heart it is for
+  // (glossy pink, from the user's 3D pack) warms as it goes, burns from the hook on, at the side all through, and is
+  // served it on the last chorus's hook:
+  //   order (0)        the Staff Portal's counter: SPICY on its menu (the MV playing in it; aespa's songs the rest of
+  //                    the menu), rung up, its spice pushed past Extra to ∞, for ♥; checked out by GCash, PAID #001
+  //   print (bar 6)    the receipt rising out of the counter's printer, the MV on it in thermal dots, each row printed
+  //                    as the head passes (a slit-scan: every row the picture at that moment); torn off
+  //   ticket (bar 8)   onto the kitchen display: NEW, then COOKING, then FIRE!
+  //   burner (bar 9)   the fire close-up: the stove from above, the igniter clicking, a ring of blue flame leaping
+  //                    orange, the MV opening out of it
+  //   heart (bar 10)   the hook: the heart rising out of the fire, burning, beating with the kicks; then off to the side
+  //   wok (bar 11)     the MV tossed in a wok over the fire, flipped like a pancake on each bar (in strips on 14-15),
+  //                    the kitchen's smoke alarm going off on the alarm line; flung up to hang there on the break
+  //   recipe (35.38)   the pass from above, like a cooking video: the MV lands on a plate; a spice a bar shaken over
+  //                    it, each grading it hotter (paprika, cayenne, habanero, ghost pepper with its ghosts, then the
+  //                    Carolina Reaper, and it goes up); a heart of sauce; ding-ding on the bell, order up
+  //   queue (bar 24)   the café's own Queue Screen: #001 into Ready, NOW CALLING with the MV in its number
+  //   served (bar 26)  the hook again: the order goes to the heart, the MV inside it, burning; a pepper thrown at it
+  //                    on each kick, blowing up against it
+  //   rush (bar 30)    everybody wants one: receipts out of the printer on the kicks, each with the MV on it as it
+  //                    was, flying up and fluttering down; the stock running out
+  //   sold (69.33)     the last stab: SOLD OUT stamped across SPICY on the counter's menu; the heart cools
+  //   thanks (70.89)   the locker and the logo: the four stuck round it as stickers, the heart with them
+  //   end (bar 36)     the logo; the customer's copy under it, thanks for dining
+  const SP_MV_BAR = (n) => 0.4227 + (n - 1) * 4 * SP_BEAT;
+  const SP_MV_PICKUP = SP_MV_BAR(17) + 3 * SP_BEAT;
+  const SP_MV_POP = 69.33, SP_MV_SLAM = 70.89, SP_MV_SHAKE = 73.36, SP_MV_STING = 74.31;
+  // the four as they were on stage (the user's Inkigayo pack): stuck round the locker at the end
+  const SP_MV_CUTS = ["mv-cut-a", "mv-cut-b", "mv-cut-c", "mv-cut-d"];
+  const spMvPics = {};
+  const spMvPic = (file) => {
+    if (!spMvPics[file]) { const img = new Image(); img.decoding = "async"; img.src = siteUrl(`spicy/${file}`); spMvPics[file] = img; }
+    return spMvPics[file];
+  };
+  const spicyScene = {
+    src: "spicy/mv.mp4",
+    className: "sp-scene",
+    cues: [[0, "order"], [SP_MV_BAR(6), "print"], [SP_MV_BAR(8), "ticket"], [SP_MV_BAR(9), "burner"], [SP_MV_BAR(10), "heart"], [SP_MV_BAR(11), "wok"], [SP_MV_PICKUP, "recipe"], [SP_MV_BAR(24), "queue"],
+      [SP_MV_BAR(26), "served"], [SP_MV_BAR(30), "rush"], [SP_MV_POP, "sold"], [SP_MV_SLAM, "thanks"], [SP_MV_BAR(36), "end"]],
+    // its pictures, fire and lettering, loaded while its button is up
+    warm() {
+      [...SP_MV_CUTS.map((name) => `${name}.webp`), "mv-heart.webp", "pepper.webp", "pepper-curl.webp", "st-skull.webp"].forEach(spMvPic);
+      new Image().src = siteUrl("brand-badge.png");
+      spFire.warm("ground", "wall");
+      document.fonts?.load("400 40px 'Bagel Fat One'", "SPICY").catch(() => undefined);
+      document.fonts?.load("700 14px 'Space Mono'", "2,400,000 SHU").catch(() => undefined);
+      // (the Queue Screen's type, and the stamp's)
+      ["italic 700 30px 'Playfair Display'", "500 30px 'JetBrains Mono'", "800 14px Inter", "400 40px Anton"].forEach((f) => document.fonts?.load(f, "Brew Houze #001 SOLD OUT").catch(() => undefined));
+    },
+    mount(box, video) {
+      spicyScene.warm();
+      box.innerHTML = `<canvas class="sp-mv"></canvas>`;
+      // the film itself, with its sound, kept out of sight: everything is drawn from it
+      video.className = "sp-mv-film";
+      video.setAttribute("aria-hidden", "true");
+      box.append(video);
+      const canvas = box.querySelector(".sp-mv"), g = canvas.getContext("2d");
+      const B = SP_MV_BAR, BEAT = SP_BEAT, BAR = 4 * SP_BEAT, PI2 = Math.PI * 2;
+      const clamp = (q) => Math.min(1, Math.max(0, q));
+      const out = (q) => 1 - (1 - clamp(q)) ** 3;
+      const inn = (q) => clamp(q) ** 3;
+      const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+      const back = (q) => { const p = clamp(q) - 1; return 1 + 2.4 * p ** 3 + 1.4 * p ** 2; };
+      const mix = (a, b, q) => a + (b - a) * q;
+      const ready = (im) => im.complete && im.naturalWidth > 0;
+      const seeded = (seed) => { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let x = Math.imul(s ^ (s >>> 15), 1 | s); x ^= x + Math.imul(x ^ (x >>> 7), 61 | x); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; };
+      const BAGEL = "'Bagel Fat One', 'Unbounded', sans-serif", MONO = "'Space Mono', monospace";
+      const font = (weight, size, family) => `${weight} ${Math.max(8, Math.round(size))}px ${family}`;
+      const PEPPERS = ["pepper.webp", "pepper.webp", "pepper-curl.webp"].map(spMvPic);
+      const CUTS = SP_MV_CUTS.map((name) => spMvPic(`${name}.webp`));
+      let W = 0, H = 0, ratio = 1, u = 1, tall = false;
+      const layer = () => { const c = document.createElement("canvas"); return { c, g: c.getContext("2d") }; };
+      const S1 = layer(); // (the pass's counter)
+      const fit = (l) => { l.c.width = Math.round(W * ratio); l.c.height = Math.round(H * ratio); };
+      const wipe = (l) => { l.g.setTransform(1, 0, 0, 1, 0, 0); l.g.globalCompositeOperation = "source-over"; l.g.globalAlpha = 1; l.g.clearRect(0, 0, l.c.width, l.c.height); l.g.setTransform(ratio, 0, 0, ratio, 0, 0); };
+
+      // ── the film: copied once a frame (every effect draws from the copy); while it seeks, the last frame kept ──
+      const F = layer();
+      F.c.width = SCENE_LITE ? 640 : 1280; F.c.height = SCENE_LITE ? 360 : 720;
+      F.g.fillStyle = "#0A0612"; F.g.fillRect(0, 0, F.c.width, F.c.height);
+      const grab = () => { if (video.readyState >= 2 && video.videoWidth > 0) F.g.drawImage(video, 0, 0, F.c.width, F.c.height); };
+      // the film covering a box (its point fu, fv kept in view), zoomed by z
+      const cover = (x, y, w, h, fu = 0.5, fv = 0.5, z = 1) => {
+        const k = Math.max(w / 1280, h / 720) * z, dw = 1280 * k, dh = 720 * k;
+        return { x: Math.min(x, Math.max(x + w - dw, x + w / 2 - dw * fu)), y: Math.min(y, Math.max(y + h - dh, y + h / 2 - dh * fv)), w: dw, h: dh };
+      };
+      const film = (c, r, alpha = 1) => { const a0 = c.globalAlpha; c.globalAlpha = a0 * alpha; c.drawImage(F.c, r.x, r.y, r.w, r.h); c.globalAlpha = a0; };
+      const screenBox = (z = 1) => cover(0, 0, W, H, 0.5, 0.5, z);
+
+      // ── the beat ──
+      const sixteenths = (t) => (t - B(1)) / (BEAT / 4);
+      // seconds since the last of these sixteenths of the bar (0 and 10: the chorus kicks)
+      const since = (t, marks) => {
+        const s = sixteenths(t), bar = Math.floor(s / 16) * 16;
+        let last = -Infinity;
+        for (const m of marks) { if (bar + m <= s) last = Math.max(last, bar + m); else last = Math.max(last, bar - 16 + m); }
+        return (s - last) * BEAT / 4;
+      };
+      const kickAt = (t) => Math.exp(-since(t, [0, 10]) / 0.14);
+      const beatAt = (t, decay = 0.12) => Math.exp(-since(t, [0, 4, 8, 12]) / decay);
+      // the chorus kicks between two times (each a time)
+      const kicksIn = (from, to) => {
+        const list = [];
+        for (let s = Math.ceil(sixteenths(from)); B(1) + s * BEAT / 4 < to; s++) if (((s % 16) + 16) % 16 === 0 || ((s % 16) + 16) % 16 === 10) list.push(B(1) + s * BEAT / 4);
+        return list;
+      };
+
+      // ── shared pieces ──
+      // a spark of light (for embers and sparks)
+      const ember = (() => { const c = document.createElement("canvas"); c.width = c.height = 32; const s = c.getContext("2d"), r = s.createRadialGradient(16, 16, 0, 16, 16, 16);
+        r.addColorStop(0, "rgba(255, 246, 210, 1)"); r.addColorStop(0.3, "rgba(255, 180, 60, 1)"); r.addColorStop(0.65, "rgba(255, 70, 30, 0.6)"); r.addColorStop(1, "rgba(220, 30, 20, 0)");
+        s.fillStyle = r; s.fillRect(0, 0, 32, 32); return c; })();
+      const puff = (() => { const c = document.createElement("canvas"); c.width = c.height = 128; const s = c.getContext("2d"), r = s.createRadialGradient(64, 64, 0, 64, 64, 64);
+        r.addColorStop(0, "rgba(255, 255, 240, 1)"); r.addColorStop(0.25, "rgba(255, 220, 120, 0.95)"); r.addColorStop(0.55, "rgba(255, 110, 40, 0.75)"); r.addColorStop(0.8, "rgba(200, 30, 30, 0.35)"); r.addColorStop(1, "rgba(120, 10, 20, 0)");
+        s.fillStyle = r; s.fillRect(0, 0, 128, 128); return c; })();
+      const smoke = (() => { const c = document.createElement("canvas"); c.width = c.height = 128; const s = c.getContext("2d"), r = s.createRadialGradient(64, 64, 0, 64, 64, 64);
+        r.addColorStop(0, "rgba(70, 50, 55, 0.55)"); r.addColorStop(0.6, "rgba(60, 40, 45, 0.3)"); r.addColorStop(1, "rgba(50, 30, 40, 0)");
+        s.fillStyle = r; s.fillRect(0, 0, 128, 128); return c; })();
+      // embers rising off the foot of the screen (time-driven: each one's path is a function of the time)
+      const embers = (t, n, from, rate = 1, alpha = 1) => {
+        const rnd = seeded(77);
+        g.save(); g.globalCompositeOperation = "lighter";
+        for (let i = 0; i < n; i++) {
+          const life = 1.6 + rnd() * 2.2, phase = rnd() * life, x0 = rnd() * W, wob = rnd() * PI2, s = (4 + rnd() * 8) * u, sp = (0.22 + rnd() * 0.4) * H * rate;
+          const age = (t - from + phase) % life, q = age / life;
+          if (t - from + phase < life * 0.02) continue;
+          g.globalAlpha = alpha * Math.min(1, (1 - q) * 1.6) * Math.min(1, q * 8);
+          g.drawImage(ember, x0 + Math.sin(age * 2.4 + wob) * 26 * u - s / 2, H + 10 - age * sp - s / 2, s, s);
+        }
+        g.restore();
+      };
+      // the fire alarm's strobe (the alarm on the café header's wall): three white bursts from its corner (or from sx, sy)
+      const strobe = (t, at, sx = W - 40 * u, sy = 34 * u) => {
+        const a = t - at;
+        if (a < 0 || a > 0.62) return;
+        let flash = 0;
+        for (const k of [0, 0.2, 0.4]) if (a >= k && a < k + 0.12) flash = Math.max(flash, 1 - (a - k) / 0.12);
+        if (flash <= 0) return;
+        const x = sx, y = sy, r = Math.hypot(W, H);
+        const light = g.createRadialGradient(x, y, 0, x, y, r);
+        light.addColorStop(0, `rgba(255, 255, 255, ${0.95 * flash})`); light.addColorStop(0.25, `rgba(255, 250, 240, ${0.75 * flash})`); light.addColorStop(1, `rgba(255, 220, 220, ${0.25 * flash})`);
+        g.save(); g.fillStyle = light; g.fillRect(0, 0, W, H);
+        // the strobe itself: its lens, and the red ring of the horn round it
+        g.fillStyle = `rgba(255, 255, 255, ${flash})`; g.beginPath(); g.arc(x, y, 16 * u, 0, PI2); g.fill();
+        g.strokeStyle = `rgba(232, 23, 58, ${flash})`; g.lineWidth = 5 * u; g.beginPath(); g.arc(x, y, 24 * u, 0, PI2); g.stroke();
+        g.restore();
+      };
+      // a sticker: the picture cut out with a white edge round it (made once its picture is in)
+      const stickers = new Map();
+      const sticker = (img) => {
+        if (!ready(img)) return null;
+        if (stickers.has(img)) return stickers.get(img);
+        const pad = 14, c = document.createElement("canvas"), w = img.naturalWidth, h = img.naturalHeight;
+        c.width = w + pad * 2; c.height = h + pad * 2;
+        const s = c.getContext("2d"), white = document.createElement("canvas");
+        white.width = w; white.height = h;
+        const wg = white.getContext("2d");
+        wg.drawImage(img, 0, 0); wg.globalCompositeOperation = "source-in"; wg.fillStyle = "#FFFFFF"; wg.fillRect(0, 0, w, h);
+        s.shadowColor = "rgba(40, 10, 20, 0.35)"; s.shadowBlur = 10; s.shadowOffsetY = 4;
+        for (let k = 0; k < 16; k++) { const a = (k / 16) * PI2; s.drawImage(white, pad + Math.cos(a) * 9, pad + Math.sin(a) * 9); }
+        s.shadowColor = "transparent";
+        s.drawImage(img, pad, pad);
+        stickers.set(img, c);
+        return c;
+      };
+
+      // ── fire from the footage in a box (x0..x1, its foot on foot, h tall), faded at its sides and foot ──
+      const FB = layer();
+      const fireBox = (c, name, x0, x1, foot, h, phase = 0, side = 0.22, footFade = 0.18, alpha = 1, op = "source-over") => {
+        const w = x1 - x0;
+        if (!spFire.frame(name) || h < 4 || w < 4 || alpha <= 0.01) return;
+        const bw = Math.ceil(w * ratio), bh = Math.ceil(h * ratio);
+        if (FB.c.width < bw || FB.c.height < bh) { FB.c.width = Math.max(FB.c.width, bw); FB.c.height = Math.max(FB.c.height, bh); }
+        const f = FB.g;
+        f.setTransform(1, 0, 0, 1, 0, 0); f.globalCompositeOperation = "source-over"; f.globalAlpha = 1; f.clearRect(0, 0, bw, bh);
+        f.setTransform(ratio, 0, 0, ratio, 0, 0);
+        spFire.row(f, name, 0, w, h, h, phase);
+        f.globalCompositeOperation = "destination-out";
+        const fade = (gx0, gy0, gx1, gy1, rx, ry, rw, rh) => { const gr = f.createLinearGradient(gx0, gy0, gx1, gy1); gr.addColorStop(0, "#000"); gr.addColorStop(1, "rgba(0, 0, 0, 0)"); f.fillStyle = gr; f.fillRect(rx, ry, rw, rh); };
+        if (side > 0) { const s = w * side; fade(0, 0, s, 0, 0, 0, s, h); fade(w, 0, w - s, 0, w - s, 0, s, h); }
+        if (footFade > 0) { const s = h * footFade; fade(0, h, 0, h - s, 0, h - s, w, s); }
+        c.save(); c.globalAlpha *= alpha; c.globalCompositeOperation = op;
+        c.drawImage(FB.c, 0, 0, bw, bh, x0, foot - h, w, h);
+        c.restore();
+      };
+
+      // ═══ the heart: yours (the order is for it), the thread through it all: glossy pink at the counter, warming as
+      // the order goes through, burning from the hook (bar 10) on; at the side, beating with the kicks ═══
+      const HEART = spMvPic("mv-heart.webp"), HB = layer();
+      // the heartbeat: a lub on each kick (or on these sixteenths) and a dub after it
+      const heartbeat = (t, marks = [0, 10]) => { const a = since(t, marks); return Math.exp(-a / 0.08) * 0.9 + (a > 0.16 ? Math.exp(-(a - 0.16) / 0.08) * 0.55 : 0); };
+      // a heart at x, y (its middle), size tall; heat 0 (cool pink) to 1 (on fire: past 0.5 it burns); beat swells it
+      const burningHeart = (x, y, size, t, heat, beat = 0) => {
+        if (!ready(HEART)) return;
+        const h = size * (1 + 0.12 * beat), w = h * HEART.naturalWidth / HEART.naturalHeight, fire = clamp((heat - 0.5) / 0.35);
+        if (heat > 0.05) {
+          const r = h * (0.85 + 0.6 * heat + 0.35 * beat), gl = g.createRadialGradient(x, y, h * 0.15, x, y, r);
+          gl.addColorStop(0, `rgba(255, 130, 60, ${0.6 * heat})`); gl.addColorStop(0.5, `rgba(255, 60, 70, ${0.3 * heat})`); gl.addColorStop(1, "rgba(255, 45, 122, 0)");
+          g.save(); g.globalCompositeOperation = "lighter"; g.fillStyle = gl; g.fillRect(x - r, y - r, r * 2, r * 2); g.restore();
+        }
+        // flames behind it, rising past it
+        if (fire > 0) fireBox(g, "wall", x - w * 0.78, x + w * 0.78, y + h * 0.42, h * (1.6 + 0.4 * beat), Math.round(x * 0.37), 0.28, 0.25, fire);
+        // the heart, red-hot, its own fire's light on it
+        const bw = Math.ceil(w * ratio), bh = Math.ceil(h * ratio);
+        if (HB.c.width < bw || HB.c.height < bh) { HB.c.width = Math.max(HB.c.width, bw); HB.c.height = Math.max(HB.c.height, bh); }
+        const c = HB.g;
+        c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = "source-over"; c.globalAlpha = 1; c.clearRect(0, 0, bw, bh);
+        c.setTransform(ratio, 0, 0, ratio, 0, 0);
+        c.drawImage(HEART, 0, 0, w, h);
+        if (heat > 0.05) {
+          c.globalCompositeOperation = "source-atop";
+          c.fillStyle = `rgba(255, 70, 20, ${0.38 * heat})`; c.fillRect(0, 0, w, h);
+          if (fire > 0) { c.globalAlpha = 0.6 * fire; spFire.row(c, "ground", 0, w, h * 1.05, h * 0.9, 41); c.globalAlpha = 1; }
+          c.globalCompositeOperation = "source-over";
+        }
+        g.drawImage(HB.c, 0, 0, bw, bh, x - w / 2, y - h / 2, w, h);
+        // flames along its foot, in front
+        if (fire > 0) fireBox(g, "ground", x - w * 0.62, x + w * 0.62, y + h * 0.58, h * (0.62 + 0.22 * beat), Math.round(x * 0.21) + 50, 0.3, 0.3, fire);
+      };
+      let cartHeart = null; // where the order's heart is in the cart (it flies off from there to the side)
+      const HUD_FROM = B(5) + 3 * BEAT;
+      const heartHome = () => { const s = (tall ? 54 : 68) * u; return { x: 20 * u + s * 0.6, y: 18 * u + s * 0.58, s }; };
+      // (cooling once it has had its order and the music stops)
+      const heartHeat = (t) => (t < B(8) ? 0.12 * clamp((t - HUD_FROM) / 1) : t < B(10) ? 0.12 + 0.38 * clamp((t - B(8)) / (2 * BAR)) : 1 - 0.88 * clamp((t - SP_MV_POP) / 1.1));
+      const HOPS = [B(25) + BEAT, B(25) + 2 * BEAT, B(25) + 3 * BEAT];
+      const heartHud = (t) => {
+        // (on the hook, and while it's served, it is in the middle; from the slam it's a sticker)
+        if (t < HUD_FROM || (t >= B(10) && t < B(11)) || (t >= B(26) && t < B(30)) || t >= SP_MV_SLAM) return;
+        const home = heartHome(), fly = out((t - HUD_FROM) / 0.55), heat = heartHeat(t);
+        let { x, y, s } = home;
+        if (fly < 1 && cartHeart) { x = mix(cartHeart.x, home.x, fly); y = mix(cartHeart.y, home.y, fly) - Math.sin(fly * Math.PI) * 70 * u; s = mix(cartHeart.s, home.s, fly); }
+        // its flares: bar 12's hit, each spice going in, the bell; the Reaper going up, the biggest
+        let flare = 0;
+        HUD_FLARES.forEach((at) => { if (t >= at) flare = Math.max(flare, Math.exp(-(t - at) / 0.45)); });
+        if (t >= IGNITE) flare = Math.max(flare, 1.5 * Math.exp(-(t - IGNITE) / 0.6));
+        // its beat: the kicks; every beat while its number is called; every eighth as the stock runs out; slow after
+        let beat = t >= B(10) ? heartbeat(t) : 0;
+        if (t >= B(24) && t < B(26)) beat = heartbeat(t, [0, 4, 8, 12]);
+        else if (t >= B(33) && t < SP_MV_POP) beat = heartbeat(t, [0, 2, 4, 6, 8, 10, 12, 14]);
+        else if (t >= SP_MV_POP) beat = 0.6 * heartbeat(t, [0, 8]);
+        // bar 25's last three beats: it hops out for its order, bigger each hop, into the middle by the hook
+        if (t >= HOPS[0] && t < B(26)) {
+          const n = HOPS.filter((at) => t >= at).length, q = out((t - HOPS[n - 1]) / 0.32), to = servedAt(B(26)), f = mix((n - 1) / 3, n / 3, q);
+          x = mix(home.x, to.x, f); y = mix(home.y, to.y, f) - Math.sin(q * Math.PI) * (40 + 30 * n) * u; s = mix(home.s, to.s, f);
+        }
+        if (heat > 0.15 && heat < 0.95) {
+          g.save();
+          for (let i = 0; i < 3; i++) { const a = (t * 0.7 + i / 3) % 1, r = s * (0.25 + 0.5 * a); g.globalAlpha = (heat - 0.1) * (1 - a) * 0.8; g.drawImage(smoke, x - r + Math.sin(t * 2 + i) * s * 0.2, y - s * 0.4 - a * s * 1.4 - r, r * 2, r * 2); }
+          g.restore();
+        }
+        burningHeart(x, y, s * (1 + 0.7 * Math.min(1.4, flare)), t, heat, beat);
+      };
+
+      // ── the counter's look: rounded boxes, words, a finger tapping ──
+      const UI = "Inter, system-ui, sans-serif";
+      const panel = (c, x, y, w, h, r, fill, stroke, lw = 1) => { c.beginPath(); c.roundRect(x, y, w, h, r); if (fill) { c.fillStyle = fill; c.fill(); } if (stroke) { c.strokeStyle = stroke; c.lineWidth = lw; c.stroke(); } };
+      const say = (c, str, x, y, size, weight, family, color, align = "left", base = "middle") => { c.font = font(weight, size, family); c.fillStyle = color; c.textAlign = align; c.textBaseline = base; c.fillText(str, x, y); return c.measureText(str).width; };
+      const tap = (x, y, at, t) => {
+        const a = t - at;
+        if (a < -0.16 || a > 0.55) return;
+        g.save();
+        const r = 15 * u * (a >= 0 && a < 0.12 ? 0.8 : 1);
+        g.globalAlpha = clamp((a + 0.16) / 0.12) * (1 - clamp((a - 0.3) / 0.25));
+        g.shadowColor = "rgba(0, 0, 0, 0.4)"; g.shadowBlur = 12 * u; g.shadowOffsetY = 4 * u;
+        g.fillStyle = "rgba(255, 255, 255, 0.9)"; g.beginPath(); g.arc(x, y, r, 0, PI2); g.fill();
+        g.shadowColor = "transparent";
+        if (a >= 0) { const q = clamp(a / 0.5); g.globalAlpha = 1 - q; g.strokeStyle = "#FF5A1F"; g.lineWidth = 3 * u; g.beginPath(); g.arc(x, y, r + q * 46 * u, 0, PI2); g.stroke(); }
+        g.restore();
+      };
+      const fireText = (str, x, y, size, align = "left") => {
+        g.font = font(400, size, BAGEL); g.textAlign = align; g.textBaseline = "alphabetic"; g.lineJoin = "round";
+        g.lineWidth = Math.max(3, size * 0.12); g.strokeStyle = "#25100A"; g.strokeText(str, x, y);
+        const fg = g.createLinearGradient(0, y - size * 0.8, 0, y); fg.addColorStop(0, "#FFD25A"); fg.addColorStop(0.5, "#FF8A1F"); fg.addColorStop(1, "#FF2D7A");
+        g.fillStyle = fg; g.fillText(str, x, y);
+      };
+
+      // ═══ order (0 → bar 6): the Staff Portal's counter rings it up ═══
+      // aespa's songs as the rest of the menu
+      const POS_MENU = [["Next Level", 165], ["Savage", 170], ["Drama", 175], ["Supernova", 180], ["Armageddon", 185], ["Whiplash", 170], ["Dirty Work", 175], ["Girls", 160]];
+      const drawPos = (t) => {
+        film(g, screenBox(1.06));
+        g.fillStyle = "rgba(14, 4, 8, 0.8)"; g.fillRect(0, 0, W, H);
+        const enter = out((t - 0.08) / 0.7), leave = inn((t - (B(6) - 0.3)) / 0.3);
+        const tw = tall ? W * 0.94 : Math.min(W * 0.9, H * 1.62), th = tall ? H * 0.84 : Math.min(H * 0.86, tw / 1.5);
+        const tx = (W - tw) / 2, ty = (H - th) / 2 + (1 - enter) * H * 0.7;
+        g.save();
+        if (leave > 0) { g.globalAlpha = 1 - leave; g.translate(W / 2, H * 0.9); g.scale(1 - 0.15 * leave, 1 - 0.15 * leave); g.translate(-W / 2, -H * 0.9); }
+        // the tablet
+        g.shadowColor = "rgba(0, 0, 0, 0.6)"; g.shadowBlur = 40 * u; g.shadowOffsetY = 18 * u;
+        panel(g, tx, ty, tw, th, 26 * u, "#1A0D0A");
+        g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetY = 0;
+        const sx = tx + 12 * u, sy = ty + 12 * u, sw = tw - 24 * u, sh = th - 24 * u;
+        g.save(); g.beginPath(); g.roundRect(sx, sy, sw, sh, 16 * u); g.clip();
+        g.fillStyle = "#FFF3E4"; g.fillRect(sx, sy, sw, sh);
+        // its top bar: the portal, the shift open, the time
+        const hh = 48 * u;
+        g.fillStyle = "#25100A"; g.fillRect(sx, sy, sw, hh);
+        const bw0 = say(g, "Brew Houze", sx + 18 * u, sy + hh / 2, 17 * u, 400, BAGEL, "#FFF3E4");
+        const bw1 = say(g, "× aespa", sx + 26 * u + bw0, sy + hh / 2 + 1, 12 * u, 700, MONO, "#FF5A1F");
+        if (!tall) say(g, "STAFF PORTAL · COUNTER 1", sx + 46 * u + bw0 + bw1, sy + hh / 2 + 1, 10 * u, 700, MONO, "rgba(255, 200, 58, 0.8)");
+        const clock = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+        const cw0 = say(g, clock, sx + sw - 18 * u, sy + hh / 2, 13 * u, 700, MONO, "#FFF3E4", "right");
+        const ow = say(g, "SHIFT OPEN", sx + sw - 34 * u - cw0, sy + hh / 2 + 1, 10 * u, 700, MONO, "#9BE8B4", "right");
+        g.fillStyle = "#3BD16F"; g.beginPath(); g.arc(sx + sw - 44 * u - cw0 - ow, sy + hh / 2, 4 * u, 0, PI2); g.fill();
+        // the menu (left, or on top on a phone) and the cart
+        const pad = 16 * u, top = sy + hh + pad, bottom = sy + sh - pad, left = sx + pad, right = sx + sw - pad;
+        let menu, cart;
+        if (tall) { const mh = (bottom - top) * 0.55; menu = { x: left, y: top, w: right - left, h: mh }; cart = { x: left, y: top + mh + 12 * u, w: right - left, h: bottom - top - mh - 12 * u }; }
+        else { const cw = Math.min((right - left) * 0.36, 360 * u); cart = { x: right - cw, y: top, w: cw, h: bottom - top }; menu = { x: left, y: top, w: right - left - cw - 14 * u, h: bottom - top }; }
+        let tabX = menu.x;
+        ["Hot", "Iced", "MY WORLD", "Pastries"].forEach((name, i) => {
+          g.font = font(700, 11.5 * u, UI); const w = g.measureText(name).width + 26 * u;
+          panel(g, tabX, menu.y, w, 28 * u, 14 * u, i === 0 ? "#FF5A1F" : "#FFE2C8");
+          say(g, name, tabX + w / 2, menu.y + 14 * u, 11.5 * u, 700, UI, i === 0 ? "#FFFFFF" : "#7A3A22", "center");
+          tabX += w + 8 * u;
+        });
+        const tileH = (tall ? 50 : 62) * u, fy = menu.y + 40 * u, fh = menu.h - 40 * u - tileH - 12 * u, feat = { x: menu.x, y: fy, w: menu.w, h: fh };
+        // the featured item: SPICY, the MV playing in it
+        const pick = clamp((t - B(2)) / 0.16) * (1 - clamp((t - B(2) - 0.16) / 0.35));
+        g.save(); g.beginPath(); g.roundRect(feat.x, feat.y, feat.w, feat.h, 14 * u); g.clip();
+        film(g, cover(feat.x, feat.y, feat.w, feat.h, 0.5, 0.42));
+        const shade = g.createLinearGradient(0, feat.y + feat.h * 0.4, 0, feat.y + feat.h);
+        shade.addColorStop(0, "rgba(37, 16, 10, 0)"); shade.addColorStop(1, "rgba(37, 16, 10, 0.9)");
+        g.fillStyle = shade; g.fillRect(feat.x, feat.y, feat.w, feat.h);
+        if (pick > 0) { g.fillStyle = `rgba(255, 90, 31, ${0.28 * pick})`; g.fillRect(feat.x, feat.y, feat.w, feat.h); }
+        g.restore();
+        panel(g, feat.x, feat.y, feat.w, feat.h, 14 * u, null, pick > 0 ? "#FF5A1F" : "rgba(37, 16, 10, 0.2)", (1.5 + 4 * pick) * u);
+        fireText("SPICY", feat.x + 20 * u, feat.y + feat.h - 22 * u, Math.min(feat.h * 0.2, feat.w * 0.15));
+        say(g, "aespa · MY WORLD · the 3rd mini album", feat.x + 22 * u, feat.y + feat.h - 12 * u, 9.5 * u, 700, MONO, "rgba(255, 243, 228, 0.75)", "left", "alphabetic");
+        panel(g, feat.x + 14 * u, feat.y + 14 * u, 136 * u, 26 * u, 13 * u, "#25100A");
+        say(g, "🔥 EXTRA HOT · NEW", feat.x + 82 * u, feat.y + 27 * u, 9.5 * u, 700, MONO, "#FFC83A", "center");
+        panel(g, feat.x + feat.w - 84 * u, feat.y + 14 * u, 70 * u, 30 * u, 15 * u, "#FFF3E4");
+        say(g, "₱∞", feat.x + feat.w - 49 * u, feat.y + 29 * u, 15 * u, 800, UI, "#E8173A", "center");
+        // the rest of the menu
+        const gap = 10 * u, n = Math.max(2, Math.floor((menu.w + gap) / (150 * u + gap))), tw2 = (menu.w - gap * (n - 1)) / n, tyy = fy + fh + 12 * u;
+        POS_MENU.slice(0, n).forEach(([name, price], i) => {
+          const x = menu.x + i * (tw2 + gap);
+          panel(g, x, tyy, tw2, tileH, 12 * u, "#FFFFFF", "rgba(37, 16, 10, 0.12)");
+          say(g, name, x + 12 * u, tyy + tileH * 0.36, 12.5 * u, 700, UI, "#25100A");
+          say(g, `₱${price}`, x + 12 * u, tyy + tileH * 0.7, 10.5 * u, 700, MONO, "#C2410C");
+        });
+        // the cart
+        panel(g, cart.x, cart.y, cart.w, cart.h, 14 * u, "#FFFFFF", "rgba(37, 16, 10, 0.14)");
+        say(g, "Cart", cart.x + 16 * u, cart.y + 22 * u, 16 * u, 800, UI, "#25100A");
+        say(g, "Order #001", cart.x + cart.w - 16 * u, cart.y + 22 * u, 10 * u, 700, MONO, "#9A6655", "right");
+        const segY = cart.y + 42 * u, segW = (cart.w - 32 * u) / 3;
+        panel(g, cart.x + 16 * u, segY, cart.w - 32 * u, 28 * u, 14 * u, "#FFF3E4");
+        panel(g, cart.x + 18 * u, segY + 2 * u, segW - 4 * u, 24 * u, 12 * u, "#FF5A1F");
+        ["Dine in", "Take Out", "Delivery"].forEach((name, i) => say(g, name, cart.x + 16 * u + segW * (i + 0.5), segY + 14 * u, 10.5 * u, 700, UI, i ? "#9A6655" : "#FFFFFF", "center"));
+        // the line: 1 × SPICY, then what it is customized to, and who it is for
+        const ly = segY + 42 * u, lineIn = out((t - B(2) - 0.05) / 0.3), req = clamp((t - B(4)) / 0.25);
+        const lineH = tall ? 66 * u : 76 * u;
+        if (lineIn > 0) {
+          g.save(); g.globalAlpha = lineIn; g.translate((1 - lineIn) * -30 * u, 0);
+          panel(g, cart.x + 12 * u, ly, cart.w - 24 * u, lineH, 12 * u, "#FFF8F0", "rgba(255, 90, 31, 0.35)");
+          say(g, "1 ×", cart.x + 24 * u, ly + 20 * u, 12 * u, 700, MONO, "#9A6655");
+          say(g, "SPICY", cart.x + 58 * u, ly + 20 * u, 15 * u, 400, BAGEL, "#25100A");
+          say(g, "₱∞", cart.x + cart.w - 24 * u, ly + 20 * u, 14 * u, 800, UI, "#E8173A", "right");
+          if (req > 0) {
+            g.globalAlpha = lineIn * req;
+            const sw2 = say(g, "Spice: ∞ ·", cart.x + 58 * u, ly + lineH * 0.66, 11 * u, 700, UI, "#E8173A");
+            const fw = say(g, "for", cart.x + 64 * u + sw2, ly + lineH * 0.66, 11 * u, 700, UI, "#9A6655");
+            cartHeart = { x: cart.x + 76 * u + sw2 + fw, y: ly + lineH * 0.66, s: 20 * u };
+            if (t < HUD_FROM && ready(HEART)) { const hs = 20 * u * (1 + 0.3 * (1 - req)); g.drawImage(HEART, cartHeart.x - hs * 0.47, cartHeart.y - hs / 2, hs * 0.93, hs); }
+            else if (t >= HUD_FROM) { g.strokeStyle = "rgba(232, 23, 58, 0.5)"; g.lineWidth = 1.2 * u; g.setLineDash([2 * u, 2 * u]); g.beginPath(); g.arc(cartHeart.x, cartHeart.y, 9 * u, 0, PI2); g.stroke(); g.setLineDash([]); }
+          } else say(g, "Customize ›", cart.x + 58 * u, ly + lineH * 0.66, 11 * u, 700, UI, "#C2410C");
+          g.restore();
+        }
+        // the total and Checkout
+        const cbH = 46 * u, cbY = cart.y + cart.h - cbH - 14 * u;
+        say(g, "Total", cart.x + 16 * u, cbY - 18 * u, 13 * u, 700, UI, "#5A2C20");
+        say(g, lineIn > 0 ? "₱∞" : "₱0.00", cart.x + cart.w - 16 * u, cbY - 18 * u, 18 * u, 800, UI, "#25100A", "right");
+        const press = clamp((t - B(5)) / 0.12) * (1 - clamp((t - B(5) - 0.12) / 0.3));
+        const cg = g.createLinearGradient(cart.x, 0, cart.x + cart.w, 0); cg.addColorStop(0, "#FFC83A"); cg.addColorStop(0.45, "#FF5A1F"); cg.addColorStop(1, "#FF2D7A");
+        panel(g, cart.x + 14 * u + press * 3 * u, cbY + press * 2 * u, cart.w - 28 * u - press * 6 * u, cbH - press * 4 * u, 14 * u, cg);
+        say(g, "Checkout · ₱∞", cart.x + cart.w / 2, cbY + cbH / 2, 15 * u, 800, UI, "#FFFFFF", "center");
+        // customize: the spice taken past Extra (bar 3)
+        const cz = out((t - B(3)) / 0.22) * (1 - clamp((t - (B(4) - 0.14)) / 0.2));
+        const chipsAt = [], doneAt = {};
+        if (cz > 0) {
+          const ph = Math.min(cart.h * 0.62, 230 * u), px = cart.x + 8 * u, pw = cart.w - 16 * u, py = cart.y + cart.h - ph * cz - 8 * u;
+          panel(g, px, py, pw, ph, 16 * u, "#25100A");
+          say(g, "CUSTOMIZE · SPICY", px + 16 * u, py + 22 * u, 10 * u, 700, MONO, "#FFC83A");
+          say(g, "Spice", px + 16 * u, py + 48 * u, 13 * u, 800, UI, "#FFF3E4");
+          const step = Math.floor((t - B(3)) / BEAT), names = ["None", "Less", "Regular", "Extra"], burst = clamp((t - (B(3) + 2 * BEAT)) / 0.15);
+          const sel = step <= 0 ? 2 : step === 1 ? 3 : 4, cw2 = (pw - 32 * u - 4 * 6 * u) / (burst > 0 ? 5 : 4);
+          [...names, ...(burst > 0 ? ["∞"] : [])].forEach((name, i) => {
+            const x = px + 16 * u + i * (cw2 + 6 * u), y = py + 64 * u, on = i === sel, shake = i === 4 ? Math.sin(t * 90) * 3 * u * (1 - clamp((t - (B(3) + 2 * BEAT)) / 0.4)) : 0;
+            panel(g, x + shake, y, cw2, 34 * u, 10 * u, on ? (i === 4 ? "#FF2D7A" : "#FF5A1F") : "rgba(255, 243, 228, 0.1)", on ? null : "rgba(255, 243, 228, 0.25)");
+            say(g, name, x + cw2 / 2 + shake, y + 17 * u, (i === 4 ? 16 : 11) * u, 800, UI, on ? "#FFFFFF" : "rgba(255, 243, 228, 0.7)", "center");
+            chipsAt[i] = [x + cw2 / 2, y + 17 * u];
+          });
+          // the heat: a bar filling, then breaking out of its end
+          const fill = sel === 2 ? 0.5 : sel === 3 ? 0.78 : 1.18 + 0.05 * Math.sin(t * 40);
+          panel(g, px + 16 * u, py + 114 * u, pw - 32 * u, 10 * u, 5 * u, "rgba(255, 243, 228, 0.12)");
+          const hg = g.createLinearGradient(px + 16 * u, 0, px + pw - 16 * u, 0); hg.addColorStop(0, "#FFC83A"); hg.addColorStop(0.6, "#FF5A1F"); hg.addColorStop(1, "#FF2D7A");
+          panel(g, px + 16 * u, py + 114 * u, Math.min(pw - 16 * u, (pw - 32 * u) * fill), 10 * u, 5 * u, hg);
+          say(g, sel === 4 ? "∞ SHU" : sel === 3 ? "2,400,000 SHU" : "500,000 SHU", px + pw - 16 * u, py + 140 * u, 10.5 * u, 700, MONO, sel === 4 ? "#FF5A1F" : "rgba(255, 243, 228, 0.7)", "right");
+          panel(g, px + 16 * u, py + ph - 52 * u, pw - 32 * u, 38 * u, 12 * u, "#FFF3E4");
+          say(g, "Done", px + pw / 2, py + ph - 33 * u, 13 * u, 800, UI, "#25100A", "center");
+          doneAt.x = px + pw / 2; doneAt.y = py + ph - 33 * u;
+        }
+        // paid: GCash, then the stamp and the queue number
+        const pay = out((t - (B(5) + 0.4 * BEAT)) / 0.25);
+        if (pay > 0) {
+          g.fillStyle = `rgba(37, 16, 10, ${0.45 * pay})`; g.fillRect(sx, sy, sw, sh);
+          const dw = Math.min(sw * 0.7, 340 * u), dh = 220 * u, dx = sx + sw / 2 - dw / 2, dy = sy + sh / 2 - dh / 2 + (1 - pay) * 40 * u;
+          g.globalAlpha = pay;
+          panel(g, dx, dy, dw, dh, 18 * u, "#FFFFFF");
+          say(g, "GCash", dx + 20 * u, dy + 30 * u, 20 * u, 800, UI, "#0A5FFF");
+          say(g, "Pay ₱∞ · Brew Houze", dx + 20 * u, dy + 56 * u, 12 * u, 700, UI, "#5A2C20");
+          const qr = 96 * u, qx = dx + dw - qr - 20 * u, qy = dy + 20 * u, rnd = seeded(7);
+          g.fillStyle = "#25100A";
+          for (let i = 0; i < 12; i++) for (let j = 0; j < 12; j++) if (rnd() < 0.5 || (i < 3 && j < 3) || (i > 8 && j < 3) || (i < 3 && j > 8)) g.fillRect(qx + i * qr / 12, qy + j * qr / 12, qr / 12 + 0.5, qr / 12 + 0.5);
+          const paid = back((t - (B(5) + 2 * BEAT)) / 0.3);
+          if (paid > 0) {
+            g.save(); g.translate(dx + dw / 2, dy + dh * 0.7); g.rotate(-0.12); g.scale(mix(2, 1, Math.min(1, paid)), mix(2, 1, Math.min(1, paid)));
+            panel(g, -96 * u, -26 * u, 192 * u, 52 * u, 10 * u, null, "#10A060", 4 * u);
+            say(g, "PAID ✓ #001", 0, 1, 22 * u, 900, UI, "#10A060", "center");
+            g.restore();
+          }
+          g.globalAlpha = 1;
+        }
+        g.restore(); // (the screen)
+        g.restore(); // (the tablet's way out)
+        // the cashier's finger
+        tap(feat.x + feat.w * 0.5, feat.y + feat.h * 0.45, B(2), t);
+        tap(cart.x + 100 * u, ly + lineH * 0.66, B(3) - 0.06, t);
+        if (chipsAt[3]) tap(...chipsAt[3], B(3) + BEAT, t);
+        if (chipsAt[4]) tap(...chipsAt[4], B(3) + 2 * BEAT, t);
+        if (doneAt.x) tap(doneAt.x, doneAt.y, B(3) + 3 * BEAT, t);
+        tap(cart.x + cart.w / 2, cbY + cbH / 2, B(5), t);
+      };
+
+      // ═══ print (bar 6 → 8): the receipt, the MV on it in thermal dots; each row printed as the head passes (a slit-scan:
+      // every row of the picture from the moment it was printed) ═══
+      const SLIT_W = 160, SLIT_H = 90, BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+      const slit = { c: document.createElement("canvas"), small: document.createElement("canvas"), done: 0 };
+      slit.c.width = slit.small.width = SLIT_W; slit.c.height = slit.small.height = SLIT_H;
+      const slitG = slit.c.getContext("2d"), smallG = slit.small.getContext("2d", { willReadFrequently: true });
+      const printRows = (r0, r1) => {
+        smallG.drawImage(F.c, 0, 0, SLIT_W, SLIT_H);
+        const src = smallG.getImageData(0, r0, SLIT_W, r1 - r0), ink = slitG.createImageData(SLIT_W, r1 - r0);
+        for (let y = 0; y < r1 - r0; y++) for (let x = 0; x < SLIT_W; x++) {
+          const i = (y * SLIT_W + x) * 4, l = (0.3 * src.data[i] + 0.59 * src.data[i + 1] + 0.11 * src.data[i + 2]) / 255;
+          const v = Math.min(1, Math.max(0, (l - 0.45) * 1.6 + 0.5));
+          if (v < (BAYER[((y + r0) % 4) * 4 + (x % 4)] + 0.5) / 16) { ink.data[i] = 42; ink.data[i + 1] = 30; ink.data[i + 2] = 34; ink.data[i + 3] = 235; }
+        }
+        slitG.putImageData(ink, 0, r0);
+      };
+      let rcpt = null;
+      const makeReceipt = () => {
+        const pw = tall ? W * 0.8 : Math.min(W * 0.36, 440 * u), ph = 58 * u, py = H - ph - H * 0.04, paperW = pw * 0.8, m = 16 * u, inner = paperW - m * 2, imgH = inner * 9 / 16;
+        const date = new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" });
+        const LINES = [["BREW HOUZE × aespa", 15, 700, "center"], ["STAFF PORTAL · COUNTER 1", 9.5, 400, "center"], [`${date} · ORDER #001`, 9.5, 400, "center"], ["DINE IN", 9.5, 700, "center"], ["rule"], ["img"], ["rule"],
+          ["1× SPICY", 12.5, 700, "item", "₱∞"], ["   SPICE ∞", 10, 400, "left"], ["   FOR ♥", 10, 400, "left"], ["rule"], ["TOTAL", 13, 700, "item", "₱∞"], ["GCASH · PAID", 10, 400, "left"], ["gap"], ["*** KITCHEN COPY ***", 10, 700, "center"]];
+        let y = m;
+        const placed = LINES.map((line) => { const kind = line[0], h = kind === "rule" ? 14 * u : kind === "img" ? imgH + 10 * u : kind === "gap" ? 10 * u : line[1] * u * 1.75; const at = y; y += h; return { line, at, h }; });
+        rcpt = { pw, ph, px: (W - pw) / 2, py, head: py + 4 * u, paperW, paperX: (W - paperW) / 2, m, inner, imgH, placed, L: y + m, img: placed.find((p) => p.line[0] === "img") };
+      };
+      const RC_T0 = B(6) + 0.12, RC_END = B(8) - BEAT;
+      // how far the paper is out (stepped on the 32nds, like its motor)
+      const paperOut = (t) => { const R = rcpt, step = BEAT / 8, k = Math.max(0, (t - RC_T0) / step); return Math.min(R.L, (R.L / (RC_END - RC_T0)) * step * (Math.floor(k) + ease(Math.min(1, (k % 1) * 2.5)))); };
+      // the receipt itself, its top at y (all of it out, or adv of it), at scale k about its middle
+      const drawPaper = (t, x, y, w, adv, alpha = 1) => {
+        const R = rcpt, k = w / R.paperW;
+        g.save(); g.globalAlpha = alpha; g.translate(x, y); g.scale(k, k);
+        g.shadowColor = "rgba(0, 0, 0, 0.45)"; g.shadowBlur = 18 * u; g.shadowOffsetY = 6 * u;
+        // the paper, its top torn from the last one
+        g.fillStyle = "#FFFDF6";
+        g.beginPath(); g.moveTo(0, 6 * u);
+        for (let i = 0; i <= 24; i++) g.lineTo((i / 24) * R.paperW, i % 2 ? 0 : 6 * u);
+        g.lineTo(R.paperW, adv); g.lineTo(0, adv); g.closePath(); g.fill();
+        g.shadowColor = "transparent";
+        R.placed.forEach(({ line, at, h }) => {
+          if (at + h * 0.5 > adv) return;
+          const kind = line[0], ty = at + h / 2;
+          g.fillStyle = "#2A1E22";
+          if (kind === "rule") { g.save(); g.strokeStyle = "rgba(42, 30, 34, 0.6)"; g.setLineDash([4 * u, 3 * u]); g.lineWidth = 1.2 * u; g.beginPath(); g.moveTo(R.m, ty); g.lineTo(R.paperW - R.m, ty); g.stroke(); g.restore(); }
+          else if (kind === "img") {
+            const rows = Math.max(1, slit.done);
+            g.imageSmoothingEnabled = false;
+            g.drawImage(slit.c, 0, 0, SLIT_W, rows, R.m, at + 5 * u, R.inner, R.imgH * rows / SLIT_H);
+            g.imageSmoothingEnabled = true;
+          } else if (kind === "gap") { /* (a gap) */ }
+          else if (line[3] === "item") { say(g, kind, R.m, ty, line[1] * u, line[2], MONO, "#2A1E22"); say(g, line[4], R.paperW - R.m, ty, line[1] * u, 700, MONO, "#2A1E22", "right"); }
+          else say(g, kind, line[3] === "center" ? R.paperW / 2 : R.m, ty, line[1] * u, line[2], MONO, "#2A1E22", line[3] === "center" ? "center" : "left");
+        });
+        g.restore();
+      };
+      const drawReceipt = (t) => {
+        const R = rcpt;
+        film(g, screenBox(1.05));
+        g.fillStyle = "rgba(14, 4, 8, 0.62)"; g.fillRect(0, 0, W, H);
+        const adv = paperOut(t);
+        // (the slit-scan: the picture's rows as they pass the head)
+        const rowsDue = Math.floor(clamp((adv - R.img.at - 5 * u) / R.imgH) * SLIT_H);
+        if (t < RC_T0 || rowsDue < slit.done) { slit.done = 0; slitG.clearRect(0, 0, SLIT_W, SLIT_H); }
+        if (rowsDue > slit.done) { printRows(slit.done, rowsDue); slit.done = rowsDue; }
+        // the paper rising out of the printer, then torn off (bar 8 less a beat) and lifted away
+        const lift = out((t - (RC_END + 0.12)) / (B(8) - RC_END - 0.12));
+        drawPaper(t, R.paperX, R.head - adv - lift * H * 0.12, R.paperW, adv);
+        // the printer: its slot, its light blinking as it prints
+        const rise = out((t - B(6)) / 0.35);
+        const py = R.py + (1 - rise) * 120 * u, pg = g.createLinearGradient(0, py, 0, py + R.ph);
+        pg.addColorStop(0, "#34343A"); pg.addColorStop(1, "#141417");
+        g.save(); g.shadowColor = "rgba(0, 0, 0, 0.6)"; g.shadowBlur = 20 * u;
+        panel(g, R.px, py, R.pw, R.ph, 14 * u, pg); g.restore();
+        panel(g, R.paperX - 6 * u, py + 4 * u, R.paperW + 12 * u, 7 * u, 3.5 * u, "#050506");
+        const printing = t > RC_T0 && t < RC_END && Math.floor((t - RC_T0) / (BEAT / 4)) % 2 === 0;
+        g.fillStyle = printing ? "#3BFF7A" : "#1D5A32"; g.beginPath(); g.arc(R.px + R.pw - 22 * u, py + R.ph * 0.6, 4.5 * u, 0, PI2); g.fill();
+        say(g, "BREW HOUZE · TM-SPICY", R.px + 18 * u, py + R.ph * 0.62, 9 * u, 700, MONO, "rgba(255, 255, 255, 0.45)");
+        // the tear
+        const tear = clamp((t - RC_END) / 0.12);
+        if (tear > 0 && tear < 1) { g.fillStyle = `rgba(255, 255, 255, ${0.6 * (1 - tear)})`; g.fillRect(R.paperX - 10 * u, R.head - 8 * u, R.paperW + 20 * u, 8 * u); }
+      };
+
+      // ═══ ticket (bar 8 → 9): to the kitchen display, NEW, then COOKING, then FIRE! ═══
+      const drawTicket = (t) => {
+        const R = rcpt, a = t - B(8);
+        film(g, screenBox(1.05));
+        g.fillStyle = "rgba(14, 4, 8, 0.66)"; g.fillRect(0, 0, W, H);
+        const kw = tall ? W * 0.94 : Math.min(W * 0.84, 1000 * u), kh = tall ? H * 0.62 : Math.min(H * 0.72, kw * 0.56), kx = (W - kw) / 2, ky = (H - kh) / 2, show = out(a / 0.3);
+        g.save(); g.globalAlpha = show;
+        g.shadowColor = "rgba(0, 0, 0, 0.6)"; g.shadowBlur = 30 * u;
+        panel(g, kx - 10 * u, ky - 10 * u, kw + 20 * u, kh + 20 * u, 22 * u, "#050607"); g.shadowColor = "transparent";
+        panel(g, kx, ky, kw, kh, 14 * u, "#10141A");
+        say(g, "KITCHEN DISPLAY · Brew Houze", kx + 18 * u, ky + 24 * u, 11 * u, 700, MONO, "#FFC83A");
+        say(g, "3 ORDERS", kx + kw - 18 * u, ky + 24 * u, 11 * u, 700, MONO, "rgba(255, 255, 255, 0.55)", "right");
+        const cols = [["NEW", "#FFB020"], ["COOKING", "#FF5A1F"], ["READY", "#3BD16F"]], colW = (kw - 48 * u) / 3, colY = ky + 48 * u, colH = kh - 64 * u;
+        cols.forEach(([name, c], i) => {
+          const x = kx + 12 * u + i * (colW + 12 * u);
+          panel(g, x, colY, colW, colH, 12 * u, "rgba(255, 255, 255, 0.04)");
+          g.fillStyle = c; g.fillRect(x, colY, colW, 4 * u);
+          say(g, name, x + 12 * u, colY + 22 * u, 11 * u, 800, UI, c);
+        });
+        // the other orders on the go
+        const card = (x, y, w, h, head, color, lines, alpha = 1) => {
+          g.save(); g.globalAlpha *= alpha;
+          panel(g, x, y, w, h, 10 * u, "#FFF8EE"); g.save(); g.beginPath(); g.roundRect(x, y, w, h, 10 * u); g.clip(); g.fillStyle = color; g.fillRect(x, y, w, 26 * u); g.restore();
+          say(g, head, x + 10 * u, y + 13 * u, 10.5 * u, 800, UI, "#FFFFFF");
+          lines.forEach(([str, size, fam, col], i) => say(g, str, x + 10 * u, y + 44 * u + i * 20 * u, size * u, fam === BAGEL ? 400 : 700, fam, col));
+          g.restore();
+        };
+        card(kx + 24 * u + colW + 12 * u, colY + 36 * u, colW - 24 * u, 84 * u, "#999 · TAKE OUT", "#7A3A22", [["1× Next Level", 12, UI, "#25100A"], ["iced · less sugar", 10, UI, "#9A6655"]]);
+        card(kx + 24 * u + 2 * (colW + 12 * u), colY + 36 * u, colW - 24 * u, 84 * u, "#998 · DINE IN", "#1E8A4A", [["1× Savage", 12, UI, "#25100A"], ["ready 0:42", 10, MONO, "#1E8A4A"]]);
+        g.restore();
+        // ours: the receipt flying in as the ticket, landing in NEW, moved to COOKING, and FIRE!
+        const fly = ease(a / 0.42), slide = ease((a - 2 * BEAT) / 0.32);
+        const cw = colW - 24 * u, chh = 128 * u, nx = kx + 24 * u, cx2 = kx + 24 * u + colW + 12 * u, cy = colY + 132 * u;
+        const tx = mix(nx, cx2, slide), ty = mix(colY + 36 * u, cy, slide);
+        if (fly < 1) drawPaper(t, mix(R.paperX, tx, fly), mix(R.head - R.L - H * 0.12, ty, fly), mix(R.paperW, cw, fly), R.L, 1 - fly * 0.9);
+        if (fly > 0.6) {
+          const n = Math.max(0, Math.floor((a - 0.4) / 1)) + 1;
+          card(tx, ty, cw, chh, "#001 · DINE IN", "#E8173A", [["1× SPICY", 15, BAGEL, "#25100A"], ["Spice ∞ · for ♥", 10.5, UI, "#E8173A"], [`0:0${Math.min(9, n)}`, 10, MONO, "#9A6655"]], clamp((fly - 0.6) / 0.4));
+          // FIRE!
+          const fire = back((a - 3 * BEAT) / 0.22);
+          if (fire > 0) {
+            g.save(); g.translate(tx + cw * 0.6, ty + chh * 0.55); g.rotate(-0.18); const k = mix(2.4, 1, Math.min(1, fire)); g.scale(k, k);
+            panel(g, -60 * u, -22 * u, 120 * u, 44 * u, 8 * u, "rgba(232, 23, 58, 0.12)", "#E8173A", 4 * u);
+            say(g, "FIRE!", 0, 2 * u, 24 * u, 900, UI, "#E8173A", "center");
+            g.restore();
+            if (fire < 1.2) { g.fillStyle = `rgba(255, 120, 40, ${0.35 * (1 - clamp((a - 3 * BEAT) / 0.3))})`; g.fillRect(0, 0, W, H); }
+          }
+        }
+      };
+
+      // ═══ burner (bar 9 → 10, the fire close-up): the stove from above; the igniter clicking, a ring of blue flame,
+      // then the fire leaping and the MV in its light ═══
+      const drawBurner = (t) => {
+        const a = t - B(9), cx = W / 2, cy = H / 2, R = Math.min(W, H) * 0.2;
+        g.fillStyle = "#0D0C0F"; g.fillRect(0, 0, W, H);
+        const sheen = g.createRadialGradient(cx, cy, R, cx, cy, Math.hypot(W, H) * 0.6); sheen.addColorStop(0, "rgba(60, 58, 66, 0.5)"); sheen.addColorStop(1, "rgba(0, 0, 0, 0)");
+        g.fillStyle = sheen; g.fillRect(0, 0, W, H);
+        // the MV in the flames' light: a round window opening out from the burner (from beat 3)
+        const open = out((a - 2 * BEAT) / (2 * BEAT - 0.1)), rad = R * 1.05 + open * Math.hypot(W, H) * 0.62;
+        if (a > 2 * BEAT - 0.05) {
+          g.save(); g.beginPath(); g.arc(cx, cy, rad, 0, PI2); g.clip();
+          film(g, screenBox(1.12 - 0.08 * open));
+          g.fillStyle = `rgba(255, 90, 20, ${0.25 * (1 - open)})`; g.fillRect(0, 0, W, H);
+          g.restore();
+          fireBox(g, "wall", 0, W, H + 20, H * (0.35 + 0.9 * open), 90, 0.05, 0, 0.9 * open);
+        }
+        // the grate: heavy cast-iron arms over it all, the burner's cap in the middle
+        g.save(); g.lineCap = "round";
+        for (let k = 0; k < 4; k++) {
+          const ang = (k / 4) * PI2 + Math.PI / 4, x1 = cx + Math.cos(ang) * R * 0.55, y1 = cy + Math.sin(ang) * R * 0.55, x2 = cx + Math.cos(ang) * Math.hypot(W, H), y2 = cy + Math.sin(ang) * Math.hypot(W, H);
+          g.strokeStyle = "#060507"; g.lineWidth = 34 * u; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+          g.strokeStyle = "#26232A"; g.lineWidth = 26 * u; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+          g.strokeStyle = "rgba(255, 255, 255, 0.08)"; g.lineWidth = 4 * u; g.beginPath(); g.moveTo(x1, y1 - 6 * u); g.lineTo(x2, y2 - 6 * u); g.stroke();
+        }
+        g.restore();
+        const cap = g.createRadialGradient(cx - R * 0.15, cy - R * 0.15, R * 0.1, cx, cy, R * 0.62);
+        cap.addColorStop(0, "#4A4650"); cap.addColorStop(1, "#141217");
+        g.fillStyle = cap; g.beginPath(); g.arc(cx, cy, R * 0.6, 0, PI2); g.fill();
+        g.strokeStyle = "rgba(0, 0, 0, 0.6)"; g.lineWidth = 3 * u; g.beginPath(); g.arc(cx, cy, R * 0.98, 0, PI2); g.stroke();
+        g.save(); g.globalCompositeOperation = "lighter";
+        // the igniter: clicks on beat 1 and its "and"
+        for (const at of [0, BEAT / 2, BEAT]) {
+          const c = a - at;
+          if (c < 0 || c > 0.12) continue;
+          g.globalAlpha = 1 - c / 0.12; g.drawImage(ember, cx + R * 0.95 - 18 * u, cy - 18 * u, 36 * u, 36 * u);
+        }
+        // the ring of blue flame (from the second click), growing, then orange as it leaps
+        const lit = clamp((a - BEAT * 1.4) / 0.2), leap = clamp((a - 2 * BEAT) / 0.4);
+        if (lit > 0) {
+          for (let k = 0; k < 30; k++) {
+            const ang = (k / 30) * PI2, fl = 1 + 0.15 * Math.sin(t * 37 + k * 2.1), len = R * (0.22 + 0.5 * leap) * fl * lit, base = R * 0.98;
+            const x0 = cx + Math.cos(ang) * base, y0 = cy + Math.sin(ang) * base, x1 = cx + Math.cos(ang) * (base + len), y1 = cy + Math.sin(ang) * (base + len);
+            const gr = g.createLinearGradient(x0, y0, x1, y1);
+            gr.addColorStop(0, leap > 0.5 ? "rgba(255, 240, 200, 0.95)" : "rgba(170, 210, 255, 0.95)"); gr.addColorStop(0.4, leap > 0.5 ? "rgba(255, 140, 40, 0.8)" : "rgba(60, 110, 255, 0.75)"); gr.addColorStop(1, "rgba(40, 60, 255, 0)");
+            g.fillStyle = gr; g.globalAlpha = 1;
+            const nx = -Math.sin(ang) * R * 0.07, ny = Math.cos(ang) * R * 0.07;
+            g.beginPath(); g.moveTo(x0 + nx, y0 + ny); g.quadraticCurveTo(x1 + nx * 0.6, y1 + ny * 0.6, x1, y1); g.quadraticCurveTo(x1 - nx * 0.6, y1 - ny * 0.6, x0 - nx, y0 - ny); g.closePath(); g.fill();
+          }
+        }
+        g.restore();
+        const flash = clamp((t - (B(10) - 0.16)) / 0.16);
+        if (flash > 0) { g.fillStyle = `rgba(255, 236, 200, ${inn(flash)})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ═══ heart (bar 10, the hook): the heart rising out of the fire, burning, beating with the kicks; then off to the
+      // side, still burning ═══
+      const drawHook = (t) => {
+        const a = t - B(10), leave = ease((t - (B(11) - 0.34)) / 0.34), home = heartHome();
+        film(g, screenBox(1.03));
+        g.fillStyle = `rgba(20, 4, 6, ${0.45 * (1 - leave)})`; g.fillRect(0, 0, W, H);
+        const size = Math.min(H * 0.5, W * 0.62), rise = back(a / 0.45);
+        const x = mix(W / 2, home.x, leave), y = mix(mix(H + size, H * 0.52, Math.min(1, rise)), home.y, leave), s = mix(size, home.s, leave);
+        embers(t, SCENE_LITE ? 40 : 70, B(10), 1.2, 1 - leave);
+        burningHeart(x, y, s, t, 1, heartbeat(t));
+        const flash = 1 - clamp(a / 0.3);
+        if (flash > 0) { g.fillStyle = `rgba(255, 236, 200, ${flash})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ═══ wok (bar 11 → the pickup): the MV tossed in a wok over the fire, flipped like a pancake on each bar, a hop
+      // on the other kick; in strips on bars 14-15; the kitchen's smoke alarm going off on bar 11; flung up to hang
+      // in the air on the break ═══
+      let wok = null;
+      const makeWok = () => {
+        const ww = tall ? W * 1.05 : Math.min(W * 0.74, 1000 * u), wd = ww * (tall ? 0.24 : 0.2), rimY = H * (tall ? 0.8 : 0.84);
+        const cw = tall ? W * 0.84 : Math.min(W * 0.52, H * 0.56 * 16 / 9), chh = cw * 9 / 16;
+        const tosses = [];
+        for (let n = 11; n <= 17; n++) {
+          tosses.push({ at: B(n), kind: n === 14 || n === 15 ? "strips" : "flip", dur: 0.9, side: n % 2 ? 1 : -1 });
+          if (n < 17) tosses.push({ at: B(n) + 2.5 * BEAT, kind: "hop", dur: 0.42, side: n % 2 ? -1 : 1 });
+        }
+        tosses.push({ at: B(17) + 2 * BEAT, kind: "launch", dur: 1.4, side: 1 });
+        const rnd = seeded(1717);
+        tosses.forEach((ts) => {
+          ts.flakes = Array.from({ length: ts.kind === "hop" ? 8 : SCENE_LITE ? 16 : 24 }, () => ({ x: (rnd() - 0.5) * cw * 0.8, vx: (rnd() - 0.5) * W * 0.55, vy: -(0.7 + rnd() * 0.8) * H * (ts.kind === "hop" ? 0.55 : 1.15),
+            spin: (rnd() - 0.5) * 18, s: (4 + rnd() * 7) * u, c: rnd() < 0.68 ? "#E8173A" : rnd() < 0.55 ? "#FF8A1F" : "#3FA34D" }));
+        });
+        wok = { ww, wd, rimY, cx: W / 2, cw, chh, tosses };
+      };
+      // a card of the picture (the frame's columns u0..u1) about x, y, w × h, flipped by sy (its cosine), tilted
+      const card = (u0, u1, x, y, w, h, sy, tilt) => {
+        // (edge-on: just its edge)
+        if (Math.abs(sy) < 0.08) { g.save(); g.translate(x, y); g.rotate(tilt); g.fillStyle = "rgba(255, 220, 190, 0.8)"; g.fillRect(-w / 2, -1.5 * u, w, 3 * u); g.restore(); return; }
+        g.save(); g.translate(x, y); g.rotate(tilt); g.scale(1, sy); g.lineJoin = "round";
+        g.beginPath(); g.roundRect(-w / 2, -h / 2, w, h, 10 * u);
+        g.save(); g.clip();
+        g.drawImage(F.c, u0 * F.c.width, 0, (u1 - u0) * F.c.width, F.c.height, -w / 2, -h / 2, w, h);
+        if (sy < 0) {
+          // its seared side: dark, grill-marked
+          g.fillStyle = "rgba(40, 14, 6, 0.6)"; g.fillRect(-w / 2, -h / 2, w, h);
+          g.strokeStyle = "rgba(18, 6, 2, 0.75)"; g.lineWidth = 7 * u;
+          for (let k = -6; k <= 9; k++) { g.beginPath(); g.moveTo(-w / 2 + k * 46 * u, -h / 2); g.lineTo(-w / 2 + k * 46 * u + h * 0.5, h / 2); g.stroke(); }
+        }
+        const sh = g.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
+        sh.addColorStop(0, "rgba(255, 255, 255, 0.2)"); sh.addColorStop(0.35, "rgba(255, 255, 255, 0)"); sh.addColorStop(1, "rgba(255, 140, 60, 0.14)");
+        g.fillStyle = sh; g.fillRect(-w / 2, -h / 2, w, h);
+        g.restore();
+        g.strokeStyle = "rgba(255, 220, 190, 0.55)"; g.lineWidth = 2 * u; g.beginPath(); g.roundRect(-w / 2, -h / 2, w, h, 10 * u); g.stroke();
+        g.restore();
+      };
+      // the kitchen's smoke alarm (bars 11-12): down from the ceiling, its light blinking, going off on the alarm line
+      const ALARM_AT = B(11) + 2 * BEAT;
+      const smokeAlarm = (t) => {
+        if (t < B(11) - 0.1 || t > B(13) + 0.4) return;
+        const drop = back((t - B(11)) / 0.35) - inn((t - B(13)) / 0.4), x = W / 2, d = 74 * u, y = -d * 0.4 + drop * d * 0.85;
+        g.save();
+        g.fillStyle = "#E9E6E2"; g.beginPath(); g.ellipse(x, y, d * 0.75, d * 0.42, 0, 0, PI2); g.fill();
+        g.fillStyle = "#CFCAC4"; g.fillRect(x - d * 0.75, y - d * 0.5, d * 1.5, d * 0.5);
+        g.strokeStyle = "rgba(0, 0, 0, 0.18)"; g.lineWidth = 1.5 * u;
+        for (let i = -3; i <= 3; i++) { g.beginPath(); g.moveTo(x + i * d * 0.16, y + d * 0.08); g.lineTo(x + i * d * 0.16, y + d * 0.28); g.stroke(); }
+        const going = t >= ALARM_AT && t < ALARM_AT + 1.4, on = going ? Math.floor((t - ALARM_AT) / 0.1) % 2 === 0 : Math.floor(t / BEAT) % 2 === 0;
+        g.fillStyle = on ? "#FF2A3A" : "#5A1018"; g.beginPath(); g.arc(x + d * 0.45, y + d * 0.06, 5 * u, 0, PI2); g.fill();
+        if (on) { g.globalCompositeOperation = "lighter"; g.drawImage(ember, x + d * 0.45 - 16 * u, y + d * 0.06 - 16 * u, 32 * u, 32 * u); g.globalCompositeOperation = "source-over"; }
+        if (going) { const fl = Math.floor((t - ALARM_AT) / 0.2) % 2 === 0; say(g, "BEEP · BEEP · BEEP", x, y + d * 0.62, 12 * u, 700, MONO, fl ? "#FF5A1F" : "#FFC83A", "center"); }
+        g.restore();
+        strobe(t, ALARM_AT, x, y + d * 0.2);
+      };
+      const drawWok = (t) => {
+        const K = wok, k = kickAt(t);
+        let ts = null;
+        for (const s of K.tosses) if (t >= s.at) ts = s;
+        const a = ts ? t - ts.at : 9, q = ts ? clamp(a / ts.dur) : 1, burst = ts ? Math.exp(-a / 0.35) : 0, land = ts && a >= ts.dur ? Math.exp(-(a - ts.dur) / 0.3) : 0;
+        const settle = ts?.kind === "launch" ? clamp(a / 1.2) : 0;
+        // the kitchen: dark tiles, the fire's glow from below
+        const bg = g.createLinearGradient(0, 0, 0, H);
+        bg.addColorStop(0, "#0A0605"); bg.addColorStop(0.65, "#1A0B07"); bg.addColorStop(1, "#3E1408");
+        g.fillStyle = bg; g.fillRect(0, 0, W, H);
+        g.strokeStyle = "rgba(255, 150, 90, 0.05)"; g.lineWidth = 1;
+        for (let x = 0; x < W; x += 64 * u) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, K.rimY); g.stroke(); }
+        for (let y = 0; y < K.rimY; y += 64 * u) { g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke(); }
+        // the burner's fire under the wok, surging with each toss and landing (low on the break)
+        const flameH = (H - K.rimY + K.wd) * (1.6 + 1.3 * burst + 0.9 * land + 0.3 * k) * (1 - 0.7 * settle);
+        fireBox(g, "wall", K.cx - K.ww * 0.56, K.cx + K.ww * 0.56, H + 10, flameH, 31, 0.18, 0);
+        // the wok jerking as it tosses
+        const jerk = ts ? Math.sin(Math.PI * clamp(a / 0.26)) : 0, wobble = ts ? ts.side * 0.05 * jerk : 0, rimY = K.rimY - jerk * 16 * u;
+        const rx = K.ww / 2, ry = K.wd * 0.3;
+        g.save(); g.translate(K.cx, rimY); g.rotate(wobble); g.translate(-K.cx, -rimY);
+        // its inside, behind the picture
+        const ins = g.createRadialGradient(K.cx - rx * 0.2, rimY - ry * 0.3, ry * 0.2, K.cx, rimY, rx);
+        ins.addColorStop(0, "#3A3A42"); ins.addColorStop(1, "#0C0C0F");
+        g.fillStyle = ins; g.beginPath(); g.ellipse(K.cx, rimY, rx, ry, 0, 0, PI2); g.fill();
+        g.restore();
+        // the picture: at rest its foot in the wok; tossed and flipped (a big one a bar), hopping on the other kick
+        const restY = rimY - K.chh * 0.36;
+        const pose = (qq, kind, side) => {
+          if (kind === "hop") return { lift: Math.sin(Math.PI * qq) * H * 0.07, sy: Math.cos(0.5 * Math.sin(Math.PI * qq)), tilt: side * 0.05 * Math.sin(Math.PI * qq) };
+          if (kind === "launch") return { lift: H * 0.42 * out(qq / 0.85), sy: Math.cos(PI2 * out(qq / 0.85)), tilt: side * 0.06 * Math.sin(Math.PI * clamp(qq / 0.85)) };
+          return { lift: Math.sin(Math.PI * qq) * H * 0.3, sy: Math.cos(PI2 * ease(qq)), tilt: side * 0.12 * Math.sin(Math.PI * qq) };
+        };
+        if (ts?.kind === "strips" && a < ts.dur + 0.3) {
+          for (let s = 0; s < 4; s++) {
+            const qq = clamp((a - s * 0.07) / (ts.dur * (0.9 + s * 0.06))), p = pose(qq, "flip", s % 2 ? 1 : -1), w = K.cw / 4;
+            card(s / 4, (s + 1) / 4, K.cx - K.cw / 2 + w * (s + 0.5) + (s - 1.5) * 10 * u * Math.sin(Math.PI * qq), restY - p.lift * (0.9 + 0.1 * s), w - 4 * u, K.chh, p.sy, p.tilt * 1.8);
+          }
+        } else {
+          const p = ts ? pose(q, ts.kind, ts.side) : { lift: 0, sy: 1, tilt: 0 };
+          card(0, 1, K.cx, restY - p.lift, K.cw, K.chh, p.sy, p.tilt);
+        }
+        // flames licking up round the picture's foot as it goes up and lands
+        fireBox(g, "ground", K.cx - K.cw * 0.62, K.cx + K.cw * 0.62, rimY + ry * 0.4, K.chh * (0.3 + 0.7 * burst + 0.6 * land) * (1 - 0.8 * settle), 77, 0.25, 0.3, 0.95, "lighter");
+        // the wok's front, its handles
+        g.save(); g.translate(K.cx, rimY); g.rotate(wobble); g.translate(-K.cx, -rimY);
+        const front = new Path2D();
+        front.ellipse(K.cx, rimY, rx, ry, 0, Math.PI, 0, true);
+        front.bezierCurveTo(K.cx + rx, rimY + K.wd * 0.9, K.cx + rx * 0.45, rimY + K.wd * 1.05, K.cx, rimY + K.wd * 1.05);
+        front.bezierCurveTo(K.cx - rx * 0.45, rimY + K.wd * 1.05, K.cx - rx, rimY + K.wd * 0.9, K.cx - rx, rimY);
+        front.closePath();
+        const steel = g.createLinearGradient(K.cx - rx, 0, K.cx + rx, 0);
+        steel.addColorStop(0, "#09090B"); steel.addColorStop(0.28, "#4A4A52"); steel.addColorStop(0.42, "#2A2A30"); steel.addColorStop(0.8, "#151518"); steel.addColorStop(1, "#060607");
+        g.fillStyle = steel; g.fill(front);
+        g.fillStyle = "rgba(255, 110, 40, 0.18)"; g.fill(front); // (the fire's light on it)
+        g.strokeStyle = "#7A7A86"; g.lineWidth = 3 * u; g.beginPath(); g.ellipse(K.cx, rimY, rx, ry, 0, Math.PI, 0, true); g.stroke();
+        g.lineCap = "round";
+        g.strokeStyle = "#1A1A1E"; g.lineWidth = 16 * u; g.beginPath(); g.moveTo(K.cx - rx * 0.92, rimY + K.wd * 0.12); g.lineTo(K.cx - rx * 1.32, rimY - K.wd * 0.18); g.stroke();
+        g.strokeStyle = "#5A3820"; g.lineWidth = 22 * u; g.beginPath(); g.moveTo(K.cx - rx * 1.32, rimY - K.wd * 0.18); g.lineTo(K.cx - rx * 1.72, rimY - K.wd * 0.48); g.stroke();
+        g.strokeStyle = "#1A1A1E"; g.lineWidth = 7 * u; g.beginPath(); g.arc(K.cx + rx * 1.04, rimY + K.wd * 0.06, 18 * u, -Math.PI * 0.6, Math.PI * 0.6); g.stroke();
+        g.restore();
+        // the chili flakes and spring onion flung up with it
+        for (const s of K.tosses) {
+          const b = t - s.at;
+          if (b < 0 || b > 1.7) continue;
+          s.flakes.forEach((f) => {
+            const x = K.cx + f.x + f.vx * b, y = restY + f.vy * b + 0.5 * H * 2.6 * b * b;
+            if (y > H + 20) return;
+            g.save(); g.translate(x, y); g.rotate(f.spin * b); g.fillStyle = f.c; g.beginPath(); g.roundRect(-f.s / 2, -f.s * 0.3, f.s, f.s * 0.6, f.s * 0.2); g.fill(); g.restore();
+          });
+        }
+        // steam off it
+        g.save();
+        for (let i = 0; i < (SCENE_LITE ? 4 : 7); i++) { const sa = (t * 0.45 + i / 7) % 1, x = K.cx + (i / 6 - 0.5) * K.cw, r = (40 + 90 * sa) * u; g.globalAlpha = 0.32 * (1 - sa); g.drawImage(smoke, x - r, rimY - K.chh * 0.6 - sa * H * 0.5 - r, r * 2, r * 2); }
+        g.restore();
+        embers(t, SCENE_LITE ? 30 : 60, B(11), 1.2, 0.9);
+        smokeAlarm(t);
+      };
+
+      // ═══ recipe (the pickup → bar 24): the pass from above, shot like a cooking video. The MV comes down out of the
+      // wok (seared side up, turning over) onto a plate on the bridge's first beat; a spice a bar is shaken over it,
+      // each grading it hotter: paprika, cayenne, habanero, ghost pepper (ghosts rising off it), then the Carolina
+      // Reaper, one pepper dropped in and the dish going up; a heart of sauce piped on it, ding-ding on the bell (bar
+      // 23's two hits), order up, and it's taken away ═══
+      // each spice: its powder's colours, its jar's cap, where the jar is held and where it's aimed (in the dish's
+      // widths and heights from its middle)
+      const SPICES = [
+        { name: "PAPRIKA", shu: "500 SHU", dust: ["#E2622E", "#C8461F", "#F39050"], cap: "#C8102E", hold: [0.42, -0.68], aim: [0.14, 0.04] },
+        { name: "CAYENNE", shu: "50,000 SHU", dust: ["#C3121D", "#E0301E", "#8E0D15"], cap: "#2A1A14", hold: [-0.44, -0.64], aim: [-0.16, 0.1] },
+        { name: "HABANERO", shu: "350,000 SHU", dust: ["#FF7A1A", "#FFA62E", "#E2560E"], cap: "#FFB020", hold: [0.5, 0.56], aim: [0.1, -0.04] },
+        { name: "GHOST PEPPER", shu: "1,000,000 SHU", dust: ["#7A1828", "#A02C3E", "#561020"], cap: "#ECE6EA", hold: [-0.5, 0.54], aim: [-0.08, -0.06], ghosts: true },
+        { name: "CAROLINA REAPER", shu: "2,200,000 SHU", reaper: true, hold: [0, -0.84], aim: [0, 0.04] },
+      ];
+      // the dish's grade after each spice: passes laid over the MV (none before the first)
+      const GRADES = [[],
+        [["soft-light", "#FF8A3A", 0.65], ["multiply", "#FFDCC2", 1]],
+        [["color", "#E8173A", 0.4], ["multiply", "#FFB4A4", 1], ["overlay", "#FF3A1A", 0.28]],
+        [["color", "#FF7A10", 0.55], ["overlay", "#FFB020", 0.5], ["multiply", "#FFD2A4", 1]],
+        [["saturation", "#7A7A7A", 0.7], ["multiply", "#B04C66", 1], ["screen", "#2E0816", 1]],
+        [["color", "#FF1A0A", 0.82], ["multiply", "#FF6444", 1], ["overlay", "#FF2A00", 0.4]]];
+      const REC_LAND = B(18), R_CORK = B(22) + 0.75 * BEAT, R_DROP = B(22) + 1.25 * BEAT, IGNITE = B(22) + 2 * BEAT;
+      const SAUCE0 = B(23), SAUCE1 = B(23) + 2 * BEAT, DINGS = [B(23) + 2.5 * BEAT, B(23) + 3 * BEAT], WHISK = B(23) + 3.3 * BEAT;
+      // a spice's shakes: its bar's second beat, its third, and the kick after it
+      const shakesOf = (i) => (SPICES[i].reaper ? [] : [B(18 + i) + BEAT, B(18 + i) + 2 * BEAT, B(18 + i) + 2.5 * BEAT]);
+      // when each one is in (the Reaper: when it goes up), so when the dish's grade turns; and the heart's flares
+      const SPICE_IN = SPICES.map((sp, i) => (sp.reaper ? IGNITE : shakesOf(i)[0]));
+      const HUD_FLARES = [B(12), ...SPICE_IN.slice(0, 4), ...DINGS];
+      const SKULL = spMvPic("st-skull.webp");
+      const DL = layer(); // the dish's next grade, spreading in
+      let rec = null;
+      const makeRecipe = () => {
+        // (on a tall screen a squarer dish, the middle of the MV: 16:9 across a phone is a strip)
+        const cw = tall ? W * 0.86 : Math.min(W * 0.56, H * 0.58 * 16 / 9), chh = tall ? cw * 0.92 : cw * 9 / 16, crop = Math.min(1, (cw / chh) / (16 / 9));
+        const cx = W / 2, cy = tall ? H * 0.53 : H * 0.57, pad = cw * 0.07, jarH = tall ? W * 0.42 : Math.min(H * 0.44, cw * 0.54);
+        const bellR = (tall ? 26 : 32) * u;
+        const bell = tall ? { x: cx + cw * 0.3, y: cy + chh / 2 + pad + bellR * 2.2 } : { x: cx + cw / 2 + pad + bellR * 2.2, y: cy + chh * 0.26 };
+        DL.c.width = Math.ceil(cw * ratio); DL.c.height = Math.ceil(chh * ratio);
+        const rnd = seeded(1818), n = SCENE_LITE ? 28 : 56;
+        const spices = SPICES.map((sp, i) => {
+          const hx = sp.hold[0] * cw, hy = sp.hold[1] * chh, ax = sp.aim[0] * cw, ay = sp.aim[1] * chh;
+          const d = Math.hypot(ax - hx, ay - hy), dx = (ax - hx) / d, dy = (ay - hy) / d, len = jarH;
+          const tipX = hx + dx * (len + 24 * u), tipY = hy + dy * (len + 24 * u);
+          const grains = [], puffs = [], ghosts = [];
+          shakesOf(i).forEach((at, k) => {
+            for (let j = 0; j < n * (k === 2 ? 1.4 : 1); j++) {
+              // where it lands: round the aim, spread over the dish (kept on it)
+              const r = Math.sqrt(rnd()), th = rnd() * PI2;
+              grains.push({ at: at + rnd() * 0.06, dur: 0.16 + rnd() * 0.22, sx: tipX + (rnd() - 0.5) * 12 * u, sy: tipY + (rnd() - 0.5) * 12 * u,
+                tx: Math.max(-cw * 0.47, Math.min(cw * 0.47, ax + Math.cos(th) * r * cw * 0.3)), ty: Math.max(-chh * 0.45, Math.min(chh * 0.45, ay + Math.sin(th) * r * chh * 0.38)),
+                s: (2.2 + rnd() * 3.4) * u, c: sp.dust[Math.floor(rnd() * 3)], bend: (rnd() - 0.5) * 2 });
+            }
+            // its dust: a burst out of the cap, then a cloud settling where it lands
+            for (let j = 0; j < 2; j++) puffs.push({ at: at + j * 0.03, x: tipX + (rnd() - 0.5) * 20 * u, y: tipY + (rnd() - 0.5) * 20 * u, r: (34 + rnd() * 26) * u, life: 0.5 });
+            for (let j = 0; j < 3; j++) puffs.push({ at: at + 0.12 + j * 0.05, x: ax + (rnd() - 0.5) * cw * 0.3, y: ay + (rnd() - 0.5) * chh * 0.3, r: (60 + rnd() * 70) * u, life: 1.2 });
+            if (sp.ghosts) for (let j = 0; j < 2; j++) ghosts.push({ at: at + 0.12 + j * 0.16, x: (rnd() - 0.5) * cw * 0.7, y: (rnd() - 0.5) * chh * 0.5, drift: (rnd() - 0.5) * cw * 0.5, s: (40 + rnd() * 26) * u, seed: rnd() * 6 });
+          });
+          return { sp, hx, hy, ax, ay, dx, dy, len, rot: Math.atan2(dx, -dy), tipX, tipY, grains, puffs, ghosts };
+        });
+        // the wok's chilli flakes, knocked off the dish as it lands
+        const crumbs = Array.from({ length: 16 }, () => { const side = rnd() < 0.5 ? -1 : 1, along = (rnd() - 0.5) * 2; return rnd() < 0.5
+          ? { x: along * cw * 0.5, y: side * chh * 0.5, vx: along * 60 * u, vy: side * (60 + rnd() * 90) * u, s: (4 + rnd() * 5) * u, turn: rnd() * PI2, c: rnd() < 0.7 ? "#E8173A" : "#3FA34D" }
+          : { x: side * cw * 0.5, y: along * chh * 0.5, vx: side * (60 + rnd() * 90) * u, vy: along * 50 * u, s: (4 + rnd() * 5) * u, turn: rnd() * PI2, c: rnd() < 0.7 ? "#FF8A1F" : "#E8173A" }; });
+        rec = { cw, chh, cx, cy, pad, jarH, bellR, bell, spices, crumbs, u0: (1 - crop) / 2, u1: (1 + crop) / 2, painted: -1 };
+        // (each grade's blend tried once now, so its first use on the bridge doesn't stall a frame)
+        DL.g.save(); GRADES.flat().forEach(([op]) => { DL.g.globalCompositeOperation = op; DL.g.fillRect(0, 0, 1, 1); }); DL.g.restore();
+      };
+      // the counter: dark slate, flecked, the heat lamp's warm light from above; dried chillies, chilli flakes and
+      // peppercorns about, clear of the plate (painted on S1 once, again once its pictures are in)
+      const paintCounter = () => {
+        const C = rec, c = S1.g, rnd = seeded(77);
+        wipe(S1);
+        c.fillStyle = "#16100E"; c.fillRect(0, 0, W, H);
+        for (let i = 0; i < 26; i++) {
+          const x = rnd() * W, y = rnd() * H, r = (80 + rnd() * 220) * u, m = c.createRadialGradient(x, y, 0, x, y, r);
+          m.addColorStop(0, rnd() < 0.5 ? "rgba(255, 235, 225, 0.05)" : "rgba(0, 0, 0, 0.2)"); m.addColorStop(1, "rgba(0, 0, 0, 0)");
+          c.fillStyle = m; c.fillRect(x - r, y - r, r * 2, r * 2);
+        }
+        for (let i = 0; i < (SCENE_LITE ? 500 : 1100); i++) { const s = (0.6 + rnd() * 1.4) * u; c.fillStyle = `rgba(255, 245, 240, ${0.04 + rnd() * 0.14})`; c.fillRect(rnd() * W, rnd() * H, s, s); }
+        const lamp = c.createRadialGradient(W / 2, -H * 0.15, 0, W / 2, -H * 0.15, H * 1.25);
+        lamp.addColorStop(0, "rgba(255, 150, 70, 0.22)"); lamp.addColorStop(0.6, "rgba(255, 110, 50, 0.08)"); lamp.addColorStop(1, "rgba(255, 110, 50, 0)");
+        c.fillStyle = lamp; c.fillRect(0, 0, W, H);
+        const clear = (x, y, m) => Math.abs(x - C.cx) > C.cw / 2 + C.pad + m || Math.abs(y - C.cy) > C.chh / 2 + C.pad + m;
+        const spots = tall ? [[0.16, 0.14], [0.84, 0.86], [0.2, 0.9], [0.86, 0.12]] : [[0.08, 0.2], [0.92, 0.84], [0.09, 0.82], [0.93, 0.16]];
+        spots.forEach(([fx, fy], i) => {
+          const x = fx * W, y = fy * H;
+          if (!clear(x, y, 40 * u)) return;
+          // flakes round it, peppercorns by the second
+          for (let k = 0; k < 40; k++) {
+            const a = rnd() * PI2, d = (20 + rnd() * 80) * u, s = (2 + rnd() * 4) * u;
+            c.save(); c.translate(x + Math.cos(a) * d, y + Math.sin(a) * d * 0.8); c.rotate(rnd() * PI2); c.fillStyle = ["#B3121B", "#E0461E", "#7A0E12", "#F2A33A"][Math.floor(rnd() * 4)]; c.fillRect(-s / 2, -s * 0.3, s, s * 0.6); c.restore();
+          }
+          if (i === 1) for (let k = 0; k < 14; k++) {
+            const px = x + (rnd() - 0.5) * 90 * u, py = y + (rnd() - 0.5) * 60 * u, r = (3.5 + rnd() * 2) * u;
+            c.fillStyle = "#1A1210"; c.beginPath(); c.arc(px, py, r, 0, PI2); c.fill();
+            c.fillStyle = "rgba(255, 220, 200, 0.28)"; c.beginPath(); c.arc(px - r * 0.3, py - r * 0.35, r * 0.35, 0, PI2); c.fill();
+          }
+          const img = PEPPERS[i % 3];
+          if (ready(img)) {
+            const s = (tall ? 70 : 96) * u, w = s * img.naturalWidth / Math.max(img.naturalWidth, img.naturalHeight), h = s * img.naturalHeight / Math.max(img.naturalWidth, img.naturalHeight);
+            c.save(); c.translate(x, y); c.rotate(rnd() * PI2); c.shadowColor = "rgba(0, 0, 0, 0.6)"; c.shadowBlur = 16 * u; c.shadowOffsetX = 5 * u; c.shadowOffsetY = 8 * u;
+            c.globalAlpha = 0.92; c.drawImage(img, -w / 2, -h / 2, w, h); c.restore();
+          }
+        });
+        const vg = c.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.hypot(W, H) * 0.62);
+        vg.addColorStop(0, "rgba(0, 0, 0, 0)"); vg.addColorStop(1, "rgba(0, 0, 0, 0.55)");
+        c.fillStyle = vg; c.fillRect(0, 0, W, H);
+        C.painted = PEPPERS.every(ready) ? 1 : 0;
+      };
+      // the plate: white, its well a shade down from its rim, its shadow on the counter
+      const plate = (x, y, w, h) => {
+        g.save();
+        g.shadowColor = "rgba(0, 0, 0, 0.55)"; g.shadowBlur = 34 * u; g.shadowOffsetX = 8 * u; g.shadowOffsetY = 14 * u;
+        panel(g, x - w / 2, y - h / 2, w, h, 26 * u, "#F3EEE9");
+        g.shadowColor = "transparent";
+        const rim = 0.42 * Math.min(w - rec.cw, h - rec.chh), well = g.createLinearGradient(0, y - h / 2, 0, y + h / 2);
+        well.addColorStop(0, "#E0D8D1"); well.addColorStop(1, "#F7F3EF");
+        panel(g, x - w / 2 + rim, y - h / 2 + rim, w - 2 * rim, h - 2 * rim, 18 * u, well);
+        const sheen = g.createLinearGradient(x - w / 2, y - h / 2, x + w / 2, y + h / 2);
+        sheen.addColorStop(0, "rgba(255, 255, 255, 0.5)"); sheen.addColorStop(0.4, "rgba(255, 255, 255, 0)"); sheen.addColorStop(1, "rgba(255, 170, 120, 0.14)");
+        panel(g, x - w / 2, y - h / 2, w, h, 26 * u, sheen);
+        g.restore();
+      };
+      // the MV as the dish, graded by the spices so far (the newest spreading out from where it was aimed)
+      const gradeDish = (c, x, y, w, h, k) => {
+        c.drawImage(F.c, rec.u0 * F.c.width, 0, (rec.u1 - rec.u0) * F.c.width, F.c.height, x, y, w, h);
+        for (const [op, col, a] of GRADES[k]) { c.globalCompositeOperation = op; c.globalAlpha = a; c.fillStyle = col; c.fillRect(x, y, w, h); }
+        c.globalCompositeOperation = "source-over"; c.globalAlpha = 1;
+      };
+      const dish = (t, x, y) => {
+        const C = rec, w = C.cw, h = C.chh, x0 = x - w / 2, y0 = y - h / 2;
+        let k = 0;
+        SPICE_IN.forEach((at) => { if (t >= at) k++; });
+        const S = k ? C.spices[k - 1] : null, rv = k && k < 5 ? clamp((t - SPICE_IN[k - 1]) / (1.4 * BEAT)) : 1;
+        g.save(); g.beginPath(); g.roundRect(x0, y0, w, h, 12 * u); g.clip();
+        gradeDish(g, x0, y0, w, h, rv < 1 ? k - 1 : k);
+        if (rv < 1) {
+          wipe(DL); gradeDish(DL.g, 0, 0, w, h, k);
+          const ox = w / 2 + S.ax, oy = h / 2 + S.ay, r = rv * Math.hypot(w, h) * 1.05, m = DL.g.createRadialGradient(ox, oy, Math.max(0, r - 90 * u), ox, oy, r + 1);
+          m.addColorStop(0, "#000000"); m.addColorStop(1, "rgba(0, 0, 0, 0)");
+          DL.g.globalCompositeOperation = "destination-in"; DL.g.fillStyle = m; DL.g.fillRect(0, 0, w, h); DL.g.globalCompositeOperation = "source-over";
+          g.drawImage(DL.c, 0, 0, DL.c.width, DL.c.height, x0, y0, w, h);
+        }
+        g.restore();
+        g.strokeStyle = "rgba(255, 230, 210, 0.5)"; g.lineWidth = 1.5 * u; g.beginPath(); g.roundRect(x0, y0, w, h, 12 * u); g.stroke();
+      };
+      // a puff of each spice's dust
+      const dustPics = SPICES.map((sp) => {
+        const c = document.createElement("canvas"); c.width = c.height = 96;
+        const s = c.getContext("2d"), r = s.createRadialGradient(48, 48, 0, 48, 48, 48), col = sp.dust ? sp.dust[0] : "#7A1010";
+        r.addColorStop(0, `${col}AA`); r.addColorStop(0.55, `${col}44`); r.addColorStop(1, `${col}00`);
+        s.fillStyle = r; s.fillRect(0, 0, 96, 96);
+        return c;
+      });
+      // the powder: in the air from the jar's cap to where it lands (smaller as it falls away), then lying there
+      const powder = (t, ox) => {
+        const C = rec;
+        for (const S of C.spices) for (const p of S.grains) {
+          const a = t - p.at;
+          if (a < 0) continue;
+          const q = Math.min(1, a / p.dur), e = out(q), s = p.s * mix(2.8, 1, e);
+          let x = C.cx + ox + mix(p.sx, p.tx, e), y = C.cy + mix(p.sy, p.ty, e);
+          if (q < 1) { const nx = p.sy - p.ty, ny = p.tx - p.sx, l = Math.hypot(nx, ny) || 1, b = p.bend * Math.sin(Math.PI * q) * 22 * u; x += (nx / l) * b; y += (ny / l) * b; }
+          g.fillStyle = p.c; g.fillRect(x - s / 2, y - s / 2, s, s);
+        }
+        C.spices.forEach((S, i) => S.puffs.forEach((p) => {
+          const a = t - p.at;
+          if (a < 0 || a > p.life) return;
+          const r = p.r * (0.5 + 1.2 * out(a / p.life));
+          g.globalAlpha = 0.9 * (1 - a / p.life); g.drawImage(dustPics[i], C.cx + ox + p.x - r, C.cy + p.y - r, r * 2, r * 2);
+        }));
+        g.globalAlpha = 1;
+      };
+      // a jar of spice, side on, its foot at 0, 0 and its cap up (-y), h tall: the glass, the powder in it, the
+      // house label, the shaker cap
+      const jarPic = (c, sp, h, level) => {
+        const w = h * 0.46, capH = h * 0.17, bodyH = h - capH, r = w * 0.2;
+        c.save();
+        c.shadowColor = "rgba(0, 0, 0, 0.45)"; c.shadowBlur = 24 * u; c.shadowOffsetY = 10 * u;
+        c.fillStyle = "rgba(240, 228, 222, 0.24)"; c.beginPath(); c.roundRect(-w / 2, -bodyH, w, bodyH, r); c.fill();
+        c.shadowColor = "transparent";
+        c.save(); c.beginPath(); c.roundRect(-w / 2, -bodyH, w, bodyH, r); c.clip();
+        const ph = bodyH * level;
+        c.fillStyle = sp.dust[0]; c.fillRect(-w / 2, -ph, w, ph);
+        c.fillStyle = sp.dust[2]; for (let k = 0; k < 18; k++) c.fillRect(-w / 2 + ((k * 37) % 100) / 100 * w, -ph + ((k * 53) % 100) / 100 * ph, 2.4 * u, 2.4 * u);
+        const sh = c.createLinearGradient(-w / 2, 0, w / 2, 0);
+        sh.addColorStop(0, "rgba(255, 255, 255, 0)"); sh.addColorStop(0.16, "rgba(255, 255, 255, 0.5)"); sh.addColorStop(0.28, "rgba(255, 255, 255, 0)"); sh.addColorStop(0.84, "rgba(255, 255, 255, 0.14)"); sh.addColorStop(1, "rgba(255, 255, 255, 0)");
+        c.fillStyle = sh; c.fillRect(-w / 2, -bodyH, w, bodyH);
+        c.restore();
+        c.strokeStyle = "rgba(255, 255, 255, 0.55)"; c.lineWidth = 1.5 * u; c.beginPath(); c.roundRect(-w / 2, -bodyH, w, bodyH, r); c.stroke();
+        // the label: the house's, the spice's name across it
+        const ly = -bodyH * 0.76, lh = bodyH * 0.46, lines = sp.name.split(" "), most = Math.max(...lines.map((l) => l.length));
+        c.fillStyle = "#FFF3E4"; c.fillRect(-w / 2, ly, w, lh);
+        c.fillStyle = sp.cap === "#ECE6EA" ? "#7A1828" : sp.cap; c.fillRect(-w / 2, ly, w, lh * 0.1); c.fillRect(-w / 2, ly + lh * 0.9, w, lh * 0.1);
+        const fs = Math.min(lh * 0.3, (w * 0.92) / (most * 0.66));
+        lines.forEach((line, k) => say(c, line, 0, ly + lh * 0.5 + (k - (lines.length - 1) / 2) * fs * 1.02, fs, 400, BAGEL, "#25100A", "center"));
+        say(c, "BREW HOUZE", 0, ly + lh * 0.82, Math.max(6, fs * 0.36), 700, MONO, "#9A6655", "center");
+        // the shaker cap, ridged
+        c.fillStyle = sp.cap; c.beginPath(); c.roundRect(-w * 0.53, -h, w * 1.06, capH * 1.05, [r, r, 3 * u, 3 * u]); c.fill();
+        c.strokeStyle = "rgba(0, 0, 0, 0.25)"; c.lineWidth = 1.2 * u;
+        for (let k = 1; k < 9; k++) { const x = -w * 0.53 + (w * 1.06 * k) / 9; c.beginPath(); c.moveTo(x, -h + capH * 0.15); c.lineTo(x, -h + capH * 0.9); c.stroke(); }
+        c.fillStyle = "rgba(255, 255, 255, 0.3)"; c.fillRect(-w * 0.45, -h + capH * 0.12, w * 0.9, capH * 0.12);
+        c.restore();
+      };
+      // where a spice's jar is at t (from the dish's middle): in along its own line at its bar's start, jerked at the
+      // dish on each shake, out again at the bar's end
+      const jarPose = (S, i, t) => {
+        const a = t - B(18 + i), off = (1 - out(a / 0.34) + inn((a - (BAR - 0.34)) / 0.34)) * rec.jarH * 2.6;
+        let push = 0, wob = 0, done = 0;
+        for (const s of shakesOf(i)) {
+          const b = t - s;
+          if (b >= 0) done++;
+          if (b >= 0 && b < 0.16) { push = Math.max(push, Math.sin(Math.PI * b / 0.16)); wob = Math.sin(b * 70) * 0.06 * (1 - b / 0.16); }
+        }
+        const d = push * 24 * u - off;
+        return { x: S.hx + S.dx * d, y: S.hy + S.dy * d, rot: S.rot + wob, level: 0.74 - 0.12 * done };
+      };
+      // the Reaper, red-hot: the curled chrome pepper turned red
+      let reaperPic = null;
+      const reaperPepper = () => {
+        if (reaperPic || !ready(PEPPERS[2])) return reaperPic;
+        const img = PEPPERS[2], c = document.createElement("canvas");
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const s = c.getContext("2d");
+        s.drawImage(img, 0, 0);
+        s.globalCompositeOperation = "color"; s.fillStyle = "#C8101A"; s.fillRect(0, 0, c.width, c.height);
+        s.globalCompositeOperation = "multiply"; s.fillStyle = "#FF9080"; s.fillRect(0, 0, c.width, c.height);
+        s.globalCompositeOperation = "destination-in"; s.drawImage(img, 0, 0);
+        return (reaperPic = c);
+      };
+      // the Reaper's vial, foot at 0, 0 and mouth up (-y), h tall: a stoppered tube with the pepper in it (till it's
+      // dropped), a hazard label with a skull
+      const vialPic = (c, h, corked, full) => {
+        const w = h * 0.36, r = w / 2, mouth = -h + h * 0.13;
+        const body = new Path2D();
+        body.moveTo(-w / 2, mouth); body.lineTo(-w / 2, -r); body.arc(0, -r, r, Math.PI, 0, true); body.lineTo(w / 2, mouth); body.closePath();
+        c.save();
+        c.shadowColor = "rgba(0, 0, 0, 0.5)"; c.shadowBlur = 22 * u; c.shadowOffsetY = 10 * u;
+        c.fillStyle = "rgba(235, 225, 230, 0.2)"; c.fill(body);
+        c.shadowColor = "transparent";
+        const pep = reaperPepper();
+        if (full && pep) { c.save(); c.clip(body); c.translate(0, -h * 0.6); c.rotate(Math.PI / 2); const pw = h * 0.52, phh = pw * pep.height / pep.width; c.drawImage(pep, -pw / 2, -phh / 2, pw, phh); c.restore(); }
+        const sh = c.createLinearGradient(-w / 2, 0, w / 2, 0);
+        sh.addColorStop(0, "rgba(255, 255, 255, 0)"); sh.addColorStop(0.2, "rgba(255, 255, 255, 0.5)"); sh.addColorStop(0.32, "rgba(255, 255, 255, 0)"); sh.addColorStop(1, "rgba(255, 255, 255, 0.1)");
+        c.fillStyle = sh; c.fill(body);
+        c.strokeStyle = "rgba(255, 255, 255, 0.6)"; c.lineWidth = 1.5 * u; c.stroke(body);
+        // the label: hazard stripes top and foot, the skull, its name
+        const ly = -h * 0.5, lh = h * 0.3;
+        c.save(); c.clip(body);
+        c.fillStyle = "#FFF3E4"; c.fillRect(-w / 2, ly, w, lh);
+        c.save(); c.beginPath(); c.rect(-w / 2, ly, w, lh * 0.14); c.rect(-w / 2, ly + lh * 0.86, w, lh * 0.14); c.clip();
+        c.fillStyle = "#FFC83A"; c.fillRect(-w / 2, ly, w, lh);
+        c.fillStyle = "#1A1210"; for (let k = -4; k < 8; k++) { c.beginPath(); c.moveTo(-w / 2 + k * w * 0.2, ly + lh); c.lineTo(-w / 2 + k * w * 0.2 + w * 0.1, ly + lh); c.lineTo(-w / 2 + k * w * 0.2 + w * 0.1 + lh, ly); c.lineTo(-w / 2 + k * w * 0.2 + lh, ly); c.closePath(); c.fill(); }
+        c.restore();
+        if (ready(SKULL)) { const sw = w * 0.42, sh2 = sw * 135 / 138; c.drawImage(SKULL, 0, 165, 138, 135, -sw / 2, ly + lh * 0.16, sw, sh2); }
+        const fs = Math.min(lh * 0.13, w * 0.15);
+        say(c, "CAROLINA", 0, ly + lh * 0.62, fs, 400, BAGEL, "#25100A", "center");
+        say(c, "REAPER", 0, ly + lh * 0.62 + fs * 1.05, fs, 400, BAGEL, "#C8102E", "center");
+        c.restore();
+        if (corked) {
+          const cg = c.createLinearGradient(-w / 2, 0, w / 2, 0); cg.addColorStop(0, "#6A4424"); cg.addColorStop(0.4, "#B8875A"); cg.addColorStop(1, "#5A3A1E");
+          c.fillStyle = cg; c.beginPath(); c.roundRect(-w * 0.44, -h, w * 0.88, h * 0.17, 4 * u); c.fill();
+        }
+        c.restore();
+      };
+      // a ghost off the ghost pepper: a sheet with a scalloped hem, two eyes, an "o", blushing
+      const ghostPic = (x, y, s, alpha, wob) => {
+        g.save(); g.translate(x, y); g.rotate(Math.sin(wob) * 0.16); g.globalAlpha = alpha;
+        g.shadowColor = "rgba(255, 220, 240, 0.9)"; g.shadowBlur = 18 * u;
+        g.fillStyle = "rgba(255, 248, 252, 0.9)";
+        g.beginPath(); g.moveTo(-s * 0.42, s * 0.36); g.lineTo(-s * 0.42, -s * 0.1); g.arc(0, -s * 0.1, s * 0.42, Math.PI, 0); g.lineTo(s * 0.42, s * 0.36);
+        const hem = [0.42, 0.14, -0.14, -0.42];
+        for (let k = 0; k < 3; k++) g.quadraticCurveTo(((hem[k] + hem[k + 1]) / 2) * s, s * (k % 2 ? 0.26 : 0.52) + Math.sin(wob * 3 + k) * s * 0.04, hem[k + 1] * s, s * 0.36);
+        g.closePath(); g.fill();
+        g.shadowColor = "transparent";
+        g.fillStyle = "#3A1424";
+        g.beginPath(); g.ellipse(-s * 0.14, -s * 0.12, s * 0.055, s * 0.08, 0, 0, PI2); g.moveTo(s * 0.195, -s * 0.12); g.ellipse(s * 0.14, -s * 0.12, s * 0.055, s * 0.08, 0, 0, PI2); g.fill();
+        g.beginPath(); g.ellipse(0, s * 0.06, s * 0.05, s * 0.065, 0, 0, PI2); g.fill();
+        g.fillStyle = "rgba(255, 110, 150, 0.5)";
+        g.beginPath(); g.ellipse(-s * 0.25, 0, s * 0.06, s * 0.035, 0, 0, PI2); g.moveTo(s * 0.31, 0); g.ellipse(s * 0.25, 0, s * 0.06, s * 0.035, 0, 0, PI2); g.fill();
+        g.restore();
+      };
+      // the heart of sauce, piped from its dip round to its dip again (0 → 1 of the way); where the line is up to
+      const HEART_PTS = Array.from({ length: 97 }, (_, i) => { const a = (i / 96) * PI2, s = Math.sin(a); return [16 * s * s * s, -(13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a)) - 2.95]; });
+      const sauceHeart = (x, y, size, p) => {
+        if (p <= 0) return null;
+        const k = size / 28, n = Math.max(1, Math.round(p * 96)), path = new Path2D();
+        for (let i = 0; i <= n; i++) { const [px, py] = HEART_PTS[i]; if (i) path.lineTo(x + px * k, y + py * k); else path.moveTo(x + px * k, y + py * k); }
+        g.save(); g.lineCap = "round"; g.lineJoin = "round";
+        // (a spicy mayo, pink: it stands out on the red)
+        g.shadowColor = "rgba(40, 0, 10, 0.6)"; g.shadowBlur = 8 * u; g.shadowOffsetY = 4 * u;
+        g.strokeStyle = "#E8436A"; g.lineWidth = 15 * u; g.stroke(path);
+        g.shadowColor = "transparent";
+        g.strokeStyle = "#FFB3B8"; g.lineWidth = 9 * u; g.stroke(path);
+        g.translate(-2 * u, -2.5 * u); g.strokeStyle = "rgba(255, 255, 255, 0.85)"; g.lineWidth = 2.6 * u; g.stroke(path);
+        g.restore();
+        return { x: x + HEART_PTS[n][0] * k, y: y + HEART_PTS[n][1] * k };
+      };
+      // the squeeze bottle piping it: red, a white nozzle, held tilted with its tip on the line
+      const squeeze = (x, y, h) => {
+        const w = h * 0.36;
+        g.save(); g.translate(x, y); g.rotate(-0.5);
+        g.shadowColor = "rgba(0, 0, 0, 0.45)"; g.shadowBlur = 20 * u; g.shadowOffsetX = 6 * u; g.shadowOffsetY = 12 * u;
+        const bg = g.createLinearGradient(-w / 2, 0, w / 2, 0);
+        bg.addColorStop(0, "#8E0A14"); bg.addColorStop(0.3, "#E8273A"); bg.addColorStop(0.55, "#C8102E"); bg.addColorStop(1, "#6A0810");
+        g.fillStyle = bg; g.beginPath(); g.roundRect(-w / 2, -h, w, h * 0.72, w * 0.24); g.fill();
+        g.shadowColor = "transparent";
+        g.fillStyle = "#F4F0EC"; g.fillRect(-w * 0.34, -h * 0.3, w * 0.68, h * 0.09);
+        g.beginPath(); g.moveTo(-w * 0.07, 0); g.lineTo(w * 0.07, 0); g.lineTo(w * 0.24, -h * 0.21); g.lineTo(-w * 0.24, -h * 0.21); g.closePath(); g.fill();
+        g.fillStyle = "#FFF3E4"; g.fillRect(-w / 2, -h * 0.78, w, h * 0.3);
+        g.save(); g.translate(0, -h * 0.63); g.rotate(-Math.PI / 2); say(g, "SPICY", 0, 0, Math.min(w * 0.42, h * 0.11), 400, BAGEL, "#C8102E", "center"); g.restore();
+        g.restore();
+      };
+      // the service bell on the counter, from above: its chrome dome, the button pushed down on a ding
+      const bellPic = (x, y, R, press) => {
+        g.save();
+        g.shadowColor = "rgba(0, 0, 0, 0.5)"; g.shadowBlur = 14 * u; g.shadowOffsetX = 4 * u; g.shadowOffsetY = 8 * u;
+        g.fillStyle = "#121014"; g.beginPath(); g.arc(x, y, R * 1.12, 0, PI2); g.fill();
+        g.shadowColor = "transparent";
+        const dome = g.createRadialGradient(x - R * 0.35, y - R * 0.4, R * 0.08, x, y, R);
+        dome.addColorStop(0, "#FFFFFF"); dome.addColorStop(0.25, "#E4E2E8"); dome.addColorStop(0.7, "#8C8A94"); dome.addColorStop(1, "#4A4850");
+        g.fillStyle = dome; g.beginPath(); g.arc(x, y, R, 0, PI2); g.fill();
+        g.fillStyle = `rgba(255, ${Math.round(140 + 100 * press)}, ${Math.round(70 + 160 * press)}, ${0.16 + 0.4 * press})`; g.beginPath(); g.arc(x, y, R, 0, PI2); g.fill();
+        const b = R * 0.26 * (1 - 0.2 * press);
+        g.fillStyle = "#2A282E"; g.beginPath(); g.arc(x, y, R * 0.33, 0, PI2); g.fill();
+        const knob = g.createRadialGradient(x - b * 0.3, y - b * 0.3, b * 0.1, x, y, b);
+        knob.addColorStop(0, "#F4F2F6"); knob.addColorStop(1, press > 0.5 ? "#5A5860" : "#9A98A2");
+        g.fillStyle = knob; g.beginPath(); g.arc(x, y, b, 0, PI2); g.fill();
+        g.restore();
+      };
+      // the video's captions over it all: the step, the spice and its heat; then the last touch; then ORDER UP!
+      const recipeCaption = (t) => {
+        const y = tall ? H * 0.13 : Math.max(H * 0.085, 58 * u), size = (tall ? 30 : 40) * u;
+        let i = -1;
+        for (let k = 0; k < 5; k++) if (t >= B(18 + k)) i = k;
+        if (i < 0) return;
+        let from = B(18 + i), top = `STEP ${i + 1} / 5`, name = SPICES[i].name, chip = SPICES[i].shu;
+        if (t >= DINGS[0]) { from = DINGS[0]; top = "#001 · DINE IN"; name = "ORDER UP!"; chip = "∞ SHU · FOR ♥"; }
+        else if (t >= SAUCE0) { from = SAUCE0; top = "LAST TOUCH"; name = "FOR ♥"; chip = "PIPED BY HAND"; }
+        const a = t - from, pop = Math.min(1, back(a / 0.28)), k = mix(1.3, 1, pop), fade = 1 - clamp((t - (B(24) - 0.12)) / 0.12);
+        g.save(); g.globalAlpha = clamp(a / 0.08) * fade; g.translate(W / 2, y); g.scale(k, k);
+        say(g, top, 0, -size * 0.95, 11 * u, 700, MONO, "#FFC83A", "center");
+        fireText(name, 0, size * 0.32, name === "ORDER UP!" ? size * 1.25 : size, "center");
+        g.font = font(700, 12 * u, MONO);
+        const cw = g.measureText(chip).width + 24 * u, cy = size * (name === "ORDER UP!" ? 0.62 : 0.55);
+        panel(g, -cw / 2, cy, cw, 24 * u, 12 * u, "rgba(37, 16, 10, 0.9)", "#FF5A1F", 1.5 * u);
+        say(g, chip, 0, cy + 12 * u, 12 * u, 700, MONO, "#FFF3E4", "center");
+        if (t < SAUCE0) for (let s = 0; s < 5; s++) { g.fillStyle = s <= i ? "#FF5A1F" : "rgba(255, 243, 228, 0.28)"; g.beginPath(); g.arc((s - 2) * 13 * u, cy + 38 * u, 3.6 * u, 0, PI2); g.fill(); }
+        g.restore();
+      };
+      const drawRecipe = (t) => {
+        const C = rec;
+        if (C.painted < (PEPPERS.every(ready) ? 1 : 0)) paintCounter();
+        const ig = t - IGNITE, la = t - REC_LAND;
+        const quake = (ig >= 0 && ig < 0.45 ? (1 - ig / 0.45) * 11 * u : 0) + (la >= 0 && la < 0.22 ? (1 - la / 0.22) * 5 * u : 0);
+        g.save();
+        if (quake > 0) g.translate(Math.sin(t * 91) * quake, Math.cos(t * 77) * quake);
+        g.drawImage(S1.c, 0, 0, W, H);
+        // the dish's way: down out of the wok onto the plate; taken away after the bell
+        const ox = inn((t - WHISK) / (B(24) - WHISK)) * (W / 2 + C.cw), x = C.cx + ox, y = C.cy;
+        plate(x, y, C.cw + C.pad * 2, C.chh + C.pad * 2);
+        if (t < REC_LAND) {
+          const q = clamp((t - SP_MV_PICKUP) / (REC_LAND - SP_MV_PICKUP)), k = 1 / (0.47 + 0.53 * q * q);
+          g.fillStyle = `rgba(0, 0, 0, ${0.4 * q * q})`; g.beginPath(); g.roundRect(x - C.cw / 2 + 8 * u, y - C.chh / 2 + 12 * u, C.cw, C.chh, 12 * u); g.fill();
+          card(C.u0, C.u1, x + (1 - q) * C.cw * 0.1, y - (1 - q) * C.chh * 0.3, C.cw * k, C.chh * k, Math.cos(Math.PI * (1 - q)), 0.32 * (1 - q) * (1 - q));
+        } else {
+          dish(t, x, y);
+          // the landing: a ring off the plate, the wok's flakes knocked off
+          if (la < 0.45) { g.strokeStyle = `rgba(255, 240, 225, ${0.7 * (1 - la / 0.45)})`; g.lineWidth = 3 * u; const e = 1 + 0.18 * out(la / 0.45); g.beginPath(); g.roundRect(x - C.cw * e / 2, y - C.chh * e / 2, C.cw * e, C.chh * e, 14 * u); g.stroke(); }
+          C.crumbs.forEach((cb) => {
+            const e = 1 - Math.exp(-la / 0.16), hop = 1 + 0.9 * Math.sin(Math.PI * clamp(la / 0.32));
+            g.save(); g.translate(x + cb.x + cb.vx * 0.16 * e, y + cb.y + cb.vy * 0.16 * e); g.rotate(cb.turn + e * 3);
+            g.fillStyle = cb.c; g.fillRect(-cb.s * hop / 2, -cb.s * hop * 0.3, cb.s * hop, cb.s * hop * 0.6); g.restore();
+          });
+          powder(t, ox);
+          // the heart of sauce piped on it
+          const tip = sauceHeart(x, y + C.chh * 0.02, C.chh * 0.62, clamp((t - SAUCE0) / (SAUCE1 - SAUCE0)));
+          // the Reaper on it, burning
+          const pep = reaperPepper();
+          if (pep && t >= IGNITE) { const s = (tall ? 54 : 70) * u, ph = s * pep.height / pep.width; g.save(); g.translate(x + C.spices[4].ax, y + C.spices[4].ay); g.rotate(2.1); g.globalAlpha = 0.95; g.drawImage(pep, -s / 2, -ph / 2, s, ph); g.restore(); }
+          if (ig >= 0) {
+            const f = (0.6 + 1.15 * Math.exp(-ig / 0.55)) * (1 - 0.5 * clamp((t - B(23)) / BAR)) * (1 + 0.14 * kickAt(t));
+            fireBox(g, "wall", x - C.cw * 0.56, x + C.cw * 0.56, y + C.chh * 0.52, C.chh * f, 23, 0.14, 0.22, 0.95, "lighter");
+            fireBox(g, "ground", x - C.cw / 2 - C.pad, x + C.cw / 2 + C.pad, y + C.chh / 2 + C.pad, C.chh * 0.42 * f, 61, 0.2, 0.25, 0.9);
+          }
+          // the ghosts off the ghost pepper, coming up at us (bigger as they rise)
+          C.spices[3].ghosts.forEach((gh) => {
+            const a = t - gh.at;
+            if (a < 0 || a > 1.9) return;
+            const q = a / 1.9;
+            ghostPic(x + gh.x + gh.drift * out(q) + Math.sin(a * 4 + gh.seed) * 10 * u, y + gh.y - a * 46 * u, gh.s * (0.55 + 0.95 * out(q)), clamp(a / 0.2) * (1 - clamp((a - 1.2) / 0.7)) * 0.95, a * 4 + gh.seed);
+          });
+          if (tip && t < SAUCE1 + 0.3) { const lift = clamp((t - SAUCE1) / 0.3); squeeze(tip.x + lift * 60 * u, tip.y - lift * 90 * u, C.jarH * 0.9); }
+        }
+        // the bell, and its two dings
+        let press = 0;
+        DINGS.forEach((at) => { const b = t - at; if (b >= 0 && b < 0.22) press = Math.max(press, 1 - b / 0.22); });
+        bellPic(C.bell.x, C.bell.y, C.bellR, press);
+        DINGS.forEach((at, i) => {
+          const b = t - at;
+          if (b < 0 || b > 0.7) return;
+          g.save();
+          for (let r = 0; r < 2; r++) { const q = clamp((b - r * 0.08) / 0.55); if (q <= 0 || q >= 1) continue; g.globalAlpha = 1 - q; g.strokeStyle = "#FFF3E4"; g.lineWidth = 3 * u * (1 - q) + 1; g.beginPath(); g.arc(C.bell.x, C.bell.y, C.bellR * (1.2 + 2.8 * out(q)), 0, PI2); g.stroke(); }
+          const pop = Math.min(1, back(b / 0.2));
+          g.globalAlpha = 1 - clamp((b - 0.4) / 0.3);
+          g.translate(C.bell.x + (i ? -1 : 1) * C.bellR * 1.6, C.bell.y - C.bellR * 1.7 - i * 10 * u); g.rotate(i ? -0.2 : 0.18); g.scale(mix(0.4, 1, pop), mix(0.4, 1, pop));
+          g.font = font(400, 26 * u, BAGEL); g.textAlign = "center"; g.textBaseline = "middle"; g.lineJoin = "round"; g.lineWidth = 6 * u; g.strokeStyle = "#25100A"; g.strokeText("DING!", 0, 0); g.fillStyle = "#FFC83A"; g.fillText("DING!", 0, 0);
+          g.restore();
+        });
+        // the jars, held over it (nearer us than the dish)
+        C.spices.forEach((S, i) => {
+          if (S.sp.reaper) return;
+          const a = t - B(18 + i);
+          if (a < -0.05 || a > BAR + 0.05) return;
+          const P = jarPose(S, i, t);
+          g.save(); g.translate(C.cx + P.x, C.cy + P.y); g.rotate(P.rot); jarPic(g, S.sp, C.jarH, P.level); g.restore();
+        });
+        // the Reaper's vial: down from above, uncorked, the pepper let go; it falls away from us onto the dish
+        const V = C.spices[4], va = t - B(22);
+        if (va > -0.05 && va < 3.7 * BEAT) {
+          const off = (1 - out(va / 0.34) + inn((va - 3.2 * BEAT) / 0.34)) * C.jarH * 2.6, vx = C.cx + V.hx - V.dx * off, vy = C.cy + V.hy - V.dy * off;
+          g.save(); g.translate(vx, vy); g.rotate(V.rot); vialPic(g, V.len, t < R_CORK, t < R_DROP); g.restore();
+          const ca = t - R_CORK;
+          if (ca >= 0 && ca < 0.8) { const cs = V.len * 0.13; g.save(); g.translate(vx + V.dx * V.len + ca * 120 * u, vy + V.dy * V.len - ca * 420 * u + ca * ca * 600 * u); g.rotate(ca * 9); g.fillStyle = "#9A6A3E"; g.fillRect(-cs * 1.2, -cs / 2, cs * 2.4, cs); g.restore(); }
+        }
+        const pep = reaperPepper();
+        if (pep && t >= R_DROP && t < IGNITE) {
+          const q = (t - R_DROP) / (IGNITE - R_DROP), e = q * q, s = mix(C.jarH * 0.5, (tall ? 54 : 70) * u, e), ph = s * pep.height / pep.width;
+          g.save(); g.translate(C.cx + mix(V.tipX, V.ax, e), C.cy + mix(V.tipY, V.ay, e)); g.rotate(Math.PI / 2 + q * 0.5); g.drawImage(pep, -s / 2, -ph / 2, s, ph); g.restore();
+        }
+        g.restore();
+        if (ig >= 0) embers(t, SCENE_LITE ? 30 : 60, IGNITE, 1.1, 1 - clamp((t - B(24) + 0.3) / 0.3));
+        recipeCaption(t);
+        // the Reaper going up: a white-hot flash
+        if (ig >= 0 && ig < 0.4) { g.fillStyle = `rgba(255, 220, 170, ${0.85 * (1 - ig / 0.4)})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ═══ queue (bar 24 → 26): the café's own Queue Screen on the TV by the counter (its colours, type and words as
+      // built): #001 lifts out of Preparing and drops into Ready, NOW CALLING with the MV in its number and the chime;
+      // the heart can't wait (a beat on every beat), and on bar 25's last three beats it hops out for it ═══
+      const QC = { bg: "#1C120C", cream: "#FBF3E6", muted: "#BDA898", line: "rgba(251, 243, 230, 0.12)", amber: "#F2A54A", green: "#2FBF8A" };
+      const SERIF = "'Playfair Display', Georgia, serif", JET = "'JetBrains Mono', 'Space Mono', monospace";
+      const QMOVE = B(24) + BEAT, QCALL = B(24) + 2 * BEAT;
+      const BADGE = (() => { const img = new Image(); img.decoding = "async"; img.src = siteUrl("brand-badge.png"); return img; })();
+      const NL = layer(); // the called number's digits, the MV inside them
+      // letter-spaced words (the screen's eyebrows), where the browser can space them
+      const spaced = (c, str, x, y, size, weight, family, color, align, em) => { c.letterSpacing = `${em}em`; const w = say(c, str, x, y, size, weight, family, color, align); c.letterSpacing = "0px"; return w; };
+      // the screen's coffee cup (its empty lists)
+      const cupIcon = (x, y, s, color) => {
+        g.save(); g.translate(x - s / 2, y - s / 2); g.scale(s / 24, s / 24);
+        g.strokeStyle = color; g.lineWidth = 1.8; g.lineCap = "round"; g.lineJoin = "round";
+        g.beginPath(); g.moveTo(18, 8); g.lineTo(19, 8); g.arc(19, 12, 4, -Math.PI / 2, Math.PI / 2); g.lineTo(18, 16);
+        g.moveTo(2, 8); g.lineTo(18, 8); g.lineTo(18, 17); g.arcTo(18, 21, 14, 21, 4); g.lineTo(6, 21); g.arcTo(2, 21, 2, 17, 4); g.closePath();
+        g.moveTo(6, 1); g.lineTo(6, 4); g.moveTo(10, 1); g.lineTo(10, 4); g.moveTo(14, 1); g.lineTo(14, 4); g.stroke();
+        g.restore();
+      };
+      const emptyList = (r, k, head, sub, alpha) => {
+        if (alpha <= 0.01) return;
+        g.save(); g.globalAlpha *= alpha;
+        const cy = r.y + 92 * k + (r.h - 92 * k) * 0.42;
+        cupIcon(r.x + r.w / 2, cy - 30 * k, 40 * k, "rgba(189, 168, 152, 0.6)");
+        say(g, head, r.x + r.w / 2, cy + 8 * k, 19 * k, 700, UI, QC.cream, "center");
+        say(g, sub, r.x + r.w / 2, cy + 32 * k, 13 * k, 500, UI, QC.muted, "center");
+        g.restore();
+      };
+      const column = (r, isReady, count, k) => {
+        let fill = "rgba(251, 243, 230, 0.04)";
+        if (isReady) { fill = g.createLinearGradient(0, r.y, 0, r.y + r.h); fill.addColorStop(0, "rgba(47, 191, 138, 0.1)"); fill.addColorStop(0.6, "rgba(47, 191, 138, 0.03)"); }
+        panel(g, r.x, r.y, r.w, r.h, 24 * k, fill, isReady ? "rgba(47, 191, 138, 0.32)" : QC.line, 1);
+        const c = isReady ? QC.green : QC.amber, ix = r.x + 22 * k, pr = 25 * k;
+        spaced(g, isReady ? "PLEASE COLLECT AT THE COUNTER" : "IN PROGRESS", ix, r.y + 28 * k, 11 * k, 800, UI, c, "left", 0.18);
+        say(g, isReady ? "Ready" : "Preparing", ix, r.y + 62 * k, 38 * k, "italic 700", SERIF, QC.cream);
+        g.fillStyle = isReady ? "rgba(47, 191, 138, 0.14)" : "rgba(242, 165, 74, 0.12)"; g.beginPath(); g.arc(r.x + r.w - 22 * k - pr, r.y + 50 * k, pr, 0, PI2); g.fill();
+        say(g, String(count), r.x + r.w - 22 * k - pr, r.y + 51 * k, 22 * k, 800, JET, c, "center");
+        g.fillStyle = QC.line; g.fillRect(ix, r.y + 92 * k, r.w - 44 * k, 1);
+      };
+      // a number's tile: amber-edged while it's made, green once it's ready
+      const qTile = (x, y, w, h, k, isReady, glow = 0) => {
+        g.save();
+        if (isReady) {
+          const gr = g.createLinearGradient(x, y, x + w * 0.5, y + h); gr.addColorStop(0, "#36C995"); gr.addColorStop(1, "#1E9C70");
+          g.shadowColor = `rgba(47, 191, 138, ${0.35 + 0.4 * glow})`; g.shadowBlur = (26 + 24 * glow) * k; g.shadowOffsetY = 10 * k;
+          panel(g, x, y, w, h, 20 * k, gr, "rgba(255, 255, 255, 0.18)", 1);
+        } else {
+          if (glow > 0) { g.shadowColor = `rgba(242, 165, 74, ${0.5 * glow})`; g.shadowBlur = 30 * k * glow; }
+          panel(g, x, y, w, h, 20 * k, "rgba(251, 243, 230, 0.07)", "rgba(242, 165, 74, 0.32)", 1);
+        }
+        g.shadowColor = "transparent";
+        const ns = Math.min(h * 0.4, w * 0.24), nx = x + 18 * k, ny = y + h * 0.45;
+        const hw = say(g, "#", nx, ny, ns * 0.9, 500, JET, isReady ? "rgba(255, 255, 255, 0.5)" : "rgba(251, 243, 230, 0.5)");
+        say(g, "001", nx + hw + 2 * k, ny, ns, 800, JET, isReady ? "#FFFFFF" : QC.cream);
+        spaced(g, isReady ? "READY" : "PREPARING", nx, y + h * 0.78, 13 * k, 700, UI, isReady ? "rgba(255, 255, 255, 0.85)" : QC.muted, "left", 0.06);
+        g.restore();
+      };
+      // the screen's clock words, made once a second
+      let clockAt = -1, clockWords = null;
+      const clockNow = () => {
+        const now = new Date(), s = Math.floor(now.getTime() / 1000);
+        if (s !== clockAt) {
+          clockAt = s;
+          clockWords = { time: now.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }), date: now.toLocaleDateString("en-PH", { weekday: "long", month: "long", day: "numeric" }), stamp: now.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit", second: "2-digit" }) };
+        }
+        return clockWords;
+      };
+      const drawQueue = (t) => {
+        const a = t - B(24), now = clockNow();
+        film(g, screenBox(1.05)); g.fillStyle = "rgba(14, 6, 4, 0.8)"; g.fillRect(0, 0, W, H);
+        const enter = out(a / 0.3);
+        const tw = tall ? W * 0.94 : Math.min(W * 0.92, H * 1.7), th = tall ? H * 0.9 : Math.min(H * 0.88, tw / 1.62), tx = (W - tw) / 2, ty = (H - th) / 2;
+        const k = tall ? Math.min(tw / 400, th / 800) : Math.min(tw / 1180, th / 690);
+        g.save(); g.globalAlpha = enter; g.translate(W / 2, H / 2); const z = mix(1.05, 1, enter); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        // the TV, the screen in it: espresso dark, a green glow and an amber one (its shade on the wall a plain dark
+        // edge: a blur that big costs a phone every frame)
+        panel(g, tx - 3 * u, ty + 4 * u, tw + 6 * u, th + 8 * u, 18 * u, "rgba(0, 0, 0, 0.45)");
+        panel(g, tx, ty, tw, th, 16 * u, "#060506");
+        const bz = 9 * u, sx = tx + bz, sy = ty + bz, sw = tw - 2 * bz, sh = th - 2 * bz;
+        g.save(); g.beginPath(); g.roundRect(sx, sy, sw, sh, 6 * u); g.clip();
+        g.fillStyle = QC.bg; g.fillRect(sx, sy, sw, sh);
+        const gl1 = g.createRadialGradient(sx + sw * 0.78, sy - sh * 0.1, 0, sx + sw * 0.78, sy - sh * 0.1, sw * 0.7);
+        gl1.addColorStop(0, "rgba(47, 191, 138, 0.12)"); gl1.addColorStop(1, "rgba(47, 191, 138, 0)");
+        g.fillStyle = gl1; g.fillRect(sx, sy, sw, sh);
+        const gl2 = g.createRadialGradient(sx, sy + sh * 1.1, 0, sx, sy + sh * 1.1, sw * 0.55);
+        gl2.addColorStop(0, "rgba(242, 165, 74, 0.1)"); gl2.addColorStop(1, "rgba(242, 165, 74, 0)");
+        g.fillStyle = gl2; g.fillRect(sx, sy, sw, sh);
+        // the header: the badge and the name, the clock
+        // (the brand moved over a little, clear of the heart in the corner)
+        const p = 26 * k, bR = 26 * k, hy = sy + p + bR, hx = sx + p + Math.max(0, heartHome().x + heartHome().s * 0.62 - sx - p);
+        g.save(); g.beginPath(); g.arc(hx + bR, hy, bR, 0, PI2); g.clip();
+        if (ready(BADGE)) g.drawImage(BADGE, hx, hy - bR, bR * 2, bR * 2); else { g.fillStyle = "#3A2A20"; g.fillRect(hx, hy - bR, bR * 2, bR * 2); }
+        g.restore();
+        g.strokeStyle = "rgba(251, 243, 230, 0.15)"; g.lineWidth = 3 * k; g.beginPath(); g.arc(hx + bR, hy, bR + 1.5 * k, 0, PI2); g.stroke();
+        say(g, "Brew Houze", hx + bR * 2 + 14 * k, hy - 7 * k, (tall ? 24 : 30) * k, "italic 700", SERIF, QC.cream);
+        spaced(g, "ORDER STATUS", hx + bR * 2 + 15 * k, hy + 18 * k, 11 * k, 700, UI, QC.muted, "left", 0.24);
+        say(g, now.time, sx + sw - p, hy - (tall ? 0 : 9 * k), (tall ? 20 : 32) * k, 800, JET, QC.cream, "right");
+        if (!tall) say(g, now.date, sx + sw - p, hy + 20 * k, 13 * k, 500, UI, QC.muted, "right");
+        // the footer: live, and the screen's buttons
+        const fy = sy + sh - p * 0.8;
+        g.fillStyle = QC.green; g.beginPath(); g.arc(sx + p + 4 * k, fy, 4 * k, 0, PI2); g.fill();
+        say(g, `Live · updated ${now.stamp}`, sx + p + 14 * k, fy, 12 * k, 700, UI, QC.green);
+        if (!tall) {
+          let bx = sx + sw - p;
+          ["⛶ Full screen", "🔊 Voice on"].forEach((label) => { g.font = font(700, 12 * k, UI); const bw = g.measureText(label).width + 24 * k; bx -= bw; panel(g, bx, fy - 13 * k, bw, 26 * k, 13 * k, "rgba(251, 243, 230, 0.06)", QC.line); say(g, label, bx + bw / 2, fy, 12 * k, 700, UI, QC.cream, "center"); bx -= 8 * k; });
+        }
+        // the board: Preparing (narrow) and Ready (wide); on a phone stacked, Ready first
+        const top = hy + bR + 18 * k, bottom = fy - 22 * k, gap = 18 * k, L = sx + p, Wb = sw - 2 * p;
+        let prep, rdy;
+        if (tall) { const h1 = (bottom - top - gap) * 0.62; rdy = { x: L, y: top, w: Wb, h: h1 }; prep = { x: L, y: top + h1 + gap, w: Wb, h: bottom - top - h1 - gap }; }
+        else { const w1 = (Wb - gap) * 0.4; prep = { x: L, y: top, w: w1, h: bottom - top }; rdy = { x: L + w1 + gap, y: top, w: Wb - w1 - gap, h: bottom - top }; }
+        const flight = clamp((t - QCALL) / 0.34), moved = flight >= 0.5;
+        column(prep, false, moved ? 0 : 1, k);
+        column(rdy, true, moved ? 1 : 0, k);
+        emptyList(rdy, k, "No orders ready yet", "Your number shows here when it's ready.", 1 - clamp((t - QCALL) / 0.15));
+        emptyList(prep, k, "Nothing in progress", "New orders appear here.", clamp((t - QCALL - 0.2) / 0.25));
+        // NOW CALLING: the amber card, its number with the MV inside it, the chime
+        const ca = t - (QCALL + 0.1);
+        const spot = { x: rdy.x + 22 * k, y: rdy.y + 108 * k, w: rdy.w - 44 * k, h: Math.min(rdy.h * (tall ? 0.58 : 0.56), 330 * k) };
+        if (ca >= 0) {
+          const sc = ca < 0.6 ? mix(0.6, 1, back(ca / 0.6)) : 1 + 0.02 * beatAt(t, 0.25), mx = spot.x + spot.w / 2, my = spot.y + spot.h / 2;
+          g.save(); g.globalAlpha *= clamp(ca / 0.15); g.translate(mx, my); g.scale(sc, sc); g.translate(-mx, -my);
+          // (its glow a gradient under it, not a blur)
+          const glow = g.createRadialGradient(mx, my + 18 * k, 0, mx, my + 18 * k, spot.w * 0.62);
+          glow.addColorStop(0, "rgba(232, 135, 30, 0.42)"); glow.addColorStop(1, "rgba(232, 135, 30, 0)");
+          g.fillStyle = glow; g.fillRect(mx - spot.w * 0.62, my + 18 * k - spot.w * 0.62, spot.w * 1.24, spot.w * 1.24);
+          const gr = g.createLinearGradient(spot.x, spot.y, spot.x + spot.w, spot.y + spot.h); gr.addColorStop(0, "#F2A54A"); gr.addColorStop(1, "#E8871E");
+          panel(g, spot.x, spot.y, spot.w, spot.h, 24 * k, gr);
+          spaced(g, "NOW CALLING", mx, spot.y + 28 * k, 15 * k, 800, UI, "#2A1405", "center", 0.3);
+          const ns = Math.min(spot.h * 0.52, spot.w * 0.28), ny = spot.y + spot.h * 0.5 + ns * 0.34;
+          g.font = font(400, ns, BAGEL);
+          const numW = g.measureText("001").width;
+          g.font = font(400, ns * 0.6, BAGEL);
+          const hashW = g.measureText("#").width + 6 * k, nx = mx - (hashW + numW) / 2;
+          say(g, "#", nx, ny, ns * 0.6, 400, BAGEL, "rgba(42, 20, 5, 0.5)", "left", "alphabetic");
+          // (the digits cut out of the MV in a layer of their own, just their box)
+          const nb = { x: nx + hashW - 4 * k, y: ny - ns * 0.86, w: numW + 8 * k, h: ns * 1.02 }, bw = Math.ceil(nb.w * ratio), bh = Math.ceil(nb.h * ratio);
+          if (NL.c.width < bw || NL.c.height < bh) { NL.c.width = Math.max(NL.c.width, bw); NL.c.height = Math.max(NL.c.height, bh); }
+          NL.g.setTransform(1, 0, 0, 1, 0, 0); NL.g.globalCompositeOperation = "source-over"; NL.g.clearRect(0, 0, bw, bh); NL.g.setTransform(ratio, 0, 0, ratio, 0, 0);
+          film(NL.g, cover(0, 0, nb.w, nb.h, 0.5, 0.4));
+          NL.g.globalCompositeOperation = "destination-in"; NL.g.font = font(400, ns, BAGEL); NL.g.textAlign = "left"; NL.g.textBaseline = "alphabetic"; NL.g.fillStyle = "#000000"; NL.g.fillText("001", 4 * k, ny - nb.y);
+          NL.g.globalCompositeOperation = "source-over";
+          g.drawImage(NL.c, 0, 0, bw, bh, nb.x, nb.y, nb.w, nb.h);
+          g.font = font(400, ns, BAGEL); g.textAlign = "left"; g.textBaseline = "alphabetic"; g.lineJoin = "round"; g.lineWidth = Math.max(2, ns * 0.03); g.strokeStyle = "#2A1405"; g.strokeText("001", nx + hashW, ny);
+          say(g, "Your order is ready · collect at the counter", mx, spot.y + spot.h - 24 * k, (tall ? 13 : 16) * k, 700, UI, "#2A1405", "center");
+          g.restore();
+          // the chime: three notes, sound waves off both sides of the card for each
+          for (let i = 0; i < 3; i++) {
+            const q = clamp((ca - i * 0.14) / 0.6);
+            if (q <= 0 || q >= 1) continue;
+            g.save(); g.globalAlpha *= 1 - q; g.strokeStyle = i === 1 ? "#FFF3E4" : "#F2A54A"; g.lineWidth = (5 * (1 - q) + 1.5) * k; g.lineCap = "round";
+            const rr = spot.h * (0.5 + 0.55 * out(q));
+            for (const side of [-1, 1]) { g.beginPath(); g.arc(mx + side * (spot.w / 2 - spot.h * 0.42), my, rr, side > 0 ? -0.6 : Math.PI - 0.6, side > 0 ? 0.6 : Math.PI + 0.6); g.stroke(); }
+            g.restore();
+          }
+        }
+        // #001 itself: lifted on the beat, then over from Preparing into Ready under the call
+        const from = { x: prep.x + 22 * k, y: prep.y + 108 * k, w: Math.min(150 * k, prep.w - 44 * k), h: 112 * k };
+        const to = { x: rdy.x + 22 * k, y: spot.y + spot.h + 16 * k, w: Math.min(210 * k, rdy.w - 44 * k), h: 150 * k };
+        const lift = t >= QMOVE ? out((t - QMOVE) / 0.2) : 0, e = ease(flight);
+        const r = { x: mix(from.x, to.x, e), y: mix(from.y, to.y, e) - Math.sin(Math.PI * flight) * 50 * k - 6 * k * lift * (1 - flight), w: mix(from.w, to.w, e), h: mix(from.h, to.h, e) };
+        const sc = 1 + 0.06 * lift * (1 - flight);
+        g.save();
+        if (flight >= 1) { g.beginPath(); g.roundRect(rdy.x, rdy.y, rdy.w, rdy.h, 24 * k); g.clip(); }
+        g.translate(r.x + r.w / 2, r.y + r.h / 2); g.scale(sc, sc); g.translate(-(r.x + r.w / 2), -(r.y + r.h / 2));
+        if (flight < 1) { g.globalAlpha *= 1 - e; qTile(r.x, r.y, r.w, r.h, k, false, lift); g.globalAlpha = enter * e; }
+        qTile(r.x, r.y, r.w, r.h, k, true, flight >= 1 ? 0.5 + 0.5 * Math.sin(t * 5.2) : 0);
+        g.restore();
+        g.restore(); // (the screen)
+        g.restore(); // (the TV's way in)
+      };
+
+      // ═══ served (bar 26 → 30, the last chorus's hook): the order goes to the heart. It fills with the MV, burns,
+      // beats with the kicks; a pepper is thrown at it on each kick and blows up against it, and it grows with each ═══
+      const HM = layer(); // the heart with the MV inside, in its own box
+      let served = null;
+      // where the big heart is: in the middle, growing through the four bars
+      const servedAt = (t) => {
+        const s0 = Math.min(H * 0.6, W * 0.66), s1 = Math.min(H * 0.74, W * 0.82);
+        return { x: W / 2, y: H * (tall ? 0.5 : 0.53), s: mix(s0, s1, ease(clamp((t - B(26)) / (4 * BAR - 0.4)))) };
+      };
+      const makeServed = () => {
+        const rnd = seeded(2626);
+        const hits = [...kicksIn(B(26) + 0.1, B(30) - 0.1), B(27) + 3 * BEAT, B(29) + 3.25 * BEAT].sort((p, q) => p - q);
+        served = { ps: (tall ? 92 : 124) * u, booms: hits.map((at, i) => ({ at, ang: (i % 2 ? 0 : Math.PI) + (rnd() - 0.5) * 1.5, pic: i % 3, spin: (rnd() - 0.5) * 9, turn: rnd() * PI2,
+          puffs: Array.from({ length: 10 }, () => { const a = rnd() * PI2, v = (40 + rnd() * 150) * u * 1.6; return { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 70 * u, r: 0.3 + rnd() * 0.36 }; }),
+          sparks: Array.from({ length: SCENE_LITE ? 16 : 30 }, () => { const a = rnd() * PI2, v = (260 + rnd() * 620) * u; return { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 160 * u, life: 0.35 + rnd() * 0.5, w: (1.4 + rnd() * 2.4) * u }; }),
+          shards: Array.from({ length: 6 }, (_, k) => { const a = (k / 6) * PI2 + rnd() * 0.4, mid = a + Math.PI / 6, v = (240 + rnd() * 300) * u; return { a, b: a + Math.PI / 3, vx: Math.cos(mid) * v, vy: Math.sin(mid) * v - 140 * u, spin: (rnd() - 0.5) * 10 }; }) })) };
+      };
+      // where a pepper hits: on the heart's edge, as big as the heart is then
+      const boomPoint = (b) => { const S = servedAt(b.at), hw = S.s * 512 / 550; return { x: S.x + Math.cos(b.ang) * hw * 0.42, y: S.y + Math.sin(b.ang) * S.s * 0.38 }; };
+      // a pepper blowing up at x, y, a seconds ago: smoke, the pepper in pieces, a fireball, the flash, a ring, sparks
+      const boom = (b, x, y, a, sz, ps) => {
+        const img = PEPPERS[b.pic];
+        b.puffs.forEach((p) => { const q = Math.min(1, a / 1.2), r = sz * p.r * (1.4 + 2.6 * q); g.globalAlpha = Math.max(0, q < 0.25 ? q / 0.25 : 1 - (q - 0.25) / 0.75) * 0.7; g.drawImage(smoke, x + p.vx * a * 0.8 - r, y + p.vy * a * 0.8 - 40 * u * a - r, r * 2, r * 2); });
+        g.globalAlpha = 1;
+        if (ready(img) && a < 0.9) b.shards.forEach((p) => {
+          g.save(); g.globalAlpha = 1 - a / 0.9; g.translate(x + p.vx * a, y + p.vy * a + 600 * u * a * a); g.rotate(b.turn + p.spin * a);
+          g.beginPath(); g.moveTo(0, 0); g.arc(0, 0, ps, p.a, p.b); g.closePath(); g.clip();
+          g.drawImage(img, -ps / 2, -ps / 2, ps, ps); g.restore();
+        });
+        g.save(); g.globalCompositeOperation = "lighter";
+        if (a < 0.75) b.puffs.forEach((p) => { const q = a / 0.75, r = sz * p.r * (1 + 2.3 * (1 - (1 - q) ** 3)); g.globalAlpha = (1 - q) ** 1.4; g.drawImage(puff, x + p.vx * a - r, y + p.vy * a - r, r * 2, r * 2); });
+        if (a < 0.16) { const q = a / 0.16, rr = sz * (0.6 + 2.6 * q), fl = g.createRadialGradient(x, y, 0, x, y, rr); fl.addColorStop(0, `rgba(255, 255, 255, ${1 - q})`); fl.addColorStop(0.4, `rgba(255, 236, 160, ${0.85 * (1 - q)})`); fl.addColorStop(1, "rgba(255, 120, 60, 0)"); g.globalAlpha = 1; g.fillStyle = fl; g.beginPath(); g.arc(x, y, rr, 0, PI2); g.fill(); }
+        if (a < 0.36) { const q = a / 0.36; g.globalAlpha = 1 - q; g.strokeStyle = "rgba(255, 214, 150, 1)"; g.lineWidth = (8 * (1 - q) + 1) * u; g.beginPath(); g.arc(x, y, sz * (0.4 + 2.8 * (1 - (1 - q) ** 2)), 0, PI2); g.stroke(); }
+        b.sparks.forEach((p) => {
+          if (a > p.life) return;
+          const q = a / p.life, sx = x + p.vx * a * (1 - 0.6 * a), sy = y + p.vy * a + 650 * u * a * a;
+          g.globalAlpha = 1 - q; g.strokeStyle = q < 0.3 ? "#FFF6D8" : q < 0.6 ? "#FFC25A" : "#FF6A3C"; g.lineWidth = p.w * (1.3 - 0.6 * q);
+          g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx - p.vx * 0.03, sy - (p.vy + 1300 * u * a) * 0.03); g.stroke();
+        });
+        g.restore(); g.globalAlpha = 1;
+      };
+      // the heart at x, y (its middle), size tall, the MV inside it (fill 0 → 1) with its own pink and shine screened
+      // back over it (the MV's darks turning the heart's pink); burning (fire 0 → 1), swelling on the beat
+      const mvHeart = (x, y, size, fill, beat, fire) => {
+        if (!ready(HEART)) return;
+        const h = size * (1 + 0.1 * beat), w = h * HEART.naturalWidth / HEART.naturalHeight, r = h * (1.1 + 0.4 * beat), gl = g.createRadialGradient(x, y, h * 0.2, x, y, r);
+        gl.addColorStop(0, "rgba(255, 130, 60, 0.6)"); gl.addColorStop(0.5, "rgba(255, 60, 70, 0.28)"); gl.addColorStop(1, "rgba(255, 45, 122, 0)");
+        g.save(); g.globalCompositeOperation = "lighter"; g.globalAlpha = fire; g.fillStyle = gl; g.fillRect(x - r, y - r, r * 2, r * 2); g.restore();
+        if (fire > 0) fireBox(g, "wall", x - w * 0.82, x + w * 0.82, y + h * 0.4, h * (1.45 + 0.35 * beat), Math.round(x * 0.37), 0.26, 0.22, fire);
+        const bw = Math.ceil(w * ratio), bh = Math.ceil(h * ratio);
+        if (HM.c.width < bw || HM.c.height < bh) { HM.c.width = Math.max(HM.c.width, bw); HM.c.height = Math.max(HM.c.height, bh); }
+        const c = HM.g;
+        c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = "source-over"; c.globalAlpha = 1; c.clearRect(0, 0, bw, bh);
+        c.setTransform(ratio, 0, 0, ratio, 0, 0);
+        c.drawImage(HEART, 0, 0, w, h);
+        c.globalCompositeOperation = "source-atop"; c.fillStyle = `rgba(255, 70, 20, ${0.38 * (1 - fill)})`; c.fillRect(0, 0, w, h);
+        if (fill > 0) {
+          c.globalAlpha = fill; film(c, cover(0, 0, w, h, 0.5, 0.4));
+          c.globalCompositeOperation = "screen"; c.globalAlpha = 0.6 * fill; c.drawImage(HEART, 0, 0, w, h);
+        }
+        c.globalCompositeOperation = "source-over"; c.globalAlpha = 1;
+        g.drawImage(HM.c, 0, 0, bw, bh, x - w / 2, y - h / 2, w, h);
+        if (fire > 0) fireBox(g, "ground", x - w * 0.64, x + w * 0.64, y + h * 0.58, h * (0.6 + 0.22 * beat), Math.round(x * 0.21) + 50, 0.3, 0.3, fire);
+      };
+      const drawServed = (t) => {
+        const a = t - B(26), k = kickAt(t), S = servedAt(t), home = heartHome(), leave = ease((t - (B(30) - 0.42)) / 0.42), ps = served.ps;
+        let flare = 0;
+        served.booms.forEach((b) => { if (t >= b.at) flare = Math.max(flare, Math.exp(-(t - b.at) / 0.24)); });
+        film(g, screenBox(1.05 + 0.03 * k));
+        g.fillStyle = "rgba(22, 4, 8, 0.6)"; g.fillRect(0, 0, W, H);
+        const R = Math.max(W, H) * 0.7, glow = g.createRadialGradient(S.x, S.y, 0, S.x, S.y, R);
+        glow.addColorStop(0, `rgba(255, 80, 40, ${0.32 + 0.22 * flare})`); glow.addColorStop(0.5, "rgba(255, 45, 90, 0.12)"); glow.addColorStop(1, "rgba(255, 45, 90, 0)");
+        g.save(); g.globalCompositeOperation = "lighter"; g.globalAlpha = 1 - leave; g.fillStyle = glow; g.fillRect(0, 0, W, H); g.restore();
+        fireBox(g, "wall", -20, W + 20, H + 12, H * (0.16 + 0.1 * k + 0.08 * flare) * (1 - 0.6 * leave), 140, 0.03, 0, 0.9);
+        embers(t, SCENE_LITE ? 40 : 80, B(26), 1.3, 1 - leave);
+        // the peppers, thrown in from the sides
+        served.booms.forEach((b) => {
+          const q = 1 - (b.at - t) / 0.48, img = PEPPERS[b.pic];
+          if (q < 0 || q >= 1 || !ready(img)) return;
+          const P = boomPoint(b), D = Math.hypot(W, H) * 0.62, e = q ** 1.25, s = ps * mix(1.7, 1, q);
+          const w = s * img.naturalWidth / Math.max(img.naturalWidth, img.naturalHeight), h = s * img.naturalHeight / Math.max(img.naturalWidth, img.naturalHeight);
+          g.save(); g.translate(P.x + Math.cos(b.ang) * D * (1 - e), P.y + Math.sin(b.ang) * D * (1 - e) - Math.sin(Math.PI * q) * 60 * u); g.rotate(b.turn + b.spin * q);
+          g.shadowColor = "rgba(255, 90, 31, 0.85)"; g.shadowBlur = 20 * u; g.drawImage(img, -w / 2, -h / 2, w, h); g.restore();
+        });
+        // the heart, the MV inside it (back to the corner at the end, the MV draining out of it)
+        mvHeart(mix(S.x, home.x, leave), mix(S.y, home.y, leave), mix(S.s * (1 + 0.12 * flare), home.s, leave), clamp(a / 0.3) * (1 - leave), heartbeat(t), 1);
+        served.booms.forEach((b) => { const ba = t - b.at; if (ba >= 0 && ba < 1.3) { const P = boomPoint(b); boom(b, P.x, P.y, ba, ps * 1.4, ps); } });
+        // its order's tag: served
+        const tag = clamp((a - 0.15) / 0.2) * (1 - clamp((a - 2 * BAR) / 0.4)) * (1 - leave);
+        if (tag > 0) {
+          const ty = Math.min(S.y + S.s * 0.6, H - 90 * u), str = "#001 · SERVED ♥";
+          g.save(); g.globalAlpha = tag; g.font = font(800, 14 * u, UI);
+          const tw = g.measureText(str).width + 32 * u;
+          g.translate(S.x, ty); g.rotate(-0.04); g.scale(mix(1.3, 1, Math.min(1, back((a - 0.15) / 0.3))), mix(1.3, 1, Math.min(1, back((a - 0.15) / 0.3))));
+          panel(g, -tw / 2, -17 * u, tw, 34 * u, 17 * u, "#FFF8EE", "#1E8A4A", 3 * u);
+          say(g, str, 0, 1, 14 * u, 800, UI, "#1E8A4A", "center");
+          g.restore();
+        }
+        // the order arriving: a white-hot flash, a ring off the heart
+        if (a < 0.45) {
+          g.fillStyle = `rgba(255, 236, 210, ${0.85 * (1 - clamp(a / 0.35))})`; g.fillRect(0, 0, W, H);
+          g.save(); g.globalAlpha = 1 - a / 0.45; g.strokeStyle = "#FFF3E4"; g.lineWidth = 8 * u * (1 - a / 0.45) + 1; g.beginPath(); g.arc(S.x, S.y, S.s * (0.5 + 1.4 * out(a / 0.45)), 0, PI2); g.stroke(); g.restore();
+        }
+      };
+
+      // ═══ rush (bar 30 → the last stab): everybody wants one. The counter's printer spits out two orders on each kick
+      // (each receipt with the MV printed on it as it was at that moment), then one a sixteenth through bar 33, the
+      // receipts flying up and fluttering down all over; the stock runs out with them, to nothing on the last stab ═══
+      let rush = null;
+      const SHEET_W = 100, SHEET_H = 162; // (each receipt drawn at this size, then scaled to the screen)
+      const makeRush = () => {
+        const rnd = seeded(3030);
+        const kicks = [...kicksIn(B(30) - 0.01, B(33) - 0.05), B(31) + 3 * BEAT].sort((p, q) => p - q), prints = [];
+        kicks.forEach((at) => prints.push(at, at + 0.06));
+        for (let s = 1; s <= 16; s++) prints.push(B(33) + (s * BEAT) / 4);
+        const pw = tall ? W * 0.66 : Math.min(W * 0.3, 380 * u), ph = 54 * u, rw = (tall ? 70 : 104) * u;
+        // (the printer clear of the skip button under it)
+        rush = { pw, ph, px: (W - pw) / 2, py: H - ph - 62 * u, rw, rh: rw * SHEET_H / SHEET_W, kicks,
+          sheets: prints.map((at, i) => ({ at, n: i + 2, vx: (rnd() - 0.5) * W * (tall ? 1.5 : 1.15), V: (1.5 + rnd() * 1.3) * H, vt: (0.1 + rnd() * 0.09) * H, r0: (rnd() - 0.5) * 0.5, spin: (rnd() - 0.5) * 8, flip: 2.2 + rnd() * 4, ph: rnd() * PI2, sway: (16 + rnd() * 36) * u, pic: null })) };
+      };
+      const TINY = document.createElement("canvas");
+      TINY.width = 48; TINY.height = 27;
+      const tinyG = TINY.getContext("2d", { willReadFrequently: true });
+      // a receipt for one of the rush's orders: the MV printed on it in thermal dots, as it is now
+      const printSheet = (sh) => {
+        const c = document.createElement("canvas"), d = 1.8, ink = "#2A1E22";
+        c.width = SHEET_W * d; c.height = SHEET_H * d;
+        const s = c.getContext("2d");
+        s.scale(d, d);
+        s.fillStyle = "#FFFDF6"; s.beginPath(); s.moveTo(0, 5);
+        for (let i = 0; i <= 10; i++) s.lineTo((i / 10) * SHEET_W, i % 2 ? 0 : 5);
+        s.lineTo(SHEET_W, SHEET_H); s.lineTo(0, SHEET_H); s.closePath(); s.fill();
+        say(s, "BREW HOUZE", SHEET_W / 2, 16, 9, 700, MONO, ink, "center");
+        say(s, `ORDER #${String(sh.n).padStart(3, "0")}`, SHEET_W / 2, 28, 8, 400, MONO, ink, "center");
+        tinyG.drawImage(F.c, 0, 0, 48, 27);
+        const src = tinyG.getImageData(0, 0, 48, 27), dots = tinyG.createImageData(48, 27);
+        for (let y = 0; y < 27; y++) for (let x = 0; x < 48; x++) {
+          const i = (y * 48 + x) * 4, l = (0.3 * src.data[i] + 0.59 * src.data[i + 1] + 0.11 * src.data[i + 2]) / 255;
+          if (Math.min(1, Math.max(0, (l - 0.45) * 1.6 + 0.5)) < (BAYER[(y % 4) * 4 + (x % 4)] + 0.5) / 16) { dots.data[i] = 42; dots.data[i + 1] = 30; dots.data[i + 2] = 34; dots.data[i + 3] = 235; }
+        }
+        tinyG.putImageData(dots, 0, 0);
+        s.imageSmoothingEnabled = false; s.drawImage(TINY, 8, 38, SHEET_W - 16, (SHEET_W - 16) * 27 / 48); s.imageSmoothingEnabled = true;
+        const y1 = 38 + (SHEET_W - 16) * 27 / 48 + 14;
+        say(s, "1× SPICY", 8, y1, 9, 700, MONO, ink); say(s, "₱∞", SHEET_W - 8, y1, 9, 700, MONO, ink, "right");
+        s.strokeStyle = "rgba(42, 30, 34, 0.55)"; s.setLineDash([3, 2]); s.lineWidth = 1; s.beginPath(); s.moveTo(8, y1 + 12); s.lineTo(SHEET_W - 8, y1 + 12); s.stroke(); s.setLineDash([]);
+        say(s, "SPICE ∞ · PAID", SHEET_W / 2, y1 + 24, 8, 400, MONO, ink, "center");
+        sh.pic = c;
+      };
+      const stockLeft = (t) => rush.sheets.reduce((n, sh) => n - (sh.at <= t ? 1 : 0), rush.sheets.length);
+      const drawRush = (t) => {
+        const R = rush, k = kickAt(t), build = clamp((t - B(33)) / BAR), quake = build * 6 * u;
+        g.save();
+        if (quake > 0) g.translate(Math.sin(t * 83) * quake, Math.cos(t * 71) * quake);
+        film(g, screenBox(1.04 + 0.03 * k + 0.04 * build));
+        const vg = g.createLinearGradient(0, H * 0.55, 0, H);
+        vg.addColorStop(0, "rgba(20, 6, 6, 0)"); vg.addColorStop(1, "rgba(20, 6, 6, 0.7)");
+        g.fillStyle = vg; g.fillRect(0, 0, W, H);
+        // the receipts: up out of the printer, fluttering down slower than they went up, tumbling
+        R.sheets.forEach((sh) => {
+          const a = t - sh.at;
+          if (a < 0) { sh.pic = null; return; }
+          const tau = 0.3, e = 1 - Math.exp(-a / tau), y = R.py + 6 * u - ((sh.V + sh.vt) * tau * e - sh.vt * a);
+          if (y > H + R.rh) return;
+          if (!sh.pic) printSheet(sh);
+          const settle = clamp(a / 0.4), x = W / 2 + sh.vx * 0.45 * (1 - Math.exp(-a / 0.45)) + Math.sin(a * 2.3 + sh.ph) * sh.sway * settle;
+          const fx = Math.cos(a * sh.flip);
+          g.save(); g.translate(x, y); g.rotate(sh.r0 + sh.spin * tau * e + Math.sin(a * 3.1 + sh.ph) * 0.35 * settle); g.scale(fx, 1);
+          if (Math.abs(fx) < 0.06) { g.fillStyle = "#EDE6DA"; g.fillRect(-R.rw / 2, -0.6 * u, R.rw, 1.2 * u); }
+          else {
+            g.fillStyle = "rgba(0, 0, 0, 0.28)"; g.fillRect(-R.rw / 2 + 3 * u, -R.rh / 2 + 5 * u, R.rw, R.rh);
+            if (fx > 0) g.drawImage(sh.pic, -R.rw / 2, -R.rh / 2, R.rw, R.rh); else { g.fillStyle = "#F1EBE0"; g.fillRect(-R.rw / 2, -R.rh / 2, R.rw, R.rh); }
+          }
+          g.restore();
+        });
+        // the printer, jolted on each print, smoking as the stock runs out
+        let jolt = 0, last = -1;
+        R.sheets.forEach((sh, i) => { const b = t - sh.at; if (b >= 0 && b < 0.12) jolt = Math.max(jolt, 1 - b / 0.12); if (b >= 0) last = i; });
+        const py = R.py + jolt * 4 * u, pg = g.createLinearGradient(0, py, 0, py + R.ph);
+        pg.addColorStop(0, "#34343A"); pg.addColorStop(1, "#141417");
+        g.save(); g.shadowColor = "rgba(0, 0, 0, 0.6)"; g.shadowBlur = 20 * u; panel(g, R.px, py, R.pw, R.ph, 14 * u, pg); g.restore();
+        panel(g, W / 2 - R.rw * 0.62, py + 4 * u, R.rw * 1.24, 7 * u, 3.5 * u, "#050506");
+        g.fillStyle = jolt > 0.3 ? "#3BFF7A" : "#1D5A32"; g.beginPath(); g.arc(R.px + R.pw - 22 * u, py + R.ph * 0.6, 4.5 * u, 0, PI2); g.fill();
+        say(g, "BREW HOUZE · TM-SPICY", R.px + 18 * u, py + R.ph * 0.62, 9 * u, 700, MONO, "rgba(255, 255, 255, 0.45)");
+        if (build > 0) {
+          g.save();
+          for (let i = 0; i < 5; i++) { const q = (t * 0.8 + i / 5) % 1, r = (24 + 60 * q) * u; g.globalAlpha = build * 0.55 * (1 - q); g.drawImage(smoke, W / 2 + (i - 2) * R.pw * 0.18 - r, py - q * 140 * u - r, r * 2, r * 2); }
+          g.restore();
+        }
+        g.restore();
+        // the stock: what's left of SPICY, counting down with the orders
+        const left = stockLeft(t), at = last >= 0 ? R.sheets[last].at : -9, pop = Math.exp(-(t - at) / 0.12), low = left <= 5;
+        const cx = W / 2, cy = tall ? 112 * u : 50 * u, bw = 236 * u;
+        g.save();
+        panel(g, cx - bw / 2, cy - 31 * u, bw, 62 * u, 31 * u, "rgba(37, 16, 10, 0.9)", low ? "#E8173A" : "rgba(255, 200, 58, 0.6)", 2 * u);
+        say(g, "INVENTORY · SPICY ∞", cx, cy - 14 * u, 9.5 * u, 700, MONO, "#FFC83A", "center");
+        g.translate(cx, cy + 10 * u); g.scale(1 + 0.25 * pop, 1 + 0.25 * pop);
+        say(g, left === 1 ? "LAST ONE!" : `${left} LEFT`, 0, 0, 22 * u, 400, BAGEL, low ? (Math.floor(t * 8) % 2 ? "#FF5A1F" : "#FFF3E4") : "#FFF3E4", "center");
+        g.restore();
+      };
+
+      // ═══ sold (the last stab → the slam): back at the counter's menu. SOLD OUT stamped across SPICY, its picture
+      // gone grey; the heart cooling ═══
+      let stampPic = null;
+      const makeStamp = () => {
+        const w = Math.min(tall ? W * 0.8 : W * 0.5, 560 * u), h = w * 0.34, c = document.createElement("canvas"), rnd = seeded(404);
+        c.width = Math.ceil(w * ratio); c.height = Math.ceil(h * ratio);
+        const s = c.getContext("2d");
+        s.scale(ratio, ratio);
+        s.strokeStyle = "#E8173A"; s.lineWidth = h * 0.07; s.beginPath(); s.roundRect(h * 0.06, h * 0.06, w - h * 0.12, h - h * 0.12, h * 0.12); s.stroke();
+        s.lineWidth = h * 0.025; s.beginPath(); s.roundRect(h * 0.17, h * 0.17, w - h * 0.34, h - h * 0.34, h * 0.06); s.stroke();
+        say(s, "SOLD OUT", w / 2, h * 0.53, h * 0.52, 400, "Anton, 'Bagel Fat One', sans-serif", "#E8173A", "center");
+        // the ink, patchy
+        s.globalCompositeOperation = "destination-out";
+        for (let i = 0; i < 300; i++) { s.globalAlpha = 0.25 + rnd() * 0.6; s.beginPath(); s.arc(rnd() * w, rnd() * h, (0.6 + rnd() * 2.6) * u, 0, PI2); s.fill(); }
+        stampPic = { c, w, h, anton: document.fonts?.check("400 20px Anton") ?? true };
+      };
+      const drawSold = (t) => {
+        const a = t - SP_MV_POP, thud = a > 0.13 && a < 0.42 ? (1 - (a - 0.13) / 0.29) * 9 * u : 0;
+        g.save();
+        if (thud > 0) g.translate(Math.sin(t * 97) * thud, Math.cos(t * 89) * thud);
+        // the counter's screen, as at the start: its top bar, the menu's cream
+        g.fillStyle = "#FFF3E4"; g.fillRect(-20, -20, W + 40, H + 40);
+        const hh = 48 * u, home = heartHome(), lx = home.x + home.s * 0.7;
+        g.fillStyle = "#25100A"; g.fillRect(-20, -20, W + 40, hh + 20);
+        const bw0 = say(g, "Brew Houze", lx, hh / 2, 17 * u, 400, BAGEL, "#FFF3E4");
+        say(g, "× aespa", lx + bw0 + 8 * u, hh / 2 + 1, 12 * u, 700, MONO, "#FF5A1F");
+        if (!tall) say(g, "STAFF PORTAL · COUNTER 1", W - 18 * u, hh / 2 + 1, 10 * u, 700, MONO, "rgba(255, 200, 58, 0.8)", "right");
+        // SPICY's card: its picture gone grey, its chip SOLD OUT
+        const fw = tall ? W * 0.9 : Math.min(W * 0.66, H * 1.15), fh = tall ? Math.min(H * 0.56, fw * 1.15) : fw * 0.58, fx = (W - fw) / 2, fy = hh + (H - hh - fh) / 2;
+        const grey = clamp((a - 0.1) / 0.1);
+        g.save(); g.beginPath(); g.roundRect(fx, fy, fw, fh, 16 * u); g.clip();
+        film(g, cover(fx, fy, fw, fh, 0.5, 0.42));
+        g.globalCompositeOperation = "saturation"; g.globalAlpha = grey; g.fillStyle = "#808080"; g.fillRect(fx, fy, fw, fh);
+        g.globalCompositeOperation = "source-over"; g.globalAlpha = 1;
+        g.fillStyle = `rgba(37, 16, 10, ${0.12 + 0.3 * grey})`; g.fillRect(fx, fy, fw, fh);
+        const shade = g.createLinearGradient(0, fy + fh * 0.4, 0, fy + fh); shade.addColorStop(0, "rgba(37, 16, 10, 0)"); shade.addColorStop(1, "rgba(37, 16, 10, 0.9)");
+        g.fillStyle = shade; g.fillRect(fx, fy, fw, fh);
+        g.restore();
+        panel(g, fx, fy, fw, fh, 16 * u, null, "rgba(37, 16, 10, 0.25)", 1.5 * u);
+        g.save(); g.globalAlpha = 1 - 0.45 * grey; fireText("SPICY", fx + 20 * u, fy + fh - 24 * u, Math.min(fh * 0.2, fw * 0.15)); g.restore();
+        say(g, "aespa · MY WORLD · the 3rd mini album", fx + 22 * u, fy + fh - 12 * u, 9.5 * u, 700, MONO, "rgba(255, 243, 228, 0.75)", "left", "alphabetic");
+        const chip = grey > 0 ? "SOLD OUT · 0 LEFT" : "🔥 EXTRA HOT · NEW";
+        g.font = font(700, 9.5 * u, MONO);
+        const cw = g.measureText(chip).width + 26 * u;
+        panel(g, fx + 14 * u, fy + 14 * u, cw, 26 * u, 13 * u, grey > 0 ? "#E8173A" : "#25100A");
+        say(g, chip, fx + 14 * u + cw / 2, fy + 27 * u, 9.5 * u, 700, MONO, grey > 0 ? "#FFFFFF" : "#FFC83A", "center");
+        panel(g, fx + fw - 84 * u, fy + 14 * u, 70 * u, 30 * u, 15 * u, "#FFF3E4");
+        say(g, "₱∞", fx + fw - 49 * u, fy + 29 * u, 15 * u, 800, UI, "#9A6655", "center");
+        // the stamp, slammed down on the stab
+        if (!stampPic || (!stampPic.anton && document.fonts?.check("400 20px Anton"))) makeStamp();
+        const sl = a / 0.13, sc = sl < 1 ? mix(2.6, 1, inn(sl)) : 1 + 0.035 * Math.exp(-(a - 0.13) / 0.07) * Math.cos((a - 0.13) * 55);
+        g.save(); g.translate(W / 2, fy + fh * 0.48); g.rotate(-0.17); g.scale(sc, sc); g.globalAlpha = clamp(a / 0.04);
+        g.drawImage(stampPic.c, -stampPic.w / 2, -stampPic.h / 2, stampPic.w, stampPic.h); g.restore();
+        // the thud: dust out from under it
+        if (a > 0.13 && a < 1) {
+          const q = (a - 0.13) / 0.87;
+          g.save();
+          for (let i = 0; i < 10; i++) { const ang = (i / 10) * PI2, r = (30 + 50 * q) * u, d = stampPic.w * (0.36 + 0.3 * out(q)); g.globalAlpha = 0.5 * (1 - q); g.drawImage(smoke, W / 2 + Math.cos(ang) * d - r, fy + fh * 0.48 + Math.sin(ang) * d * 0.42 - r, r * 2, r * 2); }
+          g.restore();
+        }
+        g.restore();
+      };
+
+      // ═══ thanks (the slam → bar 36): the MV whole again for its locker and its logo; the four stuck round it as
+      // stickers and the heart, cooled, with them; all knocked off on the shake ═══
+      const STICK = [[0.13, 0.22, -0.18], [0.87, 0.24, 0.16], [0.12, 0.78, 0.12], [0.88, 0.76, -0.14]];
+      const drawThanks = (t) => {
+        film(g, screenBox(1));
+        const fl = 1 - clamp((t - SP_MV_SLAM) / 0.14);
+        if (fl > 0) { g.fillStyle = `rgba(255, 248, 240, ${0.7 * fl})`; g.fillRect(0, 0, W, H); }
+        const items = STICK.map(([fx, fy, turn], i) => ({ img: CUTS[i], fx, fy, turn, at: SP_MV_SLAM + 0.04 + i * 0.12, h: Math.min(H * (tall ? 0.2 : 0.28), 250 * u) }));
+        items.push({ img: HEART, fx: tall ? 0.5 : 0.7, fy: tall ? 0.8 : 0.85, turn: 0.12, at: SP_MV_SLAM + 0.62, h: (tall ? 64 : 84) * u });
+        items.forEach((it, i) => {
+          const st = sticker(it.img), a = t - it.at, off = t - SP_MV_SHAKE;
+          if (!st || a < 0) return;
+          const w = it.h * st.width / st.height, slap = Math.min(1, back(a / 0.22)), sc = mix(1.6, 1, slap);
+          g.save(); g.translate(it.fx * W + (off > 0 ? Math.sin(i * 2 + 1) * off * 300 * u : 0), it.fy * H + (off > 0 ? off * off * H * 2.4 : 0));
+          g.rotate(it.turn + (off > 0 ? off * (i % 2 ? 4 : -4) : 0)); g.scale(sc, sc); g.globalAlpha = clamp(a / 0.06);
+          g.drawImage(st, -w / 2, -it.h / 2, w, it.h); g.restore();
+        });
+      };
+
+      // ═══ end (bar 36 →): the logo; under it the customer's copy, thanks for coming, the heart stuck on it ═══
+      const drawEnd = (t) => {
+        // (the logos whole on a tall screen: the clip fitted across it, on black)
+        g.fillStyle = "#000000"; g.fillRect(0, 0, W, H);
+        if (tall) { const h = W * 720 / 1280; film(g, { x: 0, y: (H - h) / 2, w: W, h }); } else film(g, screenBox(1));
+        const rise = out((t - (SP_MV_SHAKE + 0.3)) / 0.7);
+        if (rise <= 0) return;
+        // (short, so all of it clears the skip button under it; on a short wide screen, beside the logo instead)
+        const side = !tall && H < 560, rw = Math.min(W * (tall ? 0.7 : 0.25), 290 * u), k = rw / 260, x0 = side ? W - rw - 16 * u : (W - rw) / 2;
+        const top = side ? H * 0.3 : tall ? H / 2 + W * 0.33 : H * 0.69, y0 = mix(H + 8 * u, top, rise), ink = "#2A1E22";
+        g.save();
+        g.shadowColor = "rgba(0, 0, 0, 0.6)"; g.shadowBlur = 24 * u;
+        g.fillStyle = "#FFFDF6"; g.beginPath(); g.moveTo(x0, y0 + 6 * k);
+        for (let i = 0; i <= 20; i++) g.lineTo(x0 + (i / 20) * rw, y0 + (i % 2 ? 0 : 6 * k));
+        g.lineTo(x0 + rw, H + 20); g.lineTo(x0, H + 20); g.closePath(); g.fill();
+        g.shadowColor = "transparent";
+        const m = 16 * k, rule = (y) => { g.save(); g.strokeStyle = "rgba(42, 30, 34, 0.6)"; g.setLineDash([4 * k, 3 * k]); g.lineWidth = 1.2 * k; g.beginPath(); g.moveTo(x0 + m, y); g.lineTo(x0 + rw - m, y); g.stroke(); g.restore(); };
+        let y = y0 + 20 * k;
+        say(g, "★ CUSTOMER COPY ★", x0 + rw / 2, y, 10 * k, 700, MONO, ink, "center"); y += 28 * k;
+        say(g, "SPICY", x0 + rw / 2, y, 28 * k, 400, BAGEL, ink, "center"); y += 24 * k;
+        say(g, "ORDER #001 · SERVED ♥", x0 + rw / 2, y, 10.5 * k, 700, MONO, ink, "center"); y += 13 * k;
+        rule(y); y += 15 * k;
+        say(g, "THANK YOU FOR DINING", x0 + rw / 2, y, 11 * k, 700, MONO, ink, "center"); y += 15 * k;
+        say(g, "AT BREW HOUZE ♡", x0 + rw / 2, y, 11 * k, 700, MONO, ink, "center");
+        // the heart, stuck on its corner on the sting
+        const st = sticker(HEART), a = t - SP_MV_STING;
+        if (st && a >= 0) {
+          const hs = 58 * k, w = hs * st.width / st.height, sc = mix(1.7, 1, Math.min(1, back(a / 0.22)));
+          g.translate(side ? x0 + 6 * k : x0 + rw - 6 * k, y0 + 16 * k); g.rotate(side ? -0.22 : 0.22); g.scale(sc, sc); g.globalAlpha = clamp(a / 0.06);
+          g.drawImage(st, -w / 2, -hs / 2, w, hs);
+        }
+        g.restore();
+      };
+
+      // ── each frame: the world the clip is in, and the heart at the side ──
+      let fireOn = false;
+      const draw = (t) => {
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
+        grab();
+        if (t < B(6)) drawPos(t);
+        else if (t < B(8)) drawReceipt(t);
+        else if (t < B(9)) drawTicket(t);
+        else if (t < B(10)) drawBurner(t);
+        else if (t < B(11)) drawHook(t);
+        else if (t < SP_MV_PICKUP) drawWok(t);
+        else if (t < B(24)) drawRecipe(t);
+        else if (t < B(26)) drawQueue(t);
+        else if (t < B(30)) drawServed(t);
+        else if (t < SP_MV_POP) drawRush(t);
+        else if (t < SP_MV_SLAM) drawSold(t);
+        else if (t < B(36)) drawThanks(t);
+        else drawEnd(t);
+        heartHud(t);
+      };
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; tall = H > W;
+        u = Math.min(1.25, Math.max(0.72, Math.min(W, H) / 760));
+        ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        if (canvas.width !== Math.round(W * ratio) || canvas.height !== Math.round(H * ratio)) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+        fit(S1);
+        makeReceipt(); makeWok(); makeRecipe(); makeServed(); makeRush(); stampPic = null;
+        // (the counter painted now, not on the bridge's first frame)
+        paintCounter();
+      };
+      size();
+      CUTS.forEach((img) => img.decode?.().then(() => sticker(img), () => undefined));
+      HEART.decode?.().then(() => sticker(HEART), () => undefined);
+      Promise.all(PEPPERS.map((img) => img.decode?.())).then(() => { if (rec.painted < 1) paintCounter(); }, () => undefined);
+      [BADGE, SKULL].forEach((img) => img.decode?.().catch(() => undefined));
+      let lastNow = 0;
+      const onResize = () => { size(); draw(lastNow); };
+      window.addEventListener("resize", onResize);
+      return {
+        show() {},
+        tick(now) {
+          // the fire from the burner on (the heart burns to the end of the music, and dies down after): taken up once
+          // the page's stage has let it go, let go again after
+          const want = now >= B(8) && now < SP_MV_POP + 1.2;
+          if (want !== fireOn) { if (want) spFire.use("ground", "wall"); else spFire.release(); fireOn = want; }
+          lastNow = now;
+          draw(now);
+        },
+        unmount() {
+          window.removeEventListener("resize", onResize);
+          if (fireOn) spFire.release();
+        },
+      };
+    },
+  };
+
   const THEMES = {
     whiplash: {
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
@@ -12398,7 +14160,8 @@
     // Spicy: aespa's, from MY WORLD (2023), the fifth hidden track, pulled out of the fire alarm on the café
     // header's wall once Stay has been found (see the end of this file). The intro (5 bars, "ISSUE #1": the
     // flames forge the cover of SPICY, a Y2K teen magazine) runs straight into track 1 (8 bars), then track 2
-    // (8 bars and a beat). The four on the album's photo cards, front and back.
+    // (8 bars and a beat). The four on the album's photo cards, front and back. The MV (spicyScene, "Off the
+    // scale") only once the page burns (sceneIn: its button waits for the burning variant).
     spicy: {
       era: "Spicy", folder: "spicy/", tag: "SPICY", back: "image", scheme: "dark",
       title: "Brew Houze × aespa · Spicy", toast: "Brew Houze × aespa · Spicy 🌶",
@@ -12411,6 +14174,7 @@
       stage: spicyStage,
       variants: { burn: { loops: [{ src: "spicy/flame-1.mp3", start: SP_START, length: SP_FLAME1 }, { src: "spicy/flame-2.mp3", start: SP_START, length: SP_FLAME2 }], stage: spicyBurnStage } },
       onVariant: (name) => spIgnite(name),
+      scene: spicyScene, sceneIn: "burn",
       fonts: ["400 1em 'Bagel Fat One'", "800 1em 'Barlow Condensed'", "700 1em 'Space Mono'", "900 1em Unbounded", "800 1em Unbounded"],
       extras: ["pepper.webp", "pepper-curl.webp", "charm.webp", "sparkle.webp", "myworld-pink.webp", "myworld-green.webp", ...SP_FLOATS.slice(0, 8).map(([file]) => `${file}.webp`),
         ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-back.webp`)],
@@ -12490,6 +14254,7 @@
     breed: { kicker: "☻ This song connects worlds", label: "Let's give it a listen" },
     yoru: { kicker: "AM 4:00 · 夜明けまで", label: "Race into the night" },
     stay: { kicker: "◢ Breach protocol", label: "Jack in" },
+    spicy: { kicker: "🌶 2,400,000 SHU · and rising", label: "Off the scale" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
   // page, up whenever the theme is on (not only during the bridge).
@@ -12501,7 +14266,8 @@
     const t = theme ? THEMES[theme] : null;
     const words = theme ? CTAS[theme] : null;
     cta.classList.remove("is-on");
-    if (!t?.scene || !words) { cta.innerHTML = ""; return; }
+    // (a scene kept for one of the theme's variants: up only while that variant is on)
+    if (!t?.scene || !words || (t.sceneIn && t.sceneIn !== variantOn)) { cta.innerHTML = ""; return; }
     cta.innerHTML = `<button type="button" class="ae-cta-btn is-${theme}" aria-label="Play the secret ${escapeHtml(t.era)} scene" tabindex="-1">`
       + `<i class="ae-cta-icon" aria-hidden="true"></i><span class="ae-cta-text"><small>${escapeHtml(words.kicker)}</small><b>${escapeHtml(words.label)}</b></span></button>`;
     showCta(true);
@@ -12566,6 +14332,7 @@
     players[current]?.preferSet(name ?? "main");
     startStage(current, clock);
     THEMES[current].onVariant?.(name);
+    renderCta(current);
   }
   const stageCycle = (stage) => stage.parts ? stage.parts.reduce((sum, part) => sum + part, 0) : stage.cycle;
   function setStage(name, lag = 0) {
