@@ -1,7 +1,7 @@
 // Brew Houze × aespa: the secret themes of the portal (styles in secret.css, whiplash.css,
 // dirtywork.css, armageddon.css, drama.css, richman.css, kissntell.css, ditto.css, breed.css, yoru.css,
-// stay.css and spicy.css; photos and sound in whiplash/, dirty-work/, armageddon/, drama/, richman/,
-// kiss-n-tell/, ditto/, breed/, yoru/, stay/ and spicy/).
+// stay.css, spicy.css and defended.css; photos and sound in whiplash/, dirty-work/, armageddon/, drama/,
+// richman/, kiss-n-tell/, ditto/, breed/, yoru/, stay/, spicy/ and defended/).
 //
 // The "© Brew Houze" line in the footer opens the theme picker: the café, Whiplash, Dirty Work,
 // Armageddon, Drama, Rich Man or Kiss N Tell, straight from any of them. Each
@@ -18,26 +18,20 @@
     get(key) { try { return localStorage.getItem(key); } catch { return null; } },
     set(key, value) { try { localStorage.setItem(key, value); } catch { /* storage blocked: lasts until reload */ } },
   };
-  // Ditto is unlocked once per device: after all six aespa themes have been on here, a last quick
-  // tip shows in the café look (see "Ditto: the secret within the secrets" at the end).
+  // The hidden tracks, each found once per device (none of them in the playlist): once all six aespa themes have been
+  // on here, a gashapon in the café look pulls them, one a turn, at random (see "The hidden tracks' gashapon" at the
+  // end); each key holds when.
+  // Defended, the last, is not in it: its approval sheet is stuck in the gashapon's coin slot, to pull out and sign
+  // (see "Defended: the last" at the end).
   const VISITED_KEY = "brew-houze-aespa-visited"; // the aespa themes this device has seen, as JSON
   const DITTO_KEY = "brew-houze-ditto-unlocked";
-  // Breed, the next one, is found under a corner of the café's page once Ditto has been (see "Breed:
-  // the secret after the secret" at the end).
   const BREED_KEY = "brew-houze-breed-unlocked";
-  // Racing into the Night, the one after that, leaks out from under the café's header once Breed has
-  // been found (see "Racing into the Night: the secret after Breed" at the end).
   const YORU_KEY = "brew-houze-yoru-unlocked";
-  // I Really Want to Stay at Your House, the one after that, glitches out of the café header's own logo once
-  // Racing into the Night has been found (see "I Really Want to Stay at Your House: the secret after Racing
-  // into the Night" at the end).
   const STAY_KEY = "brew-houze-stay-unlocked";
-  // Spicy, the one after that, is a fire alarm on the café header's wall once I Really Want to Stay at Your
-  // House has been found (see "Spicy: the secret after I Really Want to Stay at Your House" at the end).
   const SPICY_KEY = "brew-houze-spicy-unlocked";
-  const BONUS = ["ditto", "breed", "yoru", "stay", "spicy"]; // the hidden tracks, after the six, in the order they are found
+  const DEFENDED_KEY = "brew-houze-defended-unlocked";
   const visited = () => { try { const list = JSON.parse(store.get(VISITED_KEY) ?? "[]"); return Array.isArray(list) ? list : []; } catch { return []; } };
-  let onThemeApplied = null; // set by the Ditto unlock once it is ready
+  let onThemeApplied = null; // set at the end, once the gashapon and Defended's slip are ready
   const motionOK = () => !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const escapeHtml = (text) => String(text).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const toast = (message) => { if (typeof window.showToast === "function") window.showToast(message); };
@@ -88,13 +82,23 @@
     lucy: { name: "Lucy", hangul: "ルーシー", short: "Netrunner", real: "Lucyna Kushinada", role: "Netrunner",
       chrome: "Cyberdeck · monowire", cv: "Aoi Yūki · Emi Lo", status: "ALIVE · LUNA", line: "She made it to the moon. He is in every memory she plays back." },
   };
-  // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order.
+  // Project B.A.R.I.S.T.A.'s three, for Defended (the paper this café's system was built for): each with a version of
+  // the theme of their own. No photos yet: temporary art on their cards (a silhouette in their version's look, an
+  // approval sheet signed on the back).
+  const DF_MEMBERS = {
+    tin: { name: "Tin", hangul: "vampire · gothic", short: "Lead Developer", role: "Lead Developer", real: "Tin" },
+    cheng: { name: "Cheng", hangul: "rhythm", short: "Documentation", role: "Documentation", real: "Kristian" },
+    andrei: { name: "Andrei", hangul: "dream sky", short: "Documentation", role: "Documentation", real: "Andrei" },
+  };
+  // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order (brand: the brand line
+  // of a theme that is not a collab, in place of "Brew Houze × the group").
   const GROUPS = {
     aespa: { name: "aespa", members: MEMBERS, order: memberOrder },
     newjeans: { name: "NewJeans", members: NJ_MEMBERS, order: Object.keys(NJ_MEMBERS) },
     kininao: { name: "The Guy She Was Interested in Wasn’t a Guy at All", members: KN_CAST, order: Object.keys(KN_CAST) },
     yoasobi: { name: "YOASOBI", members: YR_MEMBERS, order: Object.keys(YR_MEMBERS) },
     edgerunners: { name: "Cyberpunk: Edgerunners", members: SY_CAST, order: Object.keys(SY_CAST) },
+    barista: { name: "Project B.A.R.I.S.T.A.", members: DF_MEMBERS, order: Object.keys(DF_MEMBERS), brand: "Project B.A.R.I.S.T.A." },
   };
   const groupOf = (theme) => GROUPS[THEMES[theme]?.group ?? "aespa"];
   const DW_TAROT = {
@@ -10881,8 +10885,8 @@
     };
   })();
 
-  // ── Spicy (aespa, 2023): the fifth hidden track, a fire alarm on the café header's wall once Stay has been
-  // found (see the end of this file). 115 BPM; the three files' music starts 1352 samples in (as Racing into the
+  // ── Spicy (aespa, 2023): the fifth hidden track, pulled from the gashapon (see the end of
+  // this file). 115 BPM; the three files' music starts 1352 samples in (as Racing into the
   // Night's and Stay's), and each is whole beats: the intro 20 (5 bars; its last beat silent, the drop), track 1
   // 32 (8 bars), track 2 33 (8 bars and a beat). ──
   const SP_BEAT = 60 / 115;
@@ -13749,6 +13753,3900 @@
     },
   };
 
+  // ── Defended: the last hidden track. Steve Lacy's "oh yeah?" for Project B.A.R.I.S.T.A., the paper this café's
+  // system was built for, the day it was defended (in red ink: the panel's pen). Not a collab: the brand line is
+  // the project's own. ──
+  // The music starts 1352 samples into both files (no gapless tag) at 144 BPM (a beat is 18375 samples, felt in
+  // half time): the intro is 24 bars (seven on one held chord, a fill on bar 8, the groove from bar 9) and runs
+  // straight into track 1, 16 bars (its file cut after them: the export ran on in silence). The groove hits on
+  // sixteenths 0, 4, 8 and 14 of every bar, 0 and 8 the strongest.
+  const DF_START = 1352 / 44100;
+  const DF_BEAT = 60 / 144;
+  const DF_INTRO = 96 * DF_BEAT, DF_TRACK = 64 * DF_BEAT;
+  // seconds into the clip of a bar's sixteenth (bar 1, sixteenth 0: its first beat)
+  const DF_T = (bar, six = 0) => DF_START + ((bar - 1) * 16 + six) * DF_BEAT / 4;
+  const DF_HITS = [0, 4, 8, 14];
+  // the paper's title, as it is on its cover
+  const DF_SUBTITLE = ["(Business Analytics, Real-time Inventory, and", "Smart Transaction Application):"];
+  const DF_LONG = ["A Synchronized QR Code Ordering and", "AI-Assisted Monitoring System", "for Brew Houze Cafe"];
+  const DF_INK = "#DE161E";
+  // The pages the defense goes through (a page a bar): the paper's own (defended/pages/n.webp), with where the panel's
+  // marks go on each, in the scan's pixels (1545 x 2000): its heading (middle across, middle down, width), a line of its
+  // text (middle down), the question in the margin and where its question mark goes.
+  const DF_PAGES = [
+    { src: 1, head: [816, 200, 178], line: 410, note: "why?", quest: [60, 1400] },
+    { src: 2, head: [339, 200, 134], line: 356, note: "be specific", quest: [60, 1200] },
+    { src: 3, head: [417, 200, 291], line: 410, note: "how?", quest: [60, 1300] },
+    { src: 4, head: [392, 200, 241], line: 356, note: "cite!", quest: [60, 1450] },
+    { src: 5, head: [817, 200, 166], line: 1103, note: "explain", quest: [60, 1400] },
+    { src: 6, head: [820, 200, 572], line: 838, note: "fix this", quest: [60, 1500] },
+    { src: 7, head: [819, 200, 306], line: 410, note: "so?", quest: [60, 1300] },
+    { src: 8, head: [839, 200, 159], line: 306, note: "elaborate", quest: [60, 1200] },
+  ];
+  // the approval sheet's signatures (the panel's two members, its lead, the adviser: each above their name), its scan
+  const DF_SIGNS = [[400, 1066], [980, 1066], [760, 1290], [990, 646]];
+
+  // ── Defended's ink and its title: the intro's cover and the page's header drawn by the same hand ──
+  const DF_SERIF = "'EB Garamond', 'Cormorant Garamond', Georgia, serif", DF_CAPS = "'Cormorant Garamond', Georgia, serif", DF_HEAVY = "'Playfair Display', Georgia, serif";
+  const DF_NOTE = "'Kalam', 'Comic Sans MS', cursive", DF_SCRIPT = "'Kaushan Script', 'Kalam', cursive";
+  const dfClamp = (q) => Math.min(1, Math.max(0, q));
+  const dfMix = (a, b, q) => a + (b - a) * q;
+  const dfSeeded = (seed) => { let s = seed >>> 0; return () => { s = (s + 0x6D2B79F5) >>> 0; let x = Math.imul(s ^ (s >>> 15), 1 | s); x ^= x + Math.imul(x ^ (x >>> 7), 61 | x); return ((x ^ (x >>> 14)) >>> 0) / 4294967296; }; };
+  // a stroke: its points with their running lengths; the point q of its way; drawn in red up to there
+  const dfStroke = (pts) => { const len = [0]; for (let i = 1; i < pts.length; i++) len.push(len[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); return { pts, len, total: len[len.length - 1] }; };
+  const dfPointAt = (s, q) => {
+    const want = dfClamp(q) * s.total;
+    let i = 1;
+    while (i < s.pts.length - 1 && s.len[i] < want) i++;
+    const a = s.pts[i - 1], b = s.pts[i], f = (want - s.len[i - 1]) / Math.max(1e-6, s.len[i] - s.len[i - 1]);
+    return [dfMix(a[0], b[0], dfClamp(f)), dfMix(a[1], b[1], dfClamp(f))];
+  };
+  const dfInk = (g, s, q, width, color = DF_INK) => {
+    if (q <= 0) return;
+    const want = dfClamp(q) * s.total;
+    g.beginPath(); g.moveTo(s.pts[0][0], s.pts[0][1]);
+    for (let i = 1; i < s.pts.length; i++) {
+      if (s.len[i] <= want) g.lineTo(s.pts[i][0], s.pts[i][1]);
+      else { const [x, y] = dfPointAt(s, q); g.lineTo(x, y); break; }
+    }
+    g.strokeStyle = color; g.lineWidth = width; g.lineCap = "round"; g.lineJoin = "round"; g.stroke();
+  };
+  // a smooth line through these points (Catmull-Rom), with a little hand in it (seeded: the same line each time)
+  const dfSmooth = (ctrl, seed = 1, wob = 1.2, per = 10) => {
+    const rnd = dfSeeded(seed), pts = [];
+    for (let i = 0; i < ctrl.length - 1; i++) {
+      const p0 = ctrl[Math.max(0, i - 1)], p1 = ctrl[i], p2 = ctrl[i + 1], p3 = ctrl[Math.min(ctrl.length - 1, i + 2)];
+      for (let k = 0; k < per; k++) {
+        const t = k / per, t2 = t * t, t3 = t2 * t;
+        const x = 0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+        const y = 0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+        pts.push([x + (rnd() - 0.5) * wob, y + (rnd() - 0.5) * wob]);
+      }
+    }
+    pts.push(ctrl[ctrl.length - 1]);
+    return dfStroke(pts);
+  };
+  // the panel's marks: a ring round something (a turn and a bit, wobbling), a line under it, a tick
+  const dfRing = (cx, cy, rx, ry, seed) => {
+    const rnd = dfSeeded(seed), pts = [], a0 = -2.3 + rnd() * 0.4, turns = 1.12 + rnd() * 0.1;
+    for (let k = 0; k <= 64; k++) { const a = a0 + (k / 64) * turns * Math.PI * 2, w = 1 + 0.06 * Math.sin(a * 2 + seed) + (k / 64) * 0.07; pts.push([cx + Math.cos(a) * rx * w, cy + Math.sin(a) * ry * w]); }
+    return dfStroke(pts);
+  };
+  const dfUnder = (x0, x1, y, seed) => dfSmooth([[x0, y + 2], [dfMix(x0, x1, 0.35), y - 2], [dfMix(x0, x1, 0.7), y + 3], [x1, y - 1]], seed, 1);
+  const dfTick = (x, y, s, seed) => dfSmooth([[x - s * 0.5, y - s * 0.05], [x - s * 0.2, y + s * 0.3], [x + s * 0.12, y - s * 0.25], [x + s * 0.55, y - s * 0.75]], seed, 1.5, 8);
+  // words in a hand: each drawn once into its own canvas (again once its font is in), shown from the left as written
+  const dfWords = new Map();
+  const dfWord = (text, family, px, color = DF_INK, weight = 400) => {
+    // (ready once its own face is in: the first in the family list, not its stand-ins)
+    const key = `${text}|${family}|${px}|${color}|${weight}`, ok = document.fonts?.check(`${weight} ${px}px ${family.split(",")[0]}`) ?? true;
+    const had = dfWords.get(key);
+    if (had && (had.ok || !ok)) return had;
+    const c = document.createElement("canvas"), m = c.getContext("2d");
+    m.font = `${weight} ${px}px ${family}`;
+    const w = Math.ceil(m.measureText(text).width + px * 0.6), h = Math.ceil(px * 1.7);
+    c.width = w; c.height = h;
+    m.font = `${weight} ${px}px ${family}`; m.fillStyle = color; m.textBaseline = "alphabetic"; m.fillText(text, px * 0.3, px * 1.15);
+    const pic = { c, w, h, px, ok };
+    dfWords.set(key, pic);
+    return pic;
+  };
+  // a word at x, y (its baseline's left), size units tall, turned; written as far as q
+  const dfWordAt = (g, pic, x, y, size, rot, q) => {
+    if (q <= 0) return;
+    const k = size / pic.px;
+    g.save(); g.translate(x, y); g.rotate(rot); g.scale(k, k);
+    g.beginPath(); g.rect(-pic.px * 0.3, -pic.px * 1.3, pic.w * dfClamp(q) + 2, pic.h * 1.2); g.clip();
+    g.drawImage(pic.c, -pic.px * 0.3, -pic.px * 1.15);
+    g.restore();
+  };
+  // where the pen is as a word is written: along its baseline, bobbing
+  const dfWordTip = (pic, x, y, size, rot, q) => {
+    const k = size / pic.px, d = (pic.w - pic.px * 0.6) * k * dfClamp(q), bob = Math.sin(q * 40) * size * 0.18 - size * 0.3;
+    return [x + Math.cos(rot) * d - Math.sin(rot) * bob, y + Math.sin(rot) * d + Math.cos(rot) * bob];
+  };
+  // the café's badge in ink (for PROJECT's O)
+  let dfBadge = null;
+  const dfBadgeImg = () => { if (!dfBadge) { dfBadge = new Image(); dfBadge.decoding = "async"; dfBadge.src = siteUrl("defended/badge-ink.webp"); } return dfBadge; };
+  // The title in title units (its middle at 0, 0; all of it inside DF_ART): PROJECT, B.A.R.I.S.T.A. over its grey
+  // shadow; the panel's eight lines through them (the user's concept); "defended" under them in red
+  const DF_ART = { x: -310, y: -136, w: 620, h: 310 };
+  const DF_SCRIBBLES = [[[-150, -130], [-90, -102], [20, -68], [140, -36], [230, -12]], [[-235, -80], [-80, -84], [80, -90], [245, -93]], [[225, -118], [60, -92], [-120, -62], [-300, -30]],
+    [[-298, -32], [-120, -19], [80, -19], [285, -27]], [[-275, 10], [-60, -1], [150, 2], [300, 12]], [[-185, 22], [30, 13], [245, 22]],
+    [[-255, -6], [0, -11], [205, -3], [306, 19]], [[-140, 34], [40, 39], [190, 44]]];
+  const DF_DEFENDED = { x: -44, y: 138, size: 74, rot: -0.2 };
+  const dfScribbles = [];
+  const dfScribble = (i) => (dfScribbles[i] ??= dfSmooth(DF_SCRIBBLES[i], i * 13 + 5, 0.8, 12));
+  const dfTitleType = (g) => {
+    const badge = dfBadgeImg();
+    // PROJECT, letter by letter, the badge in the O's place
+    g.font = `600 52px ${DF_CAPS}`; g.textAlign = "left"; g.textBaseline = "alphabetic"; g.fillStyle = "#121110";
+    const parts = ["P", "R", null, "J", "E", "C", "T"], gap = 7, o = 54, ws = parts.map((ch) => (ch ? g.measureText(ch).width : o));
+    let x = -(ws.reduce((a, b) => a + b, 0) + gap * 6) / 2;
+    parts.forEach((ch, i) => {
+      if (ch) g.fillText(ch, x, -68);
+      else if (badge.complete && badge.naturalWidth) g.drawImage(badge, x, -68 - o * 0.86, o, o);
+      x += ws[i] + gap;
+    });
+    // B.A.R.I.S.T.A., its grey shadow down and right of it
+    g.font = `900 74px ${DF_HEAVY}`; g.textAlign = "center";
+    g.fillStyle = "rgba(60, 60, 60, 0.42)"; g.fillText("B.A.R.I.S.T.A.", 4, 32);
+    g.fillStyle = "#121110"; g.fillText("B.A.R.I.S.T.A.", 0, 28);
+  };
+  // the whole title: its type, the lines through it drawn as far as scribbled, defended written as far as written
+  const dfTitleArt = (g, scribbled = 1, written = 1) => {
+    dfTitleType(g);
+    for (let i = 0; i < DF_SCRIBBLES.length; i++) dfInk(g, dfScribble(i), scribbled, 4.4);
+    dfWordAt(g, dfWord("defended", DF_SCRIPT, 220), DF_DEFENDED.x, DF_DEFENDED.y, DF_DEFENDED.size, DF_DEFENDED.rot, written);
+  };
+
+  // Defended's intro: the night before the defense, the defense, then defended. Seen from above, on a desk under a
+  // lamp (one canvas, drawn from the clip's clock):
+  //   bars 1-7 (the held chord)  the lamp clicks on; the camera drifts over the desk: the latte (a heart in its
+  //                              foam), the to-do list stuck there, then the bound copy, its cover, PROJECT
+  //                              B.A.R.I.S.T.A., the red pen lying across it
+  //   bar 8 (the fill)           the pen picked up, its cap popped off, the camera closing in on the title
+  //   bars 9-16 (the drop)       the defense: a page a bar, the pen marking it on the groove's four hits (a circle
+  //                              round its heading, a line under a point, a question in the margin, a question
+  //                              mark): the panel's questions
+  //   bars 17-18                 the answers: back over all eight pages, a tick on each, a page a hit
+  //   bars 19-20                 the approval sheet: four signatures on the hits, then "passed!"
+  //   bars 21-24                 the cover again: its title scribbled through on the hits (the user's concept) and
+  //                              "defended" written under it; then the page
+  const defendedIntro = {
+    end: DF_T(25) * 1000,
+    cues: [[0, "desk"], [DF_T(8) * 1000, "pen"], [DF_T(9) * 1000, "pages"], [DF_T(17) * 1000, "ticks"], [DF_T(19) * 1000, "sheet"], [DF_T(21) * 1000, "cover"]],
+    mount(box) {
+      box.innerHTML = `<canvas class="df-in"></canvas>`;
+      const canvas = box.querySelector("canvas");
+      let g = canvas.getContext("2d"); // (pointed at a picture's canvas while one is drawn with the same functions)
+      const PI2 = Math.PI * 2;
+      const clamp = dfClamp, mix = dfMix, seeded = dfSeeded;
+      const out = (q) => 1 - (1 - clamp(q)) ** 3;
+      const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+      const SERIF = DF_SERIF, NOTE = DF_NOTE, SCRIPT = DF_SCRIPT;
+      const BADGE = dfBadgeImg();
+      let W = 0, H = 0, ratio = 1, tall = false;
+      const size = () => {
+        W = window.innerWidth; H = window.innerHeight; tall = H > W;
+        ratio = SCENE_LITE ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+        canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+      };
+      size();
+      const onResize = () => { if (!box.isConnected) { window.removeEventListener("resize", onResize); return; } size(); };
+      window.addEventListener("resize", onResize);
+
+      // ── the desk: dark walnut, its grain (drawn once) ──
+      const DESK = { x: -1500, y: -1150, w: 3000, h: 2300 };
+      const desk = document.createElement("canvas");
+      desk.width = SCENE_LITE ? 1500 : 2200; desk.height = Math.round(desk.width * DESK.h / DESK.w);
+      {
+        const d = desk.getContext("2d"), k = desk.width / DESK.w, rnd = seeded(2026);
+        const base = d.createLinearGradient(0, 0, desk.width, desk.height);
+        base.addColorStop(0, "#3A2417"); base.addColorStop(0.5, "#2B190F"); base.addColorStop(1, "#22140C");
+        d.fillStyle = base; d.fillRect(0, 0, desk.width, desk.height);
+        // the boards' seams, the grain along them
+        for (let b = 0; b < 7; b++) { const y = (b / 7) * desk.height; d.fillStyle = "rgba(0, 0, 0, 0.35)"; d.fillRect(0, y, desk.width, 2 * k * 3); }
+        for (let i = 0; i < 420; i++) {
+          const y = rnd() * desk.height, amp = (4 + rnd() * 18) * k, wl = (300 + rnd() * 900) * k, ph = rnd() * PI2, light = rnd() < 0.55;
+          d.strokeStyle = light ? `rgba(120, 80, 52, ${0.05 + rnd() * 0.12})` : `rgba(10, 5, 2, ${0.08 + rnd() * 0.2})`;
+          d.lineWidth = (0.6 + rnd() * 2.2) * k * 2;
+          d.beginPath();
+          for (let x = -20; x <= desk.width + 20; x += 24) { const yy = y + Math.sin(x / wl * PI2 + ph) * amp + Math.sin(x / (wl * 0.31) + ph * 2) * amp * 0.25; if (x < 0) d.moveTo(x, yy); else d.lineTo(x, yy); }
+          d.stroke();
+        }
+        // a knot or two
+        for (let i = 0; i < 3; i++) {
+          const x = rnd() * desk.width, y = rnd() * desk.height;
+          for (let r = 4; r < 60; r += 5) { d.strokeStyle = `rgba(12, 6, 2, ${0.25 - r / 300})`; d.lineWidth = 2; d.beginPath(); d.ellipse(x, y, r * k * 3, r * k * 1.1, 0, 0, PI2); d.stroke(); }
+        }
+      }
+
+      // ── the camera: a rect of the world (its middle x, y, w × h) fitted to the screen, turned by r ──
+      let cam = { x: 0, y: 0, z: 1, r: 0 };
+      const fitRect = (x, y, w, h, r = 0) => ({ x, y, z: Math.min(W / w, H / h), r });
+      const lerpCam = (a, b, q) => ({ x: mix(a.x, b.x, q), y: mix(a.y, b.y, q), z: Math.exp(mix(Math.log(a.z), Math.log(b.z), q)), r: mix(a.r, b.r, q) });
+      const toScreen = (x, y) => { const dx = (x - cam.x) * cam.z, dy = (y - cam.y) * cam.z, c = Math.cos(cam.r), s = Math.sin(cam.r); return [W / 2 + dx * c - dy * s, H / 2 + dx * s + dy * c]; };
+      const world = () => { g.setTransform(ratio, 0, 0, ratio, 0, 0); g.translate(W / 2, H / 2); g.rotate(cam.r); g.scale(cam.z, cam.z); g.translate(-cam.x, -cam.y); };
+      const screen = () => g.setTransform(ratio, 0, 0, ratio, 0, 0);
+
+      // ── strokes and words: the shared hand, on this canvas ──
+      const strokeOf = dfStroke, pointAt = dfPointAt, smooth = dfSmooth;
+      const inkStroke = (st, q, width, color = DF_INK) => dfInk(g, st, q, width, color);
+      const ringMark = dfRing, underMark = dfUnder, tickMark = dfTick;
+      const arrowMark = (x0, y0, x1, y1, seed) => {
+        const a = Math.atan2(y1 - y0, x1 - x0), h = 16;
+        const line = smooth([[x0, y0], [mix(x0, x1, 0.5) + (y1 - y0) * 0.12, mix(y0, y1, 0.5) - (x1 - x0) * 0.12], [x1, y1]], seed, 0.8, 8);
+        return strokeOf([...line.pts, [x1 - Math.cos(a - 0.5) * h, y1 - Math.sin(a - 0.5) * h], [x1, y1], [x1 - Math.cos(a + 0.5) * h, y1 - Math.sin(a + 0.5) * h]]);
+      };
+      // a signature: loops running right, then a flourish back under them
+      const signMark = (x, y, w, seed) => {
+        const rnd = seeded(seed), pts = [], loops = 4 + Math.floor(rnd() * 3);
+        for (let k = 0; k <= loops * 14; k++) {
+          const sv = k / (loops * 14), a = sv * loops * PI2, r = 9 + 7 * Math.sin(sv * 5 + seed);
+          pts.push([x + sv * w * 0.85 + Math.cos(a + Math.PI) * r * 0.7, y - 8 + Math.sin(a + Math.PI) * r * (1.3 + 0.5 * Math.sin(sv * 9 + seed)) - sv * 10]);
+        }
+        const last = pts[pts.length - 1];
+        for (let k = 1; k <= 12; k++) { const sv = k / 12; pts.push([mix(last[0], x - w * 0.05, sv), last[1] + 10 + Math.sin(sv * Math.PI) * 16]); }
+        return strokeOf(pts);
+      };
+      const wordPic = (text, font, px, color, weight = 400) => dfWord(text, font, px, color, weight);
+      const wordAt = (pic, x, y, size, rot, q) => dfWordAt(g, pic, x, y, size, rot, q);
+      const wordTip = dfWordTip;
+
+      // ── the pages: laid out on the desk (four by two; two by four on a tall screen), a turn of their own each ──
+      const PW = 600, PH = 777; // (US letter, as the paper's scans are)
+      const grid = (p) => (tall ? [((p % 2) - 0.5) * 690, (Math.floor(p / 2) - 1.5) * 950] : [((p % 4) - 1.5) * 690, (Math.floor(p / 4) - 0.5) * 950]);
+      const turnOf = (p) => (seeded(p * 31 + 7)() - 0.5) * 0.05;
+      const SHEET = 8, COVER = 9; // (the approval sheet and the cover, drawn like the pages)
+      // a page's place now: its middle, turn and size (the sheet sliding in over the pages from below)
+      const placeOf = (p, t) => {
+        if (p === SHEET) { const q = out((t - DF_T(19)) / 0.42); return { x: 0, y: mix(tall ? 2600 : 1500, 0, q), r: mix(0.12, -0.02, q), s: 1.12 }; }
+        if (p === COVER) return { x: 0, y: 0, r: -0.035, s: 1 };
+        const [x, y] = grid(p);
+        return { x, y, r: turnOf(p), s: 1 };
+      };
+      // a page point (page coordinates: 0, 0 its top left) in the world
+      const onPage = (place, px, py) => {
+        const dx = (px - PW / 2) * place.s, dy = (py - PH / 2) * place.s, c = Math.cos(place.r), s = Math.sin(place.r);
+        return [place.x + dx * c - dy * s, place.y + dx * s + dy * c];
+      };
+      const enterPage = (place) => { g.save(); g.translate(place.x, place.y); g.rotate(place.r); g.scale(place.s, place.s); g.translate(-PW / 2, -PH / 2); };
+      // the paper: a sheet with its shadow under it (a soft dark edge, no blur: eight of them at once)
+      const paper = (fill = "#FFFEFB") => {
+        g.fillStyle = "rgba(0, 0, 0, 0.22)"; g.fillRect(8, 12, PW, PH);
+        g.fillStyle = "rgba(0, 0, 0, 0.16)"; g.fillRect(3, 5, PW + 4, PH + 4);
+        g.fillStyle = fill; g.fillRect(0, 0, PW, PH);
+      };
+      // a page's text as the panel would see it from across the table: grey lines, double-spaced
+      const LINE = 22, LEFT = 90, RIGHT = 535;
+      const para = (y, lines, seed, indent = true) => {
+        const rnd = seeded(seed);
+        g.fillStyle = "#C9C2B6";
+        for (let i = 0; i < lines; i++) {
+          const x0 = LEFT + (i === 0 && indent ? 32 : 0), x1 = i === lines - 1 ? LEFT + 120 + rnd() * 220 : RIGHT - rnd() * 12;
+          g.fillRect(x0, y + i * LINE - 4, x1 - x0, 7);
+        }
+        return y + lines * LINE + 12;
+      };
+      const say = (str, x, y, size, weight, family, color = "#1C1A17", align = "center") => { g.font = `${weight} ${size}px ${family}`; g.fillStyle = color; g.textAlign = align; g.textBaseline = "alphabetic"; g.fillText(str, x, y); return g.measureText(str).width; };
+      // the scans on the paper (their width the page's, the paper's extra height shared above and below them)
+      const scanOf = (name) => { const img = new Image(); img.decoding = "async"; img.src = siteUrl(`defended/pages/${name}.webp`); return img; };
+      const scans = DF_PAGES.map((P) => scanOf(P.src)), sheetScan = scanOf("approval");
+      const SK = PW / 1545, SY = (PH - 2000 * SK) / 2, inScan = (x, y) => [x * SK, y * SK + SY];
+      const ready = (img) => img.complete && img.naturalWidth > 0;
+      const drawScan = (img) => { paper(); if (ready(img)) g.drawImage(img, 0, SY, PW, PW * img.naturalHeight / img.naturalWidth); };
+      // where each page's marks go (page coordinates), from where the scan has them
+      const anchors = DF_PAGES.map((P) => { const [hx, hy] = inScan(P.head[0], P.head[1]); return { head: { x: hx, y: hy, w: P.head[2] * SK }, line: inScan(0, P.line)[1], quest: inScan(...P.quest) }; });
+      const drawPage = (p) => drawScan(scans[p]);
+      // the approval sheet: the scan; where its four signatures go
+      const SIGNS = DF_SIGNS.map(([x, y]) => inScan(x, y));
+      const drawSheet = () => drawScan(sheetScan);
+      // the cover: PROJECT (the badge for its O), B.A.R.I.S.T.A. over its shadow, the paper's full title, the three
+      const drawCover = () => {
+        paper("#FFFFFF");
+        // (its binding, black tape down its left)
+        g.fillStyle = "#151311"; g.fillRect(0, 0, 16, PH);
+        const cx = PW / 2;
+        g.save(); g.translate(0, PH / 2);
+        g.save(); g.translate(cx, -160); dfTitleType(g); g.restore();
+        g.textAlign = "center";
+        g.font = `italic 500 17px ${SERIF}`; g.fillStyle = "#2F2C28";
+        DF_SUBTITLE.forEach((line, i) => g.fillText(line, cx, 48 + i * 24));
+        g.font = `600 19px ${SERIF}`; g.fillStyle = "#1C1A17";
+        DF_LONG.forEach((line, i) => g.fillText(line, cx, 112 + i * 27));
+        g.font = `600 15px ${SERIF}`; g.fillStyle = "#3A3631";
+        g.fillText("T I N   ·   C H E N G   ·   A N D R E I", cx, 300);
+        g.fillText("2 0 2 6", cx, 330);
+        g.restore();
+      };
+
+      // each page as a picture too, for the shots from afar (the grid): drawn live it would cost a phone its frames
+      const PAGE_K = 0.62, pagePics = [];
+      const makePagePic = (p) => {
+        const c = document.createElement("canvas");
+        c.width = Math.ceil((PW + 16) * PAGE_K); c.height = Math.ceil((PH + 16) * PAGE_K);
+        const keep = g;
+        g = c.getContext("2d");
+        g.scale(PAGE_K, PAGE_K);
+        drawPage(p);
+        g = keep;
+        pagePics[p] = c;
+      };
+      // a page now: live when near (its type sharp), its picture when far
+      const pageAt = (p, t) => {
+        const place = placeOf(p, t);
+        enterPage(place);
+        if (pagePics[p] && cam.z * ratio * place.s < PAGE_K * 1.15) g.drawImage(pagePics[p], 0, 0, pagePics[p].width / PAGE_K, pagePics[p].height / PAGE_K);
+        else drawPage(p);
+        drawMarks(p, t);
+        g.restore();
+      };
+
+      // ── the marks, in order: the defense, the answers, the signatures, the title scribbled out ──
+      // each: when it starts, how long it takes, the page it is on, and a stroke (points on the page) or a word
+      const marks = [];
+      const mark = (at, dur, page, m) => marks.push({ at, dur, page, ...m });
+      // (laid out once the pages have been drawn once: their anchors come from their layout)
+      let laid = false;
+      const layMarks = () => {
+        laid = true;
+        DF_PAGES.forEach((P, p) => {
+          const A = anchors[p], bar = 9 + p;
+          mark(DF_T(bar, 0), 0.34, p, { s: ringMark(A.head.x, A.head.y, A.head.w / 2 + 26, 24, p * 5 + 1), width: 3.4 });
+          mark(DF_T(bar, 4), 0.26, p, { s: underMark(LEFT + 20, LEFT + 300, A.line + 9, p * 5 + 2), width: 3 });
+          const nx = 428, ny = A.line - 50;
+          mark(DF_T(bar, 7), 0.12, p, { s: arrowMark(nx - 2, ny + 8, LEFT + 308, A.line + 2, p * 5 + 3), width: 2.6 });
+          mark(DF_T(bar, 8), 0.36, p, { word: P.note, font: NOTE, px: 64, size: 30, x: nx + 8, y: ny, rot: -0.12, weight: 700 });
+          mark(DF_T(bar, 14), 0.2, p, { word: "?", font: NOTE, px: 96, size: 58, x: A.quest[0], y: A.quest[1], rot: 0.1, weight: 700 });
+        });
+        // the answers: a tick on each page, a page a hit
+        DF_PAGES.forEach((P, p) => {
+          const bar = 17 + Math.floor(p / 4), six = DF_HITS[p % 4], A = anchors[p];
+          mark(DF_T(bar, six), 0.14, p, { s: tickMark(Math.min(RIGHT - 30, LEFT + 380), A.line - 64, 70, p * 5 + 4), width: 5 });
+        });
+        // the signatures, then passed!
+        [[19, 8], [19, 14], [20, 0], [20, 4]].forEach(([bar, six], i) => mark(DF_T(bar, six), 0.3, SHEET, { s: signMark(SIGNS[i][0] + 12, SIGNS[i][1] - 6, 150, i * 9 + 3), width: 2.6 }));
+        const [px, py] = inScan(155, 1556);
+        mark(DF_T(20, 8), 0.42, SHEET, { word: "passed!", font: SCRIPT, px: 120, size: 70, x: px, y: py, rot: -0.16, weight: 400 });
+        mark(DF_T(20, 14), 0.16, SHEET, { s: smooth([inScan(149, 1608), inScan(463, 1582), inScan(752, 1526)], 91, 1), width: 4 });
+        // the title scribbled out on the hits of bars 21 and 22 (the concept's eight lines), then defended: the shared
+        // lines and word (title units, at the cover's title middle)
+        const TX = PW / 2, TY = PH / 2 - 160;
+        DF_SCRIBBLES.forEach((ctrl, i) => mark(DF_T(21 + Math.floor(i / 4), DF_HITS[i % 4]), 0.22, COVER, { s: dfScribble(i), width: 4.4, dx: TX, dy: TY }));
+        mark(DF_T(23, 0), DF_T(23, 14) - DF_T(23, 0), COVER, { word: "defended", font: SCRIPT, px: 220, size: DF_DEFENDED.size, x: DF_DEFENDED.x, y: DF_DEFENDED.y, rot: DF_DEFENDED.rot, weight: 400, dx: TX, dy: TY });
+      };
+      const drawMarks = (page, t) => {
+        for (const m of marks) {
+          if (m.page !== page || t < m.at) continue;
+          const q = (t - m.at) / m.dur;
+          if (m.dx) { g.save(); g.translate(m.dx, m.dy); }
+          if (m.s) inkStroke(m.s, q, m.width);
+          else wordAt(wordPic(m.word, m.font, m.px, DF_INK, m.weight), m.x, m.y, m.size, m.rot, q);
+          if (m.dx) g.restore();
+        }
+      };
+      // where a mark leaves the pen: its stroke's head, or the word's written end
+      const tipOf = (m, q) => {
+        const place = placeOf(m.page, m.at + m.dur * q);
+        const [px, py] = m.s ? pointAt(m.s, q) : wordTip(wordPic(m.word, m.font, m.px, DF_INK, m.weight), m.x, m.y, m.size, m.rot, q);
+        return onPage(place, px + (m.dx ?? 0), py + (m.dy ?? 0));
+      };
+      // the pen now: on a mark while it is written, between marks on its way to the next (lifted), resting after
+      const penOn = (t, scene) => {
+        const list = marks.filter((m) => (scene === "cover" ? m.page === COVER : m.page !== COVER));
+        let prev = null, next = null;
+        for (const m of list) { if (m.at <= t) prev = m; else { next = m; break; } }
+        if (prev && t <= prev.at + prev.dur) { const [x, y] = tipOf(prev, (t - prev.at) / prev.dur); return { x, y, lift: 0 }; }
+        if (!prev && next) { const [x, y] = tipOf(next, 0); return { x, y, lift: 0.35 }; }
+        if (prev && !next) { const [x, y] = tipOf(prev, 1); const q = clamp((t - prev.at - prev.dur) / 0.5); return { x: x + q * 260, y: y + q * 320, lift: 0.4 + 0.5 * q }; }
+        const [x0, y0] = tipOf(prev, 1), [x1, y1] = tipOf(next, 0), gap = next.at - prev.at - prev.dur, go = Math.min(gap, 0.3);
+        const q = ease((t - (next.at - go)) / go);
+        return { x: mix(x0, x1, q), y: mix(y0, y1, q), lift: Math.sin(Math.PI * q) * 0.55 + (q > 0 && q < 1 ? 0.1 : 0) };
+      };
+
+      // ── the red pen: a felt-tip, its barrel red with the café's band on it; its tip at x, y, lifted toward us by
+      // lift (0 on the paper), its cap on or off. It lies along PEN_A (a right hand's pen, its end down and right).
+      const PEN_A = 0.92, PEN_L = 330, PEN_R = 13;
+      const penPic = (x, y, lift, capped) => {
+        const k = 1 + 0.14 * lift;
+        g.save();
+        // its shadow on the paper, further off the higher it is
+        g.save(); g.translate(x + 6 + 46 * lift, y + 10 + 40 * lift); g.rotate(PEN_A); g.scale(k, k);
+        g.fillStyle = `rgba(0, 0, 0, ${0.32 - 0.12 * lift})`; g.beginPath(); g.roundRect(0, -PEN_R, PEN_L, PEN_R * 2, PEN_R); g.fill();
+        g.restore();
+        g.translate(x, y); g.rotate(PEN_A); g.scale(k, k);
+        const barrel = g.createLinearGradient(0, -PEN_R, 0, PEN_R);
+        barrel.addColorStop(0, "#7E0D12"); barrel.addColorStop(0.28, "#E8323A"); barrel.addColorStop(0.45, "#FF8A86"); barrel.addColorStop(0.62, "#D41F28"); barrel.addColorStop(1, "#5E080C");
+        // the nib, the cone, the grip
+        g.fillStyle = "#C3121B"; g.beginPath(); g.moveTo(0, 0); g.lineTo(14, -3.2); g.lineTo(14, 3.2); g.closePath(); g.fill();
+        g.fillStyle = "#EDE8E2"; g.beginPath(); g.moveTo(13, -3.4); g.lineTo(42, -PEN_R * 0.85); g.lineTo(42, PEN_R * 0.85); g.lineTo(13, 3.4); g.closePath(); g.fill();
+        g.fillStyle = barrel; g.beginPath(); g.roundRect(40, -PEN_R, PEN_L - 40, PEN_R * 2, [2, PEN_R, PEN_R, 2]); g.fill();
+        g.fillStyle = "rgba(40, 0, 2, 0.4)"; for (let i = 0; i < 9; i++) g.fillRect(48 + i * 7, -PEN_R, 2.2, PEN_R * 2);
+        // the café's band
+        g.fillStyle = "#F7F2EA"; g.fillRect(150, -PEN_R, 74, PEN_R * 2);
+        g.fillStyle = "#3A1A12"; g.font = `700 9px ${SERIF}`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("BREW HOUZE", 187, 0.5);
+        g.fillStyle = "rgba(0, 0, 0, 0.18)"; g.fillRect(150, PEN_R * 0.35, 74, PEN_R * 0.65);
+        // its end
+        g.fillStyle = "#9C1219"; g.beginPath(); g.roundRect(PEN_L - 26, -PEN_R - 1, 28, PEN_R * 2 + 2, [3, PEN_R, PEN_R, 3]); g.fill();
+        if (capped) {
+          const cap = g.createLinearGradient(0, -PEN_R - 2, 0, PEN_R + 2);
+          cap.addColorStop(0, "#6E0A0F"); cap.addColorStop(0.3, "#EE3A40"); cap.addColorStop(0.5, "#FF9C98"); cap.addColorStop(1, "#5A070B");
+          g.fillStyle = cap; g.beginPath(); g.roundRect(-6, -PEN_R - 2, 112, PEN_R * 2 + 4, [PEN_R, 3, 3, PEN_R]); g.fill();
+          g.fillStyle = "#D9D6D2"; g.fillRect(28, -PEN_R - 5, 70, 4);
+        }
+        g.restore();
+      };
+      // the cap, popped off on the fill: spinning away from the pen toward us
+      const capPic = (t) => {
+        const a = t - DF_T(8, 4);
+        if (a < 0 || a > 1.2) return;
+        const [x0, y0] = PEN_REST_LIFTED;
+        const x = x0 - 40 + a * 1400, y = y0 - a * 1300 + a * a * 800, k = 1 + a * 1.6;
+        g.save(); g.translate(x, y); g.rotate(PEN_A + a * 9); g.scale(k, k);
+        g.fillStyle = "#D8222B"; g.beginPath(); g.roundRect(-56, -PEN_R - 2, 112, PEN_R * 2 + 4, PEN_R); g.fill();
+        g.fillStyle = "#D9D6D2"; g.fillRect(-28, -PEN_R - 5, 70, 4);
+        g.restore();
+      };
+      // where the pen lies on the desk, where it is held up on the fill, and where it waits over the title
+      const PEN_REST = [150, 70], PEN_REST_LIFTED = [120, 10], PEN_OVER = [-140, -170];
+
+      // ── the desk's things: the latte, the to-do list, the cards, a highlighter, and the bound copy ──
+      const latte = (x, y) => {
+        g.save(); g.translate(x, y);
+        g.fillStyle = "rgba(0, 0, 0, 0.4)"; g.beginPath(); g.arc(10, 14, 156, 0, PI2); g.fill();
+        g.fillStyle = "#F2EEE8"; g.beginPath(); g.arc(0, 0, 150, 0, PI2); g.fill();
+        g.strokeStyle = "rgba(0, 0, 0, 0.08)"; g.lineWidth = 3; g.beginPath(); g.arc(0, 0, 122, 0, PI2); g.stroke();
+        // its handle, the cup, the coffee, the heart in its foam
+        g.fillStyle = "#E9E4DD"; g.beginPath(); g.roundRect(-176, -22, 80, 44, 22); g.fill();
+        g.fillStyle = "#FBF9F6"; g.beginPath(); g.arc(0, 0, 104, 0, PI2); g.fill();
+        const coffee = g.createRadialGradient(-20, -20, 10, 0, 0, 92);
+        coffee.addColorStop(0, "#B9824F"); coffee.addColorStop(0.75, "#8A5530"); coffee.addColorStop(1, "#5A3218");
+        g.fillStyle = coffee; g.beginPath(); g.arc(0, 0, 90, 0, PI2); g.fill();
+        g.fillStyle = "#FFF6E8";
+        g.beginPath(); g.moveTo(0, 46); g.bezierCurveTo(-70, 0, -60, -54, -16, -46); g.bezierCurveTo(-4, -44, 0, -34, 0, -28); g.bezierCurveTo(0, -34, 4, -44, 16, -46); g.bezierCurveTo(60, -54, 70, 0, 0, 46); g.fill();
+        g.strokeStyle = "rgba(138, 85, 48, 0.55)"; g.lineWidth = 3;
+        for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(-30 + i * 6, -30 + i * 18); g.quadraticCurveTo(0, -20 + i * 18, 30 - i * 6, -30 + i * 18); g.stroke(); }
+        // the café's badge on the saucer's rim
+        if (BADGE.complete && BADGE.naturalWidth) { g.globalAlpha = 0.5; g.drawImage(BADGE, 98, 70, 40, 40); g.globalAlpha = 1; }
+        g.restore();
+      };
+      const stickyNote = (x, y, r) => {
+        g.save(); g.translate(x, y); g.rotate(r);
+        g.fillStyle = "rgba(0, 0, 0, 0.35)"; g.fillRect(-122, -116, 256, 256);
+        const yel = g.createLinearGradient(0, -130, 0, 130); yel.addColorStop(0, "#FFE979"); yel.addColorStop(1, "#F7D64A");
+        g.fillStyle = yel; g.beginPath(); g.moveTo(-130, -130); g.lineTo(130, -130); g.lineTo(130, 96); g.lineTo(96, 130); g.lineTo(-130, 130); g.closePath(); g.fill();
+        g.fillStyle = "#E4BF2C"; g.beginPath(); g.moveTo(130, 96); g.lineTo(100, 100); g.lineTo(96, 130); g.closePath(); g.fill();
+        g.fillStyle = "rgba(255, 255, 255, 0.25)"; g.fillRect(-130, -130, 260, 22);
+        // the list, in blue ballpoint: the night before
+        const blue = "#22306E";
+        g.save(); g.rotate(-0.03);
+        g.font = `700 30px ${NOTE}`; g.fillStyle = blue; g.textAlign = "left"; g.textBaseline = "alphabetic"; g.fillText("defense tmrw!!", -108, -78);
+        g.strokeStyle = blue; g.lineWidth = 2.4; g.beginPath(); g.moveTo(-108, -70); g.quadraticCurveTo(0, -64, 92, -72); g.stroke();
+        [["print copies", true], ["practice Q&A", true], ["clean demo data", true], ["sleep", false]].forEach(([item, done], i) => {
+          const ly = -30 + i * 40;
+          g.strokeRect(-104, ly - 18, 18, 18);
+          if (done) { g.beginPath(); g.moveTo(-101, ly - 9); g.lineTo(-95, ly - 2); g.lineTo(-82, ly - 24); g.stroke(); }
+          g.font = `400 25px ${NOTE}`; g.fillText(item, -76, ly);
+        });
+        g.font = `400 22px ${NOTE}`; g.fillText("(lol)", 0, 130 - 18);
+        g.restore();
+        g.restore();
+      };
+      const indexCards = (x, y) => {
+        [[-0.16, 14, 10], [0.05, 0, 0]].forEach(([r, dx, dy]) => {
+          g.save(); g.translate(x + dx, y + dy); g.rotate(r);
+          g.fillStyle = "rgba(0, 0, 0, 0.3)"; g.fillRect(-146, -92, 300, 196);
+          g.fillStyle = "#FDFBF6"; g.fillRect(-150, -98, 300, 196);
+          g.fillStyle = "#E58A92"; g.fillRect(-150, -66, 300, 2);
+          g.fillStyle = "#A9C4E2"; for (let i = 0; i < 5; i++) g.fillRect(-150, -36 + i * 26, 300, 1.5);
+          g.restore();
+        });
+        g.save(); g.translate(x, y); g.rotate(0.05);
+        g.font = `700 30px ${NOTE}`; g.fillStyle = "#22306E"; g.textAlign = "left"; g.fillText("Q&A", -130, -74);
+        g.fillStyle = "rgba(34, 48, 110, 0.55)"; [190, 230, 150, 210].forEach((w, i) => g.fillRect(-130, -44 + i * 26, w, 4));
+        g.restore();
+      };
+      const highlighter = (x, y, r) => {
+        g.save(); g.translate(x, y); g.rotate(r);
+        g.fillStyle = "rgba(0, 0, 0, 0.35)"; g.beginPath(); g.roundRect(-124, -14, 260, 36, 12); g.fill();
+        const body = g.createLinearGradient(0, -18, 0, 18); body.addColorStop(0, "#C9C200"); body.addColorStop(0.35, "#FFF94A"); body.addColorStop(1, "#B5AE00");
+        g.fillStyle = body; g.beginPath(); g.roundRect(-130, -18, 200, 36, 8); g.fill();
+        g.fillStyle = "#2C2C2C"; g.beginPath(); g.roundRect(64, -16, 66, 32, 10); g.fill();
+        g.fillStyle = "#FFF94A"; g.beginPath(); g.moveTo(-130, -10); g.lineTo(-150, -4); g.lineTo(-150, 6); g.lineTo(-130, 10); g.closePath(); g.fill();
+        g.restore();
+      };
+      const STILL = { x: -1150, y: -820, w: 2300, h: 1640, k: 0.8 };
+      let still = null;
+      const makeStill = () => {
+        const c = document.createElement("canvas");
+        c.width = Math.round(STILL.w * STILL.k); c.height = Math.round(STILL.h * STILL.k);
+        const keep = g;
+        g = c.getContext("2d");
+        g.scale(STILL.k, STILL.k); g.translate(-STILL.x, -STILL.y);
+        g.drawImage(desk, DESK.x, DESK.y, DESK.w, DESK.h);
+        indexCards(560, -330); highlighter(600, 330, 0.55); stickyNote(-540, 200, 0.07); latte(-560, -360);
+        g = keep;
+        still = { c, ok: BADGE.complete && BADGE.naturalWidth > 0 && (document.fonts?.check(`700 30px ${NOTE}`) ?? true) };
+      };
+      const coverPic = (t) => {
+        const place = placeOf(COVER, t);
+        // the bound copy: the pages under the cover showing at its edges
+        g.save(); g.translate(place.x, place.y); g.rotate(place.r);
+        g.fillStyle = "rgba(0, 0, 0, 0.45)"; g.fillRect(-PW / 2 + 14, -PH / 2 + 18, PW, PH);
+        g.fillStyle = "#E3DED5"; g.fillRect(-PW / 2 + 7, -PH / 2 + 7, PW, PH);
+        g.fillStyle = "#EEE9E1"; g.fillRect(-PW / 2 + 3.5, -PH / 2 + 3.5, PW, PH);
+        g.restore();
+        enterPage(place);
+        drawCover();
+        drawMarks(COVER, t);
+        g.restore();
+      };
+      // steam off the latte, dust in the lamp's light (drifting with the time)
+      const PUFF = document.createElement("canvas");
+      PUFF.width = PUFF.height = 64;
+      { const p = PUFF.getContext("2d"), r = p.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(255, 245, 230, 1)"); r.addColorStop(1, "rgba(255, 245, 230, 0)"); p.fillStyle = r; p.fillRect(0, 0, 64, 64); }
+      const steam = (x, y, t) => {
+        g.save(); g.globalCompositeOperation = "screen";
+        for (let i = 0; i < 6; i++) {
+          const life = 3.4, a = ((t + i * life / 6) % life) / life, sx = x + Math.sin(a * 5 + i) * 40 + a * 140, sy = y - a * 210, r = 40 + a * 90;
+          g.globalAlpha = 0.16 * Math.sin(a * Math.PI);
+          g.drawImage(PUFF, sx - r, sy - r, r * 2, r * 2);
+        }
+        g.restore();
+      };
+      const MOTES = Array.from({ length: SCENE_LITE ? 26 : 50 }, (_, i) => { const r = seeded(i * 17 + 3); return { x: -900 + r() * 1800, y: -800 + r() * 1400, vx: (r() - 0.5) * 9, vy: -3 - r() * 6, s: 1.2 + r() * 2.4, ph: r() * PI2 }; });
+      const motes = (t, alpha) => {
+        g.save(); g.globalCompositeOperation = "lighter";
+        for (const m of MOTES) {
+          const x = m.x + m.vx * t + Math.sin(t * 0.6 + m.ph) * 14, y = m.y + m.vy * t;
+          g.globalAlpha = alpha * (0.35 + 0.35 * Math.sin(t * 1.3 + m.ph));
+          g.fillStyle = "#FFE7C4"; g.beginPath(); g.arc(x, y, m.s, 0, PI2); g.fill();
+        }
+        g.restore();
+      };
+      // the lamp: its pool of warm light (a world point under it), dark beyond; and its click on at the top
+      const lampOn = (t) => (t < 0.04 ? 0 : t < 0.09 ? 1 : t < 0.16 ? 0.15 : 1);
+      const lamp = (wx, wy, reach, power, pool = 1) => {
+        screen();
+        const [lx, ly] = toScreen(wx, wy), r = reach * cam.z;
+        if (pool > 0) {
+          const light = g.createRadialGradient(lx, ly, r * 0.08, lx, ly, r);
+          light.addColorStop(0, `rgba(255, 196, 120, ${(0.1 * power * pool).toFixed(3)})`); light.addColorStop(0.5, `rgba(20, 10, 4, ${(0.12 * pool).toFixed(3)})`); light.addColorStop(1, `rgba(6, 3, 1, ${(0.82 * pool).toFixed(3)})`);
+          g.fillStyle = light; g.fillRect(0, 0, W, H);
+        }
+        if (power < 1) { g.fillStyle = `rgba(0, 0, 0, ${1 - power})`; g.fillRect(0, 0, W, H); }
+      };
+
+      // ── the shots ──
+      // act 1: from the latte over the to-do list to the whole desk, then in on the cover's title (a world rect each)
+      const SHOTS = [
+        [0, -560, -330, 760, 520, -0.07], [DF_T(3), -520, 150, 760, 520, -0.03], [DF_T(5), -100, -20, 1700, 1150, 0],
+        [DF_T(7), 10, -120, 1150, 800, 0.02], [DF_T(8, 8), -40, -170, 780, 520, 0], [DF_T(9), -40, -170, 640, 430, 0]];
+      const TALL_SHOTS = [
+        [0, -560, -300, 480, 760, -0.07], [DF_T(3), -540, 120, 480, 760, -0.03], [DF_T(5), -40, -60, 1150, 1750, 0],
+        [DF_T(7), 0, -120, 780, 1150, 0.02], [DF_T(8, 8), -30, -170, 620, 800, 0], [DF_T(9), -30, -170, 540, 700, 0]];
+      const deskCam = (t) => {
+        const shots = tall ? TALL_SHOTS : SHOTS;
+        let i = 0;
+        while (i < shots.length - 2 && t >= shots[i + 1][0]) i++;
+        const [t0, x0, y0, w0, h0, r0] = shots[i], [t1, x1, y1, w1, h1, r1] = shots[i + 1];
+        return lerpCam(fitRect(x0, y0, w0, h0, r0), fitRect(x1, y1, w1, h1, r1), ease((t - t0) / (t1 - t0)));
+      };
+      // acts 2 and 3: a page a bar; out over all of them; in on the sheet
+      const pageCam = (p) => { const [x, y] = grid(p); return fitRect(x, y - 20, 700, 960, -turnOf(p) * 0.6); };
+      const allCam = () => (tall ? fitRect(0, 0, 1500, 3900) : fitRect(0, 0, 2860, 2000));
+      const pagesCam = (t) => {
+        if (t < DF_T(17)) {
+          const p = Math.min(7, Math.floor((t - DF_T(9)) / (DF_T(10) - DF_T(9)))), into = t - DF_T(9 + p);
+          // (a quick move on to each page on its downbeat, a slow drift in after)
+          const from = p ? pageCam(p - 1) : lerpCam(pageCam(0), allCam(), 0.25), to = pageCam(p), q = out(into / 0.3);
+          const c = lerpCam(from, to, q), hit = Math.min(into, ((into % (DF_BEAT * 2)) + DF_BEAT * 2) % (DF_BEAT * 2));
+          c.z *= (1 + 0.035 * clamp(into / (DF_T(10) - DF_T(9)))) * (1 + 0.014 * Math.exp(-hit / 0.12));
+          return c;
+        }
+        if (t < DF_T(19)) return lerpCam(pageCam(7), allCam(), out((t - DF_T(17)) / 0.55));
+        const s = placeOf(SHEET, DF_T(20)), sheet = fitRect(s.x, s.y + 20, 790, 1100, 0.02);
+        return lerpCam(allCam(), sheet, ease((t - DF_T(19)) / 0.6));
+      };
+      // the end: on the title, close (the concept's frame; on a tall screen the whole cover); once defended is
+      // written, onto where the page's header has the title (.df-title, under the intro), at its size
+      const heroAt = () => {
+        const r = document.querySelector(".df-title")?.getBoundingClientRect();
+        if (!r || !r.width) return null;
+        const s = r.width / DF_ART.w;
+        return { x: r.left - DF_ART.x * s, y: r.top - DF_ART.y * s, s };
+      };
+      const coverCam = (t) => {
+        const near = tall ? fitRect(0, -130, 600, 820, 0.035) : fitRect(0, -140, 560, 250, 0.035);
+        const from = tall ? fitRect(0, -110, 700, 1000, 0.02) : fitRect(0, -150, 680, 320, 0.01);
+        const c = lerpCam(from, near, out((t - DF_T(21)) / 1.2)), hero = heroAt();
+        if (!hero) return c;
+        // (the camera that puts the cover's title middle on the header's, straight, at its scale)
+        const place = placeOf(COVER, t), [tx, ty] = onPage(place, PW / 2, PH / 2 - 160), r = -place.r, z = hero.s;
+        const dx = (hero.x - W / 2) / z, dy = (hero.y - H / 2) / z, cs = Math.cos(r), sn = Math.sin(r);
+        return lerpCam(c, { x: tx - (dx * cs + dy * sn), y: ty - (-dx * sn + dy * cs), z, r }, ease((t - DF_T(23, 14)) / (DF_T(24, 10) - DF_T(23, 14))));
+      };
+
+      const paint = (ms) => {
+        const t = ms / 1000;
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, canvas.width, canvas.height);
+        // (the marks laid out in the slow drift over the desk: the fonts in by then, a phone's hitch unseen)
+        if (!laid && t >= DF_T(4)) { g.save(); g.setTransform(0.001, 0, 0, 0.001, -10, -10); DF_PAGES.forEach((P, p) => { g.save(); drawPage(p); g.restore(); }); g.restore(); layMarks(); }
+        const scene = t < DF_T(9) ? "desk" : t < DF_T(21) ? "pages" : "cover";
+        cam = scene === "desk" ? deskCam(t) : scene === "pages" ? pagesCam(t) : coverCam(t);
+        world();
+        for (const dx of [-DESK.w, 0, DESK.w]) for (const dy of [-DESK.h, 0, DESK.h]) g.drawImage(desk, DESK.x + dx, DESK.y + dy, DESK.w, DESK.h);
+        if (scene === "pages") {
+          for (let p = 0; p < 8; p++) pageAt(p, t);
+          // (a page's picture made each frame through the defense, till all eight are)
+          const missing = DF_PAGES.findIndex((P, p) => !pagePics[p] && ready(scans[p]));
+          if (missing >= 0) makePagePic(missing);
+          if (t >= DF_T(19)) { enterPage(placeOf(SHEET, t)); drawSheet(); drawMarks(SHEET, t); g.restore(); }
+          const pen = penOn(t, "pages");
+          penPic(pen.x, pen.y, pen.lift, false);
+          lamp(-200, -200, tall ? 4200 : 3600, 1);
+          return;
+        }
+        // the desk (the night before, and the cover at the end); on a phone its things from their picture
+        if (SCENE_LITE) {
+          if (!still || (!still.ok && t > 0.5 && BADGE.complete && (document.fonts?.check(`700 30px ${NOTE}`) ?? true))) makeStill();
+          g.drawImage(still.c, STILL.x, STILL.y, STILL.w, STILL.h);
+        } else {
+          indexCards(560, -330);
+          highlighter(600, 330, 0.55);
+          stickyNote(-540, 200, 0.07);
+          latte(-560, -360);
+        }
+        coverPic(t);
+        if (scene === "desk") {
+          // the pen: lying across the cover; picked up on the fill, its cap popped off, held over the title
+          const up = out((t - DF_T(8)) / 0.3), over = ease((t - DF_T(8, 6)) / (DF_T(9) - DF_T(8, 6)));
+          const x = over > 0 ? mix(PEN_REST_LIFTED[0], PEN_OVER[0], over) : mix(PEN_REST[0], PEN_REST_LIFTED[0], up), y = over > 0 ? mix(PEN_REST_LIFTED[1], PEN_OVER[1], over) : mix(PEN_REST[1], PEN_REST_LIFTED[1], up);
+          penPic(x, y, up * (0.9 - 0.3 * over), t < DF_T(8, 4));
+          capPic(t);
+          steam(-560, -400, t);
+          motes(t, lampOn(t));
+          lamp(-180, -260, 1900, lampOn(t));
+        } else {
+          const pen = penOn(t, "cover");
+          penPic(pen.x, pen.y, pen.lift, false);
+          lamp(-120, -260, 2600, 1, 1 - clamp((t - DF_T(21)) / (DF_T(23) - DF_T(21))));
+          // the cover washed white round its title (the page's white header under the intro, the same title in the
+          // same place), the title drawn again over the white
+          const wash = ease((t - DF_T(24)) / (DF_T(24, 12) - DF_T(24)));
+          if (wash > 0) {
+            screen();
+            g.fillStyle = `rgba(255, 255, 255, ${wash.toFixed(3)})`; g.fillRect(0, 0, W, H);
+            world();
+            const place = placeOf(COVER, t);
+            g.save(); g.translate(place.x, place.y); g.rotate(place.r); g.translate(0, -160); dfTitleArt(g, 1, 1); g.restore();
+          }
+        }
+      };
+      const show = (step) => { if (step === 0) paint(0); };
+      show.tick = paint;
+      return show;
+    },
+  };
+
+  // Defended's stage: the one loop (track 1, 16 bars) with the panel's red pen still at the page. On each bar's
+  // downbeat it marks something on screen (a line under a heading or a word, a ring round a button or a pill, a tick
+  // by a card's title), every other one with a word in the margin ("nice!", "ok ✓"…), drawn in as the beat lands;
+  // each mark stays four bars, then fades (canvas .df-ink over the page, the marks kept in the page's coordinates so
+  // they scroll with it). And the header's title, the cover's as the intro leaves it (.df-title, a canvas put after
+  // the header's top row and drawn by dfTitleArt: the intro ends on it).
+  const DF_NOTES = ["nice!", "good", "ok ✓", "clear!", "neat", "yes!", "✓✓", "love this", "approved", "A+"];
+  const DF_MARKED = ".hero h1, .clock strong,.section h2, .card h3, .card .btn.is-primary, .guide-item strong, .tips li b, .status-pill, .ae-member .ae-name, .section-note";
+  const DF_TITLE_FONTS = ["600 52px 'Cormorant Garamond'", "900 74px 'Playfair Display'", "400 74px 'Kaushan Script'"];
+  // The header's title: a canvas (.df-title) put after the header's top row, art(c) drawing it in title units
+  // (DF_ART), again whenever it is resized or its fonts and the badge come in. Each version draws its own.
+  function dfHeaderTitle(label, art, fonts) {
+    const top = document.querySelector(".hero .hero-top");
+    if (!top) return null;
+    const el = document.createElement("canvas");
+    el.className = "df-title";
+    el.setAttribute("role", "img");
+    el.setAttribute("aria-label", label);
+    top.after(el);
+    let gone = false;
+    const draw = () => {
+      if (gone) return;
+      const box = el.getBoundingClientRect();
+      if (!box.width) return;
+      const r = Math.min(window.devicePixelRatio || 1, 2), s = box.width / DF_ART.w;
+      el.width = Math.round(box.width * r); el.height = Math.round(box.height * r);
+      const c = el.getContext("2d");
+      c.setTransform(r * s, 0, 0, r * s, -DF_ART.x * s * r, -DF_ART.y * s * r);
+      art(c);
+    };
+    const seen = new ResizeObserver(draw);
+    seen.observe(el);
+    // (its fonts asked for now, the page may have none of them on yet: drawn again once, when they and the badge are in)
+    const due = [...fonts.map((font) => document.fonts?.load(font)), dfBadgeImg().decode?.()].filter(Boolean).map((p) => p.catch(() => undefined));
+    if (due.length) void Promise.all(due).then(draw);
+    draw();
+    return { el, remove() { gone = true; seen.disconnect(); el.remove(); } };
+  }
+  // Where the loop is: what a Defended stage last heard (seconds into it, at page time now), so the card put back
+  // can land on a hit. dfToHit(min): ms from now to the groove's next hit (sixteenths 0, 4, 8 and 14) min ms away.
+  const dfHeard = { at: -1, now: 0 };
+  // (a version's stage holds still until this page time: the reveal it comes on in has opened; see dfReveal)
+  let dfHold = 0;
+  const dfToHit = (min) => {
+    if (dfHeard.at < 0) return min;
+    const six = DF_BEAT / 4, at = dfHeard.at + (performance.now() - dfHeard.now) / 1000, first = Math.ceil((at + min / 1000) / six);
+    for (let k = first; k < first + 16; k++) if ([0, 4, 8, 14].includes(k % 16)) return (k * six - at) * 1000;
+    return min;
+  };
+  // ms from now to the groove's next hit if it is close, else to the next eighth (still on the grid)
+  const dfToBeat = () => {
+    const hit = dfToHit(0);
+    if (dfHeard.at < 0 || hit <= 260) return hit;
+    const step = DF_BEAT / 2, at = dfHeard.at + (performance.now() - dfHeard.now) / 1000;
+    return (Math.ceil(at / step) * step - at) * 1000;
+  };
+  const defendedStage = (() => {
+    const LIFE = 16 * DF_BEAT, FADE = 1.2;
+    let canvas = null, g = null, W = 0, H = 0, ratio = 1, title = null, marks = [], lastBar = -1, count = 0, drawn = false;
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+      marks = []; // (the page has moved under them)
+      drawn = false;
+    };
+    // nothing written at this point of the screen (no words, buttons, pictures)
+    const free = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el || el.closest("a, button, img, canvas, svg, input, .btn, .status-pill, .ae-member")) return false;
+      return ![...el.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim());
+    };
+    // where a word in the margin can go by this (its box on screen): beside it, else over or under its end, else left
+    // of it, wherever it covers nothing; none, no word this time. [x, y (its baseline's left, on screen), turn]
+    const noteSpot = (r, text) => {
+      const pic = dfWord(text, DF_NOTE, 64, DF_INK, 700), w = (pic.w - pic.px * 0.6) * 24 / pic.px;
+      const spots = [[r.right + 16, r.top + r.height * 0.8, -0.08], [r.right - w, r.top - 8, -0.13], [r.right - w, r.bottom + 24, -0.06], [r.left - 16 - w, r.top + r.height * 0.8, -0.08]];
+      return spots.find(([x, y]) => x > 6 && x + w < W - 6 && y - 20 > 8 && y + 6 < H - 48
+        && [[0, -16], [0.5, -9], [1, -16], [0, 3], [1, 3]].every(([f, dy]) => free(x + w * f, y + dy)));
+    };
+    // the box of what it says (a heading set in the middle: its words, not its column; a button: all of it)
+    const boxOf = (el) => {
+      if (el.matches(".btn, .status-pill")) return el.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      return range.getBoundingClientRect();
+    };
+    // a new mark: on something on screen not marked lately (none this bar if all are); its kind by what it is
+    const addMark = () => {
+      const pool = [...document.querySelectorAll(DF_MARKED)].filter((el) => !marks.some((m) => m.el === el)).map((el) => [el, boxOf(el)])
+        .filter(([, r]) => r.width > 24 && r.top > 8 && r.bottom < H - 48 && r.left > 4 && r.right < W - 4);
+      if (!pool.length) return;
+      const [el, r] = pool[Math.floor(Math.random() * pool.length)], x0 = r.left + window.scrollX, y0 = r.top + window.scrollY, seed = ++count * 7;
+      let s;
+      if (el.matches(".btn, .status-pill, .clock strong") || (el.matches(".guide-item strong, .section h2") && count % 3 === 0)) s = dfRing(x0 + r.width / 2, y0 + r.height / 2, r.width / 2 + 14, r.height / 2 + 10, seed);
+      else if (el.matches(".card h3") && count % 2) s = dfTick(x0 - 22, y0 + r.height * 0.62, 26, seed);
+      else s = dfUnder(x0 - 4, x0 + Math.min(r.width, 420) + 6, y0 + r.height + 3, seed);
+      const m = { el, s, born: performance.now(), dur: 0.32 };
+      // every other one, a word in the margin, where it covers nothing
+      if (count % 2 === 0) {
+        const text = DF_NOTES[(count / 2) % DF_NOTES.length], spot = noteSpot(r, text);
+        if (spot) m.note = { text, x: spot[0] + window.scrollX, y: spot[1] + window.scrollY, rot: spot[2] };
+      }
+      marks.push(m);
+    };
+    const draw = () => {
+      const now = performance.now();
+      marks = marks.filter((m) => (now - m.born) / 1000 < LIFE + FADE);
+      if (!marks.length) { if (drawn) { g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, canvas.width, canvas.height); drawn = false; } return; }
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.setTransform(ratio, 0, 0, ratio, -window.scrollX * ratio, -window.scrollY * ratio);
+      for (const m of marks) {
+        const age = (now - m.born) / 1000;
+        g.globalAlpha = 0.92 * (1 - dfClamp((age - LIFE) / FADE));
+        dfInk(g, m.s, age / m.dur, 2.6);
+        if (m.note) dfWordAt(g, dfWord(m.note.text, DF_NOTE, 64, DF_INK, 700), m.note.x, m.note.y, 24, m.note.rot, (age - m.dur * 0.6) / 0.45);
+      }
+      g.globalAlpha = 1;
+      drawn = true;
+    };
+    return {
+      beat: DF_BEAT, parts: [DF_TRACK], grid: 0, sections: [[0, "calm"]],
+      fx: `<canvas class="df-ink"></canvas>`,
+      mount(fx) {
+        canvas = fx.querySelector(".df-ink");
+        g = canvas.getContext("2d");
+        resize();
+        window.addEventListener("resize", resize);
+        lastBar = -1; count = 0;
+        title ??= dfHeaderTitle("PROJECT B.A.R.I.S.T.A., struck through in red, and under it: defended", (c) => dfTitleArt(c, 1, 1), DF_TITLE_FONTS);
+        // (the versions' fonts in ahead of their cards being put back, so a version opens out in its own type)
+        Object.values(DF_VERSIONS).forEach((v) => v.fonts?.forEach((font) => document.fonts?.load(font).catch(() => undefined)));
+      },
+      tick(at) {
+        if (at >= 0) { dfHeard.at = at; dfHeard.now = performance.now(); }
+        // (none while the intro is over the page: with the sound off, the loop's clock runs on under it)
+        if (at < 0 || !g || document.querySelector(".df-intro")) return;
+        const bar = Math.floor(at / (4 * DF_BEAT));
+        if (bar !== lastBar) { lastBar = bar; addMark(); }
+        draw();
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        title?.remove(); title = null;
+        marks = []; canvas = null; g = null;
+      },
+    };
+  })();
+
+  // ── Tin's version of Defended: vampire · gothic ──
+  // Charcoal and icy chrome (the colours of his card) with blood: a blood moon rising behind the cover, "defended" in
+  // blood, dripping. Its chains (canvas .df-chains over the page) hang from four rivets on the cover, crossed over the
+  // title, a padlock on one; on wide screens one more hangs from the top of the screen in each margin (a cross on the
+  // left one, a dagger on the right). Grab one anywhere along it (or by what hangs on it) and fling it: they jolt on
+  // the groove's hits, swing as the page scrolls under them, and drop in as the version comes on. Verlet, a few steps
+  // a frame, links that never stretch (a chain folds; it does not stretch). Bats roost on them, hanging upside down:
+  // come near one, click near them or grab their chain and they take off, flap about (away from the pointer) and come
+  // back to roost; a few fly off on the big hits now and then. They fly in as the version comes on.
+  const TN_ICE = "#E2FDFD", TN_CYAN = "#7FE9EC", TN_DEEP = "#2B6E73";
+  const TN_GOTHIC = "'Grenze Gotisch', 'Cormorant Garamond', serif", TN_FRAKTUR = "'UnifrakturMaguntia', 'Grenze Gotisch', serif";
+  const TN_TITLE_FONTS = ["600 52px 'Cormorant Garamond'", "900 80px 'Grenze Gotisch'", "400 90px UnifrakturMaguntia"];
+  // the rivets on the cover (title units) the two chains hang from: top left to bottom right, top right to bottom left
+  const TN_RIVETS = [[-292, -116], [292, -116], [292, 34], [-292, 34]];
+  // chrome: a bright sky, a dark horizon a little under the middle, the ground's glint (top to bottom, y0 to y1)
+  const tnChrome = (g, y0, y1) => {
+    const gr = g.createLinearGradient(0, y0, 0, y1);
+    [[0, "#F6FFFF"], [0.42, "#C4E6E9"], [0.5, "#2E5B61"], [0.58, "#7FD3D8"], [0.84, "#E8FEFF"], [1, "#A6D6DA"]].forEach(([at, color]) => gr.addColorStop(at, color));
+    return gr;
+  };
+  // the badge in chrome (PROJECT's O), made once its picture is in
+  let tnBadgePic = null;
+  const tnBadge = (img) => {
+    if (tnBadgePic) return tnBadgePic;
+    const c = document.createElement("canvas");
+    c.width = c.height = 216;
+    const g = c.getContext("2d");
+    g.drawImage(img, 0, 0, 216, 216);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = tnChrome(g, 20, 196);
+    g.fillRect(0, 0, 216, 216);
+    return (tnBadgePic = c);
+  };
+  // the cover, his: PROJECT in chrome caps, B.A.R.I.S.T.A. in chrome gothic over a cold glow, "defended" in
+  // blackletter, lit; the four rivets
+  const tnTitleArt = (g) => {
+    const k = g.getTransform().a; // (a shadow's blur is in pixels, not title units)
+    const badge = dfBadgeImg();
+    g.textBaseline = "alphabetic";
+    g.font = `600 52px ${DF_CAPS}`; g.textAlign = "left";
+    const parts = ["P", "R", null, "J", "E", "C", "T"], gap = 7, o = 54, ws = parts.map((ch) => (ch ? g.measureText(ch).width : o));
+    let x = -(ws.reduce((a, b) => a + b, 0) + gap * 6) / 2;
+    g.fillStyle = tnChrome(g, -106, -66);
+    parts.forEach((ch, i) => {
+      if (ch) g.fillText(ch, x, -68);
+      else if (badge.complete && badge.naturalWidth) g.drawImage(tnBadge(badge), x, -68 - o * 0.86, o, o);
+      x += ws[i] + gap;
+    });
+    // the glow under B.A.R.I.S.T.A. and defended: drawn at a quarter of the pixels (a wide blur is dear) and laid in
+    // at full size
+    const m = g.getTransform(), q = 0.25, layer = document.createElement("canvas");
+    layer.width = Math.max(1, Math.round(g.canvas.width * q)); layer.height = Math.max(1, Math.round(g.canvas.height * q));
+    const lc = layer.getContext("2d");
+    lc.setTransform(m.a * q, m.b * q, m.c * q, m.d * q, m.e * q, m.f * q);
+    lc.textAlign = "center"; lc.textBaseline = "alphabetic";
+    lc.font = `900 80px ${TN_GOTHIC}`; lc.shadowColor = "rgba(127, 233, 236, 0.55)"; lc.shadowBlur = 28 * k * q; lc.fillStyle = "#06080A"; lc.fillText("B.A.R.I.S.T.A.", 0, 30);
+    lc.translate(26, 142); lc.rotate(-0.06);
+    lc.font = `400 90px ${TN_FRAKTUR}`; lc.shadowColor = "rgba(214, 18, 42, 0.9)"; lc.shadowBlur = 24 * k * q; lc.fillStyle = "#7A0A18"; lc.fillText("defended", 0, 0);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(layer, 0, 0, g.canvas.width, g.canvas.height); g.restore();
+    g.font = `900 80px ${TN_GOTHIC}`; g.textAlign = "center"; g.lineJoin = "round";
+    g.lineWidth = 4; g.strokeStyle = "#05070A"; g.strokeText("B.A.R.I.S.T.A.", 0, 30);
+    g.fillStyle = tnChrome(g, -28, 30); g.fillText("B.A.R.I.S.T.A.", 0, 30);
+    g.save(); g.translate(26, 142); g.rotate(-0.06);
+    g.font = `400 90px ${TN_FRAKTUR}`; g.lineJoin = "round";
+    const blood = g.createLinearGradient(0, -66, 0, 44);
+    [[0, "#FF5A66"], [0.45, "#C8102E"], [1, "#4A0010"]].forEach(([at, color]) => blood.addColorStop(at, color));
+    g.lineWidth = 3; g.strokeStyle = "#140508"; g.strokeText("defended", 0, 0);
+    g.fillStyle = blood; g.fillText("defended", 0, 0);
+    // drips running down from it (under the e, the n, the next e and the last d)
+    const word = "defended", full = g.measureText(word).width, mid = (i) => -full / 2 + (g.measureText(word.slice(0, i)).width + g.measureText(word.slice(0, i + 1)).width) / 2;
+    [[1, 18], [4, 30], [6, 12], [7, 24]].forEach(([letter, long], n) => {
+      const dx = mid(letter) + (n % 2 ? 4 : -3);
+      g.beginPath();
+      g.moveTo(dx - 2.6, -4);
+      g.bezierCurveTo(dx - 2.2, long * 0.5, dx - 3.4, long * 0.8, dx - 3.4, long);
+      g.arc(dx, long, 3.4, Math.PI, 0, true);
+      g.bezierCurveTo(dx + 3.4, long * 0.8, dx + 2.2, long * 0.5, dx + 2.6, -4);
+      g.closePath();
+      g.fillStyle = blood; g.fill();
+      g.fillStyle = "rgba(255, 190, 196, 0.55)"; g.beginPath(); g.ellipse(dx - 1.2, long - 0.6, 0.9, 1.5, 0, 0, Math.PI * 2); g.fill();
+    });
+    g.restore();
+    TN_RIVETS.forEach(([rx, ry]) => {
+      const gr = g.createRadialGradient(rx - 2.5, ry - 3, 1, rx, ry, 9);
+      gr.addColorStop(0, "#FFFFFF"); gr.addColorStop(0.45, "#9FDDE1"); gr.addColorStop(1, "#1C3438");
+      g.fillStyle = "#05070A"; g.beginPath(); g.arc(rx, ry, 10.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = gr; g.beginPath(); g.arc(rx, ry, 8.5, 0, Math.PI * 2); g.fill();
+    });
+    // (with motion turned down they cannot move, so they are drawn here, still, as they hang: each a link every 10
+    // units along a sag from rivet to rivet, the padlock where the first sags most)
+    if (!motionOK()) {
+      [[0, 2], [1, 3]].forEach(([from, to], n) => {
+        const [ax, ay] = TN_RIVETS[from], [bx, by] = TN_RIVETS[to], cx = (ax + bx) / 2, cy = (ay + by) / 2 + 64;
+        const at = (t) => [(1 - t) ** 2 * ax + 2 * (1 - t) * t * cx + t * t * bx, (1 - t) ** 2 * ay + 2 * (1 - t) * t * cy + t * t * by];
+        let [px, py] = at(0), walked = 0, k = 0;
+        for (let i = 1; i <= 400; i++) {
+          const [x, y] = at(i / 400);
+          walked += Math.hypot(x - px, y - py);
+          if (walked >= 10) {
+            const pic = tnLink(28, k++ % 2 === 1), turn = Math.atan2(y - py, x - px);
+            g.save(); g.translate(x, y); g.rotate(turn); g.drawImage(pic.c, -7.5, -4, 15, 8); g.restore();
+            walked = 0;
+          }
+          [px, py] = [x, y];
+        }
+        if (n === 0) { const [lx, ly] = at(0.42), lock = tnPendant("lock", 60); g.drawImage(lock.c, lx - 13, ly + 4, 26, 26 * lock.h / lock.w); }
+        // (and bats hanging from them)
+        [0.2, 0.31, 0.7, 0.82].forEach((t) => { const [bx, by] = at(t); tnBat(g, bx, by + 2, 21, true); });
+      });
+    }
+  };
+  // A bat, drawn at x, y (s: half its wingspan): flying (its wings out and beating as phase turns, tilted as it banks)
+  // or hanging upside down from x, y (wrapped in its wings, its ears at the bottom). Near-black with a rim of red
+  // where the moon catches it (so it shows on charcoal), red eyes.
+  const tnBat = (g, x, y, s, hanging, phase = 0, tilt = 0) => {
+    g.save(); g.translate(x, y);
+    g.fillStyle = "#2A1219"; g.strokeStyle = "rgba(236, 56, 74, 0.9)"; g.lineWidth = Math.max(1, s * 0.05); g.lineJoin = "round"; g.lineCap = "round";
+    if (hanging) {
+      // its claws round the chain
+      g.beginPath(); g.moveTo(-s * 0.07, s * 0.1); g.quadraticCurveTo(-s * 0.1, -s * 0.02, -s * 0.03, -s * 0.03); g.moveTo(s * 0.07, s * 0.1); g.quadraticCurveTo(s * 0.1, -s * 0.02, s * 0.03, -s * 0.03); g.stroke();
+      // wrapped in its wings, widest low down, the wing's tips scalloped at the bottom, its head and ears under them
+      g.beginPath();
+      g.moveTo(-s * 0.09, s * 0.08);
+      g.bezierCurveTo(-s * 0.36, s * 0.22, -s * 0.46, s * 0.56, -s * 0.38, s * 0.8);
+      g.quadraticCurveTo(-s * 0.3, s * 0.74, -s * 0.24, s * 0.84);
+      g.quadraticCurveTo(-s * 0.18, s * 0.8, -s * 0.12, s * 0.9);
+      g.lineTo(-s * 0.19, s * 1.08); g.lineTo(-s * 0.05, s * 0.97); g.lineTo(s * 0.05, s * 0.97); g.lineTo(s * 0.19, s * 1.08); g.lineTo(s * 0.12, s * 0.9);
+      g.quadraticCurveTo(s * 0.18, s * 0.8, s * 0.24, s * 0.84);
+      g.quadraticCurveTo(s * 0.3, s * 0.74, s * 0.38, s * 0.8);
+      g.bezierCurveTo(s * 0.46, s * 0.56, s * 0.36, s * 0.22, s * 0.09, s * 0.08);
+      g.closePath(); g.fill(); g.stroke();
+      // (the folds of its wings)
+      g.beginPath(); g.moveTo(-s * 0.12, s * 0.16); g.quadraticCurveTo(-s * 0.26, s * 0.48, -s * 0.24, s * 0.82); g.moveTo(s * 0.12, s * 0.16); g.quadraticCurveTo(s * 0.26, s * 0.48, s * 0.24, s * 0.82); g.stroke();
+      g.fillStyle = "#FF2A3A"; g.shadowColor = "#FF2A3A"; g.shadowBlur = s * 0.3;
+      g.beginPath(); g.arc(-s * 0.055, s * 0.86, s * 0.032, 0, Math.PI * 2); g.arc(s * 0.055, s * 0.86, s * 0.032, 0, Math.PI * 2); g.fill();
+    } else {
+      g.rotate(tilt);
+      const up = Math.sin(phase) * s * 0.55, span = s * (0.84 + 0.16 * Math.abs(Math.cos(phase)));
+      for (const side of [-1, 1]) {
+        g.beginPath();
+        g.moveTo(side * s * 0.08, -s * 0.06);
+        g.quadraticCurveTo(side * span * 0.45, -s * 0.22 - up * 0.6, side * span, -up);
+        g.quadraticCurveTo(side * span * 0.86, s * 0.08 - up * 0.6, side * span * 0.72, s * 0.02 - up * 0.5);
+        g.quadraticCurveTo(side * span * 0.6, s * 0.2 - up * 0.35, side * span * 0.44, s * 0.08 - up * 0.3);
+        g.quadraticCurveTo(side * span * 0.3, s * 0.26 - up * 0.15, side * s * 0.1, s * 0.16);
+        g.closePath(); g.fill(); g.stroke();
+      }
+      g.beginPath(); g.ellipse(0, s * 0.04, s * 0.1, s * 0.2, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.arc(0, -s * 0.16, s * 0.09, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.moveTo(-s * 0.08, -s * 0.19); g.lineTo(-s * 0.07, -s * 0.34); g.lineTo(-s * 0.015, -s * 0.22); g.closePath(); g.moveTo(s * 0.08, -s * 0.19); g.lineTo(s * 0.07, -s * 0.34); g.lineTo(s * 0.015, -s * 0.22); g.closePath(); g.fill();
+      g.fillStyle = "#FF2A3A"; g.shadowColor = "#FF2A3A"; g.shadowBlur = s * 0.25;
+      g.beginPath(); g.arc(-s * 0.035, -s * 0.17, s * 0.025, 0, Math.PI * 2); g.arc(s * 0.035, -s * 0.17, s * 0.025, 0, Math.PI * 2); g.fill();
+    }
+    g.restore();
+  };
+  // Bats' wings in the air when the sound is on (made here): a flutter (noise through a low band, beating fast) for
+  // as many as take off, and now and then a squeak.
+  let tnFlutterAt = 0;
+  function tnFlutter(count) {
+    if (!soundWanted() || performance.now() - tnFlutterAt < 220) return;
+    tnFlutterAt = performance.now();
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const at = ctx.currentTime + 0.005, out = ctx.createGain(), long = 0.25 + Math.min(4, count) * 0.08;
+    out.gain.value = 0.16 + Math.min(4, count) * 0.03;
+    out.connect(ctx.destination);
+    const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), env = ctx.createGain(), beat = ctx.createOscillator(), depth = ctx.createGain();
+    source.buffer = keysNoise; source.loop = true;
+    band.type = "bandpass"; band.frequency.value = 900; band.Q.value = 0.8;
+    env.gain.setValueAtTime(0.0001, at); env.gain.exponentialRampToValueAtTime(1, at + 0.02); env.gain.exponentialRampToValueAtTime(0.0001, at + long);
+    // (the wingbeats: the level shaken about twenty times a second)
+    beat.frequency.value = 19 + Math.random() * 6; depth.gain.value = 0.6;
+    beat.connect(depth).connect(env.gain);
+    source.connect(band).connect(env).connect(out);
+    source.start(at, Math.random() * 0.2); source.stop(at + long + 0.05); beat.start(at); beat.stop(at + long + 0.05);
+    if (Math.random() < 0.6) {
+      const squeak = ctx.createOscillator(), sq = ctx.createGain(), t0 = at + 0.04 + Math.random() * 0.1;
+      squeak.type = "sine"; squeak.frequency.setValueAtTime(6400, t0); squeak.frequency.exponentialRampToValueAtTime(8600, t0 + 0.035);
+      sq.gain.setValueAtTime(0.0001, t0); sq.gain.exponentialRampToValueAtTime(0.25, t0 + 0.004); sq.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.045);
+      squeak.connect(sq).connect(out); squeak.start(t0); squeak.stop(t0 + 0.06);
+    }
+  }
+
+  // Pictures, made once a size: a link (chrome) seen face on (a ring) or edge on (a bar), for links size px apart;
+  // what hangs on a chain (a gothic cross, a dagger, a padlock), its hang point at its top middle. { c, w, h }
+  const tnPics = new Map();
+  const tnPic = (key, w, h, paint) => {
+    if (tnPics.has(key)) return tnPics.get(key);
+    const c = document.createElement("canvas");
+    c.width = Math.ceil(w * 2); c.height = Math.ceil(h * 2);
+    const g = c.getContext("2d");
+    g.scale(2, 2);
+    paint(g);
+    const pic = { c, w, h };
+    tnPics.set(key, pic);
+    return pic;
+  };
+  const tnShine = (g, y0, y1) => {
+    const gr = g.createLinearGradient(0, y0, 0, y1);
+    [[0, "#F2FFFF"], [0.35, TN_CYAN], [0.6, TN_DEEP], [0.85, TN_CYAN], [1, "#E9FFFF"]].forEach(([at, color]) => gr.addColorStop(at, color));
+    return gr;
+  };
+  const tnLink = (size, edge) => {
+    const s = Math.round(size * 2) / 2, w = s * 1.5, h = s * 0.8;
+    return tnPic(`link|${s}|${edge}`, w, h, (g) => {
+      g.translate(w / 2, h / 2);
+      if (!edge) {
+        g.beginPath(); g.ellipse(0, 0, s * 0.62, s * 0.27, 0, 0, Math.PI * 2);
+        g.lineWidth = s * 0.3; g.strokeStyle = "rgba(3, 8, 10, 0.9)"; g.stroke();
+        g.lineWidth = s * 0.17; g.strokeStyle = tnShine(g, -s * 0.36, s * 0.36); g.stroke();
+      } else {
+        g.fillStyle = "rgba(3, 8, 10, 0.9)"; g.beginPath(); g.roundRect(-s * 0.72, -s * 0.15, s * 1.44, s * 0.3, s * 0.15); g.fill();
+        g.fillStyle = tnShine(g, -s * 0.1, s * 0.1); g.beginPath(); g.roundRect(-s * 0.66, -s * 0.09, s * 1.32, s * 0.18, s * 0.09); g.fill();
+      }
+    });
+  };
+  // (a shape drawn twice: a little fatter in near-black for its edge, then in chrome)
+  const tnCast = (g, shape, w, h) => {
+    g.save(); g.fillStyle = "rgba(3, 8, 10, 0.92)"; g.strokeStyle = "rgba(3, 8, 10, 0.92)"; g.lineWidth = Math.max(w, h) * 0.05; shape(g, true); g.restore();
+    const gr = g.createLinearGradient(0, 0, w, h);
+    [[0, "#F4FFFF"], [0.3, "#A9E4E7"], [0.48, "#24474D"], [0.56, "#7FD3D8"], [0.8, "#EAFEFF"], [1, "#8CC4C8"]].forEach(([at, color]) => gr.addColorStop(at, color));
+    g.fillStyle = gr; g.strokeStyle = gr; g.lineWidth = Math.max(w, h) * 0.025; shape(g, false);
+  };
+  const tnPendant = (kind, size) => {
+    if (kind === "cross") {
+      const w = size, h = size * 1.48, cx = w / 2;
+      return tnPic(`cross|${Math.round(size)}`, w, h, (g) => {
+        g.translate(0, 1);
+        tnCast(g, (c, edge) => {
+          const e = edge ? size * 0.03 : 0;
+          c.beginPath(); c.arc(cx, size * 0.07, size * 0.065, 0, Math.PI * 2); c.stroke();
+          c.beginPath();
+          c.rect(cx - size * 0.08 - e, size * 0.16 - e, size * 0.16 + e * 2, size * 1.2 + e * 2);
+          c.rect(size * 0.1 - e, size * 0.44 - e, size * 0.8 + e * 2, size * 0.16 + e * 2);
+          [[cx, 0.15], [cx - size * 0.1, 0.23], [cx + size * 0.1, 0.23], [cx, 1.38], [cx - size * 0.1, 1.3], [cx + size * 0.1, 1.3],
+            [size * 0.07, 0.52], [size * 0.15, 0.42], [size * 0.15, 0.62], [w - size * 0.07, 0.52], [w - size * 0.15, 0.42], [w - size * 0.15, 0.62]]
+            .forEach(([x, y]) => { c.moveTo(x + size * 0.085 + e, y * size); c.arc(x, y * size, size * 0.085 + e, 0, Math.PI * 2); });
+          c.fill();
+        }, w, h);
+        // its stone
+        g.fillStyle = "#05070A"; g.beginPath(); g.arc(cx, size * 0.52, size * 0.085, 0, Math.PI * 2); g.fill();
+        g.fillStyle = TN_CYAN; g.beginPath(); g.arc(cx, size * 0.52, size * 0.06, 0, Math.PI * 2); g.fill();
+        g.fillStyle = "#FFFFFF"; g.beginPath(); g.arc(cx - size * 0.02, size * 0.5, size * 0.018, 0, Math.PI * 2); g.fill();
+      });
+    }
+    if (kind === "dagger") {
+      const w = size * 0.46, h = size * 1.04, cx = w / 2;
+      return tnPic(`dagger|${Math.round(size)}`, w, h, (g) => {
+        g.translate(0, 1);
+        tnCast(g, (c, edge) => {
+          const e = edge ? size * 0.018 : 0;
+          c.beginPath(); c.arc(cx, size * 0.04, size * 0.035, 0, Math.PI * 2); c.stroke();
+          c.beginPath();
+          c.arc(cx, size * 0.11, size * 0.05 + e, 0, Math.PI * 2);
+          c.rect(cx - size * 0.032 - e, size * 0.15 - e, size * 0.064 + e * 2, size * 0.22 + e * 2);
+          c.moveTo(cx - size * 0.21 - e, size * 0.36 - e); c.quadraticCurveTo(cx, size * 0.33 - e, cx + size * 0.21 + e, size * 0.36 - e);
+          c.lineTo(cx + size * 0.2 + e, size * 0.41 + e); c.quadraticCurveTo(cx, size * 0.38 + e, cx - size * 0.2 - e, size * 0.41 + e); c.closePath();
+          c.moveTo(cx - size * 0.065 - e, size * 0.4); c.lineTo(cx + size * 0.065 + e, size * 0.4); c.lineTo(cx + size * 0.048 + e, size * 0.86);
+          c.lineTo(cx, size * 1.0 + e); c.lineTo(cx - size * 0.048 - e, size * 0.86); c.closePath();
+          c.fill();
+        }, w, h);
+        // the fuller down its blade, the grip's wrap
+        g.strokeStyle = "rgba(10, 30, 34, 0.75)"; g.lineWidth = size * 0.012;
+        g.beginPath(); g.moveTo(cx, size * 0.43); g.lineTo(cx, size * 0.9); g.stroke();
+        for (let y = 0.17; y < 0.36; y += 0.035) { g.beginPath(); g.moveTo(cx - size * 0.032, y * size); g.lineTo(cx + size * 0.032, (y + 0.02) * size); g.stroke(); }
+      });
+    }
+    // the padlock: its shackle, its body, the keyhole, a cross cut in it
+    const w = size, h = size * 1.26, cx = w / 2;
+    return tnPic(`lock|${Math.round(size)}`, w, h, (g) => {
+      g.translate(0, 1);
+      tnCast(g, (c, edge) => {
+        const e = edge ? size * 0.035 : 0;
+        c.save(); c.lineWidth = size * 0.12 + e * 2; c.beginPath(); c.moveTo(cx - size * 0.27, size * 0.56); c.lineTo(cx - size * 0.27, size * 0.36);
+        c.arc(cx, size * 0.36, size * 0.27, Math.PI, 0); c.lineTo(cx + size * 0.27, size * 0.56); c.stroke(); c.restore();
+        c.beginPath(); c.roundRect(size * 0.08 - e, size * 0.5 - e, size * 0.84 + e * 2, size * 0.72 + e * 2, size * 0.13); c.fill();
+      }, w, h);
+      g.fillStyle = "#05070A";
+      g.beginPath(); g.arc(cx, size * 0.8, size * 0.075, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.moveTo(cx - size * 0.04, size * 0.82); g.lineTo(cx + size * 0.04, size * 0.82); g.lineTo(cx + size * 0.055, size * 1.0); g.lineTo(cx - size * 0.055, size * 1.0); g.closePath(); g.fill();
+      g.strokeStyle = "rgba(10, 30, 34, 0.6)"; g.lineWidth = size * 0.025;
+      g.beginPath(); g.moveTo(cx - size * 0.3, size * 0.6); g.lineTo(cx - size * 0.3, size * 1.12); g.moveTo(cx + size * 0.3, size * 0.6); g.lineTo(cx + size * 0.3, size * 1.12); g.stroke();
+    });
+  };
+
+  const tinStage = (() => {
+    const STEP = 1 / 120, ITER = 8, DAMP = 0.994;
+    let canvas = null, g = null, W = 0, H = 0, ratio = 1, title = null, chains = [], tb = null, wide = 0, last = 0, lastSix = -1, fresh = false;
+    let held = null; // { ch, i, id, x, y, x0, y0, moved }
+    // the bats: each with a roost (a point of a chain, { c, i }), hanging there, flying about or flying home
+    let bats = [], roosts = [], pointer = { x: -999, y: -999 };
+    // a chain: its points (x, y; px, py where it was a step ago; w: how far a pull moves it, 0 while it is held or
+    // anchored), a link's length, where its first point hangs from now (head) and its last (tail, for one hung by
+    // both ends), and what hangs on it ({ kind, size }); kick: its anchors' jolt
+    const chainOf = (head, tail, length, link, hang) => {
+      const n = Math.max(3, Math.round(length / link) + 1), [hx, hy] = head(), [tx, ty] = tail ? tail() : [hx, hy], p = [];
+      // (it drops in: one hung by both ends from a little above its place, one hung by one end bunched at its anchor)
+      for (let i = 0; i < n; i++) { const q = i / (n - 1), x = dfMix(hx, tx, q), y = dfMix(hy, ty, q) - (tail ? 150 : 0); p.push({ x, y, px: x, py: y, w: 1 }); }
+      p[0].w = 0;
+      if (tail) p[n - 1].w = 0;
+      else if (hang) p[n - 1].w = 0.3; // (what hangs on it: heavier)
+      return { p, link, head, tail, hang, kick: 0, hx, hy };
+    };
+    const rivet = (i) => () => {
+      const s = tb.width / DF_ART.w;
+      return [tb.left + (TN_RIVETS[i][0] - DF_ART.x) * s, tb.top + (TN_RIVETS[i][1] - DF_ART.y) * s];
+    };
+    const build = () => {
+      chains = [];
+      tb = title?.el.getBoundingClientRect();
+      if (!tb?.width) return;
+      const s = tb.width / DF_ART.w, link = Math.max(7, 10 * s);
+      // (a little slack: they sag through B.A.R.I.S.T.A., clear of "defended")
+      const across = (a, b) => Math.hypot(TN_RIVETS[a][0] - TN_RIVETS[b][0], TN_RIVETS[a][1] - TN_RIVETS[b][1]) * s * 1.012;
+      const one = chainOf(rivet(0), rivet(2), across(0, 2), link), two = chainOf(rivet(1), rivet(3), across(1, 3), link);
+      // the padlock, on a short branch from a point of the first a little left of its middle
+      const at = Math.round(one.p.length * 0.42), lock = chainOf(() => [one.p[at].x, one.p[at].y], null, link * 2.2, link * 1.1, { kind: "lock", size: Math.max(20, link * 2.6) });
+      lock.branch = true;
+      chains.push(one, two, lock);
+      // the margins' (where there is room beside the page's column)
+      const column = document.querySelector("main .wrap");
+      const gutter = column ? column.getBoundingClientRect().left + parseFloat(getComputedStyle(column).paddingLeft) : 0;
+      wide = gutter;
+      if (gutter >= 64) {
+        const x = Math.round(gutter / 2);
+        chains.push(chainOf(() => [x, -8], null, H * 0.42, 13, { kind: "cross", size: Math.min(40, gutter * 0.5) }));
+        chains.push(chainOf(() => [W - x, -8], null, H * 0.32, 13, { kind: "dagger", size: Math.min(78, gutter) }));
+      }
+      seat();
+    };
+    // the bats' roosts along the chains (clear of the padlock and of where the two cross), a bat on some of them
+    const seat = () => {
+      roosts = [];
+      chains.forEach((ch, c) => {
+        if (ch.branch) return;
+        const n = ch.p.length;
+        (ch.tail ? [0.13, 0.22, 0.31, 0.62, 0.72, 0.84] : [0.35, 0.62]).forEach((m) => roosts.push({ c, i: Math.max(1, Math.min(n - 2, Math.round(m * (n - 1)))) }));
+      });
+      const want = W < 600 ? 7 : 12, free = roosts.slice().sort(() => Math.random() - 0.5);
+      while (bats.length < want) bats.push({ state: "hang", x: 0, y: 0, vx: 0, vy: 0, phase: Math.random() * 6.3, s: (W < 600 ? 17 : 24) + Math.random() * (W < 600 ? 5 : 8), until: 0, goal: null, r: null });
+      bats.length = Math.min(bats.length, want);
+      bats.forEach((b, i) => { b.r = free[i % free.length]; });
+    };
+    // where a roost is now (its chain's point, the bat's feet just under it)
+    const perch = (r) => { const q = r && chains[r.c]?.p[r.i]; return q ? [q.x, q.y + 1.5] : null; };
+    const target = () => [W * (0.08 + Math.random() * 0.84), H * (0.06 + Math.random() * 0.5)];
+    const takeOff = (b, now) => {
+      if (b.state !== "hang") return false;
+      Object.assign(b, { state: "fly", vx: (Math.random() - 0.5) * 160, vy: 40 + Math.random() * 60, until: now + 2600 + Math.random() * 3200, goal: target() });
+      return true;
+    };
+    // (the hanging ones within reach of x, y take off)
+    const scare = (x, y, reach, now) => {
+      let n = 0;
+      for (const b of bats) if (b.state === "hang" && Math.hypot(b.x - x, b.y + b.s * 0.5 - y) < reach && takeOff(b, now)) n++;
+      if (n) tnFlutter(n);
+    };
+    // a frame of the bats: hanging ones go with their chain; flying ones steer for where they are going (somewhere
+    // up the screen, or home), away from the pointer and from each other, with a bat's jinks, wings beating
+    const flyBats = (dt, now) => {
+      for (const b of bats) {
+        if (b.state === "hang") { const at = perch(b.r); if (at) { b.x = at[0]; b.y = at[1]; } continue; }
+        const goal = b.state === "home" ? perch(b.r) : b.goal;
+        if (!goal) { b.state = "fly"; b.goal = target(); continue; }
+        const dx = goal[0] - b.x, dy = goal[1] - b.y, d = Math.hypot(dx, dy) || 1, speed = b.state === "home" ? Math.min(280, 40 + d * 2.4) : 230;
+        let ax = (dx / d * speed - b.vx) * 2.2, ay = (dy / d * speed - b.vy) * 2.2;
+        const fx = b.x - pointer.x, fy = b.y - pointer.y, fd = Math.hypot(fx, fy);
+        if (fd > 0 && fd < 140) { ax += (fx / fd) * 1600 * (1 - fd / 140); ay += (fy / fd) * 1600 * (1 - fd / 140); }
+        for (const o of bats) if (o !== b && o.state !== "hang") { const ox = b.x - o.x, oy = b.y - o.y, od = Math.hypot(ox, oy); if (od > 0 && od < 34) { ax += (ox / od) * 500; ay += (oy / od) * 500; } }
+        ax += (Math.random() - 0.5) * 600; ay += (Math.random() - 0.5) * 1400;
+        b.vx += ax * dt; b.vy += ay * dt;
+        const v = Math.hypot(b.vx, b.vy);
+        if (v > 360) { b.vx *= 360 / v; b.vy *= 360 / v; }
+        b.x += b.vx * dt; b.y += b.vy * dt;
+        b.phase += dt * Math.PI * 2 * (b.vy < -40 ? 11 : 8.5);
+        if (b.state === "fly") { if (d < 70) b.goal = target(); if (now > b.until) b.state = "home"; }
+        else if (d < 9) Object.assign(b, { state: "hang", vx: 0, vy: 0 });
+      }
+    };
+    const drawBats = () => {
+      for (const flying of [false, true]) for (const b of bats) {
+        if ((b.state !== "hang") !== flying || b.y < -60 || b.y > H + 60) continue;
+        g.setTransform(ratio, 0, 0, ratio, 0, 0);
+        if (flying) tnBat(g, b.x, b.y, b.s, false, b.phase, Math.max(-0.5, Math.min(0.5, b.vx / 420)));
+        else tnBat(g, b.x, b.y, b.s * 0.9, true);
+      }
+    };
+    const resize = () => {
+      const was = W;
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+      // (rebuilt when the width changes: a phone's bar coming and going changes only the height)
+      if (was !== W && chains.length) build();
+    };
+    const hangPic = (hang) => tnPendant(hang.kind, hang.size);
+    // the point of a chain nearest x, y within reach (what hangs on one counts all over it); null if none
+    const near = (x, y, reach) => {
+      let best = null, bd = reach * reach;
+      for (const ch of chains) {
+        const p = ch.p, n = p.length;
+        for (let i = 1; i < n; i++) {
+          if (ch.tail && i === n - 1) continue;
+          let qx = p[i].x, qy = p[i].y, extra = 0;
+          if (ch.hang && i === n - 1) {
+            const pic = hangPic(ch.hang), a = p[n - 2], d = Math.hypot(qx - a.x, qy - a.y) || 1;
+            qx = a.x + ((qx - a.x) / d) * pic.h * 0.5; qy = a.y + ((qy - a.y) / d) * pic.h * 0.5; extra = pic.w * 0.5;
+          }
+          const d2 = Math.max(0, Math.hypot(x - qx, y - qy) - extra) ** 2;
+          if (d2 < bd) { bd = d2; best = { ch, i }; }
+        }
+      }
+      return best;
+    };
+    const blocked = () => Boolean(document.querySelector(".ae-pc-modal:not([hidden]), .ae-picker:not([hidden]), .df-intro"));
+    let swallow = null;
+    const down = (event) => {
+      if (held || !event.isPrimary || event.button > 0 || blocked()) return;
+      // (a finger has to be near a chain to take it: the cover is mostly chains, and a swipe there may mean to scroll)
+      const hit = near(event.clientX, event.clientY, event.pointerType === "touch" ? 22 : 18);
+      // (a click or tap near the bats sends them up; one on their chain too)
+      if (!hit) { scare(event.clientX, event.clientY, 140, performance.now()); return; }
+      let n = 0;
+      for (const b of bats) if (b.r && chains[b.r.c] === hit.ch && takeOff(b, performance.now())) n++;
+      if (n) tnFlutter(n);
+      event.preventDefault(); event.stopPropagation();
+      const q = hit.ch.p[hit.i];
+      held = { ch: hit.ch, i: hit.i, id: event.pointerId, x: event.clientX, y: event.clientY, x0: q.x, y0: q.y, w: q.w, moved: false };
+      q.w = 0;
+      root.classList.add("tn-grabbing");
+      dfClink(2, 70, 0.18);
+    };
+    const move = (event) => {
+      pointer = { x: event.clientX, y: event.clientY };
+      if (!held) {
+        if (event.pointerType === "mouse" && !blocked()) { root.classList.toggle("tn-grab", Boolean(near(event.clientX, event.clientY, 18))); scare(event.clientX, event.clientY, 55, performance.now()); }
+        return;
+      }
+      if (event.pointerId !== held.id) return;
+      event.preventDefault();
+      held.x = event.clientX; held.y = event.clientY; held.moved = true;
+    };
+    const up = (event) => {
+      if (!held || event.pointerId !== held.id) return;
+      const q = held.ch.p[held.i];
+      q.w = held.w;
+      // (flung as fast as it was moving, within reason)
+      const vx = q.x - q.px, vy = q.y - q.py, v = Math.hypot(vx, vy), most = 40;
+      if (v > most) { q.px = q.x - (vx / v) * most; q.py = q.y - (vy / v) * most; }
+      if (v > 8) dfClink(1, 0, 0.14);
+      // (the click a drag ends in goes nowhere)
+      if (held.moved) { swallow = (e) => { e.preventDefault(); e.stopPropagation(); }; window.addEventListener("click", swallow, { capture: true, once: true }); setTimeout(() => window.removeEventListener("click", swallow, true), 0); }
+      held = null;
+      root.classList.remove("tn-grabbing");
+    };
+    // (a touch on a chain moves it, not the page)
+    const touch = (event) => { if (held && event.cancelable) event.preventDefault(); };
+    const jolt = (strong) => {
+      for (const ch of chains) {
+        if (ch.branch) continue; // (the padlock goes with its chain)
+        ch.kick = (strong ? -9 : -4) * (ch.link / 13);
+        if (!ch.tail) { const z = ch.p[ch.p.length - 1]; z.px += (Math.random() < 0.5 ? -1 : 1) * (strong ? 2.4 : 1.1); }
+      }
+    };
+    const step = (h, f) => {
+      const gy = 2600 * h * h;
+      for (const ch of chains) {
+        const p = ch.p, n = p.length;
+        for (let i = 0; i < n; i++) {
+          const q = p[i];
+          if (q.w === 0) continue;
+          const vx = (q.x - q.px) * DAMP, vy = (q.y - q.py) * DAMP;
+          q.px = q.x; q.py = q.y;
+          q.x += vx; q.y += vy + gy;
+        }
+        const [hx, hy] = ch.head(), [tx, ty] = ch.tail ? ch.tail() : [0, 0];
+        // the one held follows the pointer (through the frame, so it carries its speed when let go), as far as the
+        // chain reaches from its anchors
+        if (held?.ch === ch) {
+          const q = p[held.i];
+          let x = dfMix(held.x0, held.x, f), y = dfMix(held.y0, held.y, f);
+          for (const [ax, ay, links] of ch.tail ? [[hx, hy, held.i], [tx, ty, n - 1 - held.i]] : [[hx, hy, held.i]]) {
+            const dx = x - ax, dy = y - ay, d = Math.hypot(dx, dy), most = links * ch.link;
+            if (d > most) { x = ax + (dx / d) * most; y = ay + (dy / d) * most; }
+          }
+          q.px = q.x; q.py = q.y; q.x = x; q.y = y;
+        }
+        for (let it = 0; it < ITER; it++) {
+          p[0].x = hx; p[0].y = hy + ch.kick;
+          if (ch.tail) { p[n - 1].x = tx; p[n - 1].y = ty + ch.kick; }
+          // (each link, swept from one end then the other in turn)
+          for (let k = 1; k < n; k++) {
+            const i = it % 2 ? n - k : k, a = p[i - 1], b = p[i], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy), sum = a.w + b.w;
+            if (d <= ch.link || !sum) continue;
+            const c = (d - ch.link) / (d * sum);
+            a.x += dx * c * a.w; a.y += dy * c * a.w;
+            b.x -= dx * c * b.w; b.y -= dy * c * b.w;
+          }
+        }
+        // and none of it farther from an anchor than the links between them reach (a long chain solved a few times
+        // a step would otherwise stretch like rubber)
+        const a = p[0], z = p[n - 1];
+        for (let i = 1; i < n; i++) {
+          const q = p[i];
+          if (q.w === 0) continue;
+          let dx = q.x - a.x, dy = q.y - a.y, d = Math.hypot(dx, dy), most = i * ch.link;
+          if (d > most) { q.x = a.x + (dx / d) * most; q.y = a.y + (dy / d) * most; }
+          if (!ch.tail) continue;
+          dx = q.x - z.x; dy = q.y - z.y; d = Math.hypot(dx, dy); most = (n - 1 - i) * ch.link;
+          if (d > most) { q.x = z.x + (dx / d) * most; q.y = z.y + (dy / d) * most; }
+        }
+      }
+    };
+    const draw = () => {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      for (const ch of chains) {
+        const p = ch.p, n = p.length, ends = ch.hang ? n - 1 : n;
+        let top = Infinity, bottom = -Infinity;
+        for (const q of p) { if (q.y < top) top = q.y; if (q.y > bottom) bottom = q.y; }
+        if (bottom < -80 || top > H + 80) continue;
+        for (let i = 1; i < ends; i++) {
+          const a = p[i - 1], b = p[i], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, pic = tnLink(ch.link, i % 2 === 0);
+          const cos = dx / d, sin = dy / d;
+          g.setTransform(cos * ratio, sin * ratio, -sin * ratio, cos * ratio, (a.x + b.x) * 0.5 * ratio, (a.y + b.y) * 0.5 * ratio);
+          g.drawImage(pic.c, -pic.w / 2, -pic.h / 2, pic.w, pic.h);
+        }
+        if (ch.hang) {
+          const a = p[n - 2], b = p[n - 1], pic = hangPic(ch.hang), turn = Math.atan2(b.y - a.y, b.x - a.x) - Math.PI / 2, cos = Math.cos(turn), sin = Math.sin(turn);
+          g.setTransform(cos * ratio, sin * ratio, -sin * ratio, cos * ratio, a.x * ratio, a.y * ratio);
+          g.drawImage(pic.c, -pic.w / 2, -pic.w * 0.02, pic.w, pic.h);
+        }
+      }
+    };
+    return {
+      beat: DF_BEAT, parts: [DF_TRACK], grid: 0, sections: [[0, "calm"]],
+      fx: `<canvas class="df-chains"></canvas>`,
+      mount(fx) {
+        canvas = fx.querySelector(".df-chains");
+        g = canvas.getContext("2d");
+        W = 0;
+        resize();
+        title ??= dfHeaderTitle("PROJECT B.A.R.I.S.T.A. in chrome blackletter, two chains crossed over it, and under it: defended", tnTitleArt, TN_TITLE_FONTS);
+        if (!motionOK()) return; // (no chains to play with: they only move)
+        build();
+        // (its pictures made and drawn once now, while the circle it comes on in is still shut)
+        draw();
+        window.addEventListener("resize", resize);
+        window.addEventListener("pointerdown", down, true);
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", up, true);
+        window.addEventListener("pointercancel", up, true);
+        document.addEventListener("touchstart", touch, { capture: true, passive: false });
+        document.addEventListener("touchmove", touch, { capture: true, passive: false });
+        lastSix = -1; fresh = true;
+      },
+      tick(at) {
+        if (at >= 0) { dfHeard.at = at; dfHeard.now = performance.now(); }
+        if (!g || !chains.length) return;
+        const now = performance.now();
+        // (still, and not drawn, until the circle it comes on in opens; then the chains drop in)
+        if (now < dfHold) return;
+        if (fresh) {
+          fresh = false; last = now; dfClink(9, 520, 0.2);
+          // (the bats fly in from over the top of the screen to their roosts)
+          for (const b of bats) Object.assign(b, { state: "home", x: W * Math.random(), y: -40 - Math.random() * 140, vx: 0, vy: 140 });
+          tnFlutter(4);
+        }
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        // the groove's hits jolt them (sixteenths 0 and 8 hard, 4 and 14 lightly)
+        if (at >= 0) {
+          const six = Math.floor(at / (DF_BEAT / 4));
+          if (six !== lastSix) {
+            const s = six % 16;
+            if (lastSix >= 0 && (s === 0 || s === 8)) jolt(true); else if (lastSix >= 0 && (s === 4 || s === 14)) jolt(false);
+            // (every eight bars, on a downbeat, two of the bats go off for a flight)
+            if (lastSix >= 0 && s === 0 && Math.floor(six / 16) % 8 === 3) { let n = 0; for (const b of bats.filter((o) => o.state === "hang").sort(() => Math.random() - 0.5).slice(0, 2)) if (takeOff(b, now)) n++; if (n) tnFlutter(n); }
+            lastSix = six;
+          }
+        }
+        tb = title?.el.getBoundingClientRect() ?? tb;
+        // (where the page jumped rather than scrolled, a chain hung from it goes with it whole)
+        for (const ch of chains) {
+          const [hx, hy] = ch.head(), dx = hx - ch.hx, dy = hy - ch.hy;
+          if (Math.abs(dx) > 180 || Math.abs(dy) > 180) for (const q of ch.p) { q.x += dx; q.px += dx; q.y += dy; q.py += dy; }
+          ch.hx = hx; ch.hy = hy;
+          ch.kick *= Math.exp(-dt * 14);
+        }
+        const steps = Math.max(1, Math.min(4, Math.round(dt / STEP)));
+        for (let k = 1; k <= steps; k++) step(STEP, k / steps);
+        if (held) { const q = held.ch.p[held.i]; held.x0 = q.x; held.y0 = q.y; }
+        flyBats(dt, now);
+        draw();
+        drawBats();
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        window.removeEventListener("pointerdown", down, true);
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", up, true);
+        window.removeEventListener("pointercancel", up, true);
+        document.removeEventListener("touchstart", touch, true);
+        document.removeEventListener("touchmove", touch, true);
+        root.classList.remove("tn-grab", "tn-grabbing");
+        title?.remove(); title = null;
+        chains = []; held = null; canvas = null; g = null; bats = []; roosts = []; pointer = { x: -999, y: -999 };
+      },
+    };
+  })();
+
+  // ── Cheng's version of Defended: rhythm ──
+  // Navy with neon blue and purple (the colours of his card); the cover a map of its own (B.A.R.I.S.T.A.'s dots its
+  // circles, "defended" a slider). Its game is played over the page: a map of the loop with osu!'s rules (standard):
+  // circles with approach circles, sliders (head, ticks, repeats, end), a spinner, note lock, the hit windows, combo,
+  // accuracy, score, HP and grades worked out as osu! does, from the map's settings (CS 4, AR 9, OD 8, HP 5). Its
+  // look and sounds are its own, and so is the map (charted for this loop on the drums of the scan: cheng/chart.cjs).
+  // PLAY (bottom left) starts it on the next four-bar phrase: one pass of the loop (16 bars, the last a spinner), then
+  // its result. Hover and press Z or X, or click, on a computer; tap on a phone. Each press is judged at its own time
+  // against the music as heard (the player's clock, its output delay taken off).
+  const CH_CHART = [[0,"c",174.8,300,1],[4,"c",73.6,56.1,0],[8,"s",328.1,129.7,0,[328.1,129.7,331.2,132.2,334.3,134.7,337.4,137.3,340.5,139.8,343.7,142.3,346.8,144.8,349.9,147.3,353,149.9,356.1,152.4,359.2,154.9,362.3,157.4,365.4,159.9,368.5,162.4,371.6,165,374.7,167.5,377.8,170,380.9,172.5,384.1,175,387.2,177.6,390.3,180.1,393.4,182.6,396.5,185.1,399.6,187.6,402.7,190.2,405.8,192.7,408.9,195.2,412,197.7,415.1,200.2,418.2,202.7,421.3,205.3,424.5,207.8,427.6,210.3,430.7,212.8,433.8,215.3,436.9,217.9],4,0],[14,"c",236.5,333.3,0],[16,"c",177.2,106,1],[18,"c",320,240.7,0],[20,"c",440.6,63.9,0],[22,"c",465.7,259.2,0],[24,"s",231.5,251.2,0,[231.5,251.2,227.7,249.9,223.9,248.6,220.1,247.3,216.3,246.1,212.5,244.8,208.8,243.5,205,242.2,201.2,240.9,197.4,239.6,193.6,238.3,189.8,237,186,235.8,182.2,234.5,178.5,233.2,174.7,231.9,170.9,230.6,167.1,229.3,163.3,228,159.5,226.7,155.7,225.5,152,224.2,148.2,222.9,144.4,221.6,140.6,220.3,136.8,219,133,217.7,129.2,216.4,125.4,215.1,121.7,213.9,117.9,212.6,114.1,211.3,110.3,210,106.5,208.7,102.7,207.4,98.9,206.1],4,0],[30,"c",277,50.3,0],[32,"c",408.3,243.5,1],[36,"c",165.1,335.3,0],[40,"s",301.2,97.1,0,[301.2,97.1,305.2,97.4,309.2,97.6,313.2,97.7,317.2,97.8,321.2,97.7,325.2,97.6,329.2,97.3,333.2,97,337.2,96.6,341.1,96.1,345.1,95.5,349,94.8,353,94.1,356.9,93.2,360.8,92.3,364.6,91.3,368.5,90.2,372.3,89,376.1,87.7,379.9,86.4,383.6,84.9,387.3,83.4,391,81.8,394.6,80.2,398.2,78.4,401.8,76.6,405.3,74.7,408.8,72.7,412.2,70.6,415.6,68.5,418.9,66.3,422.2,64,425.4,61.7,428.6,59.3,431.8,56.8],4,0],[46,"c",201.8,74.7,0],[48,"c",155.2,302.5,1],[50,"c",347.5,267.7,0],[52,"c",157.8,151.6,0],[54,"c",258,318.1,0],[56,"s",273.9,88.2,0,[273.9,88.2,272.5,91.8,271.2,95.5,269.9,99.1,268.5,102.8,267.2,106.4,265.9,110.1,264.5,113.7,263.2,117.4,261.9,121,260.5,124.7,259.2,128.3,257.9,132,256.5,135.7,255.2,139.3,253.8,143,252.5,146.6,251.2,150.3,249.8,153.9],2,0],[60,"c",131.6,314.7,0],[61,"c",87.7,341.5,0],[62,"c",48.2,309.2,0],[64,"c",101.4,79,1],[68,"c",345.1,178.7,0],[72,"s",81.7,222.8,0,[81.7,222.8,84.9,220.4,88.2,218.1,91.5,215.9,94.9,213.8,98.4,211.7,101.9,209.8,105.4,207.9,109,206.1,112.6,204.4,116.2,202.7,119.9,201.2,123.6,199.7,127.4,198.4,131.2,197.1,135,195.9,138.9,194.8,142.7,193.8,146.6,192.9,150.5,192.1,154.5,191.3,158.4,190.7,162.4,190.2,166.4,189.7,170.3,189.4,174.3,189.1,178.3,188.9,182.3,188.9,186.3,188.9,190.3,189,194.3,189.2,198.3,189.5,202.3,189.9,206.3,190.4,210.2,191,214.2,191.7],4,0],[76,"c",265.2,178.1,0],[78,"c",428,341.1,0],[80,"c",198.9,293.6,1],[82,"c",208.2,100.3,0],[84,"c",395.6,212.5,0],[86,"c",196.2,198.3,0],[88,"s",370.8,45.6,0,[370.8,45.6,367.6,47.8,364.4,50,361.2,52.3,358,54.5,354.8,56.7,351.7,59,348.5,61.2,345.3,63.4,342.1,65.7,338.9,67.9,335.8,70.2,332.6,72.4,329.4,74.6,326.2,76.9,323,79.1,319.8,81.3,316.7,83.6,313.5,85.8],2,0],[92,"c",113.1,82.4,0],[93,"c",65.4,61.2,0],[94,"c",115.6,76,0],[96,"c",116.4,310.1,1],[100,"c",376.1,265.6,0],[104,"s",195.5,70.2,0,[195.5,70.2,191.5,70.1,187.5,69.9,183.5,69.8,179.5,69.6,175.5,69.5,171.5,69.3,167.5,69.2,163.5,69,159.5,68.9,155.5,68.7,151.5,68.6,147.5,68.5,143.5,68.3,139.5,68.2,135.5,68,131.5,67.9,127.5,67.7,123.5,67.6,119.5,67.4,115.5,67.3,111.5,67.1,107.5,67,103.5,66.8,99.5,66.7,95.5,66.5,91.5,66.4,87.6,66.2,83.6,66.1,79.6,65.9,75.6,65.8,71.6,65.6,67.6,65.5,63.6,65.3,59.6,65.2,55.6,65.1],4,0],[108,"c",101.4,42.7,0],[110,"c",281.2,193.9,0],[112,"c",52.7,149.2,1],[114,"c",147.8,318.7,0],[116,"c",364.2,328.3,0],[118,"c",407.4,135.7,0],[120,"s",188.9,226.7,0,[188.9,226.7,192.2,228.8,195.6,230.6,199.2,232.2,202.8,233.5,206.5,234.7,210.3,235.5,214.1,236.2,218,236.6,221.9,236.7,225.8,236.6,229.7,236.2,233.5,235.6,237.3,234.7,241,233.6,244.7,232.3,248.2,230.7,251.7,228.9,255,226.9],2,0],[124,"c",60,242,0],[125,"c",44.9,291.8,0],[126,"c",96.2,284.7,0],[128,"c",326.9,280.6,1],[132,"c",149.6,92.5,0],[136,"s",397.1,202.3,0,[397.1,202.3,399.8,205.3,402.5,208.3,405,211.3,407.5,214.5,410,217.6,412.3,220.9,414.6,224.1,416.8,227.5,419,230.9,421,234.3,423,237.8,424.9,241.3,426.7,244.9,428.4,248.5,430,252.1,431.6,255.8,433,259.6,434.4,263.3,435.7,267.1,436.9,270.9,438,274.8,439,278.6,440,282.5,440.8,286.4,441.6,290.4,442.2,294.3,442.8,298.3,443.3,302.2,443.6,306.2,443.9,310.2,444.1,314.2,444.2,318.2,444.2,322.2,444.2,326.2,444,330.2],4,0],[142,"c",468.8,100,0],[144,"c",325.6,284.5,1],[146,"c",186.6,140.7,0],[148,"c",87.2,332.6,0],[150,"c",50.9,142.7,0],[152,"s",284,155.3,0,[284,155.3,287.8,155.9,291.6,156.7,295.4,157.8,299,159.1,302.6,160.7,306.1,162.5,309.4,164.5,312.6,166.7,315.6,169.2,318.4,171.8,321.1,174.6,323.6,177.6,325.9,180.8,327.9,184.1,329.8,187.5,331.4,191,332.7,194.7,333.8,198.4],2,1],[158,"c",98.9,296.4,0],[160,"c",184.1,74.2,1],[164,"c",418.4,183.4,0],[168,"s",176.5,296.1,0,[176.5,296.1,172.5,296.1,168.5,296,164.5,295.9,160.5,295.7,156.5,295.4,152.5,295.1,148.5,294.7,144.6,294.2,140.6,293.7,136.6,293,132.7,292.3,128.8,291.6,124.9,290.7,121,289.8,117.1,288.8,113.2,287.8,109.4,286.7,105.6,285.5,101.8,284.2,98,282.9,94.3,281.5,90.5,280.1,86.8,278.5,83.2,276.9,79.5,275.3,75.9,273.5,72.3,271.8,68.8,269.9,65.3,268,61.8,266,58.4,264,55,261.9,51.6,259.7,48.3,257.5,45,255.2],4,0],[174,"c",281.9,258,0],[176,"c",380.4,45.1,1],[178,"c",235.9,176.9,0],[180,"c",452.7,168.2,0],[182,"c",345.6,328.8,0],[184,"s",311.8,96,0,[311.8,96,308.8,93.5,305.9,90.9,302.9,88.4,300,85.9,297.1,83.3,294.1,80.8,291.2,78.2,288.2,75.7,285.3,73.1,282.3,70.6,279.4,68,276.5,65.5,273.5,63,270.6,60.4,267.6,57.9,264.7,55.3,261.8,52.8,258.8,50.2],2,0],[188,"c",307.3,244.6,0],[189,"c",256.2,238.4,0],[190,"c",211.5,211.4,0],[192,"c",413.8,88.6,1],[196,"c",159.6,125.6,0],[200,"s",348.5,321.8,0,[348.5,321.8,350.2,318.2,351.9,314.6,353.4,310.9,355,307.2,356.4,303.5,357.7,299.7,359,295.9,360.2,292.1,361.3,288.3,362.4,284.4,363.3,280.5,364.2,276.6,365,272.7,365.7,268.7,366.3,264.8,366.9,260.8,367.3,256.9,367.7,252.9,368,248.9,368.2,244.9,368.3,240.9,368.4,236.9,368.3,232.9,368.2,228.9,368,224.9,367.7,220.9,367.3,216.9,366.9,213,366.4,209,365.7,205,365,201.1,364.3,197.2,363.4,193.3,362.4,189.4,361.4,185.5],4,0],[204,"c",326,148.1,0],[206,"c",102.1,232.5,0],[208,"c",269.8,74.4,1],[210,"c",77.6,52.9,0],[212,"c",188.3,238.7,0],[214,"c",172.5,44.9,0],[216,"s",378.9,150.8,0,[378.9,150.8,382.2,152.8,385.5,154.7,388.9,156.7,392.2,158.7,395.6,160.7,398.9,162.7,402.2,164.7,405.6,166.7,408.9,168.7,412.3,170.7,415.6,172.7,418.9,174.7,422.3,176.7,425.6,178.7,429,180.6,432.3,182.6,435.6,184.6,439,186.6],2,1],[222,"c",218.6,322.2,0],[224,"c",222.7,83.5,1],[228,"c",393.2,286.2,0],[232,"s",124.3,235.4,0,[124.3,235.4,120.8,233.5,117.3,231.5,113.9,229.5,110.5,227.3,107.2,225,104,222.6,100.9,220.2,97.8,217.6,94.8,215,91.8,212.3,88.9,209.5,86.2,206.6,83.5,203.7,80.8,200.7,78.3,197.6,75.9,194.4,73.5,191.2,71.2,187.9,69.1,184.5,67,181.1,65,177.6,63.1,174.1,61.4,170.5,59.7,166.9,58.1,163.2,56.6,159.5,55.2,155.7,54,151.9,52.8,148.1,51.8,144.2,50.8,140.4,50,136.4,49.3,132.5,48.7,128.6,48.2,124.6],4,0],[236,"c",63,75.7,0],[238,"c",259.4,197.5,0],[240,"c",443,57.5,1],[242,"c",422.4,255.9,0],[244,"c",266.9,102.9,0],[246,"c",283.6,298.5,0],[248,"c",183.1,85,0],[250,"c",75.2,245,0],[252,"c",266,206,0],[253,"c",309.3,178.5,0],[254,"c",339.3,135,0]];
+  const CH_SET = { cs: 4, ar: 9, od: 8, hp: 5 };
+  const CH_R = 54.4 - 4.48 * CH_SET.cs; // (a circle's radius, in the field's 512 x 384)
+  const CH_PRE = (CH_SET.ar > 5 ? 1200 - (750 * (CH_SET.ar - 5)) / 5 : 1200 + (600 * (5 - CH_SET.ar)) / 5) / 1000;
+  const CH_FADE = (CH_SET.ar > 5 ? 800 - (500 * (CH_SET.ar - 5)) / 5 : 800 + (400 * (5 - CH_SET.ar)) / 5) / 1000;
+  const CH_W300 = (80 - 6 * CH_SET.od) / 1000, CH_W100 = (140 - 8 * CH_SET.od) / 1000, CH_W50 = (200 - 10 * CH_SET.od) / 1000, CH_EARLY = 0.4;
+  // (a spinner's turns a second to clear it, by OD)
+  const CH_RPS = CH_SET.od > 5 ? 2.5 + (1.25 * (CH_SET.od - 5)) / 5 : 1.5 + CH_SET.od / 5;
+  const CH_COLORS = ["#2FC7F7", "#A23CF0", "#FF4FA0", "#3DF0D0"];
+  const CH_SIX = DF_BEAT / 4, CH_FONT = "Oxanium, 'Saira', system-ui, sans-serif";
+  const CH_FONTS = ["700 40px Oxanium", "800 80px Oxanium", "600 20px Oxanium"];
+  // The cover, his: PROJECT in neon caps (the badge lit for its O), B.A.R.I.S.T.A. with a circle for each dot, and
+  // "defended" a slider under it (its head circle 8, its ball at the end). The dots' places (title units) kept for
+  // the stage's rings.
+  const chDots = [];
+  let chBadgePic = null;
+  const chTitleArt = (g) => {
+    const k = g.getTransform().a, badge = dfBadgeImg();
+    g.textBaseline = "alphabetic";
+    g.font = `600 46px ${CH_FONT}`; g.textAlign = "left";
+    const parts = ["P", "R", null, "J", "E", "C", "T"], gap = 14, o = 50, ws = parts.map((ch) => (ch ? g.measureText(ch).width : o));
+    let x = -(ws.reduce((a, b) => a + b, 0) + gap * 6) / 2;
+    g.fillStyle = "#9FE6FF";
+    parts.forEach((ch, i) => {
+      if (ch) g.fillText(ch, x, -70);
+      else if (badge.complete && badge.naturalWidth) {
+        if (!chBadgePic) { const c = document.createElement("canvas"); c.width = c.height = 200; const b = c.getContext("2d"); b.drawImage(badge, 0, 0, 200, 200); b.globalCompositeOperation = "source-in"; b.fillStyle = "#9FE6FF"; b.fillRect(0, 0, 200, 200); chBadgePic = c; }
+        g.drawImage(chBadgePic, x, -70 - o * 0.86, o, o);
+      }
+      x += ws[i] + gap;
+    });
+    // B.A.R.I.S.T.A.: its letters, a circle in each dot's place; its glow laid in at a quarter of the pixels
+    g.font = `800 82px ${CH_FONT}`;
+    const letters = "BARISTA".split(""), lw = letters.map((ch) => g.measureText(ch).width), dot = 30;
+    let lx = -(lw.reduce((a, b) => a + b, 0) + dot * 7) / 2;
+    const spots = [];
+    letters.forEach((ch, i) => { spots.push([ch, lx]); lx += lw[i]; chDots[i] = [lx + dot / 2, 16]; lx += dot; });
+    const m = g.getTransform(), q = 0.25, layer = document.createElement("canvas");
+    layer.width = Math.max(1, Math.round(g.canvas.width * q)); layer.height = Math.max(1, Math.round(g.canvas.height * q));
+    const lc = layer.getContext("2d");
+    lc.setTransform(m.a * q, m.b * q, m.c * q, m.d * q, m.e * q, m.f * q);
+    lc.font = g.font; lc.textBaseline = "alphabetic"; lc.shadowBlur = 26 * k * q;
+    spots.forEach(([ch, sx], i) => { lc.shadowColor = i % 2 ? "rgba(162, 60, 240, 0.9)" : "rgba(47, 199, 247, 0.9)"; lc.fillStyle = "#10162A"; lc.fillText(ch, sx, 30); });
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(layer, 0, 0, g.canvas.width, g.canvas.height); g.restore();
+    spots.forEach(([ch, sx]) => { g.fillStyle = "#F2F8FF"; g.fillText(ch, sx, 30); });
+    chDots.forEach(([dx, dy], i) => chCircle(g, dx, dy, 13, CH_COLORS[i % 2], String(i + 1), 1));
+    // defended, a slider: its body, the word in it, the head (8) and the ball at its end
+    const y0 = 118, left = -232, right = 236;
+    g.lineCap = "round";
+    g.strokeStyle = "rgba(162, 60, 240, 0.95)"; g.lineWidth = 62; g.beginPath(); g.moveTo(left, y0); g.lineTo(right, y0); g.stroke();
+    g.strokeStyle = "#0B1020"; g.lineWidth = 54; g.stroke();
+    g.font = `italic 700 50px ${CH_FONT}`; g.textAlign = "center";
+    const word = g.createLinearGradient(-150, 0, 190, 0);
+    word.addColorStop(0, "#2FC7F7"); word.addColorStop(1, "#C77DFF");
+    g.fillStyle = word; g.fillText("defended", 18, y0 + 17);
+    chCircle(g, right, y0, 25, "#A23CF0", "", 1, true);
+    chCircle(g, left, y0, 27, "#A23CF0", "8", 1);
+  };
+  // a circle, his way: a dark heart, a ring in its colour, a thin white one inside, its number; (ball) filled bright
+  const chCircle = (g, x, y, r, color, label, alpha, ball = false) => {
+    g.globalAlpha = alpha;
+    if (ball) {
+      const fill = g.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+      fill.addColorStop(0, "#FFFFFF"); fill.addColorStop(0.45, color); fill.addColorStop(1, "#2A1450");
+      g.fillStyle = fill; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = 1;
+      return;
+    }
+    g.fillStyle = "#0B1020"; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = color; g.lineWidth = r * 0.2; g.beginPath(); g.arc(x, y, r * 0.88, 0, Math.PI * 2); g.stroke();
+    g.strokeStyle = "rgba(255, 255, 255, 0.92)"; g.lineWidth = r * 0.07; g.beginPath(); g.arc(x, y, r * 0.66, 0, Math.PI * 2); g.stroke();
+    if (label) { g.fillStyle = "#FFFFFF"; g.font = `700 ${Math.round(r * 0.78)}px ${CH_FONT}`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(label, x, y + r * 0.04); g.textBaseline = "alphabetic"; }
+    g.globalAlpha = 1;
+  };
+  // Its sounds (made here, when the sound is on): a hit (a click and a short bright tone), a slider's tick, the combo
+  // breaking (a falling tone), a spinner's turn, a spinner cleared.
+  function chSound(kind) {
+    if (!soundWanted()) return;
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const at = ctx.currentTime + 0.002, out = ctx.createGain();
+    out.gain.value = { hit: 0.32, tick: 0.16, break: 0.3, spin: 0.08, clear: 0.22 }[kind] ?? 0.2;
+    out.connect(ctx.destination);
+    const tone = (type, from, to, decay, level = 1, delay = 0) => {
+      const osc = ctx.createOscillator(), env = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(from, at + delay);
+      osc.frequency.exponentialRampToValueAtTime(to, at + delay + decay);
+      env.gain.setValueAtTime(0.0001, at + delay);
+      env.gain.exponentialRampToValueAtTime(level, at + delay + 0.002);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + delay + decay);
+      osc.connect(env).connect(out);
+      osc.start(at + delay); osc.stop(at + delay + decay + 0.02);
+    };
+    const click = (freq, decay, level) => {
+      const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), env = ctx.createGain();
+      source.buffer = keysNoise;
+      band.type = "bandpass"; band.frequency.value = freq; band.Q.value = 1.3;
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(level, at + 0.001);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2, decay + 0.02);
+    };
+    if (kind === "hit") { click(3400, 0.03, 1); tone("triangle", 1760, 1500, 0.07, 0.6); }
+    else if (kind === "tick") { click(5200, 0.02, 0.8); }
+    else if (kind === "break") { tone("sawtooth", 420, 90, 0.32, 0.5); }
+    else if (kind === "spin") { tone("sine", 900, 1100, 0.05, 0.6); }
+    else { [1320, 1760, 2640].forEach((freq, i) => tone("triangle", freq, freq, 0.22, 0.5, i * 0.06)); }
+  }
+
+  const chengStage = (() => {
+    let canvas = null, g = null, W = 0, H = 0, ratio = 1, title = null, last = 0;
+    // the field on screen: its scale, its corner, turned on a tall screen (the field 384 wide, 512 tall)
+    let field = { s: 1, ox: 0, oy: 0, tall: false };
+    // the loop's clock made steady: page seconds + offset = seconds of music since the stage began (loops counted)
+    let offset = 0, loops = 0, lastAt = -1, synced = false;
+    let state = "idle"; // idle, ready, play, result
+    let pass = null, pad = null, button = null, result = null, live = null;
+    const cursor = { x: -1, y: -1, trail: [], shown: false };
+    const keys = new Set(); // (keys, buttons and touches held)
+    const presses = []; // [{ t, x, y }] not yet judged
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+      const tall = H > W * 1.1;
+      const s = tall ? Math.min((W - 28) / 384, (H - 170) / 512) : Math.min((W - 60) / 512, (H - 130) / 384);
+      field = { s, tall, ox: (W - (tall ? 384 : 512) * s) / 2, oy: (H - (tall ? 512 : 384) * s) / 2 + (tall ? 18 : 22) };
+    };
+    // the field's x, y on screen and back
+    const toScreen = (x, y) => (field.tall ? [field.ox + (384 - y) * field.s, field.oy + x * field.s] : [field.ox + x * field.s, field.oy + y * field.s]);
+    const toField = (sx, sy) => (field.tall ? [(sy - field.oy) / field.s, 384 - (sx - field.ox) / field.s] : [(sx - field.ox) / field.s, (sy - field.oy) / field.s]);
+    // seconds of music (loops counted) at a page time (ms)
+    const musicAt = (ms) => ms / 1000 + offset;
+    const sync = (at, now) => {
+      if (lastAt >= 0 && at < lastAt - DF_TRACK / 2) loops++;
+      lastAt = at;
+      const want = loops * DF_TRACK + at - now / 1000;
+      if (!synced || Math.abs(want - offset) > 0.05) { offset = want; synced = true; } else offset += (want - offset) * 0.04;
+    };
+
+    // ── a pass: the map from a phrase's downbeat, one loop long, its last bar a spinner ──
+    const buildPass = (start, fromSix) => {
+      const objects = [];
+      for (const [t, kind, x, y, nc, path, span, repeats] of CH_CHART) {
+        const rel = (t - fromSix + 256) % 256;
+        if (rel >= 240) continue;
+        const o = { kind, t: start + rel * CH_SIX, x, y, nc: Boolean(nc), done: false, result: null, shake: -9 };
+        if (kind === "s") {
+          const pts = [];
+          for (let i = 0; i < path.length; i += 2) pts.push([path[i], path[i + 1]]);
+          const lens = [0];
+          for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+          Object.assign(o, { pts, lens, length: lens[lens.length - 1], spanLong: span * CH_SIX, repeats, end: o.t + span * CH_SIX * (repeats + 1), head: null, parts: 1, hits: 0, tracking: false, checks: [] });
+          // its checks: the repeats, the ticks (a beat apart within each span), the end a little before its end
+          for (let k = 1; k <= repeats; k++) o.checks.push({ t: o.t + k * o.spanLong, kind: "repeat" });
+          for (let k = 0; k <= repeats; k++) for (let b = DF_BEAT; b < o.spanLong - 0.01; b += DF_BEAT) o.checks.push({ t: o.t + k * o.spanLong + (k % 2 ? o.spanLong - b : b), kind: "tick" });
+          o.checks.push({ t: Math.max(o.t + (o.end - o.t) / 2, o.end - 0.036), kind: "tail" });
+          o.checks.sort((a, b) => a.t - b.t);
+          o.parts += o.checks.length;
+        }
+        objects.push(o);
+      }
+      objects.push({ kind: "p", t: start + 240 * CH_SIX, end: start + 252 * CH_SIX, x: 256, y: 192, nc: true, done: false, result: null, turned: 0, spins: 0, angle: null, rpm: 0 });
+      objects.sort((a, b) => a.t - b.t);
+      objects[0].nc = true;
+      let combo = 0, colour = -1;
+      for (const o of objects) { if (o.nc) { combo = 0; colour = (colour + 1) % CH_COLORS.length; } o.number = ++combo; o.color = CH_COLORS[colour]; }
+      if (objects.at(-1).kind === "p") objects.at(-1).required = (objects.at(-1).end - objects.at(-1).t) * CH_RPS;
+      // (the score's multiplier from the map's settings, as osu! works it out)
+      const drain = objects.at(-1).end - objects[0].t;
+      const mult = Math.round(((CH_SET.hp + CH_SET.cs + CH_SET.od + Math.min(16, Math.max(0, (objects.length / drain) * 8))) / 38) * 5);
+      return { objects, start, end: objects.at(-1).end, mult, score: 0, combo: 0, best: 0, hp: 1, counts: { 300: 0, 100: 0, 50: 0, 0: 0 }, labels: [], bursts: [], failed: false };
+    };
+    // ── its judging, as osu! does ──
+    const award = (o, value, x, y, withCombo = true) => {
+      const p = pass;
+      if (value > 0) {
+        p.score += Math.round(value + (value * Math.max(0, p.combo - 1) * p.mult) / 25);
+        if (withCombo) { p.combo++; p.best = Math.max(p.best, p.combo); }
+      } else if (p.combo > 0) {
+        if (p.combo >= 20) chSound("break");
+        p.combo = 0;
+      }
+      p.counts[value]++;
+      p.hp = Math.min(1, Math.max(0, p.hp + { 300: 0.035, 100: 0.012, 50: -0.03, 0: -0.13 }[value]));
+      p.labels.push({ x, y, value, born: musicNow() });
+      o.result = value;
+    };
+    // a slider's part (its head, a tick, a repeat, its end): a little score and combo, or the combo broken
+    const part = (o, hit, points, x, y, breaks = true) => {
+      const p = pass;
+      if (hit) { o.hits++; p.score += points; p.combo++; p.best = Math.max(p.best, p.combo); p.hp = Math.min(1, p.hp + 0.01); }
+      else if (breaks && p.combo > 0) { if (p.combo >= 20) chSound("break"); p.combo = 0; }
+      if (!hit) p.hp = Math.max(0, p.hp - (breaks ? 0.04 : 0.01));
+    };
+    const musicNow = () => musicAt(performance.now());
+    // a press (key, button or touch) at its own time, where the cursor was: the earliest circle (or slider's head)
+    // still open is the only one that can be hit (a later one under the press shakes: note lock)
+    const judgePress = ({ t, x, y }) => {
+      const open = pass.objects.filter((o) => (o.kind === "c" || o.kind === "s") && !o.headDone && t <= o.t + CH_W50 && !o.missed);
+      if (!open.length) return false;
+      const [fx, fy] = toField(x, y), on = (o) => Math.hypot(fx - o.x, fy - o.y) <= CH_R;
+      const first = open[0];
+      if (!on(first)) { const later = open.find(on); if (later) later.shake = t; return Boolean(later); }
+      const d = t - first.t;
+      if (d < -CH_EARLY) { first.shake = t; return true; }
+      first.headDone = true;
+      const value = d < -CH_W50 ? 0 : Math.abs(d) <= CH_W300 ? 300 : Math.abs(d) <= CH_W100 ? 100 : 50;
+      first.hitAt = t;
+      if (first.kind === "c") { first.done = true; first.missed = value === 0; award(first, value, first.x, first.y); if (value) chSound("hit"); }
+      else { first.head = value > 0; part(first, value > 0, 30, first.x, first.y); if (value) chSound("hit"); first.tracking = value > 0; }
+      return true;
+    };
+    // where a slider's ball is at a time
+    const ballAt = (o, t) => {
+      const spans = Math.min(o.repeats + 1, Math.max(0, (t - o.t) / o.spanLong)), k = Math.min(o.repeats, Math.floor(spans)), within = spans - k;
+      const f = t >= o.end ? (o.repeats % 2 ? 0 : 1) : k % 2 ? 1 - within : within;
+      const want = Math.min(1, Math.max(0, f)) * o.length;
+      let i = 1;
+      while (i < o.lens.length - 1 && o.lens[i] < want) i++;
+      const a = o.pts[i - 1], b = o.pts[i], u = (want - o.lens[i - 1]) / Math.max(1e-6, o.lens[i] - o.lens[i - 1]);
+      return [dfMix(a[0], b[0], u), dfMix(a[1], b[1], u)];
+    };
+    const held = () => keys.size > 0;
+    // a frame of the game at music time now: presses first (in time), then what has passed
+    const step = (now, dt) => {
+      const p = pass;
+      presses.sort((a, b) => a.t - b.t);
+      while (presses.length && presses[0].t <= now + 0.001) judgePress(presses.shift());
+      const [fx, fy] = cursor.x >= 0 ? toField(cursor.x, cursor.y) : [-999, -999];
+      for (const o of p.objects) {
+        if (o.done) continue;
+        if (o.kind === "c") {
+          if (now > o.t + CH_W50) { o.done = true; o.missed = true; award(o, 0, o.x, o.y); }
+        } else if (o.kind === "s") {
+          if (!o.headDone && now > o.t + CH_W50) { o.headDone = true; o.head = false; part(o, false, 0, o.x, o.y); }
+          if (now >= o.t) {
+            const [bx, by] = ballAt(o, Math.min(now, o.end)), near = Math.hypot(fx - bx, fy - by);
+            o.tracking = held() && near <= CH_R * (o.tracking ? 2.4 : 1);
+            o.ball = [bx, by];
+          }
+          while (o.checks.length && now >= o.checks[0].t) {
+            const c = o.checks.shift(), [cx, cy] = ballAt(o, c.t);
+            part(o, o.tracking, c.kind === "tick" ? 10 : 30, cx, cy, c.kind !== "tail");
+            if (o.tracking) chSound(c.kind === "tick" ? "tick" : "hit");
+          }
+          if (now >= o.end) {
+            o.done = true;
+            const f = o.hits / o.parts, [ex, ey] = ballAt(o, o.end);
+            const value = f >= 1 ? 300 : f >= 0.5 ? 100 : f > 0 ? 50 : 0;
+            // (its parts gave the combo: its end gives the score of the whole)
+            award(o, value, ex, ey, false);
+          }
+        } else if (o.kind === "p") {
+          if (now >= o.t && now <= o.end && held() && cursor.x >= 0) {
+            const angle = Math.atan2(fy - 192, fx - 256);
+            if (o.angle !== null) {
+              let d = angle - o.angle;
+              while (d > Math.PI) d -= Math.PI * 2;
+              while (d < -Math.PI) d += Math.PI * 2;
+              // (no faster than osu!'s cap, 477 a minute)
+              const most = (477 / 60) * Math.PI * 2 * dt;
+              d = Math.max(-most, Math.min(most, d));
+              o.turned += Math.abs(d);
+              o.rpm = dfMix(o.rpm, (Math.abs(d) / Math.max(dt, 1e-3)) * (60 / (Math.PI * 2)), 0.15);
+            }
+            o.angle = angle;
+            const spins = Math.floor(o.turned / (Math.PI * 2));
+            while (o.spins < spins) {
+              o.spins++;
+              p.score += o.spins > o.required ? 1000 : 100;
+              p.hp = Math.min(1, p.hp + 0.02);
+              chSound(o.spins > o.required ? "clear" : "spin");
+            }
+          } else { o.angle = null; o.rpm *= 0.9; }
+          if (now > o.end) {
+            o.done = true;
+            const f = o.spins / o.required, value = f >= 1 ? 300 : f >= 0.9 ? 100 : f >= 0.75 ? 50 : 0;
+            award(o, value, 256, 192);
+          }
+        }
+      }
+      // HP drains as it plays (none before the first object)
+      if (now > p.objects[0].t) p.hp = Math.max(0, p.hp - dt * (0.012 + CH_SET.hp * 0.004));
+      if (p.hp <= 0 && !p.failed) { p.failed = true; finish(true); return; }
+      if (now > p.end + 0.6) finish(false);
+    };
+    const accuracy = (p) => {
+      const n = p.counts[300] + p.counts[100] + p.counts[50] + p.counts[0];
+      return n ? (300 * p.counts[300] + 100 * p.counts[100] + 50 * p.counts[50]) / (300 * n) : 1;
+    };
+    const grade = (p) => {
+      const n = p.counts[300] + p.counts[100] + p.counts[50] + p.counts[0], r300 = n ? p.counts[300] / n : 1, r50 = n ? p.counts[50] / n : 0;
+      if (p.failed) return "F";
+      if (r300 === 1) return "SS";
+      if (r300 > 0.9 && r50 < 0.01 && !p.counts[0]) return "S";
+      if ((r300 > 0.8 && !p.counts[0]) || r300 > 0.9) return "A";
+      if ((r300 > 0.7 && !p.counts[0]) || r300 > 0.8) return "B";
+      return r300 > 0.6 ? "C" : "D";
+    };
+
+    // ── its controls: PLAY, the pad over the page while it plays, the result ──
+    const setState = (next) => { state = next; root.classList.toggle("ch-playing", next === "ready" || next === "play"); if (button) button.hidden = next !== "idle"; };
+    const start = () => {
+      if (state !== "idle") return;
+      result?.remove(); result = null;
+      // on the next phrase's downbeat at least a second and a quarter away (its first circle has to come in)
+      const now = musicNow(), phrase = 16 * DF_BEAT, inLoop = ((now % DF_TRACK) + DF_TRACK) % DF_TRACK;
+      let next = Math.ceil((inLoop + 1.25) / phrase) * phrase;
+      const fromSix = Math.round(next / CH_SIX) % 256;
+      pass = buildPass(now - inLoop + next, fromSix);
+      presses.length = 0;
+      pad = document.createElement("div");
+      pad.className = "ch-pad";
+      pad.innerHTML = `<button type="button" class="ch-quit" aria-label="Stop playing">✕</button><p class="ch-live" aria-live="polite"></p>`;
+      document.body.append(pad);
+      pad.querySelector(".ch-quit").addEventListener("click", (event) => { event.stopPropagation(); finish(false, true); });
+      pad.addEventListener("contextmenu", (event) => event.preventDefault());
+      live = pad.querySelector(".ch-live");
+      live.textContent = "Get ready: the map starts on the next phrase.";
+      setState("ready");
+    };
+    // the pass over: its result (failed, finished or stopped)
+    const finish = (failed, stopped = false) => {
+      if (state !== "ready" && state !== "play") return;
+      const p = pass;
+      pad?.remove(); pad = null; live = null;
+      keys.clear(); presses.length = 0;
+      setState("result");
+      if (stopped && p.objects.every((o) => !o.done)) { setState("idle"); pass = null; return; }
+      const acc = accuracy(p), rank = grade(p);
+      result = document.createElement("div");
+      result.className = `ch-result is-${rank.toLowerCase()}`;
+      result.setAttribute("role", "dialog");
+      result.setAttribute("aria-label", "Your result");
+      result.innerHTML = `<p class="ch-result-head">${failed ? "Failed" : stopped ? "Stopped" : "Cleared"} · oh yeah? <span>[Defended]</span></p>`
+        + `<p class="ch-result-rank" aria-label="Grade ${rank}">${rank}</p>`
+        + `<dl class="ch-result-stats"><div><dt>Score</dt><dd>${p.score.toLocaleString("en-US")}</dd></div><div><dt>Accuracy</dt><dd>${(acc * 100).toFixed(2)}%</dd></div><div><dt>Max combo</dt><dd>${p.best}</dd></div></dl>`
+        + `<dl class="ch-result-counts"><div class="is-300"><dt>Perfect</dt><dd>${p.counts[300]}</dd></div><div class="is-100"><dt>Good</dt><dd>${p.counts[100]}</dd></div><div class="is-50"><dt>Ok</dt><dd>${p.counts[50]}</dd></div><div class="is-0"><dt>Miss</dt><dd>${p.counts[0]}</dd></div></dl>`
+        + `<p class="ch-result-actions"><button type="button" class="ch-again">Play again</button><button type="button" class="ch-close">Close</button></p>`;
+      document.body.append(result);
+      result.querySelector(".ch-again").addEventListener("click", () => { setState("idle"); start(); });
+      result.querySelector(".ch-close").addEventListener("click", () => { result?.remove(); result = null; pass = null; setState("idle"); button?.focus(); });
+      result.querySelector(".ch-again").focus({ preventScroll: true });
+    };
+    // presses and the cursor: on the pad while it plays (it takes the whole screen), Z and X anywhere
+    const point = (event) => {
+      cursor.x = event.clientX; cursor.y = event.clientY; cursor.shown = event.pointerType === "mouse";
+    };
+    const press = (t, x, y) => { if (state === "play" || state === "ready") presses.push({ t: musicAt(t), x, y }); };
+    const down = (event) => {
+      if (!pad || !event.target.closest?.(".ch-pad") || event.target.closest(".ch-quit")) return;
+      event.preventDefault();
+      point(event);
+      keys.add(`p${event.pointerId}:${event.button}`);
+      press(event.timeStamp, event.clientX, event.clientY);
+    };
+    const move = (event) => { if (pad) point(event); else if (event.pointerType === "mouse") { cursor.x = event.clientX; cursor.y = event.clientY; } };
+    const up = (event) => { for (const k of [...keys]) if (k.startsWith(`p${event.pointerId}:`)) keys.delete(k); };
+    const key = (event) => {
+      if (event.repeat || event.target.matches?.("input, textarea")) return;
+      const k = event.key.toLowerCase();
+      if (event.type === "keyup") { keys.delete(k); return; }
+      if (k === "escape" && (state === "ready" || state === "play")) { event.preventDefault(); finish(false, true); return; }
+      if (k === "escape" && result) { result.querySelector(".ch-close")?.click(); return; }
+      if ((k === "z" || k === "x") && (state === "ready" || state === "play")) { event.preventDefault(); keys.add(k); press(event.timeStamp, cursor.x, cursor.y); }
+    };
+    const blur = () => keys.clear();
+
+    // ── drawing ──
+    const label = { 300: ["PERFECT", "#7FE9FF"], 100: ["GOOD", "#B98CFF"], 50: ["OK", "#FF8FC4"], 0: ["MISS", "#FF4D6A"] };
+    const drawCircle = (o, now, s) => {
+      const [x, y] = toScreen(o.x, o.y), r = CH_R * s;
+      if (o.kind === "c" && o.done) {
+        // hit: it swells and fades in its colour; missed: it drops away
+        const q = Math.min(1, (now - (o.missed ? o.t + CH_W50 : o.hitAt)) / 0.24);
+        if (q >= 1) return;
+        if (o.missed) { chCircle(g, x, y + q * 14, r, "#FF4D6A", "", (1 - q) * 0.55); return; }
+        g.globalAlpha = 1 - q; g.strokeStyle = o.color; g.lineWidth = r * 0.16 * (1 - q); g.beginPath(); g.arc(x, y, r * (1 + q * 0.5), 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
+        return;
+      }
+      const appear = Math.min(1, Math.max(0, (now - (o.t - CH_PRE)) / CH_FADE));
+      const jog = now - o.shake < 0.12 ? Math.sin((now - o.shake) * 90) * 5 : 0;
+      if (o.kind === "c" || !o.headDone) chCircle(g, x + jog, y, r, o.color, String(o.number), appear);
+      // its approach circle, from four times its size down to its edge as it is due
+      if (now < o.t && (o.kind === "c" || !o.headDone)) {
+        const k = 1 + 3 * Math.min(1, (o.t - now) / CH_PRE);
+        g.globalAlpha = appear * 0.9; g.strokeStyle = o.color; g.lineWidth = Math.max(2, r * 0.07);
+        g.beginPath(); g.arc(x, y, r * k, 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
+      }
+    };
+    const drawSlider = (o, now, s) => {
+      const out = o.done ? Math.min(1, (now - o.end) / 0.22) : 0;
+      if (out >= 1) return;
+      const appear = Math.min(1, Math.max(0, (now - (o.t - CH_PRE)) / CH_FADE)) * (1 - out);
+      const r = CH_R * s;
+      g.lineCap = "round"; g.lineJoin = "round";
+      g.beginPath();
+      o.pts.forEach(([px, py], i) => { const [x, y] = toScreen(px, py); if (i) g.lineTo(x, y); else g.moveTo(x, y); });
+      g.globalAlpha = appear * 0.95; g.strokeStyle = o.color; g.lineWidth = r * 2; g.stroke();
+      g.globalAlpha = appear * 0.9; g.strokeStyle = "#0E1428"; g.lineWidth = r * 1.72; g.stroke();
+      g.globalAlpha = appear * 0.25; g.strokeStyle = o.color; g.lineWidth = r * 0.5; g.stroke();
+      g.globalAlpha = 1;
+      // its end, and an arrow where it turns back
+      const [ex, ey] = toScreen(...o.pts.at(-1));
+      g.globalAlpha = appear; g.strokeStyle = "rgba(255, 255, 255, 0.85)"; g.lineWidth = r * 0.07; g.beginPath(); g.arc(ex, ey, r * 0.66, 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
+      const turnsLeft = o.repeats - Math.max(0, Math.floor((now - o.t) / o.spanLong));
+      if (turnsLeft > 0) {
+        const atEnd = Math.max(0, Math.floor((now - o.t) / o.spanLong)) % 2 === 0, [ax, ay] = toScreen(...(atEnd ? o.pts.at(-1) : o.pts[0])), [bx, by] = toScreen(...(atEnd ? o.pts.at(-4) : o.pts[3]));
+        const turn = Math.atan2(by - ay, bx - ax);
+        g.save(); g.translate(ax, ay); g.rotate(turn); g.globalAlpha = appear; g.strokeStyle = "#FFFFFF"; g.lineWidth = r * 0.12;
+        g.beginPath(); g.moveTo(-r * 0.15, -r * 0.38); g.lineTo(r * 0.3, 0); g.lineTo(-r * 0.15, r * 0.38); g.stroke(); g.restore(); g.globalAlpha = 1;
+      }
+      if (!o.headDone || now < o.t) drawCircle(o, now, s);
+      // (its head hit: a ring swelling away from where it was)
+      else if (o.head && now - o.hitAt < 0.24) {
+        const q = (now - o.hitAt) / 0.24, [hx, hy] = toScreen(o.x, o.y);
+        g.globalAlpha = 1 - q; g.strokeStyle = o.color; g.lineWidth = r * 0.16 * (1 - q); g.beginPath(); g.arc(hx, hy, r * (1 + q * 0.5), 0, Math.PI * 2); g.stroke(); g.globalAlpha = 1;
+      }
+      // its ball as it goes, the follow ring round it while it is held on
+      if (now >= o.t && !o.done) {
+        const [bx, by] = toScreen(...(o.ball ?? ballAt(o, now)));
+        chCircle(g, bx, by, r * 0.86, o.color, "", 1, true);
+        if (o.tracking) { g.strokeStyle = "rgba(255, 255, 255, 0.55)"; g.lineWidth = Math.max(2, r * 0.06); g.beginPath(); g.arc(bx, by, r * 2.4, 0, Math.PI * 2); g.stroke(); }
+      }
+    };
+    const drawSpinner = (o, now, s) => {
+      const out = o.done ? Math.min(1, (now - o.end) / 0.3) : 0;
+      if (out >= 1 || now < o.t - 0.3) return;
+      const appear = Math.min(1, (now - (o.t - 0.3)) / 0.3) * (1 - out), [cx, cy] = toScreen(256, 192), r = 150 * s, done = Math.min(1, o.spins / o.required);
+      g.globalAlpha = appear;
+      g.fillStyle = "rgba(11, 16, 32, 0.78)"; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = "rgba(255, 255, 255, 0.18)"; g.lineWidth = r * 0.06; g.stroke();
+      const sweep = g.createLinearGradient(cx - r, cy, cx + r, cy);
+      sweep.addColorStop(0, "#2FC7F7"); sweep.addColorStop(1, "#A23CF0");
+      g.strokeStyle = sweep; g.lineWidth = r * 0.06; g.lineCap = "round";
+      g.beginPath(); g.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + done * Math.PI * 2); g.stroke();
+      // its arms, turned as far as it has been spun; the time left as a shrinking ring
+      g.save(); g.translate(cx, cy); g.rotate(o.turned);
+      for (let i = 0; i < 3; i++) { g.rotate((Math.PI * 2) / 3); g.fillStyle = i ? "#A23CF0" : "#2FC7F7"; g.beginPath(); g.roundRect(-r * 0.04, -r * 0.82, r * 0.08, r * 0.5, r * 0.04); g.fill(); }
+      g.restore();
+      const left = Math.max(0, (o.end - now) / (o.end - o.t));
+      g.strokeStyle = "rgba(255, 255, 255, 0.5)"; g.lineWidth = 2; g.beginPath(); g.arc(cx, cy, r * 0.25 + r * 0.6 * left, 0, Math.PI * 2); g.stroke();
+      g.fillStyle = "#FFFFFF"; g.textAlign = "center"; g.font = `800 ${Math.round(r * 0.2)}px ${CH_FONT}`;
+      g.fillText(o.spins > o.required ? `+${(o.spins - Math.floor(o.required)) * 1000}` : done >= 1 ? "CLEAR" : "SPIN", cx, cy + r * 0.07);
+      g.font = `600 ${Math.round(r * 0.1)}px ${CH_FONT}`; g.fillStyle = "rgba(255, 255, 255, 0.7)";
+      g.fillText(`${Math.round(o.rpm)} RPM`, cx, cy + r * 1.22);
+      g.globalAlpha = 1;
+    };
+    const drawHud = (p, now) => {
+      const edge = 16, top = 14;
+      // HP, top left
+      g.fillStyle = "rgba(255, 255, 255, 0.12)"; g.beginPath(); g.roundRect(edge, top, Math.min(260, W * 0.4), 8, 4); g.fill();
+      const hp = g.createLinearGradient(edge, 0, edge + 260, 0);
+      hp.addColorStop(0, "#2FC7F7"); hp.addColorStop(1, "#A23CF0");
+      g.fillStyle = p.hp < 0.25 ? "#FF4D6A" : hp; g.beginPath(); g.roundRect(edge, top, Math.max(8, Math.min(260, W * 0.4) * p.hp), 8, 4); g.fill();
+      // score and accuracy, top right (clear of the stop button); the pass's progress under them
+      g.textAlign = "right"; g.fillStyle = "#FFFFFF"; g.font = `700 ${W < 600 ? 22 : 28}px ${CH_FONT}`;
+      g.fillText(String(p.score).padStart(8, "0"), W - edge - 44, top + 24);
+      g.font = `600 ${W < 600 ? 14 : 17}px ${CH_FONT}`; g.fillStyle = "#9FE6FF";
+      g.fillText(`${(accuracy(p) * 100).toFixed(2)}%`, W - edge - 44, top + 46);
+      const q = Math.min(1, Math.max(0, (now - p.start) / (p.end - p.start)));
+      g.fillStyle = "rgba(255, 255, 255, 0.15)"; g.fillRect(W - edge - 44 - 120, top + 54, 120, 3);
+      g.fillStyle = "#2FC7F7"; g.fillRect(W - edge - 44 - 120, top + 54, 120 * q, 3);
+      // the combo, bottom left
+      if (p.combo > 0) {
+        g.textAlign = "left"; g.fillStyle = "#FFFFFF"; g.font = `800 ${W < 600 ? 34 : 44}px ${CH_FONT}`;
+        g.fillText(String(p.combo), edge, H - edge - 18);
+        g.font = `600 13px ${CH_FONT}`; g.fillStyle = "#9FE6FF"; g.fillText("COMBO", edge + 2, H - edge);
+      }
+      g.textAlign = "left";
+    };
+    const draw = (now) => {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      if (state === "idle" || state === "result") { attract(now); return; }
+      const p = pass, s = field.s;
+      // the page dimmed under the field
+      g.fillStyle = "rgba(6, 9, 20, 0.82)"; g.fillRect(0, 0, W, H);
+      if (state === "ready") {
+        const left = p.objects[0].t - now, [cx, cy] = toScreen(256, 192);
+        g.textAlign = "center"; g.fillStyle = "#FFFFFF"; g.font = `800 ${Math.round(46 * Math.min(1.4, s))}px ${CH_FONT}`;
+        g.fillText(left > 3 * DF_BEAT ? "READY" : String(Math.max(1, Math.ceil(left / DF_BEAT))), cx, cy);
+        g.font = `600 15px ${CH_FONT}`; g.fillStyle = "#9FE6FF";
+        g.fillText(soundWanted() ? "oh yeah? · Steve Lacy · [Defended]" : "oh yeah? · [Defended] · the sound is off", cx, cy + 32);
+        g.textAlign = "left";
+      }
+      // the objects in sight, the later ones under the earlier
+      const shown = p.objects.filter((o) => now >= o.t - CH_PRE - 0.05 && now <= (o.end ?? o.t) + 0.4);
+      for (let i = shown.length - 1; i >= 0; i--) {
+        const o = shown[i];
+        if (o.kind === "s") drawSlider(o, now, s); else if (o.kind === "p") drawSpinner(o, now, s); else drawCircle(o, now, s);
+      }
+      // what each was judged (a perfect only by its swell: its word would sit over the next circles)
+      p.labels = p.labels.filter((l) => now - l.born < 0.6 && l.value !== 300);
+      for (const l of p.labels) {
+        const q = (now - l.born) / 0.6, [x, y] = toScreen(l.x, l.y), [text, color] = label[l.value];
+        g.globalAlpha = 1 - q; g.fillStyle = color; g.textAlign = "center";
+        g.font = `800 ${Math.round(21 * Math.max(0.8, s))}px ${CH_FONT}`;
+        g.fillText(text, x, y - q * 16 - CH_R * s * 0.2);
+        g.globalAlpha = 1;
+      }
+      g.textAlign = "left";
+      drawHud(p, now);
+      // the cursor (a mouse's): a ring and its trail
+      if (cursor.shown && cursor.x >= 0) {
+        cursor.trail.push([cursor.x, cursor.y]);
+        if (cursor.trail.length > 14) cursor.trail.shift();
+        cursor.trail.forEach(([x, y], i) => { g.globalAlpha = (i / cursor.trail.length) * 0.5; g.fillStyle = "#2FC7F7"; g.beginPath(); g.arc(x, y, 3 + i * 0.25, 0, Math.PI * 2); g.fill(); });
+        g.globalAlpha = 1;
+        g.strokeStyle = "#FFFFFF"; g.lineWidth = 2.5; g.beginPath(); g.arc(cursor.x, cursor.y, 11, 0, Math.PI * 2); g.stroke();
+        g.fillStyle = held() ? "#A23CF0" : "#2FC7F7"; g.beginPath(); g.arc(cursor.x, cursor.y, 5, 0, Math.PI * 2); g.fill();
+      }
+    };
+    // (idle: the cover's circles hit in turn on the groove's hits, their approach rings closing as the hit comes)
+    let tb = null;
+    const attract = (now) => {
+      if (!title?.el || !chDots.length) return;
+      tb = title.el.getBoundingClientRect();
+      if (tb.bottom < 0 || tb.top > H) return;
+      const sc = tb.width / DF_ART.w, bar = 16 * CH_SIX, inBar = ((now % bar) + bar) % bar, hits = [0, 4, 8, 14];
+      const k = Math.floor(now / bar);
+      hits.forEach((h, i) => {
+        const due = h * CH_SIX, ahead = due - inBar;
+        if (ahead < -0.25 || ahead > CH_PRE) return;
+        const dot = chDots[(k * 4 + i) % chDots.length], x = tb.left + (dot[0] - DF_ART.x) * sc, y = tb.top + (dot[1] - DF_ART.y) * sc, r = 13 * sc;
+        if (ahead >= 0) { g.globalAlpha = 0.85; g.strokeStyle = CH_COLORS[(k * 4 + i) % 2]; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r * (1 + 3 * (ahead / CH_PRE)), 0, Math.PI * 2); g.stroke(); }
+        else { const q = -ahead / 0.25; g.globalAlpha = 1 - q; g.strokeStyle = "#FFFFFF"; g.lineWidth = 3 * (1 - q); g.beginPath(); g.arc(x, y, r * (1 + q * 0.8), 0, Math.PI * 2); g.stroke(); }
+        g.globalAlpha = 1;
+      });
+    };
+    return {
+      beat: DF_BEAT, parts: [DF_TRACK], grid: 0, sections: [[0, "calm"]],
+      fx: `<canvas class="ch-field"></canvas>`,
+      mount(fx) {
+        canvas = fx.querySelector(".ch-field");
+        g = canvas.getContext("2d");
+        resize();
+        window.addEventListener("resize", resize);
+        title ??= dfHeaderTitle("PROJECT B.A.R.I.S.T.A., its dots hit circles, and under it a slider: defended", chTitleArt, CH_FONTS);
+        synced = false; loops = 0; lastAt = -1; state = "idle";
+        button = document.createElement("button");
+        button.type = "button";
+        button.className = "ch-play";
+        button.innerHTML = `<span class="ch-play-ring" aria-hidden="true">▶</span><span class="ch-play-text"><b>Play</b><small>oh yeah? · [Defended] · CS 4 · AR 9 · OD 8 · HP 5</small></span>`;
+        button.setAttribute("aria-label", "Play Cheng's map: oh yeah? [Defended]. Z or X or click to hit; Escape to stop");
+        button.addEventListener("click", start);
+        document.body.append(button);
+        if (!motionOK()) button.hidden = true; // (a game of motion)
+        window.addEventListener("pointerdown", down, true);
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", up, true);
+        window.addEventListener("pointercancel", up, true);
+        window.addEventListener("keydown", key, true);
+        window.addEventListener("keyup", key, true);
+        window.addEventListener("blur", blur);
+        if (localStorage.getItem("brew-houze-ch-debug") === "1") window.__chDebug = { get: () => ({ state, pass, field, offset }), toScreen, musicAt, ballAt };
+      },
+      tick(at) {
+        const nowMs = performance.now();
+        if (at >= 0) { dfHeard.at = at; dfHeard.now = nowMs; sync(at, nowMs); }
+        if (!g) return;
+        if (nowMs < dfHold) return;
+        const now = musicAt(nowMs), dt = Math.min(0.05, (nowMs - (last || nowMs)) / 1000);
+        last = nowMs;
+        if (state === "ready" && pass && now >= pass.objects[0].t - CH_PRE - 0.2) { setState("play"); if (live) live.textContent = "Playing."; }
+        if (state === "play" && pass) step(now, dt);
+        draw(now);
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        window.removeEventListener("pointerdown", down, true);
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", up, true);
+        window.removeEventListener("pointercancel", up, true);
+        window.removeEventListener("keydown", key, true);
+        window.removeEventListener("keyup", key, true);
+        window.removeEventListener("blur", blur);
+        pad?.remove(); pad = null; result?.remove(); result = null; button?.remove(); button = null;
+        root.classList.remove("ch-playing");
+        title?.remove(); title = null;
+        pass = null; state = "idle"; canvas = null; g = null; keys.clear(); presses.length = 0;
+        delete window.__chDebug;
+      },
+    };
+  })();
+
+  // ── Andrei's version of Defended: dream sky ──
+  // A pink and lilac sunset over a still sea (a pop star's dreamy stage of light, none of anyone's likeness): the
+  // header a sky painted behind it (canvas .an-sky: the sun low, clouds, glossy orbs on the water and their
+  // reflections, the sun's road on the sea), its title in pearl with "defended" in a pink script; the page pastel and
+  // frosted. Its play: pink bubbles drifting up over the page, to pop (a tap) or flick (a drag and let go): they bump
+  // each other, bounce off the screen's edges, swell on the groove's hits; now and then a big one floats up, which
+  // bursts into little ones.
+  const AN_PINK = "#FF5FA8", AN_PLUM = "#4A2E5C";
+  const AN_DISPLAY = "Italiana, 'Quicksand', serif", AN_SANS = "Quicksand, system-ui, sans-serif", AN_SCRIPT = "'Great Vibes', Italiana, cursive";
+  const AN_TITLE_FONTS = ["400 90px Italiana", "600 44px Quicksand", "400 100px 'Great Vibes'"];
+  // a bubble, glossy and pink at its rim, as a picture for a radius (px), made once
+  const anBubbles = new Map();
+  const anBubble = (radius) => {
+    const r = Math.max(4, Math.round(radius));
+    if (anBubbles.has(r)) return anBubbles.get(r);
+    const k = 2, side = (r * 2 + 6) * k, c = document.createElement("canvas");
+    c.width = c.height = side;
+    const g = c.getContext("2d"), m = r + 3;
+    g.scale(k, k);
+    const body = g.createRadialGradient(m - r * 0.25, m - r * 0.3, r * 0.08, m, m, r);
+    body.addColorStop(0, "rgba(255, 255, 255, 0.12)"); body.addColorStop(0.62, "rgba(255, 186, 220, 0.2)"); body.addColorStop(0.9, "rgba(255, 128, 192, 0.42)"); body.addColorStop(1, "rgba(255, 95, 168, 0.7)");
+    g.fillStyle = body; g.beginPath(); g.arc(m, m, r, 0, Math.PI * 2); g.fill();
+    // its rim, the colours a film takes: pink, lilac, peach
+    let rim = "rgba(255, 150, 210, 0.85)";
+    if (g.createConicGradient) {
+      rim = g.createConicGradient(-0.8, m, m);
+      [[0, "#FF7AC0"], [0.3, "#C9A6FF"], [0.55, "#FFD1B8"], [0.8, "#FF8FCB"], [1, "#FF7AC0"]].forEach(([at, color]) => rim.addColorStop(at, color));
+    }
+    g.strokeStyle = rim; g.globalAlpha = 0.85; g.lineWidth = Math.max(1, r * 0.06); g.beginPath(); g.arc(m, m, r - g.lineWidth / 2, 0, Math.PI * 2); g.stroke();
+    // the window's light on it, and a smaller one opposite
+    g.globalAlpha = 0.85; g.fillStyle = "#FFFFFF";
+    g.beginPath(); g.ellipse(m - r * 0.38, m - r * 0.42, r * 0.22, r * 0.12, -0.7, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = 0.35; g.beginPath(); g.arc(m + r * 0.42, m + r * 0.45, r * 0.08, 0, Math.PI * 2); g.fill();
+    g.globalAlpha = 1;
+    const pic = { c, side: side / k, m };
+    anBubbles.set(r, pic);
+    return pic;
+  };
+  const anBubbleAt = (g, x, y, r) => { const pic = anBubble(r), s = r / Math.max(4, Math.round(r)); g.drawImage(pic.c, x - pic.m * s, y - pic.m * s, pic.side * s, pic.side * s); };
+  // a four-pointed sparkle
+  const anSparkle = (g, x, y, size, alpha) => {
+    g.globalAlpha = alpha; g.fillStyle = "#FFFFFF";
+    g.beginPath(); g.moveTo(x, y - size); g.quadraticCurveTo(x, y, x + size, y); g.quadraticCurveTo(x, y, x, y + size); g.quadraticCurveTo(x, y, x - size, y); g.quadraticCurveTo(x, y, x, y - size); g.fill();
+    g.globalAlpha = 1;
+  };
+  // The cover, his: PROJECT in white caps (the badge in white for its O), B.A.R.I.S.T.A. in pearl over a pink glow,
+  // "defended" in a pink script, little bubbles round it.
+  let anBadgePic = null;
+  const anTitleArt = (g) => {
+    const k = g.getTransform().a, badge = dfBadgeImg();
+    g.textBaseline = "alphabetic";
+    // (a soft plum shadow under the white, so it reads on the sky)
+    const shadow = (blur) => { g.shadowColor = "rgba(74, 46, 92, 0.45)"; g.shadowBlur = blur * k; g.shadowOffsetY = 2 * k; };
+    g.font = `600 44px ${AN_SANS}`; g.textAlign = "left";
+    const parts = ["P", "R", null, "J", "E", "C", "T"], gap = 14, o = 50, ws = parts.map((ch) => (ch ? g.measureText(ch).width : o));
+    let x = -(ws.reduce((a, b) => a + b, 0) + gap * 6) / 2;
+    g.save(); shadow(6); g.fillStyle = "#FFFFFF";
+    parts.forEach((ch, i) => {
+      if (ch) g.fillText(ch, x, -70);
+      else if (badge.complete && badge.naturalWidth) {
+        if (!anBadgePic) { const c = document.createElement("canvas"); c.width = c.height = 200; const b = c.getContext("2d"); b.drawImage(badge, 0, 0, 200, 200); b.globalCompositeOperation = "source-in"; b.fillStyle = "#FFFFFF"; b.fillRect(0, 0, 200, 200); anBadgePic = c; }
+        g.drawImage(anBadgePic, x, -70 - o * 0.86, o, o);
+      }
+      x += ws[i] + gap;
+    });
+    g.restore();
+    // B.A.R.I.S.T.A.: a pink glow laid in at a quarter of the pixels, then pearl over a soft shadow
+    g.font = `400 96px ${AN_DISPLAY}`; g.textAlign = "center";
+    const m = g.getTransform(), q = 0.25, layer = document.createElement("canvas");
+    layer.width = Math.max(1, Math.round(g.canvas.width * q)); layer.height = Math.max(1, Math.round(g.canvas.height * q));
+    const lc = layer.getContext("2d");
+    lc.setTransform(m.a * q, m.b * q, m.c * q, m.d * q, m.e * q, m.f * q);
+    lc.font = g.font; lc.textAlign = "center"; lc.shadowColor = "rgba(255, 95, 168, 0.9)"; lc.shadowBlur = 30 * k * q; lc.fillStyle = "#FFD1E8"; lc.fillText("B.A.R.I.S.T.A.", 0, 34);
+    lc.translate(14, 132); lc.rotate(-0.05); lc.font = `400 100px ${AN_SCRIPT}`; lc.shadowColor = "rgba(255, 255, 255, 0.95)"; lc.shadowBlur = 22 * k * q; lc.fillStyle = "#FFFFFF"; lc.fillText("defended", 0, 0);
+    g.save(); g.setTransform(1, 0, 0, 1, 0, 0); g.drawImage(layer, 0, 0, g.canvas.width, g.canvas.height); g.restore();
+    const pearl = g.createLinearGradient(0, -36, 0, 34);
+    pearl.addColorStop(0, "#FFFFFF"); pearl.addColorStop(0.55, "#FFE6F3"); pearl.addColorStop(1, "#F4E8FF");
+    g.save(); shadow(10); g.fillStyle = pearl; g.fillText("B.A.R.I.S.T.A.", 0, 34); g.restore();
+    // defended (its f's tail is long: set high enough that it all stays in the title's box)
+    g.save(); g.translate(14, 132); g.rotate(-0.05);
+    g.font = `400 100px ${AN_SCRIPT}`;
+    const ink = g.createLinearGradient(-170, 0, 170, 0);
+    ink.addColorStop(0, "#FF4F9A"); ink.addColorStop(1, "#B57BFF");
+    g.fillStyle = ink; g.fillText("defended", 0, 0);
+    g.restore();
+    // little bubbles round it
+    [[-236, 112, 13], [-262, 74, 7], [248, 92, 16], [276, 128, 8], [-206, -120, 9], [228, -112, 11]].forEach(([bx, by, br]) => anBubbleAt(g, bx, by, br));
+  };
+  // The sky behind the header (a canvas the header's size, drawn again as it changes size): the sky from lilac to
+  // peach at the horizon, the sun low over the sea, clouds, the sea a darker mirror of the sky with the sun's road on
+  // it, glossy orbs on the water at the sides with their reflections, a few sparkles. The horizon just under the
+  // status pills (the three on their cards stand on the water).
+  const anSkyArt = (g, w, h, horizon) => {
+    const rnd = dfSeeded(77);
+    const sky = g.createLinearGradient(0, 0, 0, horizon);
+    [[0, "#9C95E0"], [0.38, "#D7A8DE"], [0.74, "#FFC4CF"], [1, "#FFE4D4"]].forEach(([at, color]) => sky.addColorStop(at, color));
+    g.fillStyle = sky; g.fillRect(0, 0, w, horizon);
+    const sea = g.createLinearGradient(0, horizon, 0, h);
+    [[0, "#F7D3D6"], [0.35, "#D9B2D9"], [1, "#9C8CCB"]].forEach(([at, color]) => sea.addColorStop(at, color));
+    g.fillStyle = sea; g.fillRect(0, horizon, w, h - horizon);
+    // clouds: soft lumps of light, a bank of them on the horizon
+    const cloud = (cx, cy, rx, ry, alpha) => {
+      g.save(); g.translate(cx, cy); g.scale(1, ry / rx);
+      const puff = g.createRadialGradient(0, 0, 0, 0, 0, rx);
+      puff.addColorStop(0, `rgba(255, 240, 246, ${alpha})`); puff.addColorStop(1, "rgba(255, 240, 246, 0)");
+      g.fillStyle = puff; g.beginPath(); g.arc(0, 0, rx, 0, Math.PI * 2); g.fill(); g.restore();
+    };
+    for (let i = 0; i < 9; i++) cloud(w * (0.05 + rnd() * 0.9), horizon * (0.12 + rnd() * 0.5), w * (0.12 + rnd() * 0.14), 40 + rnd() * 50, 0.32 + rnd() * 0.25);
+    for (let i = 0; i < 12; i++) cloud(w * (i / 11), horizon - 18 - rnd() * 30, w * (0.08 + rnd() * 0.08), 26 + rnd() * 20, 0.5);
+    // the sun, low, and its glow
+    const sx = w * 0.27, sy = horizon - Math.min(170, horizon * 0.22), sr = Math.max(26, Math.min(58, w * 0.035));
+    const glow = g.createRadialGradient(sx, sy, sr * 0.6, sx, sy, sr * 7);
+    glow.addColorStop(0, "rgba(255, 246, 240, 0.85)"); glow.addColorStop(0.25, "rgba(255, 226, 226, 0.35)"); glow.addColorStop(1, "rgba(255, 210, 220, 0)");
+    g.fillStyle = glow; g.fillRect(0, 0, w, horizon + sr * 2);
+    g.fillStyle = "#FFFBF7"; g.beginPath(); g.arc(sx, sy, sr, 0, Math.PI * 2); g.fill();
+    // the sun's road on the sea: bright dashes under it, wider as they come nearer
+    for (let y = horizon + 3; y < h; y += 5 + (y - horizon) * 0.04) {
+      const d = (y - horizon) / Math.max(1, h - horizon), half = sr * (0.6 + d * 3.4) * (0.5 + rnd() * 0.8);
+      g.fillStyle = `rgba(255, 252, 246, ${(0.75 * (1 - d) * (0.5 + rnd() * 0.5)).toFixed(3)})`;
+      g.fillRect(sx - half + (rnd() - 0.5) * sr * 0.6, y, half * 2, 1.4 + d * 2.2);
+    }
+    // the glossy orbs: one big at the left edge on the water, one at the right, two small floating; each mirrored
+    const orb = (ox, oy, r) => {
+      const body = g.createRadialGradient(ox - r * 0.35, oy - r * 0.4, r * 0.1, ox, oy, r);
+      body.addColorStop(0, "#FFE9D2"); body.addColorStop(0.35, "#FFB08C"); body.addColorStop(0.75, "#FF6FA8"); body.addColorStop(1, "#E04F9C");
+      g.fillStyle = body; g.beginPath(); g.arc(ox, oy, r, 0, Math.PI * 2); g.fill();
+      g.globalAlpha = 0.7; g.fillStyle = "#FFFFFF"; g.beginPath(); g.ellipse(ox - r * 0.38, oy - r * 0.45, r * 0.24, r * 0.12, -0.6, 0, Math.PI * 2); g.fill(); g.globalAlpha = 1;
+    };
+    const orbs = [[w * 0.05, horizon + h * 0.02, Math.max(46, w * 0.085)], [w * 0.94, horizon + h * 0.01, Math.max(36, w * 0.06)], [w * 0.16, horizon - h * 0.09, Math.max(12, w * 0.016)], [w * 0.83, horizon - h * 0.14, Math.max(10, w * 0.012)]];
+    // (their reflections first, faint, under the water's line)
+    g.save(); g.beginPath(); g.rect(0, horizon, w, h - horizon); g.clip();
+    orbs.forEach(([ox, oy, r]) => { g.save(); g.globalAlpha = 0.32; g.translate(0, horizon * 2); g.scale(1, -1); orb(ox, oy, r); g.restore(); });
+    g.restore();
+    orbs.forEach(([ox, oy, r]) => orb(ox, oy, r));
+    // the sea's shimmer, finer far off
+    for (let i = 0; i < 70; i++) {
+      const d = rnd() ** 1.6, y = horizon + 4 + d * (h - horizon - 6), len = 20 + rnd() * 90 * (0.3 + d);
+      g.fillStyle = `rgba(255, 255, 255, ${(0.12 + rnd() * 0.22).toFixed(3)})`;
+      g.fillRect(rnd() * w, y, len, 1 + d * 1.6);
+    }
+    for (let i = 0; i < 26; i++) anSparkle(g, rnd() * w, rnd() * horizon * 0.8, 2 + rnd() * 4, 0.4 + rnd() * 0.5);
+  };
+
+  const andreiStage = (() => {
+    let canvas = null, g = null, W = 0, H = 0, ratio = 1, title = null, sky = null, skySeen = null, last = 0, lastSix = -1, fresh = false;
+    let bubbles = [], bursts = [], twinkles = [], held = null, swallow = null, nextBig = 0;
+    // the sky behind the header, drawn at its size
+    const drawSky = () => {
+      const hero = document.querySelector(".hero");
+      if (!sky || !hero) return;
+      const box = hero.getBoundingClientRect(), r = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (!box.width) return;
+      sky.width = Math.round(box.width * r); sky.height = Math.round(box.height * r);
+      const strip = document.querySelector(".hero .status-strip")?.getBoundingClientRect(), lineup = document.querySelector(".hero .ae-lineup")?.getBoundingClientRect();
+      const horizon = strip && lineup && lineup.top > strip.bottom ? (strip.bottom + lineup.top) / 2 - box.top : box.height * 0.62;
+      const c = sky.getContext("2d");
+      c.setTransform(r, 0, 0, r, 0, 0);
+      anSkyArt(c, box.width, box.height, horizon);
+    };
+    const count = () => (W < 600 ? 6 : 10);
+    // a bubble: where it is and how it moves (px, px a second); it rises and sways on its own unless flung
+    const bubble = (big = false, fromBelow = true) => {
+      const r = big ? 58 + Math.random() * 14 : (W < 600 ? 14 : 18) + Math.random() * (W < 600 ? 18 : 26);
+      return { x: r + Math.random() * (W - r * 2), y: fromBelow ? H + r + Math.random() * H * 0.5 : Math.random() * H, r, fx: 0, fy: 0, phase: Math.random() * 6.3, swell: 0, big };
+    };
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+      while (bubbles.length < count()) bubbles.push(bubble(false, false));
+      bubbles.forEach((b) => { b.x = Math.min(Math.max(b.x, b.r), W - b.r); });
+    };
+    const near = (x, y, reach) => { let best = null, bd = Infinity; for (const b of bubbles) { const d = Math.hypot(x - b.x, y - b.y) - b.r; if (d < reach && d < bd) { bd = d; best = b; } } return best; };
+    const blocked = () => Boolean(document.querySelector(".ae-pc-modal:not([hidden]), .ae-picker:not([hidden]), .df-intro"));
+    // a bubble bursting: a ring, droplets, sparkles; a big one into little ones
+    const pop = (b) => {
+      bubbles = bubbles.filter((o) => o !== b);
+      bursts.push({ x: b.x, y: b.y, r: b.r, born: performance.now(), drops: Array.from({ length: 10 }, (_, i) => ({ a: (i / 10) * Math.PI * 2 + Math.random() * 0.4, v: 60 + Math.random() * 120 })) });
+      anPop(b.big);
+      if (b.big) for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2, little = bubble(); Object.assign(little, { x: b.x + Math.cos(a) * b.r * 0.4, y: b.y + Math.sin(a) * b.r * 0.4, r: 12 + Math.random() * 10, fx: Math.cos(a) * 320, fy: Math.sin(a) * 320 }); bubbles.push(little); }
+      // (another comes up from the sea in a while)
+      setTimeout(() => { if (canvas && bubbles.length < count() + 6) bubbles.push(bubble()); }, 1400);
+    };
+    const down = (event) => {
+      if (held || !event.isPrimary || event.button > 0 || blocked()) return;
+      const b = near(event.clientX, event.clientY, event.pointerType === "touch" ? 10 : 2);
+      if (!b) return;
+      event.preventDefault(); event.stopPropagation();
+      held = { b, id: event.pointerId, x0: event.clientX, y0: event.clientY, t0: performance.now(), trail: [[event.clientX, event.clientY, performance.now()]], moved: false };
+      root.classList.add("an-holding");
+    };
+    const move = (event) => {
+      if (!held) { if (event.pointerType === "mouse" && !blocked()) root.classList.toggle("an-hover", Boolean(near(event.clientX, event.clientY, 2))); return; }
+      if (event.pointerId !== held.id) return;
+      event.preventDefault();
+      held.trail.push([event.clientX, event.clientY, performance.now()]);
+      if (held.trail.length > 6) held.trail.shift();
+      if (Math.hypot(event.clientX - held.x0, event.clientY - held.y0) > 8) held.moved = true;
+      held.b.x = event.clientX; held.b.y = event.clientY;
+    };
+    const up = (event) => {
+      if (!held || event.pointerId !== held.id) return;
+      const { b, moved, trail } = held;
+      held = null;
+      root.classList.remove("an-holding");
+      if (!moved && performance.now() - trail[0][2] < 450) { pop(b); }
+      else {
+        // flung as fast as the pointer went over its last few moves
+        const [x0, y0, t0] = trail[0], [x1, y1, t1] = trail.at(-1), dt = Math.max(0.016, (t1 - t0) / 1000), most = 2200;
+        b.fx = Math.max(-most, Math.min(most, (x1 - x0) / dt)); b.fy = Math.max(-most, Math.min(most, (y1 - y0) / dt));
+      }
+      swallow = (e) => { e.preventDefault(); e.stopPropagation(); };
+      window.addEventListener("click", swallow, { capture: true, once: true });
+      setTimeout(() => window.removeEventListener("click", swallow, true), 0);
+    };
+    const touch = (event) => { if (held && event.cancelable) event.preventDefault(); };
+    const step = (dt, now) => {
+      const t = now / 1000;
+      for (const b of [...bubbles]) {
+        if (held?.b === b) { b.fx = 0; b.fy = 0; continue; }
+        // its own way, up and swaying, and a fling on top of it, dying away in the air
+        const drag = Math.exp(-dt * 1.3);
+        b.fx *= drag; b.fy *= drag;
+        b.x += (b.fx + Math.sin(t * 0.9 + b.phase) * 14) * dt;
+        b.y += (b.fy - (16 + b.r * 0.55)) * dt;
+        // the screen's sides bounce it (and its foot, flung down); one flung hard into them bursts
+        const hard = Math.hypot(b.fx, b.fy) > 1500;
+        if (b.x < b.r || b.x > W - b.r) {
+          if (hard) { pop(b); continue; }
+          b.x = Math.min(Math.max(b.x, b.r), W - b.r); b.fx = (b.x <= b.r ? 1 : -1) * Math.abs(b.fx) * 0.8;
+        }
+        if (b.y > H - b.r && b.fy > 60) { if (hard) { pop(b); continue; } b.y = H - b.r; b.fy = -Math.abs(b.fy) * 0.8; }
+        // gone over the top: another comes up from below in its place
+        if (b.y < -b.r * 1.5 && Math.abs(b.fy) < 200) Object.assign(b, bubble());
+        b.swell *= Math.exp(-dt * 7);
+      }
+      // they bump each other apart
+      for (let i = 0; i < bubbles.length; i++) for (let j = i + 1; j < bubbles.length; j++) {
+        const a = bubbles[i], b = bubbles[j], dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1, gap = a.r + b.r - d;
+        if (gap <= 0) continue;
+        const nx = dx / d, ny = dy / d, wa = held?.b === a ? 0 : 1, wb = held?.b === b ? 0 : 1, sum = wa + wb || 1;
+        a.x -= nx * gap * (wa / sum); a.y -= ny * gap * (wa / sum); b.x += nx * gap * (wb / sum); b.y += ny * gap * (wb / sum);
+        const rel = (b.fx - a.fx) * nx + (b.fy - a.fy) * ny;
+        if (rel < 0) { a.fx += nx * rel * 0.9 * wa; a.fy += ny * rel * 0.9 * wa; b.fx -= nx * rel * 0.9 * wb; b.fy -= ny * rel * 0.9 * wb; }
+      }
+      // now and then a big one
+      if (now > nextBig && !bubbles.some((b) => b.big)) { bubbles.push(bubble(true)); nextBig = now + 22000 + Math.random() * 14000; }
+    };
+    const draw = (now) => {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      for (const b of bubbles) { if (b.y - b.r > H || b.y + b.r < 0) continue; anBubbleAt(g, b.x, b.y, b.r * (1 + b.swell)); }
+      // the bursts: a ring opening, droplets flying, a sparkle where it was
+      bursts = bursts.filter((p) => now - p.born < 520);
+      for (const p of bursts) {
+        const q = (now - p.born) / 520, e = 1 - (1 - q) ** 2;
+        g.globalAlpha = 1 - q; g.strokeStyle = AN_PINK; g.lineWidth = Math.max(1, p.r * 0.08 * (1 - q));
+        g.beginPath(); g.arc(p.x, p.y, p.r * (1 + e * 0.5), 0, Math.PI * 2); g.stroke();
+        g.fillStyle = "#FFC2E0";
+        for (const d of p.drops) { const dist = p.r + d.v * e * 0.6; g.beginPath(); g.arc(p.x + Math.cos(d.a) * dist, p.y + Math.sin(d.a) * dist + q * q * 30, Math.max(0.5, p.r * 0.07 * (1 - q)), 0, Math.PI * 2); g.fill(); }
+        g.globalAlpha = 1;
+        anSparkle(g, p.x, p.y, p.r * 0.5 * (1 - q), 1 - q);
+      }
+      // sparkles winking on the hits
+      twinkles = twinkles.filter((s) => now - s.born < 420);
+      for (const s of twinkles) { const q = (now - s.born) / 420; anSparkle(g, s.x, s.y, s.size * Math.sin(q * Math.PI), 0.9 * (1 - q)); }
+    };
+    return {
+      beat: DF_BEAT, parts: [DF_TRACK], grid: 0, sections: [[0, "calm"]],
+      fx: `<canvas class="an-bubbles"></canvas>`,
+      mount(fx) {
+        canvas = fx.querySelector(".an-bubbles");
+        g = canvas.getContext("2d");
+        const hero = document.querySelector(".hero");
+        if (hero && !sky) {
+          sky = document.createElement("canvas");
+          sky.className = "an-sky";
+          sky.setAttribute("aria-hidden", "true");
+          hero.prepend(sky);
+          skySeen = new ResizeObserver(() => drawSky());
+          skySeen.observe(hero);
+          drawSky();
+        }
+        title ??= dfHeaderTitle("PROJECT B.A.R.I.S.T.A. in pearl on a sunset sky, and under it, in a pink script: defended", anTitleArt, AN_TITLE_FONTS);
+        bubbles = []; bursts = []; twinkles = [];
+        resize();
+        if (!motionOK()) return; // (bubbles only drift)
+        window.addEventListener("resize", resize);
+        window.addEventListener("pointerdown", down, true);
+        window.addEventListener("pointermove", move, true);
+        window.addEventListener("pointerup", up, true);
+        window.addEventListener("pointercancel", up, true);
+        document.addEventListener("touchstart", touch, { capture: true, passive: false });
+        document.addEventListener("touchmove", touch, { capture: true, passive: false });
+        lastSix = -1; fresh = true; nextBig = performance.now() + 9000;
+        if (localStorage.getItem("brew-houze-an-debug") === "1") window.__anDebug = { list: () => bubbles, big: () => bubbles.push(Object.assign(bubble(true), { x: W / 2, y: H * 0.55 })), bursts: () => bursts.length };
+        // (its pictures made, and drawn once, while the circle it comes on in is still shut)
+        draw(performance.now());
+      },
+      tick(at) {
+        const now = performance.now();
+        if (at >= 0) { dfHeard.at = at; dfHeard.now = now; }
+        if (!g || now < dfHold) return;
+        if (fresh) { fresh = false; last = now; anPop(false); }
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        // the groove's hits: the bubbles swell, sparkles wink in the sky
+        if (at >= 0) {
+          const six = Math.floor(at / (DF_BEAT / 4));
+          if (six !== lastSix) {
+            const s = six % 16;
+            if (lastSix >= 0 && [0, 4, 8, 14].includes(s)) {
+              const strong = s === 0 || s === 8;
+              for (const b of bubbles) b.swell = Math.max(b.swell, strong ? 0.07 : 0.035);
+              for (let i = 0; i < (strong ? 3 : 1); i++) twinkles.push({ x: Math.random() * W, y: Math.random() * H * 0.9, size: 4 + Math.random() * 6, born: now });
+            }
+            lastSix = six;
+          }
+        }
+        step(dt, now);
+        draw(now);
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        window.removeEventListener("pointerdown", down, true);
+        window.removeEventListener("pointermove", move, true);
+        window.removeEventListener("pointerup", up, true);
+        window.removeEventListener("pointercancel", up, true);
+        document.removeEventListener("touchstart", touch, true);
+        document.removeEventListener("touchmove", touch, true);
+        root.classList.remove("an-hover", "an-holding");
+        skySeen?.disconnect(); skySeen = null; sky?.remove(); sky = null;
+        title?.remove(); title = null;
+        bubbles = []; bursts = []; twinkles = []; held = null; canvas = null; g = null;
+        delete window.__anDebug;
+      },
+    };
+  })();
+  // A bubble popping (when the sound is on, made here): a quick falling blip and a tiny click; a big one deeper, with
+  // a shimmer of little ones after it.
+  function anPop(big) {
+    if (!soundWanted()) return;
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const at = ctx.currentTime + 0.003, out = ctx.createGain();
+    out.gain.value = big ? 0.32 : 0.22;
+    out.connect(ctx.destination);
+    const blip = (from, to, decay, level, delay = 0) => {
+      const osc = ctx.createOscillator(), env = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(from, at + delay);
+      osc.frequency.exponentialRampToValueAtTime(to, at + delay + decay);
+      env.gain.setValueAtTime(0.0001, at + delay);
+      env.gain.exponentialRampToValueAtTime(level, at + delay + 0.003);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + delay + decay);
+      osc.connect(env).connect(out);
+      osc.start(at + delay); osc.stop(at + delay + decay + 0.02);
+    };
+    const base = big ? 520 : 900 + Math.random() * 500;
+    blip(base, base * 0.35, 0.07, 1);
+    const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), env = ctx.createGain();
+    source.buffer = keysNoise;
+    band.type = "highpass"; band.frequency.value = 4000;
+    env.gain.setValueAtTime(0.0001, at); env.gain.exponentialRampToValueAtTime(0.5, at + 0.001); env.gain.exponentialRampToValueAtTime(0.0001, at + 0.012);
+    source.connect(band).connect(env).connect(out);
+    source.start(at, Math.random() * 0.2, 0.03);
+    if (big) for (let i = 0; i < 5; i++) blip(1400 + Math.random() * 900, 700, 0.05, 0.4, 0.05 + i * 0.04);
+  }
+
+  // ── Defended's MV: "Final copy" (defendedScene; its button at the foot of the page, in every version) ──
+  // The day of, in one go: Project B.A.R.I.S.T.A.'s final copy from its last edit to Brew Houze Cafe, and then the
+  // whole class. Its sound is the MV's (defended/mv.mp3: the groove for 25 bars, a break on bar 26, a quiet outro,
+  // then a fill from bar 38's 12th sixteenth into track 1, sample for sample: lead). The fill is the intro's own into
+  // its bar 9, so it lands where that downbeat does (two sixteenths before bar 40); the file is cut off hard 50 ms
+  // before that, and the intro's same moment is played over the cut (bridge).
+  //   1-4    the last edit: close on a page, the red pen's marks on the hits, "final" and a tick; the view drawing
+  //          back over the desk; on bar 4 the pages gathered into a stack
+  //   5-8    the printer: a page out at the view on each hit (the paper's parts opening on 0 and 8); on bar 8 the
+  //          stack bound, its cover on, and the copy thrown at the view (white)
+  //   9      the copy on the passenger seat, belted in; the engine on the hit
+  //   10-13  the drive (the car side on, from the user's picture), golden hour; a jeepney the other way
+  //   14-15  the copy on the seat at dusk, the street's lights going over it on the beats
+  //   16-17  the drive at dusk, the streetlights coming on, the car's lamps on
+  //   18-19  Brew Houze Cafe at dusk (from the user's picture): the car pulling up, its sign lit; in at the window
+  //   20-25  inside, the system at work: the table's QR code and the order sent; the Staff Portal; the Queue Screen
+  //          calling it; the latte and the copy on the counter, the lights going down
+  //   26-28  the café's black wall: "oh yeah?" on the break's one hit, "yeah, no one's left behind"
+  //   29-39  down to a table under the string lights: the class's four papers one by one (the others' only now),
+  //          each stamped DEFENDED; "congrats, BSIT - 401" written under them; the fill lighting the string
+  //          lights one by one; then the page under track 1, the scene fading off it
+  // (the lead's length: track 1 where the fill lands, the MV's sample 2858461 (the intro's bar 9 downbeat, 589352,
+  // with the MV's sample m the intro's m - 2269109); its bridge, the intro's last 50 ms up to that downbeat)
+  const DF_MV_HANDOFF = (2858461 - 1352) / 44100, DF_MV_BRIDGE = { from: 587140 / 44100, to: 589352 / 44100 };
+  const DF_PAPERS = [
+    { name: "PROJECT B.A.R.I.S.T.A.", lines: ["(Business Analytics, Real-time Inventory, and Smart Transaction Application): A Synchronized QR Code Ordering and AI-Assisted Monitoring System for Brew Houze Cafe"], ours: true },
+    { name: "QueueEase", lines: ["A QR-Based Mobile and Web Queueing System for Student Service Offices of STI College Sta. Cruz Laguna"] },
+    { name: "Iskolar ng Bayan", lines: ["Digital Scholarship Management Platform for Iskolar Ng Bayan"] },
+    { name: "DTI OneLink", lines: ["An Integrated Task and Records Management for Department of Trade and Industry Laguna Provincial Office"] },
+  ];
+  // (the paper's own parts, each opening on a printed page)
+  const DF_PARTS = ["INTRODUCTION", "RELATED LITERATURE", "METHODOLOGY", "RESULTS AND DISCUSSIONS", "CONCLUSION"];
+  const defendedScene = {
+    src: "defended/mv.mp3",
+    className: "df-mv-scene",
+    lead: { start: DF_START, length: DF_MV_HANDOFF, bridge: DF_MV_BRIDGE },
+    outro: 1100,
+    cues: [[0, "edit"], [DF_T(5), "print"], [DF_T(9), "seat"], [DF_T(10), "drive"], [DF_T(14), "passenger"], [DF_T(16), "dusk"], [DF_T(18), "brew-houze"],
+      [DF_T(20), "order"], [DF_T(22), "staff-portal"], [DF_T(24), "queue"], [DF_T(25), "counter"], [DF_T(26), "break"], [DF_T(26, 8), "oh-yeah"], [DF_T(27), "reply"],
+      [DF_T(29), "bsit-401"], [DF_T(37), "congrats"], [DF_T(38, 12), "fill"]],
+    warm() {
+      ["400 80px 'Kaushan Script'", "700 40px Kalam", "900 60px 'Playfair Display'", "italic 500 20px 'EB Garamond'", "600 20px 'Cormorant Garamond'", "700 20px 'EB Garamond'", "500 20px Inter", "700 20px Inter", "700 14px 'Space Mono'"].forEach((f) => document.fonts?.load(f).catch(() => undefined));
+      dfBadgeImg();
+    },
+    mount(box, video) {
+      defendedScene.warm();
+      box.innerHTML = `<canvas class="df-mv"></canvas>`;
+      // (the sound's element, out of sight: it plays the MV when the music player cannot)
+      video.className = "df-mv-sound";
+      video.setAttribute("aria-hidden", "true");
+      box.append(video);
+      const canvas = box.querySelector(".df-mv"), g = canvas.getContext("2d");
+      const B = DF_T, BAR = 4 * DF_BEAT, SIX = DF_BEAT / 4, PI2 = Math.PI * 2, END = DF_START + DF_MV_HANDOFF;
+      const clamp = dfClamp, mix = dfMix;
+      const out = (q) => 1 - (1 - clamp(q)) ** 3, inn = (q) => clamp(q) ** 2, soft = (q) => { q = clamp(q); return q * q * (3 - 2 * q); };
+      const ease = (q) => { q = clamp(q); return q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2; };
+      let W = 0, H = 0, ratio = 1, tall = false, hidden = false;
+      const canvasOf = (w, h) => { const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
+      // ── the beat: seconds since the last of the groove's hits (sixteenths 0, 4, 8 and 14); the hits between times ──
+      const since = (t, marks = [0, 4, 8, 14]) => {
+        const s = (t - B(1)) / SIX, bar = Math.floor(s / 16) * 16;
+        let last = -Infinity;
+        for (const m of marks) { if (bar + m <= s) last = Math.max(last, bar + m); else last = Math.max(last, bar - 16 + m); }
+        return (s - last) * SIX;
+      };
+      const pulse = (t, decay = 0.13) => Math.exp(-since(t) / decay);
+      const hitsIn = (from, to) => { const list = []; for (let s = Math.ceil((from - B(1)) / SIX); B(1) + s * SIX < to; s++) if ([0, 4, 8, 14].includes(((s % 16) + 16) % 16)) list.push(B(1) + s * SIX); return list; };
+      const INK = "#151311", RED = "#C8102E", WARM = "255, 196, 120", CHALK = "#EEEBE4", UI = "Inter, system-ui, sans-serif";
+      const glowAt = (x, y, r, rgb, a) => {
+        if (a <= 0.004 || r <= 0.5) return;
+        const gr = g.createRadialGradient(x, y, 0, x, y, r);
+        gr.addColorStop(0, `rgba(${rgb}, ${Math.min(1, a).toFixed(3)})`); gr.addColorStop(1, `rgba(${rgb}, 0)`);
+        g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+      };
+      const shade = (a, rgb = "8, 6, 6") => { if (a > 0.004) { g.fillStyle = `rgba(${rgb}, ${Math.min(1, a).toFixed(3)})`; g.fillRect(0, 0, W, H); } };
+
+      // ── paper: a page, a cover, the stamp (made once; res: drawn that many times over, for a close view) ──
+      const shadowed = (w, h, paint, blur = 18, res = 1) => {
+        const pad = blur * 1.6, c = canvasOf((w + pad * 2) * res, (h + pad * 2) * res), q = c.getContext("2d");
+        q.scale(res, res);
+        q.save(); q.shadowColor = "rgba(30, 20, 10, 0.34)"; q.shadowBlur = blur * res; q.shadowOffsetY = blur * 0.35 * res; q.fillStyle = "#FFFFFF"; q.fillRect(pad, pad, w, h); q.restore();
+        q.save(); q.translate(pad, pad); paint(q, w, h); q.restore();
+        return { c, pad, w, h };
+      };
+      // a picture with its shadow's room at x, y (its middle), w wide, turned (squash: flattened, lying back)
+      const place = (pic, x, y, w, turn = 0, alpha = 1, squash = 1) => {
+        if (alpha <= 0.004) return;
+        const k = w / pic.w;
+        g.save(); g.globalAlpha = alpha; g.translate(x, y); g.rotate(turn); g.scale(k, k * squash);
+        g.drawImage(pic.c, -pic.w / 2 - pic.pad, -pic.h / 2 - pic.pad, pic.w + pic.pad * 2, pic.h + pic.pad * 2);
+        g.restore();
+      };
+      const lines = (q, x, y, n, rnd, width = 228, gap = 13) => { for (let i = 0; i < n; i++) { q.fillStyle = "rgba(43, 40, 36, 0.55)"; q.fillRect(x, y + i * gap, (i === n - 1 ? 0.5 + rnd() * 0.3 : 0.92 + rnd() * 0.08) * width, 4); } return y + n * gap + 10; };
+      // a page of the paper: text, a chart or a diagram; the part it opens, if it opens one
+      const pagePic = (kind, seed, heading = "", res = 1) => shadowed(300, 424, (q, w, h) => {
+        const rnd = dfSeeded(seed);
+        q.fillStyle = "#FFFFFF"; q.fillRect(0, 0, w, h);
+        let y = 66;
+        if (heading) {
+          q.fillStyle = INK; q.textAlign = "center"; q.textBaseline = "alphabetic";
+          let size = 18; q.font = `900 ${size}px ${DF_HEAVY}`;
+          while (q.measureText(heading).width > w - 76 && size > 9) { size -= 1; q.font = `900 ${size}px ${DF_HEAVY}`; }
+          q.fillText(heading, w / 2, 64); q.fillRect(w / 2 - 26, 76, 52, 1.6);
+          y = 98;
+        } else { q.fillStyle = "#2B2824"; q.fillRect(36, 40, 120 + rnd() * 80, 9); }
+        if (kind === "chart") {
+          y = lines(q, 36, y, 3, rnd);
+          q.strokeStyle = "#2B2824"; q.lineWidth = 2; q.beginPath(); q.moveTo(46, y); q.lineTo(46, y + 120); q.lineTo(262, y + 120); q.stroke();
+          for (let i = 0; i < 6; i++) { const bh = 30 + rnd() * 80; q.fillStyle = i % 2 ? "#9A938A" : "#3A3631"; q.fillRect(62 + i * 33, y + 120 - bh, 20, bh); }
+          lines(q, 36, y + 140, 5, rnd);
+        } else if (kind === "diagram") {
+          y = lines(q, 36, y, 3, rnd);
+          q.strokeStyle = "#2B2824"; q.lineWidth = 1.6;
+          [[50, y + 10], [170, y + 10], [110, y + 80], [50, y + 150], [170, y + 150]].forEach(([bx, by]) => q.strokeRect(bx, by, 80, 36));
+          q.beginPath(); q.moveTo(130, y + 28); q.lineTo(170, y + 28); q.moveTo(90, y + 46); q.lineTo(140, y + 80); q.moveTo(150, y + 116); q.lineTo(90, y + 150); q.moveTo(150, y + 116); q.lineTo(210, y + 150); q.stroke();
+          lines(q, 36, y + 200, 4, rnd);
+        } else { for (let k = 0; k < 5 && y < h - 70; k++) y = lines(q, 36, y, 4 + Math.floor(rnd() * 3), rnd); }
+        q.fillStyle = "rgba(43, 40, 36, 0.5)"; q.font = "500 11px Georgia, serif"; q.textAlign = "center"; q.fillText(String(Math.floor(rnd() * 90) + 3), w / 2, h - 22);
+      }, 14, res);
+      // a paper's cover, bound (black tape down its left): its name, its title, BSIT - 401 · 2026
+      const wrapLines = (q, text, width) => { const words = text.split(" "), rows = []; let row = ""; for (const word of words) { const next = row ? `${row} ${word}` : word; if (q.measureText(next).width > width && row) { rows.push(row); row = word; } else row = next; } if (row) rows.push(row); return rows; };
+      const coverPic = (paper) => shadowed(600, 848, (q, w, h) => {
+        q.fillStyle = "#FFFFFF"; q.fillRect(0, 0, w, h);
+        q.fillStyle = "#151311"; q.fillRect(0, 0, 26, h);
+        q.textAlign = "center"; q.textBaseline = "alphabetic";
+        const cx = (w + 26) / 2;
+        if (paper.ours) { q.save(); q.translate(cx, 250); q.scale(0.82, 0.82); dfTitleType(q); q.restore(); }
+        else {
+          q.fillStyle = INK; let size = 76; q.font = `900 ${size}px ${DF_HEAVY}`;
+          while (q.measureText(paper.name).width > w - 120 && size > 30) { size -= 2; q.font = `900 ${size}px ${DF_HEAVY}`; }
+          q.fillText(paper.name, cx, 270);
+          q.fillStyle = "rgba(60, 60, 60, 0.35)"; q.fillRect(cx - 60, 300, 120, 2);
+        }
+        q.font = `italic 500 24px ${DF_SERIF}`; q.fillStyle = "#2F2C28";
+        paper.lines.flatMap((line) => wrapLines(q, line, w - 120)).forEach((line, i) => q.fillText(line, cx, 392 + i * 35));
+        q.font = `600 20px ${DF_CAPS}`; q.fillStyle = "#3A3631";
+        q.fillText("B S I T  -  4 0 1   ·   2 0 2 6", cx, h - 120);
+      }, 26);
+      // the stamp: DEFENDED in a double frame, red, a little worn
+      const stampPic = (() => {
+        const c = canvasOf(640, 220), q = c.getContext("2d"), rnd = dfSeeded(401);
+        q.strokeStyle = RED; q.fillStyle = RED; q.lineWidth = 10; q.beginPath(); q.roundRect(14, 14, 612, 192, 26); q.stroke();
+        q.lineWidth = 4; q.beginPath(); q.roundRect(32, 32, 576, 156, 16); q.stroke();
+        let size = 112; q.font = `900 ${size}px ${DF_HEAVY}`;
+        while (q.measureText("DEFENDED").width > 520 && size > 40) { size -= 2; q.font = `900 ${size}px ${DF_HEAVY}`; }
+        q.textAlign = "center"; q.textBaseline = "middle"; q.fillText("DEFENDED", 320, 116);
+        q.globalCompositeOperation = "destination-out";
+        for (let i = 0; i < 420; i++) { q.globalAlpha = 0.25 + rnd() * 0.6; q.beginPath(); q.arc(rnd() * 640, rnd() * 220, 0.6 + rnd() * 2, 0, PI2); q.fill(); }
+        return c;
+      })();
+
+      // ── the car, from the user's picture (a dark 2014-2019 sedan, side on, facing left): its body in that picture's
+      //    own units (its nose at x 14, its tail at 373, its tyres' foot at y 390.5: a long hood, the windscreen raked,
+      //    the roof arching down to a short, high boot, a crease rising to the tail lamp, the lamp wrapping round),
+      //    drawn three times over; its wheels apart (they turn) ──
+      const CAR = { x0: 6, y0: 250, w: 374, h: 120, res: 3, len: 359, nose: 14, ground: 390.5, tire: 28.5, wheels: [[70, 362], [306, 362]] };
+      const carPic = (() => {
+        const c = canvasOf(CAR.w * CAR.res, CAR.h * CAR.res), q = c.getContext("2d");
+        q.scale(CAR.res, CAR.res); q.translate(-CAR.x0, -CAR.y0);
+        // (the wheel wells, dark round the tyres)
+        q.fillStyle = "#0A0909";
+        [70, 306].forEach((x) => { q.beginPath(); q.arc(x, 364, 33.5, Math.PI, 0); q.closePath(); q.fill(); });
+        const body = new Path2D("M14 332 C 14 319, 17 311, 24 306 C 50 300, 80 293, 108 288 C 124 279, 140 268, 157 260 C 178 255, 222 254, 250 257 C 266 259, 276 262, 284 265 C 297 271, 307 277, 317 282 C 336 285, 355 287, 370 291 C 373 302, 374 326, 373 343 C 372 353, 370 359, 366 362 L 340 364 A 34 34 0 0 0 272 364 L 104 364 A 34 34 0 0 0 36 364 L 22 363 C 17 359, 14 349, 14 332 Z");
+        const paint = q.createLinearGradient(0, 255, 0, 365);
+        [[0, "#6A615B"], [0.3, "#463E3A"], [0.5, "#332D2A"], [0.62, "#29241F"], [0.8, "#1E1A17"], [1, "#100E0D"]].forEach(([at, color]) => paint.addColorStop(at, color));
+        q.fillStyle = paint; q.fill(body);
+        q.save(); q.clip(body);
+        // (the sky in its shoulder, over the crease; the shadow along its sill)
+        const sheen = q.createLinearGradient(0, 296, 0, 320);
+        sheen.addColorStop(0, "rgba(240, 232, 224, 0)"); sheen.addColorStop(0.6, "rgba(240, 232, 224, 0.14)"); sheen.addColorStop(1, "rgba(240, 232, 224, 0)");
+        q.fillStyle = sheen; q.fillRect(0, 296, 400, 24);
+        q.fillStyle = "rgba(0, 0, 0, 0.32)"; q.fillRect(0, 354, 400, 12);
+        q.restore();
+        q.strokeStyle = "#0B0A09"; q.lineWidth = 1; q.stroke(body);
+        // the windscreen, edge on; the side glass (the sky across it)
+        q.fillStyle = "#14181C"; q.beginPath(); q.moveTo(108, 288); q.bezierCurveTo(124, 279, 140, 268, 157, 260); q.lineTo(162, 264.5); q.lineTo(118, 300); q.closePath(); q.fill();
+        const glass = new Path2D("M118 300 L 161 265.5 C 178 263, 200 262, 220 262 C 245 262, 262 264, 274 267.5 C 288 273, 300 280, 308 287 Z");
+        const tint = q.createLinearGradient(0, 262, 0, 300);
+        tint.addColorStop(0, "#8A96A0"); tint.addColorStop(0.35, "#39424B"); tint.addColorStop(1, "#14181C");
+        q.fillStyle = tint; q.fill(glass);
+        q.save(); q.clip(glass);
+        q.fillStyle = "rgba(255, 255, 255, 0.16)"; q.beginPath(); q.moveTo(170, 262); q.lineTo(186, 262); q.lineTo(158, 300); q.lineTo(142, 300); q.fill();
+        q.fillStyle = "rgba(255, 255, 255, 0.1)"; q.beginPath(); q.moveTo(236, 262); q.lineTo(244, 262); q.lineTo(226, 300); q.lineTo(218, 300); q.fill();
+        q.restore();
+        // the pillars (B black, the quarter glass's thin one); chrome under the glass
+        q.fillStyle = "#0C0D0E"; q.beginPath(); q.moveTo(200.5, 262); q.lineTo(218.5, 262); q.lineTo(219, 293.2); q.lineTo(200, 294.5); q.closePath(); q.fill();
+        q.strokeStyle = "#0C0D0E"; q.lineWidth = 2.6; q.beginPath(); q.moveTo(266, 265); q.lineTo(262, 290); q.stroke();
+        q.strokeStyle = "rgba(214, 218, 224, 0.8)"; q.lineWidth = 0.9; q.beginPath(); q.moveTo(119, 300.6); q.lineTo(306, 287.8); q.stroke();
+        // its light edges (roof, boot, hood); the crease, light over dark; the line sculpted low on the doors
+        q.strokeStyle = "rgba(255, 255, 255, 0.2)"; q.lineWidth = 0.9;
+        q.beginPath(); q.moveTo(160, 259.4); q.bezierCurveTo(180, 255.4, 222, 254.4, 250, 257.4); q.stroke();
+        q.beginPath(); q.moveTo(318, 282.6); q.bezierCurveTo(336, 285.6, 355, 287.6, 369, 291.4); q.stroke();
+        q.beginPath(); q.moveTo(26, 306.8); q.bezierCurveTo(50, 300.8, 80, 293.8, 107, 288.8); q.stroke();
+        q.strokeStyle = "rgba(236, 228, 220, 0.34)"; q.lineWidth = 1;
+        q.beginPath(); q.moveTo(92, 319); q.bezierCurveTo(170, 312, 260, 305, 344, 300.5); q.stroke();
+        q.strokeStyle = "rgba(0, 0, 0, 0.45)";
+        q.beginPath(); q.moveTo(92, 320.4); q.bezierCurveTo(170, 313.4, 260, 306.4, 344, 301.9); q.stroke();
+        q.strokeStyle = "rgba(0, 0, 0, 0.5)"; q.lineWidth = 1.2;
+        q.beginPath(); q.moveTo(108, 350); q.bezierCurveTo(160, 348, 220, 346, 270, 341); q.stroke();
+        q.strokeStyle = "rgba(236, 228, 220, 0.12)"; q.lineWidth = 1;
+        q.beginPath(); q.moveTo(108, 348.4); q.bezierCurveTo(160, 346.4, 220, 344.4, 270, 339.4); q.stroke();
+        // the doors' seams, their handles, the mirror
+        q.strokeStyle = "rgba(6, 6, 6, 0.8)"; q.lineWidth = 0.8;
+        q.beginPath(); q.moveTo(110, 292); q.bezierCurveTo(107, 312, 106, 336, 106, 362); q.moveTo(200, 295); q.lineTo(201, 363.5); q.moveTo(292, 290); q.bezierCurveTo(294, 306, 292, 322, 286, 334); q.bezierCurveTo(283, 340, 280, 344, 277, 347.5); q.stroke();
+        q.fillStyle = "#D2D6DA";
+        q.beginPath(); q.roundRect(181, 304, 21, 3.6, 1.7); q.fill(); q.beginPath(); q.roundRect(271, 298, 21, 3.6, 1.7); q.fill();
+        q.fillStyle = "rgba(0, 0, 0, 0.5)"; q.fillRect(182, 307.4, 19, 1); q.fillRect(272, 301.4, 19, 1);
+        const mirror = new Path2D("M112 294 C 112 288.5, 117 286.5, 126 287 L 134 289.5 C 136 293, 135.5 298, 132.5 301 C 124 303, 116 302, 112 299 Z");
+        q.fillStyle = "#2E2926"; q.fill(mirror); q.strokeStyle = "#0B0A09"; q.lineWidth = 0.8; q.stroke(mirror);
+        q.fillStyle = "rgba(255, 255, 255, 0.16)"; q.fillRect(115, 289.5, 16, 2);
+        // lamps: the head lamp swept back from the nose (its chrome), the tail lamp round the back, the reflector
+        q.fillStyle = "#C9CED3"; q.beginPath(); q.moveTo(15, 316); q.bezierCurveTo(16, 310, 19, 307, 24, 306); q.lineTo(26, 309); q.bezierCurveTo(21, 311, 18, 314, 17, 318); q.closePath(); q.fill();
+        const lamp = q.createLinearGradient(18, 0, 52, 0); lamp.addColorStop(0, "#F4F7FA"); lamp.addColorStop(1, "#AEB8C2");
+        q.fillStyle = lamp; q.beginPath(); q.moveTo(18, 313); q.bezierCurveTo(25, 308, 37, 305, 53, 303.5); q.lineTo(49, 312); q.bezierCurveTo(39, 314, 29, 317, 19, 321); q.closePath(); q.fill();
+        q.fillStyle = "#6F7B86"; q.beginPath(); q.arc(31, 313, 2.6, 0, PI2); q.fill();
+        q.fillStyle = "#0D0C0C"; q.beginPath(); q.moveTo(15, 343); q.lineTo(33, 347); q.lineTo(31, 356); q.lineTo(16, 356); q.closePath(); q.fill();
+        const tail = q.createLinearGradient(0, 292, 0, 309); tail.addColorStop(0, "#D21C30"); tail.addColorStop(1, "#7A0E1A");
+        q.fillStyle = tail; q.beginPath(); q.moveTo(343, 300); q.lineTo(370, 292); q.lineTo(371.6, 303); q.bezierCurveTo(365, 307.5, 355, 309, 346, 306.6); q.closePath(); q.fill();
+        q.fillStyle = "rgba(255, 255, 255, 0.35)"; q.fillRect(350, 298.6, 16, 1);
+        q.fillStyle = "#6E0E18"; q.fillRect(359, 345, 10, 3.2);
+        return c;
+      })();
+      // a wheel: the tyre, the silver alloy with its five twisted spokes (the dark between them), turned
+      const wheel = (x, y, r, turn) => {
+        g.fillStyle = "#0F1011"; g.beginPath(); g.arc(x, y, r, 0, PI2); g.fill();
+        g.strokeStyle = "rgba(255, 255, 255, 0.06)"; g.lineWidth = Math.max(1, r * 0.04); g.beginPath(); g.arc(x, y, r * 0.84, 0, PI2); g.stroke();
+        const rim = g.createRadialGradient(x - r * 0.25, y - r * 0.25, r * 0.05, x, y, r * 0.68);
+        rim.addColorStop(0, "#F2F4F6"); rim.addColorStop(0.7, "#B9BEC4"); rim.addColorStop(1, "#7D838A");
+        g.fillStyle = rim; g.beginPath(); g.arc(x, y, r * 0.66, 0, PI2); g.fill();
+        g.save(); g.translate(x, y); g.rotate(turn); g.fillStyle = "#24272B";
+        for (let i = 0; i < 5; i++) {
+          const a = (i / 5) * PI2, at = (ang, rr) => [Math.cos(ang) * r * rr, Math.sin(ang) * r * rr];
+          g.beginPath(); g.moveTo(...at(a, 0.2));
+          g.quadraticCurveTo(...at(a + 0.35, 0.42), ...at(a + 0.62, 0.6));
+          g.arc(0, 0, r * 0.6, a + 0.62, a + 1.05);
+          g.quadraticCurveTo(...at(a + 0.7, 0.36), ...at(a + 0.42, 0.2));
+          g.closePath(); g.fill();
+        }
+        g.fillStyle = "#C9CED3"; g.beginPath(); g.arc(0, 0, r * 0.16, 0, PI2); g.fill();
+        g.fillStyle = "#3A3E43"; g.beginPath(); g.arc(0, 0, r * 0.07, 0, PI2); g.fill();
+        g.restore();
+      };
+      // the car on screen: its nose at x, its tyres' foot at ground, len long (nose to tail); its wheels turned, its
+      // body up by bob, its lamps on (lit), its brake lamps (brake)
+      const drawCar = (x, ground, len, { turn = 0, bob = 0, lit = 0, brake = 0 } = {}) => {
+        const s = len / CAR.len, ox = x - CAR.nose * s, oy = ground - CAR.ground * s, at = (u, v) => [ox + u * s, oy + v * s];
+        g.fillStyle = "rgba(0, 0, 0, 0.45)"; g.beginPath(); g.ellipse(ox + 193 * s, ground - s, 186 * s, 6 * s, 0, 0, PI2); g.fill();
+        if (lit > 0) {
+          const [hx, hy] = at(22, 312), reach = len * 1.1, beam = g.createLinearGradient(hx, 0, hx - reach, 0);
+          beam.addColorStop(0, `rgba(255, 240, 205, ${(0.3 * lit).toFixed(3)})`); beam.addColorStop(1, "rgba(255, 240, 205, 0)");
+          g.fillStyle = beam; g.beginPath(); g.moveTo(hx, hy - 4 * s); g.lineTo(hx - reach, hy - 20 * s); g.lineTo(hx - reach, ground + 4 * s); g.lineTo(hx, hy + 6 * s); g.closePath(); g.fill();
+        }
+        g.drawImage(carPic, ox + CAR.x0 * s, oy + CAR.y0 * s - bob, CAR.w * s, CAR.h * s);
+        CAR.wheels.forEach(([u, v]) => { const [wx, wy] = at(u, v); wheel(wx, wy, CAR.tire * s, turn); });
+        if (lit > 0) { glowAt(...at(30, 311), 26 * s, "255, 246, 222", 0.9 * lit); glowAt(...at(362, 300), 14 * s, "255, 48, 60", 0.6 * lit); }
+        if (brake > 0) glowAt(...at(362, 300), 28 * s, "255, 30, 46", 0.85 * brake);
+      };
+
+      // ── little drawings (on any canvas): a cup, its steam, a bean, a heart, a slice of lemon; a latte from above ──
+      const doodle = {
+        cup: (q, x, y, w, h) => { q.beginPath(); q.moveTo(x - w / 2, y); q.lineTo(x + w / 2, y); q.lineTo(x + w * 0.38, y + h); q.lineTo(x - w * 0.38, y + h); q.closePath(); q.stroke(); q.beginPath(); q.arc(x + w * 0.5, y + h * 0.4, h * 0.25, -1.4, 1.4); q.stroke(); q.beginPath(); q.moveTo(x - w * 0.7, y + h + 4); q.lineTo(x + w * 0.7, y + h + 4); q.stroke(); },
+        steam: (q, x, y, h, n = 2) => { for (let k = 0; k < n; k++) { const sx = x + (k - (n - 1) / 2) * 9; q.beginPath(); q.moveTo(sx, y); q.bezierCurveTo(sx - 6, y - h * 0.35, sx + 6, y - h * 0.65, sx, y - h); q.stroke(); } },
+        bean: (q, x, y, rx, ry, turn) => { q.save(); q.translate(x, y); q.rotate(turn); q.beginPath(); q.ellipse(0, 0, rx, ry, 0, 0, PI2); q.stroke(); q.beginPath(); q.moveTo(0, -ry * 0.85); q.bezierCurveTo(rx * 0.5, -ry * 0.3, -rx * 0.5, ry * 0.3, 0, ry * 0.85); q.stroke(); q.restore(); },
+        heart: (q, x, y, s) => { q.beginPath(); q.moveTo(x, y + s * 0.35); q.bezierCurveTo(x - s * 0.9, y - s * 0.25, x - s * 0.35, y - s * 0.95, x, y - s * 0.4); q.bezierCurveTo(x + s * 0.35, y - s * 0.95, x + s * 0.9, y - s * 0.25, x, y + s * 0.35); q.stroke(); },
+        lemon: (q, x, y, r) => { q.beginPath(); q.arc(x, y, r, 0, PI2); q.stroke(); for (let k = 0; k < 8; k++) { const a = (k / 8) * PI2; q.beginPath(); q.moveTo(x + Math.cos(a) * r * 0.15, y + Math.sin(a) * r * 0.15); q.lineTo(x + Math.cos(a) * r * 0.8, y + Math.sin(a) * r * 0.8); q.stroke(); } },
+      };
+      const latte = (q, x, y, r) => {
+        q.fillStyle = "rgba(0, 0, 0, 0.28)"; q.beginPath(); q.arc(x + r * 0.08, y + r * 0.12, r * 1.42, 0, PI2); q.fill();
+        q.fillStyle = "#F3EEE6"; q.beginPath(); q.arc(x, y, r * 1.4, 0, PI2); q.fill();
+        q.fillStyle = "#E2DBD0"; q.beginPath(); q.arc(x, y, r * 1.05, 0, PI2); q.fill();
+        q.fillStyle = "#FBF8F3"; q.beginPath(); q.arc(x, y, r, 0, PI2); q.fill();
+        q.strokeStyle = "#FBF8F3"; q.lineWidth = r * 0.2; q.beginPath(); q.arc(x + r * 1.13, y, r * 0.24, -1.25, 1.25); q.stroke();
+        const crema = q.createRadialGradient(x, y, r * 0.1, x, y, r * 0.86); crema.addColorStop(0, "#C69060"); crema.addColorStop(1, "#7A4A28");
+        q.fillStyle = crema; q.beginPath(); q.arc(x, y, r * 0.86, 0, PI2); q.fill();
+        q.fillStyle = "#F7EBDD"; q.beginPath(); q.moveTo(x, y + r * 0.42); q.bezierCurveTo(x - r * 0.62, y, x - r * 0.42, y - r * 0.5, x, y - r * 0.2); q.bezierCurveTo(x + r * 0.42, y - r * 0.5, x + r * 0.62, y, x, y + r * 0.42); q.fill();
+      };
+      const steamOver = (x, y, r, t) => { for (let k = 0; k < 3; k++) { const ph = t * 1.3 + k * 2.1, sx = x + (k - 1) * r * 0.3; g.strokeStyle = `rgba(255, 255, 255, ${(0.13 * (0.5 + 0.5 * Math.sin(ph))).toFixed(3)})`; g.lineWidth = r * 0.12; g.lineCap = "round"; g.beginPath(); g.moveTo(sx, y - r * 0.3); g.bezierCurveTo(sx + Math.sin(ph) * r * 0.4, y - r, sx - Math.sin(ph) * r * 0.4, y - r * 1.5, sx, y - r * 2.1); g.stroke(); } };
+      // boards of wood across w x h: their tone, a little grain (seeded)
+      const boards = (q, w, h, seed, tone, size) => {
+        const rnd = dfSeeded(seed);
+        for (let y = -rnd() * size; y < h; y += size) {
+          const s = 0.9 + rnd() * 0.12, gr = q.createLinearGradient(0, y, 0, y + size);
+          gr.addColorStop(0, `rgb(${tone.map((c) => Math.round(c * s)).join(", ")})`); gr.addColorStop(1, `rgb(${tone.map((c, i) => Math.round(c * s * [0.93, 0.9, 0.86][i])).join(", ")})`);
+          q.fillStyle = gr; q.fillRect(0, y, w, size);
+          q.strokeStyle = "rgba(70, 44, 22, 0.15)"; q.lineWidth = 1;
+          for (let i = 0; i < 8; i++) { const gy = y + rnd() * size, ph = rnd() * 6; q.beginPath(); q.moveTo(0, gy); for (let x = 0; x <= w; x += 36) q.lineTo(x, gy + Math.sin(x * 0.007 + ph) * size * 0.04); q.stroke(); }
+          q.fillStyle = "rgba(50, 32, 16, 0.35)"; q.fillRect(0, y + size - 2, w, 2);
+        }
+      };
+      // a picture the size of the screen (with a margin round it, a share of its size)
+      const screenPic = (margin, paint) => {
+        const w = W * (1 + margin * 2), h = H * (1 + margin * 2), c = canvasOf(w * ratio, h * ratio), q = c.getContext("2d");
+        q.scale(ratio, ratio); q.translate(W * margin, H * margin); paint(q, W, H, w, h);
+        return { c, w, h, margin };
+      };
+      const spread = (pic) => g.drawImage(pic.c, -W * pic.margin, -H * pic.margin, pic.w, pic.h);
+      // the table's QR code (made up: its three corners, then noise)
+      const qrPic = (() => {
+        const n = 25, m = 8, c = canvasOf(n * m, n * m), q = c.getContext("2d"), rnd = dfSeeded(2026);
+        q.fillStyle = "#FFFFFF"; q.fillRect(0, 0, n * m, n * m); q.fillStyle = "#1A1410";
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) { const corner = (x < 8 && y < 8) || (x > n - 9 && y < 8) || (x < 8 && y > n - 9); if (!corner && rnd() < 0.5) q.fillRect(x * m, y * m, m, m); }
+        const finder = (x, y) => { q.fillStyle = "#1A1410"; q.fillRect(x * m, y * m, 7 * m, 7 * m); q.fillStyle = "#FFFFFF"; q.fillRect((x + 1) * m, (y + 1) * m, 5 * m, 5 * m); q.fillStyle = "#1A1410"; q.fillRect((x + 2) * m, (y + 2) * m, 3 * m, 3 * m); };
+        finder(0, 0); finder(n - 7, 0); finder(0, n - 7);
+        return c;
+      })();
+
+      // ── Brew Houze Cafe at dusk, from the user's picture (in its own units: 2000 across, its road at the foot of
+      //    1125; up above it, out of that picture, the roofs, the tree's crown and the sky, for tall screens): the
+      //    house next door, the wooden floor above with its barred windows and wall lamps, the dark tin roofs, the
+      //    patio's plants and its low black wall, the door (warm, its iron gates, its board), the tree in front, the
+      //    warm window, the black wall painted white (the logo in its circle, cups, beans, "Coffee", DONT LOOK FOR
+      //    LOVE LOOK FOR COFFEE; COFFEE CULTURE on the panel), the lit patio on the right behind its mesh gate, the
+      //    pavement, the road and its white line. Its string lights and its round sign drawn as it plays ──
+      const CAFE = { w: 2000, top: -620, bottom: 1125 };
+      const stringOf = (x0, y0, x1, y1, sag, every = 26) => { const n = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / every)), list = []; for (let i = 0; i <= n; i++) { const u = i / n; list.push([mix(x0, x1, u), mix(y0, y1, u) + sag * 4 * u * (1 - u)]); } return list; };
+      const CAFE_BULBS = [[120, 498, 300, 474, 16], [300, 474, 445, 516, 12], [445, 518, 600, 486, 14], [884, 456, 1440, 456, 8], [1560, 446, 2000, 440, 16], [1560, 500, 2000, 508, 12]].flatMap((s) => stringOf(...s));
+      const CAFE_PARTS = [(q) => {
+        const T = CAFE.top;
+        const sky = q.createLinearGradient(0, T, 0, 520);
+        sky.addColorStop(0, "#0F1530"); sky.addColorStop(0.45, "#26305C"); sky.addColorStop(0.8, "#5A4E7E"); sky.addColorStop(1, "#A8727A");
+        q.fillStyle = sky; q.fillRect(0, T, 2000, 1125 - T);
+        let rnd = dfSeeded(18);
+        q.fillStyle = "rgba(255, 250, 235, 0.8)"; for (let i = 0; i < 70; i++) { q.beginPath(); q.arc(rnd() * 2000, T + rnd() * 460, 0.8 + rnd() * 1.6, 0, PI2); q.fill(); }
+        q.strokeStyle = "rgba(10, 10, 14, 0.6)"; q.lineWidth = 2;
+        [[0, 120, 604, 40], [0, 210, 604, 120], [604, 40, 2000, -90]].forEach(([x0, y0, x1, y1]) => { q.beginPath(); q.moveTo(x0, y0); q.quadraticCurveTo((x0 + x1) / 2, (y0 + y1) / 2 + 40, x1, y1); q.stroke(); });
+        // the trees behind; the house next door (its roof, walls, windows, eaves)
+        [[470, 120, 150], [560, 20, 120], [380, 60, 110], [650, 160, 110], [430, 260, 120]].forEach(([x, y, r]) => { q.fillStyle = "#1C2A22"; q.beginPath(); q.arc(x, y, r, 0, PI2); q.fill(); });
+        q.fillStyle = "#2C2F35"; q.beginPath(); q.moveTo(-20, 60); q.lineTo(60, -40); q.lineTo(300, -40); q.lineTo(380, 60); q.closePath(); q.fill();
+        q.fillStyle = "#8E8B85"; q.fillRect(0, 50, 440, 400);
+        q.fillStyle = "#7A7771"; q.fillRect(0, 330, 440, 120);
+        q.fillStyle = "#26292E"; q.fillRect(-10, 15, 370, 42); q.fillRect(205, 150, 300, 22);
+        q.fillStyle = "#2F343B"; q.fillRect(145, 228, 42, 54); q.fillRect(235, 245, 112, 86);
+        q.fillStyle = "#1F2328"; q.fillRect(0, 365, 300, 55);
+        q.fillStyle = "#34322F"; q.fillRect(596, T, 16, 470 - T);
+        // the building on the right (its tin wall, a lit window), the dark between
+        q.fillStyle = "#18201B"; q.fillRect(1550, -200, 320, 560);
+        q.fillStyle = "#8F969B"; q.fillRect(1850, -260, 160, 620);
+        q.strokeStyle = "rgba(40, 44, 48, 0.5)"; q.lineWidth = 3; for (let x = 1858; x < 2000; x += 14) { q.beginPath(); q.moveTo(x, -260); q.lineTo(x, 340); q.stroke(); }
+        q.fillStyle = "#3A3F44"; q.beginPath(); q.moveTo(1820, -250); q.lineTo(2000, -330); q.lineTo(2000, -250); q.closePath(); q.fill();
+        q.fillStyle = "#D9DEE2"; q.fillRect(1860, 132, 54, 132); q.fillStyle = "#7E8A92"; q.fillRect(1866, 140, 42, 116);
+      }, (q) => {
+        // the floor above: its roof and eaves; wood boards lit by its lamps
+        q.fillStyle = "#26211F"; q.beginPath(); q.moveTo(640, -150); q.lineTo(1100, -330); q.lineTo(1600, -150); q.closePath(); q.fill();
+        q.fillStyle = "#1B1716"; q.fillRect(640, -160, 960, 70);
+        const wood = q.createLinearGradient(0, -90, 0, 300); wood.addColorStop(0, "#4A2C1B"); wood.addColorStop(1, "#6E4329");
+        q.fillStyle = wood; q.fillRect(690, -90, 870, 390);
+        for (let x = 694; x < 1560; x += 13) { q.fillStyle = (x * 7) % 3 < 1 ? "rgba(40, 20, 10, 0.45)" : "rgba(150, 96, 60, 0.18)"; q.fillRect(x, -90, 2.2, 390); }
+        // its windows: the left one (white bars), a panel, the big one (white frame, bars and rings)
+        const panes = (x, y, w, h) => { const gl = q.createLinearGradient(0, y, 0, y + h); gl.addColorStop(0, "#2B3036"); gl.addColorStop(1, "#1A1D21"); q.fillStyle = gl; q.fillRect(x, y, w, h); };
+        q.fillStyle = "#3A2416"; q.fillRect(756, 110, 142, 190);
+        panes(765, 120, 125, 172);
+        q.fillStyle = "rgba(226, 228, 230, 0.85)"; for (let x = 770; x < 890; x += 13) q.fillRect(x, 120, 3, 172);
+        q.fillStyle = "#3E2416"; q.fillRect(968, 96, 56, 190);
+        q.fillStyle = "#E9E7E2"; q.fillRect(1128, 22, 280, 274);
+        panes(1140, 32, 256, 252);
+        q.strokeStyle = "rgba(226, 228, 230, 0.9)"; q.lineWidth = 3;
+        [1205, 1270, 1335].forEach((x) => { q.beginPath(); q.moveTo(x, 32); q.lineTo(x, 284); q.stroke(); });
+        q.lineWidth = 1.6;
+        for (let x = 1150; x < 1396; x += 16) { q.beginPath(); q.moveTo(x, 40); q.lineTo(x, 276); q.stroke(); }
+        for (let y = 70; y < 284; y += 62) for (let x = 1172; x < 1396; x += 65) { q.beginPath(); q.arc(x, y, 12, 0, PI2); q.stroke(); }
+        q.fillStyle = "#B7A68C"; q.fillRect(1128, 290, 280, 40);
+        // its wall lamps: a warm wash up and down the boards
+        [[730, 182], [928, 165], [1045, 148], [1472, 108]].forEach(([x, y]) => {
+          q.save(); q.translate(x, y); q.scale(0.42, 1.5);
+          const gr = q.createRadialGradient(0, 0, 0, 0, 0, 80); gr.addColorStop(0, "rgba(255, 196, 120, 0.85)"); gr.addColorStop(0.4, "rgba(255, 170, 90, 0.35)"); gr.addColorStop(1, "rgba(255, 170, 90, 0)");
+          q.fillStyle = gr; q.fillRect(-80, -80, 160, 160); q.restore();
+          q.fillStyle = "#2A2420"; q.fillRect(x - 8, y - 6, 16, 12); q.fillStyle = "#FFE2B0"; q.fillRect(x - 6, y - 8, 12, 2.5); q.fillRect(x - 6, y + 5.5, 12, 2.5);
+        });
+        // the solar panel; the little roofs over the door (tin, lit from under; dark); the green beam; the patio's
+        // roof on the right (its silver edge); the dark ribbed roof over the front
+        q.fillStyle = "#1E2A3A"; q.fillRect(1500, 258, 36, 42); q.strokeStyle = "#8A97A6"; q.lineWidth = 1.5; q.strokeRect(1500, 258, 36, 42);
+        q.fillStyle = "#6F757C"; q.beginPath(); q.moveTo(600, 300); q.lineTo(790, 288); q.lineTo(790, 368); q.lineTo(600, 368); q.closePath(); q.fill();
+        q.strokeStyle = "rgba(30, 32, 36, 0.5)"; q.lineWidth = 2; for (let x = 606; x < 790; x += 12) { q.beginPath(); q.moveTo(x, 300); q.lineTo(x, 368); q.stroke(); }
+        q.fillStyle = "#34373A"; q.beginPath(); q.moveTo(790, 288); q.lineTo(1032, 285); q.lineTo(1032, 368); q.lineTo(790, 368); q.closePath(); q.fill();
+        q.fillStyle = "#1F3A2A"; q.fillRect(1000, 328, 560, 24);
+        q.fillStyle = "#1A1C1E"; q.fillRect(1480, 352, 520, 40);
+        q.fillStyle = "#C9CDD1"; q.fillRect(1480, 336, 520, 14); q.fillStyle = "#8E9398"; q.fillRect(1480, 352, 520, 6);
+        q.fillStyle = "#26302E"; q.beginPath(); q.moveTo(285, 420); q.lineTo(1560, 344); q.lineTo(1560, 438); q.lineTo(285, 446); q.closePath(); q.fill();
+        q.strokeStyle = "rgba(0, 0, 0, 0.35)"; q.lineWidth = 2;
+        for (let x = 296; x < 1560; x += 15) { q.beginPath(); q.moveTo(x, mix(420, 344, (x - 285) / 1275)); q.lineTo(x, 440); q.stroke(); }
+        q.fillStyle = "#161B1A"; q.fillRect(285, 436, 1275, 12);
+      }, (q) => {
+        let rnd;
+        // the patio: warm under its roof, a tarp, the white post, the low black wall with its white pots
+        const patio = q.createLinearGradient(0, 448, 0, 860); patio.addColorStop(0, "#6B4A30"); patio.addColorStop(1, "#2A1E16");
+        q.fillStyle = patio; q.fillRect(0, 446, 600, 420);
+        q.fillStyle = "#C47A4C"; q.beginPath(); q.moveTo(110, 486); q.lineTo(180, 448); q.lineTo(290, 470); q.lineTo(240, 494); q.closePath(); q.fill();
+        q.fillStyle = "#E3DCCF"; q.fillRect(356, 456, 72, 180);
+        q.fillStyle = "#161616"; q.fillRect(388, 642, 202, 164);
+        q.fillStyle = "#E9E4D9"; q.fillRect(384, 630, 194, 14);
+        // the door: warm inside (a board, a table, a bench), its post, its iron gates, the board over it
+        const door = q.createLinearGradient(0, 470, 0, 826); door.addColorStop(0, "#FBD9A0"); door.addColorStop(0.6, "#E2A25E"); door.addColorStop(1, "#9A6234");
+        q.fillStyle = door; q.fillRect(652, 470, 152, 356);
+        q.fillStyle = "rgba(90, 60, 36, 0.4)"; q.fillRect(700, 522, 64, 74);
+        q.fillStyle = "#5A3A22"; q.fillRect(668, 700, 96, 12); q.fillRect(676, 712, 8, 100); q.fillRect(748, 712, 8, 100); q.fillRect(700, 742, 70, 10);
+        q.fillStyle = "#E4DED2"; q.fillRect(646, 476, 16, 352);
+        const gate = (x, y, w, h, trim) => {
+          q.strokeStyle = "#0E0E0E"; q.lineWidth = 4; for (let gx = x + 5; gx < x + w; gx += 11) { q.beginPath(); q.moveTo(gx, y); q.lineTo(gx, y + h); q.stroke(); }
+          q.lineWidth = 6; q.strokeRect(x, y, w, h);
+          if (trim) { q.strokeStyle = "#E8E4DA"; q.lineWidth = 3; q.strokeRect(x - 3, y - 3, w + 6, h + 6); }
+          q.strokeStyle = "#0E0E0E"; q.lineWidth = 3; for (let k = 0; k < 3; k++) { q.beginPath(); q.arc(x + w / 2, y + 60 + k * 90, w * 0.3, 0, PI2); q.stroke(); }
+        };
+        gate(590, 536, 60, 268, true); gate(770, 524, 40, 296, false);
+        q.fillStyle = "#2E1E14"; q.beginPath(); q.roundRect(628, 476, 144, 32, 6); q.fill();
+        q.fillStyle = "#F3E7D2"; q.font = `700 22px ${DF_NOTE}`; q.textAlign = "center"; q.textBaseline = "middle"; q.fillText("Tuloy", 682, 493);
+        q.strokeStyle = "#F3E7D2"; q.lineWidth = 2; doodle.cup(q, 738, 486, 18, 11);
+        // the window: warm inside (the red wall, pictures, mugs hanging, plants trailing, lamps), its frame
+        q.fillStyle = "#2A1A10"; q.fillRect(878, 462, 566, 176);
+        const inside = q.createLinearGradient(0, 470, 0, 632); inside.addColorStop(0, "#F7C98E"); inside.addColorStop(1, "#C9874E");
+        q.fillStyle = inside; q.fillRect(886, 470, 550, 162);
+        q.fillStyle = "#B8452A"; q.fillRect(1326, 470, 110, 162);
+        q.fillStyle = "rgba(255, 240, 210, 0.45)"; q.fillRect(886, 470, 110, 162);
+        [[1010, 540, 30, 24], [1048, 526, 22, 30], [1080, 556, 28, 22], [1150, 530, 26, 34], [1186, 562, 24, 20], [1262, 540, 30, 40]].forEach(([x, y, w, h]) => { q.fillStyle = "#3A2A1E"; q.fillRect(x, y, w, h); q.fillStyle = "#E8D7BD"; q.fillRect(x + 3, y + 3, w - 6, h - 6); });
+        rnd = dfSeeded(77);
+        for (let i = 0; i < 14; i++) { const x = 904 + i * 38 + rnd() * 6, y = 492 + (i % 3) * 7; q.strokeStyle = "rgba(60, 36, 20, 0.7)"; q.lineWidth = 1.5; q.beginPath(); q.moveTo(x, 470); q.lineTo(x, y); q.stroke(); q.fillStyle = "#FBF4EA"; q.beginPath(); q.moveTo(x - 8, y); q.lineTo(x + 8, y); q.lineTo(x + 6.5, y + 15); q.lineTo(x - 6.5, y + 15); q.closePath(); q.fill(); }
+        [918, 990, 1078, 1168, 1292, 1392].forEach((x, i) => { const len = 60 + (i % 3) * 30; q.strokeStyle = "#4E7A3E"; q.lineWidth = 3; q.beginPath(); q.moveTo(x, 470); q.bezierCurveTo(x + 6, 470 + len * 0.4, x - 6, 470 + len * 0.7, x + 2, 470 + len); q.stroke(); q.fillStyle = "#5E8C46"; for (let k = 0; k < 6; k++) { q.beginPath(); q.ellipse(x + (k % 2 ? 5 : -5), 480 + k * len / 6, 5, 3, k % 2 ? 0.6 : -0.6, 0, PI2); q.fill(); } });
+        [1104, 1284, 1404].forEach((x) => { q.fillStyle = "#1C1612"; q.beginPath(); q.moveTo(x - 12, 496); q.lineTo(x + 12, 496); q.lineTo(x + 6, 482); q.lineTo(x - 6, 482); q.closePath(); q.fill(); const gr = q.createRadialGradient(x, 500, 0, x, 500, 40); gr.addColorStop(0, "rgba(255, 236, 190, 0.9)"); gr.addColorStop(1, "rgba(255, 236, 190, 0)"); q.fillStyle = gr; q.fillRect(x - 40, 460, 80, 80); });
+        q.fillStyle = "#E6DFD3"; q.fillRect(1222, 470, 12, 162);
+        q.fillStyle = "#4E9A4E"; q.fillRect(1316, 586, 62, 42); q.fillStyle = "#FFFFFF"; q.font = `800 11px ${UI}`; q.fillText("DRIVEWAY", 1347, 614);
+        q.fillStyle = "#3A2416"; q.fillRect(878, 628, 566, 8);
+      }, (q) => {
+        let rnd;
+        // the black wall, painted
+        q.fillStyle = "#141414"; q.fillRect(884, 636, 656, 244); q.fillRect(1436, 470, 104, 170);
+        q.fillStyle = CHALK; q.strokeStyle = CHALK; q.lineCap = "round"; q.lineJoin = "round"; q.textAlign = "center"; q.textBaseline = "alphabetic";
+        q.beginPath(); q.arc(1236, 745, 117, 0, PI2); q.fill();
+        const badge = dfBadgeImg();
+        if (badge.complete && badge.naturalWidth) q.drawImage(badge, 1236 - 135, 745 - 135, 270, 270);
+        q.lineWidth = 3.5;
+        q.beginPath(); q.moveTo(896, 760); q.lineTo(896, 676); q.arc(928, 676, 32, Math.PI, 0); q.lineTo(960, 760); q.closePath(); q.stroke();
+        q.beginPath(); q.arc(928, 690, 13, Math.PI, 0); q.stroke();
+        for (let k = 0; k < 7; k++) { const a = Math.PI + (k / 6) * Math.PI; q.beginPath(); q.moveTo(928 + Math.cos(a) * 18, 690 + Math.sin(a) * 18); q.lineTo(928 + Math.cos(a) * 25, 690 + Math.sin(a) * 25); q.stroke(); }
+        for (let k = 0; k < 4; k++) { q.beginPath(); for (let x = 900; x <= 956; x += 4) q.lineTo(x, 712 + k * 12 + Math.sin(x * 0.3 + k) * 3); q.stroke(); }
+        doodle.cup(q, 1030, 668, 56, 34); doodle.steam(q, 1030, 660, 26);
+        doodle.bean(q, 1092, 646, 8, 12, 0.3);
+        q.font = `400 34px ${DF_SCRIPT}`; q.fillText("Coffee", 1078, 712);
+        doodle.cup(q, 1077, 758, 30, 18); doodle.steam(q, 1076, 752, 14);
+        q.save(); q.translate(1004, 758); q.rotate(-0.35); q.beginPath(); q.moveTo(-18, -34); q.lineTo(18, -34); q.lineTo(13, 38); q.lineTo(-13, 38); q.closePath(); q.stroke(); q.beginPath(); q.moveTo(4, -34); q.lineTo(10, -54); q.stroke(); q.strokeRect(-9, -6, 8, 8); q.strokeRect(2, 6, 8, 8); q.restore();
+        q.font = `700 31px ${DF_NOTE}`;
+        q.fillText("DONT LOOK", 1412, 680); q.fillText("FOR LOVE", 1436, 707); q.fillText("LOOK FOR", 1424, 734);
+        q.font = `700 50px ${DF_NOTE}`; q.fillText("COFFEE", 1441, 788);
+        doodle.bean(q, 1518, 690, 13, 22, 0.25);
+        doodle.cup(q, 1404, 820, 44, 26); doodle.heart(q, 1404, 800, 18);
+        doodle.lemon(q, 1468, 816, 21);
+        q.font = `700 34px ${DF_NOTE}`; q.fillText("COFFEE", 1488, 541); q.fillText("CULTURE", 1488, 584);
+        q.fillRect(1442, 590, 94, 3); doodle.bean(q, 1488, 616, 10, 15, 0); q.fillRect(1442, 636, 94, 3);
+        // the patio on the right: warm under its roof, a light box, its mesh gate over plants (lights through it)
+        const right = q.createLinearGradient(0, 392, 0, 860); right.addColorStop(0, "#7A4A2C"); right.addColorStop(1, "#24170F");
+        q.fillStyle = right; q.fillRect(1540, 392, 460, 470);
+        q.fillStyle = "#DCE3E8"; q.fillRect(1612, 476, 46, 44);
+        q.fillStyle = "rgba(22, 34, 24, 0.92)"; q.fillRect(1540, 516, 460, 346);
+        rnd = dfSeeded(91);
+        for (let i = 0; i < 9; i++) { const x = 1560 + rnd() * 430, y = 540 + rnd() * 280, gr = q.createRadialGradient(x, y, 0, x, y, 40); gr.addColorStop(0, "rgba(255, 196, 110, 0.35)"); gr.addColorStop(1, "rgba(255, 196, 110, 0)"); q.fillStyle = gr; q.fillRect(x - 40, y - 40, 80, 80); }
+        q.strokeStyle = "rgba(70, 90, 60, 0.4)"; q.lineWidth = 1.2;
+        for (let x = 1544; x < 2000; x += 9) { q.beginPath(); q.moveTo(x, 516); q.lineTo(x, 862); q.stroke(); }
+        for (let y = 520; y < 862; y += 9) { q.beginPath(); q.moveTo(1540, y); q.lineTo(2000, y); q.stroke(); }
+        q.fillStyle = "#0C0C0C"; [1538, 1778, 1994].forEach((x) => q.fillRect(x - 5, 510, 10, 356)); q.fillRect(1540, 512, 460, 8);
+      }, (q) => {
+        const T = CAFE.top;
+        let rnd;
+        // plants: big leaves (left), the snake plants, what grows in the white pots
+        const leaf = (x, y, len, wid, turn, color) => { q.save(); q.translate(x, y); q.rotate(turn); q.fillStyle = color; q.beginPath(); q.moveTo(0, 0); q.quadraticCurveTo(len * 0.5, -wid, len, 0); q.quadraticCurveTo(len * 0.5, wid, 0, 0); q.fill(); q.restore(); };
+        rnd = dfSeeded(42);
+        for (let i = 0; i < 52; i++) leaf(10 + rnd() * 340, 520 + rnd() * 320, 50 + rnd() * 70, 14 + rnd() * 14, -Math.PI / 2 + (rnd() - 0.5) * 2.6, ["#22381F", "#2E4A28", "#3B5C31", "#4A6B36"][Math.floor(rnd() * 4)]);
+        for (let i = 0; i < 36; i++) { const x = 226 + rnd() * 250, h = 120 + rnd() * 210, lean = (rnd() - 0.5) * 40, w = 7 + rnd() * 7; q.fillStyle = rnd() < 0.5 ? "#2C4628" : "#3A5A30"; q.beginPath(); q.moveTo(x - w, 868); q.quadraticCurveTo(x + lean * 0.3, 868 - h * 0.6, x + lean, 868 - h); q.quadraticCurveTo(x + lean * 0.3 + w * 0.6, 868 - h * 0.6, x + w, 868); q.closePath(); q.fill(); }
+        [[415, 616], [458, 620], [492, 600], [562, 624]].forEach(([x, y]) => { for (let k = 0; k < 5; k++) leaf(x, y - 12, 30 + k * 6, 6, -Math.PI / 2 + (k - 2) * 0.3, "#3E6A36"); q.fillStyle = "#F0EDE6"; q.beginPath(); q.moveTo(x - 18, y - 14); q.lineTo(x + 18, y - 14); q.lineTo(x + 13, y + 12); q.lineTo(x - 13, y + 12); q.closePath(); q.fill(); });
+        for (let k = 0; k < 7; k++) leaf(606, 800, 40 + k * 8, 7, -Math.PI / 2 + (k - 3) * 0.25, "#355E30");
+        // the tree in front: its trunk, splitting (one way up, one over the window), moss on it, its crown up high
+        q.fillStyle = "#3B342D";
+        q.beginPath(); q.moveTo(806, 882); q.bezierCurveTo(816, 760, 822, 600, 826, 470); q.bezierCurveTo(828, 300, 832, 0, 836, T); q.lineTo(862, T); q.bezierCurveTo(860, 0, 862, 300, 866, 470); q.bezierCurveTo(872, 600, 878, 760, 888, 882); q.closePath(); q.fill();
+        q.beginPath(); q.moveTo(858, 520); q.bezierCurveTo(900, 440, 960, 380, 1030, 300); q.bezierCurveTo(1090, 230, 1160, 120, 1240, -60); q.lineTo(1262, -50); q.bezierCurveTo(1180, 130, 1110, 245, 1046, 316); q.bezierCurveTo(980, 392, 920, 456, 872, 560); q.closePath(); q.fill();
+        rnd = dfSeeded(64);
+        for (let i = 0; i < 16; i++) { q.fillStyle = `rgba(${rnd() < 0.5 ? "96, 122, 58" : "70, 92, 50"}, 0.6)`; q.beginPath(); q.ellipse(818 + rnd() * 20, 480 + rnd() * 300, 5 + rnd() * 8, 10 + rnd() * 16, 0, 0, PI2); q.fill(); }
+        q.fillStyle = "rgba(255, 200, 140, 0.16)"; q.fillRect(866, 470, 14, 400);
+        rnd = dfSeeded(66);
+        for (let i = 0; i < 26; i++) { const x = 640 + rnd() * 760, y = T + 30 + rnd() * 300; q.fillStyle = ["#16221B", "#1C2A21", "#22332A"][i % 3]; q.beginPath(); q.arc(x, y, 60 + rnd() * 80, 0, PI2); q.fill(); }
+        // the round sign's arm
+        q.fillStyle = "#1A1A1A"; q.fillRect(784, 380, 5, 16);
+        // the pavement (the window's light on it, pebbles at the door), the kerb, the road and its white line
+        q.fillStyle = "#4F4E4B"; q.fillRect(0, 860, 2000, 70);
+        const spill = q.createRadialGradient(1100, 860, 0, 1100, 860, 520); spill.addColorStop(0, "rgba(255, 200, 140, 0.22)"); spill.addColorStop(1, "rgba(255, 200, 140, 0)");
+        q.fillStyle = spill; q.fillRect(500, 860, 1200, 70);
+        rnd = dfSeeded(12);
+        q.fillStyle = "rgba(200, 196, 186, 0.14)"; for (let i = 0; i < 110; i++) { q.beginPath(); q.arc(600 + rnd() * 380, 868 + rnd() * 54, 1.5 + rnd() * 2, 0, PI2); q.fill(); }
+        q.fillStyle = "#64625E"; q.fillRect(0, 926, 2000, 6); q.fillStyle = "#33322F"; q.fillRect(0, 932, 2000, 12);
+        const asphalt = q.createLinearGradient(0, 944, 0, 1125); asphalt.addColorStop(0, "#2E3033"); asphalt.addColorStop(1, "#1C1D1F");
+        q.fillStyle = asphalt; q.fillRect(0, 944, 2000, 181);
+        q.fillStyle = "rgba(226, 224, 216, 0.85)"; q.fillRect(0, 962, 2000, 8);
+      }];
+      // (painted a part at a time, a moment apart, so no one frame pays for all of it; all at once if it is wanted)
+      let cafeJob = null;
+      const cafeStep = () => {
+        if (!cafeJob) {
+          const res = Math.min(SCENE_LITE ? 0.62 : 1, Math.max(W / CAFE.w, H / CAFE.bottom) * ratio * 1.7), c = canvasOf(CAFE.w * res, (CAFE.bottom - CAFE.top) * res), q = c.getContext("2d");
+          q.scale(res, res); q.translate(0, -CAFE.top);
+          cafeJob = { c, q, next: 0 };
+        }
+        const { q } = cafeJob;
+        q.save(); CAFE_PARTS[cafeJob.next++](q); q.restore();
+        if (cafeJob.next < CAFE_PARTS.length) return null;
+        const done = { c: cafeJob.c, w: CAFE.w, top: CAFE.top, bottom: CAFE.bottom };
+        cafeJob = null;
+        return done;
+      };
+      const makeCafe = () => { let done = null; while (!done) done = cafeStep(); return done; };
+      // a picture in its own units laid over the screen: k px a unit, the point fx, fy in the middle as far as its
+      // edges allow (where it is smaller than the screen: its foot to the screen's foot, and fill above it)
+      const lay = (pic, k, fx, fy, fill) => {
+        const w = pic.w * k, h = (pic.bottom - pic.top) * k;
+        const x = w <= W ? (W - w) / 2 : Math.min(0, Math.max(W - w, W / 2 - fx * k));
+        const y = h <= H ? H - h : Math.min(0, Math.max(H - h, H / 2 - (fy - pic.top) * k));
+        if (fill && (y > 0 || x > 0)) { g.fillStyle = fill; g.fillRect(0, 0, W, H); }
+        g.drawImage(pic.c, x, y, w, h);
+        return { k, at: (u, v) => [x + u * k, y + (v - pic.top) * k] };
+      };
+
+      // ── the pictures the size of the screen: the desk, the passenger seat, the counter, the black wall, the table ──
+      const makeDesk = () => screenPic(0.25, (q, w, h, fw, fh) => {
+        q.save(); q.translate(-w * 0.25, -h * 0.25);
+        boards(q, fw, fh, 9, [222, 186, 140], Math.max(90, Math.min(w, h) * 0.18));
+        const sun = q.createRadialGradient(fw * 0.18, 0, 0, fw * 0.18, 0, Math.max(fw, fh));
+        sun.addColorStop(0, "rgba(255, 244, 214, 0.5)"); sun.addColorStop(1, "rgba(255, 244, 214, 0)");
+        q.fillStyle = sun; q.fillRect(0, 0, fw, fh);
+        q.restore();
+      });
+      const seatOf = () => { const sw = tall ? W * 0.9 : Math.min(W * 0.46, H * 0.74); return { sw, sx: W / 2, sy: H * (tall ? 0.56 : 0.58) }; };
+      const makeSeat = () => screenPic(0, (q, w, h) => {
+        const { sw, sx, sy } = seatOf();
+        q.fillStyle = "#1A1B1E"; q.fillRect(0, 0, w, h);
+        q.fillStyle = "#24262A"; q.fillRect(sx + sw * 0.6, 0, w, h);
+        q.fillStyle = "#30333A"; q.beginPath(); q.roundRect(sx + sw * 0.64, sy - sw * 0.3, sw * 0.16, sw * 0.9, sw * 0.05); q.fill();
+        q.fillStyle = "#151619"; q.fillRect(0, 0, sx - sw * 0.6, h);
+        q.fillStyle = "#26282C"; q.beginPath(); q.roundRect(sx - sw * 0.86, sy - sw * 0.42, sw * 0.2, sw * 1.12, sw * 0.04); q.fill();
+        const fabric = (x, y, fw, fh, r) => {
+          const gr = q.createLinearGradient(x, y, x + fw, y + fh); gr.addColorStop(0, "#52565C"); gr.addColorStop(1, "#33363B");
+          q.fillStyle = gr; q.beginPath(); q.roundRect(x, y, fw, fh, r); q.fill();
+          q.fillStyle = "rgba(0, 0, 0, 0.22)"; q.beginPath(); q.roundRect(x, y, fw * 0.16, fh, r); q.fill(); q.beginPath(); q.roundRect(x + fw * 0.84, y, fw * 0.16, fh, r); q.fill();
+          q.strokeStyle = "rgba(0, 0, 0, 0.35)"; q.lineWidth = 2; q.setLineDash([6, 6]); q.beginPath(); q.roundRect(x + fw * 0.2, y + 12, fw * 0.6, fh - 24, r * 0.5); q.stroke(); q.setLineDash([]);
+        };
+        fabric(sx - sw * 0.5, sy - sw * 0.94, sw, sw * 0.54, sw * 0.08);
+        fabric(sx - sw * 0.48, sy - sw * 0.38, sw * 0.96, sw * 0.88, sw * 0.1);
+        q.fillStyle = "rgba(0, 0, 0, 0.4)"; q.fillRect(sx - sw * 0.46, sy - sw * 0.41, sw * 0.92, sw * 0.04);
+        q.fillStyle = "#1C1D20"; q.beginPath(); q.roundRect(sx - sw * 0.6, sy + sw * 0.36, sw * 0.12, sw * 0.16, sw * 0.03); q.fill();
+        // (the console: two cup holders, the gear lever in its boot; the door: its pull, its window switches)
+        [-0.26, -0.12].forEach((dy) => { q.fillStyle = "#121315"; q.beginPath(); q.arc(sx - sw * 0.76, sy + sw * dy, sw * 0.045, 0, PI2); q.fill(); q.strokeStyle = "rgba(255, 255, 255, 0.08)"; q.lineWidth = 2; q.stroke(); });
+        const boot = q.createRadialGradient(sx - sw * 0.76, sy + sw * 0.12, 0, sx - sw * 0.76, sy + sw * 0.12, sw * 0.08); boot.addColorStop(0, "#0D0E10"); boot.addColorStop(1, "#24262A");
+        q.fillStyle = boot; q.beginPath(); q.arc(sx - sw * 0.76, sy + sw * 0.12, sw * 0.08, 0, PI2); q.fill();
+        q.fillStyle = "#3A3D42"; q.beginPath(); q.arc(sx - sw * 0.76, sy + sw * 0.1, sw * 0.04, 0, PI2); q.fill(); q.fillStyle = "rgba(255, 255, 255, 0.18)"; q.beginPath(); q.arc(sx - sw * 0.772, sy + sw * 0.088, sw * 0.015, 0, PI2); q.fill();
+        q.fillStyle = "#AEB4BA"; q.beginPath(); q.roundRect(sx + sw * 0.68, sy - sw * 0.12, sw * 0.08, sw * 0.022, sw * 0.011); q.fill();
+        q.fillStyle = "#16171A"; q.beginPath(); q.roundRect(sx + sw * 0.67, sy + sw * 0.16, sw * 0.1, sw * 0.12, sw * 0.02); q.fill();
+        q.fillStyle = "#3A3D42"; [0, 1].forEach((k) => { q.beginPath(); q.roundRect(sx + sw * (0.685 + k * 0.04), sy + sw * 0.18, sw * 0.03, sw * 0.08, sw * 0.008); q.fill(); });
+      });
+      const makeCounter = () => screenPic(0, (q, w, h) => {
+        boards(q, w, h, 21, [126, 84, 54], Math.max(80, Math.min(w, h) * 0.16));
+        const lamp = q.createRadialGradient(w * 0.6, h * 0.3, 0, w * 0.6, h * 0.3, Math.max(w, h) * 0.8);
+        lamp.addColorStop(0, "rgba(255, 210, 150, 0.28)"); lamp.addColorStop(1, "rgba(20, 10, 4, 0.5)");
+        q.fillStyle = lamp; q.fillRect(0, 0, w, h);
+      });
+      // the black wall at night: the paint's grain, the café's logo in white (lower right; on a tall screen at its
+      // foot), a few of its drawings, faint
+      const wallLogo = () => (tall ? { x: W * 0.5, y: H * 0.84, r: W * 0.28 } : { x: W * 0.84, y: H * 0.66, r: Math.min(W * 0.15, H * 0.28) });
+      const makeWall = () => screenPic(0, (q, w, h) => {
+        q.fillStyle = "#121212"; q.fillRect(0, 0, w, h);
+        const rnd = dfSeeded(55);
+        for (let i = 0; i < 2200; i++) { q.fillStyle = `rgba(255, 255, 255, ${(rnd() * 0.03).toFixed(3)})`; q.fillRect(rnd() * w, rnd() * h, 2, 2); }
+        const L = wallLogo();
+        q.fillStyle = CHALK; q.beginPath(); q.arc(L.x, L.y, L.r, 0, PI2); q.fill();
+        const badge = dfBadgeImg();
+        if (badge.complete && badge.naturalWidth) { const S = L.r / (111 / 256); q.drawImage(badge, L.x - S / 2, L.y - S / 2, S, S); }
+        q.globalAlpha = 0.55; q.strokeStyle = CHALK; q.lineWidth = 3; q.lineCap = "round"; q.lineJoin = "round";
+        const s = Math.min(w, h) / 700;
+        q.save(); q.translate(tall ? w * 0.18 : w * 0.07, tall ? h * 0.12 : h * 0.11); q.scale(s * 1.6, s * 1.6); doodle.cup(q, 0, 0, 56, 34); doodle.steam(q, 0, -8, 26); doodle.bean(q, 62, -22, 8, 12, 0.3); q.restore();
+        q.save(); q.translate(tall ? w * 0.84 : w * 0.12, tall ? h * 0.14 : h * 0.84); q.scale(s * 1.6, s * 1.6); doodle.lemon(q, 0, 0, 21); q.restore();
+        q.save(); q.translate(tall ? w * 0.82 : w * 0.6, tall ? h * 0.62 : h * 0.12); q.scale(s * 1.6, s * 1.6); doodle.cup(q, 0, 0, 44, 26); doodle.heart(q, 0, -20, 18); q.restore();
+        q.globalAlpha = 1;
+        const dim = q.createRadialGradient(w / 2, h * 0.45, Math.min(w, h) * 0.2, w / 2, h * 0.45, Math.max(w, h) * 0.8); dim.addColorStop(0, "rgba(0, 0, 0, 0)"); dim.addColorStop(1, "rgba(0, 0, 0, 0.6)");
+        q.fillStyle = dim; q.fillRect(0, 0, w, h);
+      });
+      // the table at the end: warm oak under the string lights, a latte at its corner, a little plant
+      const tableThings = () => (tall ? { lx: W * 0.86, ly: H * 0.95, r: W * 0.065, px: W * 0.13, py: H * 0.955 } : { lx: W * 0.95, ly: H * 0.88, r: Math.min(W, H) * 0.055, px: W * 0.05, py: H * 0.9 });
+      const makeTable = () => screenPic(0, (q, w, h) => {
+        boards(q, w, h, 31, [214, 172, 124], Math.max(90, Math.min(w, h) * 0.17));
+        const glow = q.createRadialGradient(w * 0.5, -h * 0.1, 0, w * 0.5, -h * 0.1, Math.max(w, h)); glow.addColorStop(0, "rgba(255, 200, 130, 0.35)"); glow.addColorStop(1, "rgba(255, 200, 130, 0)");
+        q.fillStyle = glow; q.fillRect(0, 0, w, h);
+        const dim = q.createRadialGradient(w / 2, h * 0.5, Math.min(w, h) * 0.3, w / 2, h * 0.5, Math.max(w, h) * 0.75); dim.addColorStop(0, "rgba(0, 0, 0, 0)"); dim.addColorStop(1, "rgba(30, 14, 4, 0.5)");
+        q.fillStyle = dim; q.fillRect(0, 0, w, h);
+        const { lx, ly, r, px, py } = tableThings(), pr = r * 1.2;
+        latte(q, lx, ly, r);
+        q.fillStyle = "rgba(0, 0, 0, 0.25)"; q.beginPath(); q.arc(px + pr * 0.1, py + pr * 0.12, pr, 0, PI2); q.fill();
+        q.fillStyle = "#E8E2D6"; q.beginPath(); q.arc(px, py, pr * 0.8, 0, PI2); q.fill();
+        for (let k = 0; k < 9; k++) { const a = (k / 9) * PI2; q.fillStyle = k % 2 ? "#4E7A3E" : "#3E6A36"; q.save(); q.translate(px, py); q.rotate(a); q.beginPath(); q.ellipse(pr * 0.5, 0, pr * 0.55, pr * 0.2, 0, 0, PI2); q.fill(); q.restore(); }
+      });
+
+      // ── the street, for the drive: houses and trees (each with a dark copy, laid over it as night comes), the
+      //    printer, the jeepney ──
+      const silhouette = (c) => { const s = canvasOf(c.width, c.height), q = s.getContext("2d"); q.drawImage(c, 0, 0); q.globalCompositeOperation = "source-in"; q.fillStyle = "#121530"; q.fillRect(0, 0, c.width, c.height); return s; };
+      let streetPics = null;
+      const street = () => (streetPics ??= {
+        houses: Array.from({ length: 6 }, (_, i) => {
+          const rnd = dfSeeded(30 + i), w = 150 + rnd() * 110, h = 90 + rnd() * 70, c = canvasOf(w + 20, h + 70), q = c.getContext("2d");
+          q.fillStyle = ["#D8A894", "#A9C6BA", "#E2C48C", "#B9B3D6", "#E0B2B8", "#AFC8DC"][i]; q.fillRect(10, 60, w, h);
+          q.fillStyle = ["#7E4434", "#4E5E74", "#5E4C3E"][i % 3]; q.beginPath(); q.moveTo(0, 64); q.lineTo(10 + w / 2, 6 + rnd() * 20); q.lineTo(w + 20, 64); q.closePath(); q.fill();
+          q.fillStyle = "#6A4A36"; q.fillRect(w - 30, 60 + h - 46, 26, 46);
+          const windows = Array.from({ length: Math.min(2 + Math.floor(rnd() * 2), Math.floor((w - 50) / 52)) }, (_, k) => [26 + k * 52, 80, 30, 28]);
+          q.fillStyle = "#3E4A55"; windows.forEach(([x, y, ww, hh]) => q.fillRect(x, y, ww, hh));
+          return { c, sil: silhouette(c), windows, lightAt: 0.32 + rnd() * 0.4 };
+        }),
+        trees: [0, 1, 2].map((i) => { const rnd = dfSeeded(70 + i), c = canvasOf(140, 200), q = c.getContext("2d"); q.fillStyle = "#4A3628"; q.fillRect(64, 110, 12, 90); for (let k = 0; k < 6; k++) { q.fillStyle = k % 2 ? "#3E6E3A" : "#335F32"; q.beginPath(); q.arc(70 + (rnd() - 0.5) * 70, 70 + (rnd() - 0.5) * 60, 32 + rnd() * 18, 0, PI2); q.fill(); } return { c, sil: silhouette(c) }; }),
+      });
+      const printerPic = (() => {
+        const c = canvasOf(760, 420), q = c.getContext("2d"), body = q.createLinearGradient(0, 40, 0, 400);
+        body.addColorStop(0, "#4A4F57"); body.addColorStop(0.5, "#33373E"); body.addColorStop(1, "#22252A");
+        q.fillStyle = "#E9E5DC"; q.fillRect(150, 0, 460, 70);
+        q.fillStyle = body; q.beginPath(); q.roundRect(20, 50, 720, 340, 36); q.fill();
+        q.fillStyle = "#0E0F12"; q.beginPath(); q.roundRect(110, 210, 540, 26, 12); q.fill();
+        q.fillStyle = "#16181C"; q.beginPath(); q.roundRect(470, 90, 200, 70, 10); q.fill();
+        q.fillStyle = "#59606A"; [0, 1, 2].forEach((i) => { q.beginPath(); q.arc(110 + i * 46, 125, 13, 0, PI2); q.fill(); });
+        return c;
+      })();
+      // the jeepney, side on, facing right (it comes the other way): a long bright body, its stripes, chrome nose
+      const jeepPic = (() => {
+        const c = canvasOf(1160, 330), q = c.getContext("2d");
+        q.fillStyle = "#F4F1EA"; q.beginPath(); q.moveTo(990, 120); q.lineTo(40, 110); q.lineTo(30, 260); q.lineTo(1100, 262); q.lineTo(1100, 190); q.lineTo(990, 170); q.closePath(); q.fill();
+        q.fillStyle = "#D7DCE2"; q.fillRect(30, 70, 980, 44);
+        ["#D8263A", "#F2B21B", "#2A6FD6"].forEach((color, i) => { q.fillStyle = color; q.fillRect(30, 200 + i * 12, 980, 7); });
+        q.fillStyle = "#1A2028"; for (let k = 0; k < 7; k++) q.fillRect(80 + k * 110, 128, 86, 52);
+        q.fillStyle = "#C9CED4"; q.fillRect(990, 186, 130, 64);
+        q.fillStyle = "#26303A"; q.beginPath(); q.moveTo(984, 118); q.lineTo(860, 116); q.lineTo(860, 176); q.lineTo(984, 172); q.closePath(); q.fill();
+        q.fillStyle = "#FFFFFF"; q.fillRect(700, 76, 260, 30); q.fillStyle = "#C8102E"; q.font = "800 22px Arial, sans-serif"; q.textAlign = "center"; q.textBaseline = "middle"; q.fillText("STA. CRUZ", 830, 92);
+        [[930, 262], [240, 262]].forEach(([x, y]) => { q.fillStyle = "#111215"; q.beginPath(); q.arc(x, y, 56, 0, PI2); q.fill(); q.fillStyle = "#9AA0A8"; q.beginPath(); q.arc(x, y, 28, 0, PI2); q.fill(); });
+        return c;
+      })();
+
+      // ── its pictures sized to the screen (the first ones now, the rest a moment later) ──
+      const art = {};
+      const MAKERS = { desk: makeDesk, seat: makeSeat, counter: makeCounter, wall: makeWall, table: makeTable, cafe: makeCafe };
+      const pic = (name) => (art[name] ??= MAKERS[name]());
+      // (the words it writes, made early, one at a time: each is a canvas of its own)
+      const WORDS = [["oh yeah?", DF_SCRIPT, 220, "#F4F1EA", 400], ["yeah, no one's left behind", DF_NOTE, 120, "#F4F1EA", 700], ["yeah,", DF_NOTE, 120, "#F4F1EA", 700], ["no one's left behind", DF_NOTE, 120, "#F4F1EA", 700],
+        ["congrats, BSIT - 401", DF_SCRIPT, 200, RED, 400], ["congrats,", DF_SCRIPT, 200, RED, 400], ["BSIT - 401", DF_SCRIPT, 200, RED, 400]];
+      let laterTimer = 0;
+      const MV_DEBUG = (() => { try { return localStorage.getItem("brew-houze-mv-debug") === "1"; } catch { return false; } })();
+      const later = () => {
+        clearTimeout(laterTimer);
+        const queue = [...CAFE_PARTS.map(() => "cafe"), ...WORDS.map((_, i) => `word ${i}`), "street", "counter", "wall", "table"];
+        const next = () => {
+          const name = queue.shift();
+          if (!name || hidden) return;
+          const from = performance.now();
+          if (name === "cafe") { if (!art.cafe) { const done = cafeStep(); if (done) art.cafe = done; } }
+          else if (name.startsWith("word ")) dfWord(...WORDS[Number(name.slice(5))]);
+          else if (name === "street") street();
+          else pic(name);
+          if (MV_DEBUG) (window.__mvTimes ??= []).push([name, Math.round(performance.now() - from)]);
+          laterTimer = setTimeout(next, 260);
+        };
+        laterTimer = setTimeout(next, 400);
+      };
+      const resize = () => {
+        W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, SCENE_LITE ? 1.25 : 1.5); tall = H > W * 1.05;
+        canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio);
+        for (const key of Object.keys(art)) delete art[key];
+        cafeJob = null;
+        pic("desk"); pic("seat");
+        later();
+      };
+      resize();
+      window.addEventListener("resize", resize);
+      const pages = [["text", 3], ["chart", 5], ["text", 8], ["diagram", 13], ["text", 21], ["chart", 34], ["text", 55], ["diagram", 89]].map(([kind, seed]) => pagePic(kind, seed));
+      const partPages = DF_PARTS.map((heading, i) => pagePic(i % 2 ? "chart" : "text", 600 + i, heading));
+      const hero = pagePic("text", 1, "", tall ? 2 : 3);
+      const covers = DF_PAPERS.map(coverPic);
+      // (once the badge is in: it is in our cover's title and on the café's walls)
+      const badge = dfBadgeImg();
+      if (!(badge.complete && badge.naturalWidth)) badge.decode?.().then(() => { if (hidden) return; covers[0] = coverPic(DF_PAPERS[0]); delete art.cafe; delete art.wall; }, () => undefined);
+
+      // ── 1. the last edit (bars 1-4): close on a page, the red pen's marks on the hits, "final" and its tick; the
+      //    view drawing back over the desk; on bar 4 the pages gathered under it, on the hits ──
+      const MARKS = [[B(1), "strike", -112, -126, 76], [B(1, 4), "strike", -40, -100, 110], [B(1, 8), "ring", 64, -70, 40, 13], [B(1, 14), "tick", -104, -30, 28], [B(2), "under", -96, 6, 160]];
+      const FINAL = { at: B(2, 4), done: B(2, 12), tickAt: B(2, 14), x: -86, y: 112, size: 46, turn: -0.07 };
+      const MARK_TIME = 0.17;
+      let markStrokes = null;
+      const marksOf = () => (markStrokes ??= MARKS.map(([at, kind, a, b, c, d], i) => ({ at, s: kind === "strike" ? dfSmooth([[a, b + 1], [a + c * 0.5, b - 1.5], [a + c, b + 1]], 40 + i, 0.7, 8) : kind === "ring" ? dfRing(a, b, c, d, 70 + i) : kind === "tick" ? dfTick(a, b, c, 80 + i) : dfUnder(a, a + c, b, 90 + i) })));
+      const finalWord = () => dfWord("final", DF_NOTE, 140, RED, 700);
+      const finalTick = () => { const word = finalWord(), w = (word.w - word.px * 0.6) * (FINAL.size / word.px); return dfTick(FINAL.x + w + 34, FINAL.y - 14, 36, 99); };
+      // where the pen is (the page's units) and how far up: on the mark being made, going to the next, writing
+      const penAt = (t) => {
+        const word = finalWord(), tick = finalTick(), along = (q) => dfWordTip(word, FINAL.x, FINAL.y, FINAL.size, FINAL.turn, q);
+        const stops = [...marksOf().map((m) => ({ at: m.at, end: m.at + MARK_TIME, on: (q) => dfPointAt(m.s, q) })), { at: FINAL.at, end: FINAL.done, on: along }, { at: FINAL.tickAt, end: FINAL.tickAt + MARK_TIME, on: (q) => dfPointAt(tick, q) }];
+        if (t < stops[0].at) { const [x, y] = stops[0].on(0), k = clamp((stops[0].at - t) / 0.4); return [x + k * 50, y + k * 30, k * 14]; }
+        for (let i = 0; i < stops.length; i++) {
+          const s = stops[i];
+          if (t > s.end) continue;
+          if (t >= s.at) return [...s.on((t - s.at) / (s.end - s.at)), 0];
+          const p = stops[i - 1], [ax, ay] = p.on(1), [bx, by] = s.on(0), k = soft((t - p.end) / (s.at - p.end));
+          return [mix(ax, bx, k), mix(ay, by, k), Math.sin(k * Math.PI) * 12];
+        }
+        const [x, y] = stops.at(-1).on(1), k = ease((t - stops.at(-1).end) / (BAR * 0.7));
+        return [x + k * 240, y - k * 160, 6 + k * 40];
+      };
+      const drawPen = (x, y, lift) => {
+        g.save(); g.translate(x + lift * 0.5, y - lift);
+        g.save(); g.translate(lift * 0.9 + 4, lift * 1.2 + 5); g.rotate(-0.95); g.fillStyle = "rgba(40, 24, 10, 0.18)"; g.beginPath(); g.roundRect(6, -5, 150, 10, 5); g.fill(); g.restore();
+        g.rotate(-0.95);
+        g.fillStyle = "#2B2522"; g.beginPath(); g.moveTo(0, 0); g.lineTo(16, -4.2); g.lineTo(16, 4.2); g.closePath(); g.fill();
+        g.fillStyle = "#C9CDD2"; g.fillRect(14, -5, 6, 10);
+        g.fillStyle = RED; g.beginPath(); g.roundRect(19, -5.5, 136, 11, 5); g.fill();
+        g.fillStyle = "#8E0B20"; g.beginPath(); g.roundRect(112, -6, 44, 12, 5); g.fill();
+        g.fillStyle = "#E3E6EA"; g.fillRect(118, -8, 30, 2.6);
+        g.fillStyle = "rgba(255, 255, 255, 0.32)"; g.fillRect(22, -3.6, 118, 2);
+        g.restore();
+      };
+      const DESK = Array.from({ length: 8 }, (_, i) => { const rnd = dfSeeded(700 + i); return { u: [0.16, 0.84, 0.22, 0.78, 0.1, 0.9, 0.34, 0.66][i] + (rnd() - 0.5) * 0.06, v: [0.24, 0.26, 0.78, 0.8, 0.52, 0.5, 0.12, 0.9][i] + (rnd() - 0.5) * 0.06, turn: (rnd() - 0.5) * 0.7 }; });
+      const drawEdit = (t) => {
+        const unit = tall ? W * 0.62 : Math.min(W, H * 1.5) * 0.3, ps = unit / 300, hx = W * 0.5, hy = H * 0.52, turn = -0.035;
+        const onPage = (u, v) => [hx + (u * Math.cos(turn) - v * Math.sin(turn)) * ps, hy + (u * Math.sin(turn) + v * Math.cos(turn)) * ps];
+        // the view: close along the marks, then on "final"; drawing back from 2:12 to 3:12
+        const pull = ease((t - B(2, 12)) / (B(3, 12) - B(2, 12))), zClose = tall ? 1.7 : 3;
+        const fv = t < B(1, 12) ? mix(-110, -60, soft((t - B(1)) / (B(1, 12) - B(1)))) : t < B(2, 4) ? mix(-60, 20, soft((t - B(1, 12)) / (B(2, 4) - B(1, 12)))) : mix(20, 95, soft((t - B(2, 4)) / (B(2, 10) - B(2, 4))));
+        const [px, py] = onPage(t < B(2, 4) ? -10 : mix(-10, 10, soft((t - B(2, 4)) / BAR)), fv), z = mix(zClose, 1, pull);
+        g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-mix(px, W / 2, pull), -mix(py, H / 2, pull));
+        spread(pic("desk"));
+        // the mug (its steam), a highlighter, a pencil
+        const r = unit * 0.24, mx = tall ? W * 0.8 : W * 0.86, my = tall ? H * 0.14 : H * 0.2;
+        g.fillStyle = "rgba(30, 20, 10, 0.25)"; g.beginPath(); g.arc(mx + r * 0.08, my + r * 0.1, r * 1.04, 0, PI2); g.fill();
+        g.fillStyle = "#F4F1EA"; g.beginPath(); g.arc(mx, my, r, 0, PI2); g.fill(); g.fillStyle = "#5B3A22"; g.beginPath(); g.arc(mx, my, r * 0.78, 0, PI2); g.fill();
+        steamOver(mx, my, r * 0.8, t);
+        [[W * 0.18, H * 0.9, "#F7E14A", 0.4], [W * 0.74, H * 0.92, "#E8C46A", -0.3]].forEach(([x, y, color, a]) => { g.save(); g.translate(x, y); g.rotate(a); g.fillStyle = "rgba(30, 20, 10, 0.2)"; g.fillRect(-unit * 0.28 + 3, -unit * 0.035 + 4, unit * 0.56, unit * 0.07); g.fillStyle = color; g.beginPath(); g.roundRect(-unit * 0.28, -unit * 0.035, unit * 0.56, unit * 0.07, unit * 0.03); g.fill(); g.fillStyle = "#1A1A1A"; g.fillRect(unit * 0.22, -unit * 0.035, unit * 0.06, unit * 0.07); g.restore(); });
+        // the other pages round it, gathered under it two to a hit on bar 4
+        DESK.forEach((p, i) => {
+          const q = out((t - B(4, [0, 4, 8, 14][i >> 1])) / 0.3);
+          place(pages[i], mix(W * p.u, hx + (i - 3.5) * 1.2, q), mix(H * p.v, hy - (8 - i) * 1.4, q), unit * 0.96, mix(p.turn, turn + (i - 3.5) * 0.006, q));
+        });
+        place(hero, hx, hy, unit, turn);
+        // the pen's work on it (in its units), and the pen
+        g.save(); g.translate(hx, hy); g.rotate(turn); g.scale(ps, ps);
+        marksOf().forEach((m) => dfInk(g, m.s, (t - m.at) / MARK_TIME, 3.2, RED));
+        dfWordAt(g, finalWord(), FINAL.x, FINAL.y, FINAL.size, FINAL.turn, (t - FINAL.at) / (FINAL.done - FINAL.at));
+        dfInk(g, finalTick(), (t - FINAL.tickAt) / MARK_TIME, 4.4, RED);
+        const [nx, ny, lift] = penAt(t);
+        drawPen(nx, ny, lift);
+        g.restore();
+        g.restore();
+      };
+
+      // ── 2. the printer (bars 5-8): a page out at the view on each hit (the paper's parts opening on 0 and 8);
+      //    on bar 8 the stack out in front, bound (the tape down its spine), its cover dropped on, then the copy
+      //    thrown at the view: white ──
+      const drawPrint = (t) => {
+        const pw = tall ? W * 0.94 : Math.min(W * 0.7, H * 1.1), ph = pw * (420 / 760), px = (W - pw) / 2, py = tall ? H * 0.22 : H * 0.1, k = pw / 760;
+        const slotY = py + 236 * k, trayY = py + ph + pw * 0.05, printed = hitsIn(B(5) - 0.01, Math.min(t, B(8) - 0.01));
+        const z = mix(1, 1.1, ease((t - B(5)) / (3 * BAR)));
+        g.save(); g.translate(W / 2, H * 0.55); g.scale(z, z); g.translate(-W / 2, -H * 0.55);
+        spread(pic("desk"));
+        shade(0.3, "24, 14, 6");
+        g.fillStyle = "#2A2D33"; g.beginPath(); g.roundRect(px + 90 * k, slotY + 10 * k, 580 * k, (trayY - slotY) + 40 * k, 14 * k); g.fill();
+        for (let i = 0; i < Math.min(printed.length, 12); i++) { g.fillStyle = i % 2 ? "#F2EFE8" : "#FFFFFF"; g.fillRect(px + 160 * k, trayY - i * 3.4 * k, 440 * k, 3.4 * k); }
+        g.drawImage(printerPic, px, py, pw, ph);
+        const count = Math.min(240, printed.length * 20);
+        g.fillStyle = "#7DFFB0"; g.font = `700 ${Math.round(19 * k)}px 'Space Mono', monospace`; g.textAlign = "left"; g.textBaseline = "middle";
+        g.fillText(t >= B(8) ? "DONE 240/240" : `PRINT ${String(count).padStart(3, "0")}/240`, px + 482 * k, py + 125 * k);
+        g.fillStyle = `rgba(125, 255, 176, ${(0.3 + 0.7 * pulse(t)).toFixed(3)})`; g.beginPath(); g.arc(px + 680 * k, py + 300 * k, 9 * k, 0, PI2); g.fill();
+        g.restore();
+        // the pages coming out now, flying at the view
+        printed.slice(-2).forEach((h) => {
+          const n = printed.indexOf(h), q = (t - h) / 0.55;
+          if (q < 0 || q >= 1) return;
+          const six = Math.round((h - B(1)) / SIX) % 16, part = six === 0 || six === 8 ? n >> 1 : -1, sheet = part >= 0 && part < partPages.length ? partPages[part] : pages[n % pages.length];
+          const e = inn(q);
+          place(sheet, W / 2 + Math.sin(n * 2.3) * W * 0.22 * e, mix(slotY + 40 * k, H * 0.62, out(q * 1.4)), mix(pw * 0.42, pw * 2.2, e), (n % 2 ? 0.28 : -0.24) * e, 1 - inn((q - 0.6) / 0.4));
+        });
+        if (t < B(8)) return;
+        // bar 8: the stack out in front, bound, its cover on, thrown
+        const cw = tall ? W * 0.6 : Math.min(W * 0.3, H * 0.42), ch = cw * 1.414, slide = out((t - B(8)) / 0.3), x = W / 2, y = mix(trayY, H * 0.55, slide);
+        shade(0.45 * slide, "16, 10, 6");
+        const bind = clamp((t - B(8, 4)) / 0.22), drop = out((t - B(8, 8)) / 0.22), thrown = inn((t - B(8, 12)) / (B(9) - B(8, 12)));
+        if (t < B(8, 12)) { g.globalAlpha = slide; for (let i = 5; i >= 1; i--) { g.fillStyle = i % 2 ? "#E6E1D7" : "#F7F4EE"; g.fillRect(x - cw / 2 + i * 1.4, y - ch / 2 + i * 2.2, cw, ch); } g.globalAlpha = 1; }
+        if (drop < 1) { place(hero, x, y, cw, 0, slide); g.fillStyle = INK; g.fillRect(x - cw / 2, y - ch / 2, cw * 0.044, ch * bind); }
+        if (t >= B(8, 8)) place(covers[0], x, y - (1 - drop) * H * 0.12, cw * mix(1.12, 1, drop) * mix(1, 5.5, thrown), mix(0, 0.3, thrown), clamp(drop * 2));
+        shade(inn((t - B(8, 14)) / (B(9) - B(8, 14))), "255, 255, 255");
+      };
+
+      // ── 3. the passenger seat (bar 9; and 14-15 at dusk): seen from above, the copy dropped on it, belted in (a
+      //    click), the engine on the hit; at dusk the street's lights going over it, the view going close ──
+      const drawSeat = (t, dusk = false) => {
+        const { sw, sx, sy } = seatOf(), zoom = dusk ? mix(1, 1.25, ease((t - B(14)) / (2 * BAR))) : 1;
+        const shake = !dusk && t > B(9, 8) && t < B(9, 8) + 0.3 ? Math.sin(t * 140) * 4 * (1 - (t - B(9, 8)) / 0.3) : 0;
+        g.save(); g.translate(sx + shake, sy); g.scale(zoom, zoom); g.translate(-sx, -sy);
+        g.drawImage(pic("seat").c, 0, 0, W, H);
+        const drop = dusk ? 1 : out((t - B(9)) / 0.3), cx = sx + sw * 0.02, cy = sy + sw * 0.06;
+        place(covers[0], cx, cy - (1 - drop) * sw * 0.2, sw * 0.46 * mix(1.5, 1, drop), -0.16, clamp(drop * 3), 0.92);
+        // the belt: from its anchor up on the right, over the copy, to the buckle low on the left
+        const belt = dusk ? 1 : ease((t - B(9, 4)) / 0.4), ax = sx + sw * 0.56, ay = sy - sw * 0.9, bx = sx - sw * 0.52, by = sy + sw * 0.44;
+        if (belt > 0) {
+          const ex = mix(ax, bx, belt), ey = mix(ay, by, belt);
+          g.save(); g.lineCap = "butt";
+          g.strokeStyle = "rgba(0, 0, 0, 0.35)"; g.lineWidth = sw * 0.075; g.beginPath(); g.moveTo(ax + 6, ay + 8); g.lineTo(ex + 6, ey + 8); g.stroke();
+          g.strokeStyle = "#1A1C20"; g.lineWidth = sw * 0.07; g.beginPath(); g.moveTo(ax, ay); g.lineTo(ex, ey); g.stroke();
+          g.strokeStyle = "rgba(255, 255, 255, 0.07)"; g.lineWidth = sw * 0.012; g.beginPath(); g.moveTo(ax, ay); g.lineTo(ex, ey); g.stroke();
+          g.fillStyle = "#B9BEC4"; g.save(); g.translate(ex, ey); g.rotate(Math.atan2(by - ay, bx - ax)); g.fillRect(-sw * 0.03, -sw * 0.045, sw * 0.07, sw * 0.09); g.restore();
+          g.restore();
+          if (!dusk) glowAt(bx, by, sw * 0.15, "255, 255, 255", 0.7 * Math.exp(-Math.max(0, t - B(9, 7)) / 0.12) * (t >= B(9, 7) ? 1 : 0));
+        }
+        g.restore();
+        if (!dusk) {
+          if (t > B(9, 8)) { const a = soft((t - B(9, 8)) / 0.3); glowAt(-W * 0.05, H * 0.5, H * 0.7, "110, 180, 255", 0.35 * a); }
+          shade(1 - soft((t - B(9)) / 0.25), "255, 255, 255");
+          return;
+        }
+        // dusk: the blue of it, the dash's glow; a streetlight's warm band over it on each beat
+        shade(0.5, "10, 14, 36");
+        glowAt(-W * 0.05, H * 0.5, H * 0.7, "90, 160, 255", 0.3);
+        const sweep = clamp(since(t, [0, 4, 8, 12]) / (DF_BEAT * 0.95)), bx2 = mix(W * 1.4, -W * 0.4, sweep);
+        const band = g.createLinearGradient(bx2 - W * 0.22, 0, bx2 + W * 0.22, 0);
+        band.addColorStop(0, "rgba(255, 196, 120, 0)"); band.addColorStop(0.5, "rgba(255, 206, 140, 0.4)"); band.addColorStop(1, "rgba(255, 196, 120, 0)");
+        g.save(); g.translate(bx2, H / 2); g.rotate(-0.35); g.translate(-bx2, -H / 2); g.fillStyle = band; g.fillRect(bx2 - W * 0.22, -H, W * 0.44, H * 3); g.restore();
+      };
+
+      // ── 4. the drive (bars 10-13 and 16-17): the car side on, going left; golden hour, then dusk (the sun going
+      //    down ahead, the first stars); hills, houses and trees going by (their windows lit as it gets dark), a pole
+      //    a beat (every other one a streetlight, each coming on), a jeepney the other way; its lamps on ──
+      const SKY = [[0, [118, 162, 214], [250, 214, 160]], [0.5, [86, 90, 160], [244, 152, 116]], [1, [24, 32, 74], [196, 120, 108]]];
+      const drawDrive = (t) => {
+        const tod = clamp((t - B(10)) / (B(18) - B(10))), road = tall ? H * 0.62 : H * 0.64, len = tall ? W * 0.94 : Math.min(W * 0.46, H * 1.05);
+        const farBase = road + (H - road) * 0.26, lineY = road + (H - road) * 0.42, carBase = road + (H - road) * 0.8;
+        const gap = len * 0.92, speed = gap / DF_BEAT, slowAt = B(17, 8), slowFor = B(18) - slowAt, tau = clamp((t - slowAt) / slowFor) * slowFor;
+        const dist = (Math.min(t, slowAt) - B(10) + tau - (0.55 * tau * tau) / (2 * slowFor)) * speed;
+        const skyAt = (top) => { const i = tod < 0.5 ? 0 : 1, q = (tod - SKY[i][0]) / 0.5, a = SKY[i][top ? 1 : 2], b = SKY[i + 1][top ? 1 : 2]; return `rgb(${a.map((c, j) => Math.round(mix(c, b[j], q))).join(", ")})`; };
+        const sky = g.createLinearGradient(0, 0, 0, road); sky.addColorStop(0, skyAt(true)); sky.addColorStop(1, skyAt(false));
+        g.fillStyle = sky; g.fillRect(0, 0, W, road);
+        const sunX = W * 0.22, sunY = mix(road * 0.42, road * 1.04, ease(clamp(tod / 0.72)));
+        glowAt(sunX, sunY, Math.min(W, H) * 0.6, "255, 214, 160", 0.8 * (1 - tod * 0.7));
+        if (tod < 0.75) { g.fillStyle = `rgba(255, 244, 222, ${(1 - clamp((tod - 0.45) * 3.4)).toFixed(3)})`; g.beginPath(); g.arc(sunX, sunY, Math.min(W, H) * 0.045, 0, PI2); g.fill(); }
+        if (tod > 0.6) { const rnd = dfSeeded(5); g.fillStyle = `rgba(255, 255, 255, ${(clamp((tod - 0.6) * 2.5) * 0.85).toFixed(3)})`; for (let i = 0; i < 46; i++) g.fillRect(rnd() * W, rnd() * road * 0.45, 1.6, 1.6); }
+        g.fillStyle = `rgb(${Math.round(mix(104, 30, tod))}, ${Math.round(mix(116, 36, tod))}, ${Math.round(mix(146, 66, tod))})`;
+        g.beginPath(); g.moveTo(0, road);
+        for (let x = 0; x <= W + 40; x += 40) { const u = x - dist * 0.04; g.lineTo(x, road * 0.72 - Math.sin(u * 0.004) * road * 0.08 - Math.sin(u * 0.011 + 2) * road * 0.03); }
+        g.lineTo(W, road); g.closePath(); g.fill();
+        // houses and trees, going by to the right (the car goes left)
+        const st = street(), along = dist * 0.45, unit = Math.max(150, len * 0.34), night = tod * 0.62;
+        for (let i = Math.floor((-2 * unit - along) / unit); i <= Math.ceil((W - along) / unit); i++) {
+          const x = i * unit + along, rnd = dfSeeded(5000 + i);
+          if (rnd() < 0.62) {
+            const hp = st.houses[Math.floor(rnd() * st.houses.length)], s = unit / 220, w = hp.c.width * s, h = hp.c.height * s, y = road - h - road * 0.015;
+            g.drawImage(hp.c, x, y, w, h);
+            if (night > 0.01) { g.globalAlpha = night; g.drawImage(hp.sil, x, y, w, h); g.globalAlpha = 1; }
+            if (tod > hp.lightAt) hp.windows.forEach(([wx, wy, ww, wh]) => { g.fillStyle = "#FFD58A"; g.fillRect(x + wx * s, y + wy * s, ww * s, wh * s); glowAt(x + (wx + ww / 2) * s, y + (wy + wh / 2) * s, ww * s * 1.5, WARM, 0.35); });
+          } else {
+            const tp = st.trees[Math.floor(rnd() * st.trees.length)], s = unit / 200, w = tp.c.width * s, h = tp.c.height * s, y = road - h - road * 0.015;
+            g.drawImage(tp.c, x, y, w, h);
+            if (night > 0.01) { g.globalAlpha = night; g.drawImage(tp.sil, x, y, w, h); g.globalAlpha = 1; }
+          }
+        }
+        // the road, its edge, the line between its lanes
+        g.fillStyle = `rgb(${Math.round(mix(74, 34, tod))}, ${Math.round(mix(76, 36, tod))}, ${Math.round(mix(82, 44, tod))})`; g.fillRect(0, road, W, H - road);
+        g.fillStyle = `rgba(190, 184, 172, ${mix(1, 0.5, tod).toFixed(3)})`; g.fillRect(0, road, W, Math.max(5, H * 0.01));
+        const dash = len * 0.36;
+        g.fillStyle = `rgba(242, 240, 232, ${mix(0.95, 0.6, tod).toFixed(3)})`;
+        for (let x = (dist % (dash * 2)) - dash * 2; x < W; x += dash * 2) g.fillRect(x, lineY, dash, Math.max(4, H * 0.008));
+        // the poles, one a beat; every other one a streetlight, coming on
+        const pole = `rgb(${Math.round(mix(70, 30, tod))}, ${Math.round(mix(60, 28, tod))}, ${Math.round(mix(52, 30, tod))})`;
+        for (let i = Math.floor((-gap - dist) / gap); i * gap + dist < W + gap; i++) {
+          const x = i * gap + dist, top = road * 0.36;
+          g.fillStyle = pole; g.fillRect(x - 4, top, 8, road - top + 4);
+          g.strokeStyle = "rgba(20, 20, 20, 0.5)"; g.lineWidth = 1.3; g.beginPath(); g.moveTo(x, top + 15); g.quadraticCurveTo(x + gap / 2, top + 44, x + gap, top + 15); g.stroke();
+          if ((i & 1) === 0) {
+            const ax = x - gap * 0.12;
+            g.fillStyle = pole; g.fillRect(ax, top, gap * 0.12, 5);
+            g.fillStyle = "#1E1C1A"; g.fillRect(ax - 12, top + 3, 24, 8);
+            const lit = soft((tod - 0.36 - (((i * 37) % 7) + 7) % 7 * 0.025) / 0.04);
+            if (lit > 0) {
+              glowAt(ax, top + 10, Math.min(W, H) * 0.14, "255, 210, 140", 0.55 * lit);
+              const cone = g.createLinearGradient(0, top, 0, road + (H - road) * 0.6); cone.addColorStop(0, `rgba(255, 214, 150, ${(0.2 * lit).toFixed(3)})`); cone.addColorStop(1, "rgba(255, 214, 150, 0)");
+              g.fillStyle = cone; g.beginPath(); g.moveTo(ax - 10, top + 12); g.lineTo(ax + 10, top + 12); g.lineTo(ax + gap * 0.22, road + (H - road) * 0.6); g.lineTo(ax - gap * 0.22, road + (H - road) * 0.6); g.closePath(); g.fill();
+            }
+          } else { g.fillStyle = pole; g.fillRect(x - 34, top + 12, 68, 6); }
+        }
+        // the jeepney the other way, in the far lane, gone in a moment
+        const jq = (t - B(12, 8)) / 1.05;
+        if (jq > 0 && jq < 1) { const jw = len * 1.15, jh = jw * (330 / 1160); g.drawImage(jeepPic, mix(-jw, W, jq), farBase - jh * 0.97, jw, jh); }
+        // the car, its body on the kicks, its lamps on as it gets dark, slowing at the end
+        drawCar(W * 0.5 - len * (tall ? 0.5 : 0.36), carBase, len, { turn: -dist / (CAR.tire * (len / CAR.len)), bob: pulse(t, 0.1) * Math.max(1.5, len * 0.004), lit: soft((tod - 0.42) / 0.12), brake: t > slowAt ? 0.7 * soft((t - slowAt) / 0.2) : 0 });
+        shade(0.12 * (1 - tod), "255, 170, 80");
+        shade(0.2 * tod, "16, 20, 56");
+      };
+
+      // ── 5. Brew Houze Cafe at dusk (bars 18-19): the car pulling up from the right, stopping by the door; the
+      //    string lights twinkling on the hits; the round sign lit on 19's downbeat; then in at the window ──
+      const drawCafe = (t) => {
+        const cafe = pic("cafe"), roll = clamp((t - B(18)) / (B(18, 14) - B(18))), nose = mix(2250, 170, out(roll));
+        const push = ease((t - B(19, 8)) / (B(20) - B(19, 8))), pan = ease((t - B(19)) / (B(19, 12) - B(19)));
+        const base = tall ? W / 860 : Math.max(W / CAFE.w, H / CAFE.bottom), k = base * (tall ? 1 : mix(1, 1.05, ease((t - B(18)) / (2 * BAR)))) / (1 - 0.62 * push);
+        const fx = tall ? mix(560, 1162, pan) : mix(1000, 1162, push), fy = mix(tall ? 560 : 562, 552, push);
+        const L = lay(cafe, k, fx, fy, "#0F1530");
+        const tw = pulse(t, 0.25);
+        CAFE_BULBS.forEach(([u, v], i) => { const [x, y] = L.at(u, v); glowAt(x, y, 22 * k, WARM, 0.5 + 0.3 * tw * (i % 3 === 0 ? 1 : 0)); g.fillStyle = "#FFE7B8"; g.beginPath(); g.arc(x, y, 3.2 * k, 0, PI2); g.fill(); });
+        // its sign: dim, then on (a flicker) on 19's downbeat
+        const d = t - B(19), on = d < 0 ? 0.3 : d < 0.05 ? 1 : d < 0.1 ? 0.35 : d < 0.16 ? 1 : d < 0.2 ? 0.6 : 1;
+        const [sx, sy] = L.at(786, 432), sr = 40 * k, lit = `rgb(${Math.round(mix(90, 252, on))}, ${Math.round(mix(92, 250, on))}, ${Math.round(mix(96, 244, on))})`;
+        glowAt(sx, sy, sr * 3.2, "255, 248, 236", 0.45 * on);
+        g.fillStyle = "#16181C"; g.beginPath(); g.arc(sx + sr * 0.12, sy, sr * 1.04, 0, PI2); g.fill();
+        g.fillStyle = lit; g.beginPath(); g.arc(sx, sy, sr, 0, PI2); g.fill();
+        g.fillStyle = "#1E2B46"; g.beginPath(); g.arc(sx, sy, sr * 0.84, 0, PI2); g.fill();
+        g.fillStyle = lit; g.beginPath(); g.arc(sx, sy, sr * 0.7, 0, PI2); g.fill();
+        const bdg = dfBadgeImg();
+        if (bdg.complete && bdg.naturalWidth) g.drawImage(bdg, sx - sr * 0.66, sy - sr * 0.66, sr * 1.32, sr * 1.32);
+        // the car (it goes before the view is in at the window)
+        const [cx, cy] = L.at(nose, 1068), clen = 720 * k;
+        if (push < 0.7) drawCar(cx, cy, clen, { turn: -((2250 - nose) * k) / (CAR.tire * (clen / CAR.len)), lit: 1 - soft((t - B(19, 2)) / 0.3), brake: roll > 0.5 ? 0.8 * (1 - soft((t - B(19, 2)) / 0.4)) : 0 });
+        shade(inn((push - 0.5) / 0.5), "246, 200, 140");
+      };
+
+      // ── 6. inside (bars 20-25), the system at work: the table's QR code, scanned, the order sent (20-21); the
+      //    Staff Portal, the order in, made, marked ready (22-23); the Queue Screen calling it (24); the latte and
+      //    the copy on the counter, the lights going down (25). Each in on its downbeat, the last one swept off ──
+      const ITEMS = [["Iced Spanish Latte", "16 oz · iced"], ["Caramel Macchiato", "16 oz · hot or iced"], ["Americano", "12 oz · hot"], ["Matcha Latte", "16 oz · iced"]];
+      const tap = (x, y, at, t, r) => { const q = (t - at) / 0.35; if (q > 0 && q < 1) { g.strokeStyle = `rgba(255, 255, 255, ${(0.8 * (1 - q)).toFixed(3)})`; g.lineWidth = 3; g.beginPath(); g.arc(x, y, r * (0.4 + q), 0, PI2); g.stroke(); g.fillStyle = `rgba(255, 255, 255, ${(0.3 * (1 - q)).toFixed(3)})`; g.beginPath(); g.arc(x, y, r * 0.5, 0, PI2); g.fill(); } };
+      const chip = (x, y, label, color, size, align = "left") => {
+        g.font = `700 ${Math.round(size)}px ${UI}`; const w = g.measureText(label).width + size * 1.4, x0 = align === "right" ? x - w : x;
+        g.fillStyle = `${color}26`; g.beginPath(); g.roundRect(x0, y - size * 0.8, w, size * 1.6, size * 0.8); g.fill();
+        g.fillStyle = color; g.textAlign = "left"; g.fillText(label, x0 + size * 0.7, y + 1);
+      };
+      const BOKEH = Array.from({ length: 16 }, (_, i) => { const rnd = dfSeeded(820 + i); return { u: rnd(), v: rnd() * 0.5, r: 30 + rnd() * 70, a: 0.1 + rnd() * 0.18 }; });
+      const bokeh = (t, dim = 1) => BOKEH.forEach((b) => glowAt(W * ((b.u + 0.01 * (t - B(20))) % 1), H * b.v, b.r * Math.min(1.4, W / 900), WARM, b.a * dim));
+      const phoneScreen = (t, x, y, w, h) => {
+        g.save(); g.beginPath(); g.roundRect(x, y, w, h, w * 0.09); g.clip();
+        g.textBaseline = "middle";
+        if (t < B(20, 10)) {
+          // the camera: the card's code close, a line going over it, then found
+          g.fillStyle = "#3A2A1E"; g.fillRect(x, y, w, h);
+          const qs = w * 0.62, qx = x + (w - qs) / 2, qy = y + h * 0.3, o = qs * 0.2, e = qs * 0.2;
+          g.fillStyle = "#FBF4E8"; g.fillRect(qx - qs * 0.12, qy - qs * 0.12, qs * 1.24, qs * 1.24);
+          g.drawImage(qrPic, qx, qy, qs, qs);
+          g.strokeStyle = "#FFFFFF"; g.lineWidth = Math.max(3, w * 0.014);
+          [[qx - o, qy - o, 1, 1], [qx + qs + o, qy - o, -1, 1], [qx - o, qy + qs + o, 1, -1], [qx + qs + o, qy + qs + o, -1, -1]].forEach(([cx, cy, dx, dy]) => { g.beginPath(); g.moveTo(cx, cy + dy * e); g.lineTo(cx, cy); g.lineTo(cx + dx * e, cy); g.stroke(); });
+          const found = clamp((t - B(20, 8)) / 0.12);
+          if (!found) { g.fillStyle = "rgba(242, 165, 74, 0.9)"; g.fillRect(qx - o, qy - o + (qs + o * 2) * (((t - B(20)) * 1.3) % 1), qs + o * 2, Math.max(2, w * 0.008)); }
+          g.fillStyle = "#FBF4E8"; g.font = `600 ${Math.round(w * 0.05)}px ${UI}`; g.textAlign = "center"; g.fillText("Scan the table's QR code", x + w / 2, y + h * 0.84);
+          if (found) { g.fillStyle = `rgba(47, 191, 138, ${(0.6 * found).toFixed(3)})`; g.fillRect(x, y, w, h); g.strokeStyle = "#FFFFFF"; g.lineWidth = w * 0.03; g.beginPath(); g.moveTo(x + w * 0.38, y + h * 0.48); g.lineTo(x + w * 0.47, y + h * 0.55); g.lineTo(x + w * 0.64, y + h * 0.4); g.stroke(); }
+        } else if (t < B(21, 4)) {
+          // the menu: one added on the hit, then sent
+          g.fillStyle = "#FBF6EE"; g.fillRect(x, y, w, h);
+          g.fillStyle = "#3D2B1F"; g.fillRect(x, y, w, h * 0.17);
+          g.fillStyle = "#FBF4E8"; g.textAlign = "left"; g.font = `900 ${Math.round(w * 0.085)}px ${DF_HEAVY}`; g.fillText("Brew Houze", x + w * 0.07, y + h * 0.095);
+          g.font = `500 ${Math.round(w * 0.042)}px ${UI}`; g.fillStyle = "#D9C6B4"; g.fillText("Order from your table", x + w * 0.07, y + h * 0.142);
+          ["Coffee", "Non-coffee", "Pastries"].forEach((label, i) => { const cx = x + w * (0.05 + i * 0.31), cy = y + h * 0.215; g.fillStyle = i ? "#EFE5D8" : "#3D2B1F"; g.beginPath(); g.roundRect(cx, cy - h * 0.022, w * 0.28, h * 0.044, h * 0.022); g.fill(); g.fillStyle = i ? "#6B5446" : "#FBF4E8"; g.font = `600 ${Math.round(w * 0.04)}px ${UI}`; g.textAlign = "center"; g.fillText(label, cx + w * 0.14, cy); });
+          const added = t >= B(20, 14);
+          ITEMS.forEach(([name, note], i) => {
+            const ry = y + h * (0.28 + i * 0.13);
+            g.fillStyle = "#FFFFFF"; g.beginPath(); g.roundRect(x + w * 0.05, ry, w * 0.9, h * 0.11, w * 0.04); g.fill();
+            g.fillStyle = ["#8A5A36", "#B07842", "#5B3A22", "#7C9A52"][i]; g.beginPath(); g.arc(x + w * 0.15, ry + h * 0.055, h * 0.035, 0, PI2); g.fill();
+            g.fillStyle = "#2B1F17"; g.textAlign = "left"; g.font = `700 ${Math.round(w * 0.047)}px ${UI}`; g.fillText(name, x + w * 0.24, ry + h * 0.04);
+            g.fillStyle = "#9C8278"; g.font = `500 ${Math.round(w * 0.037)}px ${UI}`; g.fillText(note, x + w * 0.24, ry + h * 0.075);
+            const bx = x + w * 0.85, by = ry + h * 0.055, one = i === 0 && added;
+            g.fillStyle = one ? "#2FBF8A" : "#3D2B1F"; g.beginPath(); g.arc(bx, by, h * 0.026, 0, PI2); g.fill();
+            g.fillStyle = "#FFFFFF"; g.textAlign = "center"; g.font = `700 ${Math.round(w * 0.05)}px ${UI}`; g.fillText(one ? "1" : "+", bx, by + 1);
+            if (i === 0) tap(bx, by, B(20, 14), t, h * 0.05);
+          });
+          if (added) {
+            const up = out((t - B(20, 14)) / 0.25), by = y + h * (0.84 + (1 - up) * 0.2);
+            g.fillStyle = t >= B(21) ? "#21160F" : "#3D2B1F"; g.beginPath(); g.roundRect(x + w * 0.05, by, w * 0.9, h * 0.09, h * 0.045); g.fill();
+            g.fillStyle = "#FBF4E8"; g.textAlign = "left"; g.font = `700 ${Math.round(w * 0.05)}px ${UI}`; g.fillText("Send order", x + w * 0.11, by + h * 0.045);
+            g.textAlign = "right"; g.font = `600 ${Math.round(w * 0.042)}px ${UI}`; g.fillText("1 item", x + w * 0.89, by + h * 0.045);
+            tap(x + w * 0.5, by + h * 0.045, B(21), t, h * 0.07);
+          }
+        } else {
+          // sent: its queue number
+          const q = out((t - B(21, 4)) / 0.35);
+          g.fillStyle = "#FBF6EE"; g.fillRect(x, y, w, h);
+          g.fillStyle = "#2FBF8A"; g.beginPath(); g.arc(x + w / 2, y + h * 0.26, w * 0.11 * mix(0.6, 1, q), 0, PI2); g.fill();
+          g.strokeStyle = "#FFFFFF"; g.lineWidth = w * 0.022; g.lineCap = "round"; g.beginPath(); g.moveTo(x + w * 0.45, y + h * 0.262); g.lineTo(x + w * 0.49, y + h * 0.284); g.lineTo(x + w * 0.56, y + h * 0.238); g.stroke();
+          g.textAlign = "center"; g.fillStyle = "#2B1F17"; g.font = `800 ${Math.round(w * 0.075)}px ${UI}`; g.fillText("Order sent", x + w / 2, y + h * 0.4);
+          g.fillStyle = "#9C8278"; g.font = `700 ${Math.round(w * 0.04)}px ${UI}`; g.fillText("QUEUE NUMBER", x + w / 2, y + h * 0.5);
+          g.fillStyle = "#3D2B1F"; g.font = `800 ${Math.round(w * 0.22 * mix(0.8, 1, q))}px ${UI}`; g.fillText("#025", x + w / 2, y + h * 0.61);
+          g.fillStyle = "#6B5446"; g.font = `500 ${Math.round(w * 0.04)}px ${UI}`; g.fillText("Watch for it on the screen", x + w / 2, y + h * 0.73);
+        }
+        g.restore();
+      };
+      const drawOrder = (t) => {
+        g.drawImage(pic("counter").c, 0, 0, W, H);
+        bokeh(t);
+        // the table's card, lying there: the café's name, scan to order, its code
+        const cw = tall ? W * 0.5 : Math.min(W * 0.22, H * 0.38), ch = cw * 1.4, cx = tall ? W * 0.5 : W * 0.33, cy = tall ? H * 0.22 : H * 0.5;
+        g.save(); g.translate(cx, cy); g.rotate(-0.06);
+        g.fillStyle = "rgba(0, 0, 0, 0.35)"; g.fillRect(-cw / 2 + 6, -ch / 2 + 9, cw, ch);
+        g.fillStyle = "#FBF4E8"; g.fillRect(-cw / 2, -ch / 2, cw, ch);
+        g.fillStyle = "#3D2B1F"; g.fillRect(-cw / 2, -ch / 2, cw, ch * 0.2);
+        g.fillStyle = "#FBF4E8"; g.textAlign = "center"; g.textBaseline = "middle"; g.font = `900 ${Math.round(cw * 0.11)}px ${DF_HEAVY}`; g.fillText("Brew Houze", 0, -ch * 0.4);
+        g.fillStyle = "#3D2B1F"; g.font = `700 ${Math.round(cw * 0.085)}px ${UI}`; g.fillText("Scan to order", 0, -ch * 0.22);
+        const qs = cw * 0.62; g.drawImage(qrPic, -qs / 2, -ch * 0.14, qs, qs);
+        g.fillStyle = "#9C8278"; g.font = `600 ${Math.round(cw * 0.06)}px ${UI}`; g.fillText("Order from your table", 0, ch * 0.4);
+        g.restore();
+        // the phone, in over it
+        const ph = tall ? H * 0.6 : H * 0.82, pw = ph * 0.49, inQ = out((t - B(20)) / 0.45);
+        const px = (tall ? W * 0.5 : W * 0.68) + (1 - inQ) * W * 0.6, py = tall ? H * 0.68 : H * 0.5;
+        g.save(); g.translate(px, py); g.rotate((tall ? 0.03 : 0.07) * (1 - 0.5 * inQ));
+        g.fillStyle = "rgba(0, 0, 0, 0.4)"; g.beginPath(); g.roundRect(-pw / 2 + 10, -ph / 2 + 14, pw, ph, pw * 0.12); g.fill();
+        g.fillStyle = "#111214"; g.beginPath(); g.roundRect(-pw / 2, -ph / 2, pw, ph, pw * 0.12); g.fill();
+        g.strokeStyle = "#3A3D42"; g.lineWidth = 2; g.stroke();
+        const m = pw * 0.04;
+        phoneScreen(t, -pw / 2 + m, -ph / 2 + m, pw - m * 2, ph - m * 2);
+        g.fillStyle = "#111214"; g.beginPath(); g.roundRect(-pw * 0.14, -ph / 2 + m + 6, pw * 0.28, pw * 0.07, pw * 0.035); g.fill();
+        g.restore();
+      };
+      const PORTAL = [{ n: 24, item: "Caramel Macchiato ×2", from: "Counter", status: "Preparing" }, { n: 23, item: "Matcha Latte ×1", from: "QR order", status: "Preparing" }, { n: 22, item: "Americano ×1", from: "Counter", status: "Ready" }];
+      const drawPortal = (t) => {
+        g.drawImage(pic("counter").c, 0, 0, W, H);
+        bokeh(t);
+        const tw = tall ? W * 0.94 : Math.min(W * 0.74, H * 1.14), th = tw * (tall ? 1.36 : 0.62), tx = (W - tw) / 2, ty = (H - th) / 2;
+        const z = mix(1, 1.05, ease((t - B(22)) / (2 * BAR)));
+        g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        g.fillStyle = "rgba(0, 0, 0, 0.45)"; g.beginPath(); g.roundRect(tx + 12, ty + 18, tw, th, tw * 0.03); g.fill();
+        g.fillStyle = "#121315"; g.beginPath(); g.roundRect(tx, ty, tw, th, tw * 0.03); g.fill();
+        const b = tw * 0.025, sx = tx + b, sy = ty + b, sw = tw - b * 2, sh = th - b * 2, u = sw / 100;
+        g.save(); g.beginPath(); g.roundRect(sx, sy, sw, sh, u); g.clip();
+        g.fillStyle = "#F7F2EA"; g.fillRect(sx, sy, sw, sh);
+        const head = tall ? u * 11 : u * 6.4;
+        g.fillStyle = "#3D2B1F"; g.fillRect(sx, sy, sw, head);
+        g.textBaseline = "middle"; g.textAlign = "left"; g.fillStyle = "#FBF4E8"; g.font = `700 ${Math.round(tall ? u * 4.2 : u * 2.5)}px ${UI}`; g.fillText("Brew Houze · Staff Portal", sx + u * 3, sy + head / 2);
+        g.textAlign = "right"; g.fillStyle = "#D9C6B4"; g.font = `600 ${Math.round(tall ? u * 3.4 : u * 2)}px ${UI}`; g.fillText("Orders", sx + sw - u * 3, sy + head / 2);
+        // the list (left; on a tall screen, above): the new one in on 22's downbeat, the rest moved down
+        const listW = tall ? sw - u * 6 : u * 40, rowH = tall ? u * 15 : u * 9.6, lx = sx + u * 3, ly = sy + head + u * 3, come = out((t - B(22)) / 0.35);
+        const fs = tall ? u * 4 : u * 2.3, ready = t >= B(23, 2), status = t < B(22, 8) ? ["New", "#3D7BD9"] : ready ? ["Ready", "#2FBF8A"] : ["Preparing", "#E08A1E"];
+        const row = (y, n, item, from, st, color, fresh) => {
+          g.fillStyle = fresh ? "#FFF6E3" : "#FFFFFF"; g.beginPath(); g.roundRect(lx, y, listW, rowH - u * 1.4, u * 1.4); g.fill();
+          if (fresh) { g.strokeStyle = "rgba(224, 138, 30, 0.6)"; g.lineWidth = 2; g.stroke(); }
+          g.fillStyle = "#2B1F17"; g.textAlign = "left"; g.font = `800 ${Math.round(fs * 1.15)}px ${UI}`; g.fillText(`#0${n}`, lx + u * 2, y + (rowH - u * 1.4) * 0.34);
+          g.fillStyle = "#6B5446"; g.font = `500 ${Math.round(fs * 0.9)}px ${UI}`; g.fillText(`${item} · ${from}`, lx + u * 2, y + (rowH - u * 1.4) * 0.72);
+          chip(lx + listW - u * 2, y + (rowH - u * 1.4) * 0.34, st, color, fs * 0.8, "right");
+        };
+        PORTAL.forEach((o, i) => row(ly + (i + come) * rowH, o.n, o.item, o.from, o.status, o.status === "Ready" ? "#2FBF8A" : "#E08A1E", false));
+        if (t >= B(22)) { g.save(); g.globalAlpha = come; row(ly - (1 - come) * rowH * 0.6, 25, "Iced Spanish Latte ×1", "QR order", status[0], status[1], !ready); g.restore(); }
+        // its detail (right; below): the order, the drink, Mark as ready (tapped on 23's downbeat)
+        const dx = tall ? sx + u * 3 : sx + u * 46, dy = tall ? ly + rowH * 4.3 : ly, dw = tall ? sw - u * 6 : u * 51, dh = tall ? sh - (dy - sy) - u * 3 : sh - head - u * 6;
+        g.fillStyle = "#FFFFFF"; g.beginPath(); g.roundRect(dx, dy, dw, dh, u * 1.6); g.fill();
+        if (t >= B(22)) {
+          const a = come, big = tall ? u * 7 : u * 4.4;
+          g.globalAlpha = a; g.textAlign = "left";
+          g.fillStyle = "#9C8278"; g.font = `700 ${Math.round(big * 0.38)}px ${UI}`; g.fillText("ORDER", dx + u * 3, dy + big * 0.8);
+          g.fillStyle = "#2B1F17"; g.font = `800 ${Math.round(big)}px ${UI}`; g.fillText("#025", dx + u * 3, dy + big * 1.7);
+          chip(dx + dw - u * 3, dy + big * 1.6, status[0], status[1], big * 0.4, "right");
+          g.fillStyle = "#2B1F17"; g.font = `700 ${Math.round(big * 0.52)}px ${UI}`; g.fillText("Iced Spanish Latte", dx + u * 3, dy + big * 2.8);
+          g.fillStyle = "#6B5446"; g.font = `500 ${Math.round(big * 0.4)}px ${UI}`; g.fillText("16 oz · iced · less ice", dx + u * 3, dy + big * 3.45); g.fillText("Table order · QR · paid", dx + u * 3, dy + big * 4.0);
+          const bh = big * 1.25, bw = dw - u * 6, bx = dx + u * 3, by = dy + dh - bh - u * 3;
+          g.fillStyle = ready ? "#2FBF8A" : "#3D2B1F"; g.beginPath(); g.roundRect(bx, by, bw, bh, bh / 2); g.fill();
+          g.fillStyle = "#FFFFFF"; g.textAlign = "center"; g.font = `700 ${Math.round(big * 0.5)}px ${UI}`; g.fillText(ready ? "Ready ✓" : "Mark as ready", bx + bw / 2, by + bh / 2);
+          tap(bx + bw * 0.6, by + bh / 2, B(23), t, bh * 0.9);
+          g.globalAlpha = 1;
+        }
+        g.restore();
+        g.restore();
+      };
+      const drawQueue = (t) => {
+        g.fillStyle = "#24170F"; g.fillRect(0, 0, W, H);
+        bokeh(t, 0.7);
+        const z = mix(1, 1.04, ease((t - B(24)) / BAR)), m = Math.min(W, H) * 0.06;
+        g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        const sx = m, sy = m, sw = W - m * 2, sh = H - m * 2;
+        g.fillStyle = "#0A0A0B"; g.beginPath(); g.roundRect(sx - m * 0.35, sy - m * 0.35, sw + m * 0.7, sh + m * 0.7, m * 0.3); g.fill();
+        g.save(); g.beginPath(); g.rect(sx, sy, sw, sh); g.clip();
+        g.fillStyle = "#1C120C"; g.fillRect(sx, sy, sw, sh);
+        const u = tall ? sw / 72 : Math.min(sw, sh * 1.5) / 100, pad = u * 3;
+        // its two columns: Preparing, Ready (on a tall screen Ready first, as the real one does)
+        const ready = tall ? { x: sx + pad, y: sy + pad, w: sw - pad * 2, h: sh * 0.6 - pad * 1.5 } : { x: sx + sw * 0.4 + pad * 0.5, y: sy + pad, w: sw * 0.6 - pad * 1.5, h: sh - pad * 2 };
+        const prep = tall ? { x: sx + pad, y: sy + sh * 0.6 + pad * 0.5, w: sw - pad * 2, h: sh * 0.4 - pad * 1.5 } : { x: sx + pad, y: sy + pad, w: sw * 0.4 - pad * 1.5, h: sh - pad * 2 };
+        g.fillStyle = "rgba(251, 243, 230, 0.04)"; g.strokeStyle = "rgba(251, 243, 230, 0.12)"; g.lineWidth = 1.5; g.beginPath(); g.roundRect(prep.x, prep.y, prep.w, prep.h, u * 3); g.fill(); g.stroke();
+        const rg = g.createLinearGradient(0, ready.y, 0, ready.y + ready.h); rg.addColorStop(0, "rgba(47, 191, 138, 0.12)"); rg.addColorStop(0.6, "rgba(47, 191, 138, 0.03)");
+        g.fillStyle = rg; g.strokeStyle = "rgba(47, 191, 138, 0.32)"; g.beginPath(); g.roundRect(ready.x, ready.y, ready.w, ready.h, u * 3); g.fill(); g.stroke();
+        const heading = (col, eyebrow, title, color, count) => {
+          g.textAlign = "left"; g.textBaseline = "alphabetic";
+          g.fillStyle = color; g.font = `700 ${Math.round(u * 2.2)}px ${UI}`; g.fillText(eyebrow.toUpperCase(), col.x + u * 3, col.y + u * 5);
+          g.fillStyle = "#FBF3E6"; g.font = `800 ${Math.round(u * 5)}px ${UI}`; g.fillText(title, col.x + u * 3, col.y + u * 10.5);
+          g.fillStyle = `${color}24`; g.beginPath(); g.arc(col.x + col.w - u * 6, col.y + u * 7.5, u * 3, 0, PI2); g.fill();
+          g.fillStyle = color; g.textAlign = "center"; g.font = `800 ${Math.round(u * 3)}px ${UI}`; g.fillText(String(count), col.x + col.w - u * 6, col.y + u * 8.6);
+        };
+        heading(prep, "In progress", "Preparing", "#F2A54A", 3);
+        heading(ready, "Please collect at the counter", "Ready", "#2FBF8A", 2);
+        const tile = (x, y, w, h, n, label, color) => { g.fillStyle = "rgba(251, 243, 230, 0.06)"; g.beginPath(); g.roundRect(x, y, w, h, u * 2); g.fill(); g.textAlign = "left"; g.textBaseline = "middle"; g.fillStyle = "#FBF3E6"; g.font = `800 ${Math.round(Math.min(h * 0.42, w * 0.27))}px ${UI}`; g.fillText(`#0${n}`, x + u * 2.4, y + h * 0.4); g.fillStyle = color; g.font = `600 ${Math.round(Math.min(h * 0.18, w * 0.13))}px ${UI}`; g.fillText(label, x + u * 2.4, y + h * 0.76); };
+        const pw = tall ? (prep.w - u * 9) / 3 : prep.w - u * 6, phh = tall ? Math.min(prep.h - u * 16, u * 22) : u * 12;
+        [23, 24, 26].forEach((n, i) => tile(tall ? prep.x + u * 3 + i * (pw + u * 1.5) : prep.x + u * 3, tall ? prep.y + u * 13 : prep.y + u * 14 + i * (phh + u * 2), pw, phh, n, "Preparing", "#F2A54A"));
+        // Now calling: #025, in on 24's downbeat (its chime: rings going out)
+        const call = out((t - B(24)) / 0.4), spot = { x: ready.x + u * 3, y: ready.y + u * 14, w: ready.w - u * 6, h: ready.h * (tall ? 0.56 : 0.5) };
+        if (t >= B(24)) {
+          g.save(); g.globalAlpha = call; const cx = spot.x + spot.w / 2, cy = spot.y + spot.h / 2, k = mix(1.08, 1, call);
+          g.translate(cx, cy); g.scale(k, k); g.translate(-cx, -cy);
+          const sg = g.createLinearGradient(0, spot.y, 0, spot.y + spot.h); sg.addColorStop(0, "#2FBF8A"); sg.addColorStop(1, "#13704F");
+          g.fillStyle = sg; g.beginPath(); g.roundRect(spot.x, spot.y, spot.w, spot.h, u * 3); g.fill();
+          g.textAlign = "center"; g.textBaseline = "middle";
+          g.fillStyle = "rgba(255, 255, 255, 0.85)"; g.font = `700 ${Math.round(u * 2.4)}px ${UI}`; g.fillText("NOW CALLING", cx, spot.y + spot.h * 0.17);
+          g.fillStyle = "#FFFFFF"; g.font = `800 ${Math.round(Math.min(spot.h * 0.46, spot.w * 0.32))}px ${UI}`; g.fillText("#025", cx, spot.y + spot.h * 0.52);
+          g.fillStyle = "rgba(255, 255, 255, 0.9)"; g.font = `600 ${Math.round(u * 2.2)}px ${UI}`; g.fillText("Your order is ready · collect at the counter", cx, spot.y + spot.h * 0.85);
+          g.restore();
+          for (let k2 = 0; k2 < 3; k2++) { const q = (t - B(24) - k2 * 0.18) / 0.9; if (q > 0 && q < 1) { g.strokeStyle = `rgba(47, 191, 138, ${(0.5 * (1 - q)).toFixed(3)})`; g.lineWidth = 3; g.beginPath(); g.roundRect(spot.x - q * u * 8, spot.y - q * u * 8, spot.w + q * u * 16, spot.h + q * u * 16, u * 3 + q * u * 8); g.stroke(); } }
+        }
+        const rw = (ready.w - u * 7.5) / 2, rh = Math.max(u * 8, ready.h - (spot.y - ready.y) - spot.h - u * 6);
+        [22, 21].forEach((n, i) => tile(ready.x + u * 3 + i * (rw + u * 1.5), spot.y + spot.h + u * 3, rw, Math.min(rh, u * 12), n, "Ready", "#2FBF8A"));
+        g.restore();
+        // (the screen's glare)
+        const glare = g.createLinearGradient(sx, sy, sx + sw, sy + sh); glare.addColorStop(0, "rgba(255, 255, 255, 0.06)"); glare.addColorStop(0.4, "rgba(255, 255, 255, 0)");
+        g.fillStyle = glare; g.fillRect(sx, sy, sw, sh);
+        g.restore();
+      };
+      const drawCounter = (t) => {
+        const z = mix(1, 1.1, ease((t - B(25)) / BAR));
+        g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        g.drawImage(pic("counter").c, 0, 0, W, H);
+        const cw = tall ? W * 0.56 : Math.min(W * 0.24, H * 0.5), lx = tall ? W * 0.66 : W * 0.66, ly = tall ? H * 0.76 : H * 0.48, r = cw * 0.34;
+        place(covers[0], tall ? W * 0.44 : W * 0.4, tall ? H * 0.4 : H * 0.5, cw, -0.07);
+        latte(g, lx, ly, r);
+        steamOver(lx, ly, r, t);
+        g.restore();
+        bokeh(t, 1 - soft((t - B(25)) / BAR));
+        shade(0.9 * soft((t - B(25, 2)) / (BAR * 0.86)));
+      };
+      const SHOTS = [[B(20), drawOrder], [B(22), drawPortal], [B(24), drawQueue], [B(25), drawCounter]];
+      const drawInside = (t) => {
+        let i = SHOTS.length - 1;
+        while (i > 0 && t < SHOTS[i][0]) i--;
+        const [at, draw] = SHOTS[i], whip = i > 0 ? out((t - at) / 0.24) : 1;
+        if (whip < 1) { g.save(); g.translate(-W * whip, 0); SHOTS[i - 1][1](t); g.restore(); g.save(); g.translate(W * (1 - whip), 0); draw(t); g.restore(); }
+        else draw(t);
+        shade(1 - soft((t - B(20)) / 0.3), "246, 200, 140");
+      };
+
+      // ── 7. the black wall (bars 26-28): dark through the break; "oh yeah?" painted on its one hit, the lamp up;
+      //    "yeah, no one's left behind" written under it ──
+      const drawWall = (t) => {
+        const z = mix(1.04, 1, ease((t - B(26)) / (3 * BAR)));
+        g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        g.drawImage(pic("wall").c, 0, 0, W, H);
+        g.restore();
+        const hit = B(26, 8), lamp = t < hit ? 0.12 : mix(0.12, 0.55, soft((t - hit) / 0.5));
+        glowAt(W * 0.45, -H * 0.15, Math.max(W, H) * 0.85, "255, 190, 120", lamp * 0.4);
+        shade(0.55 * (1 - lamp / 0.55));
+        const room = tall ? W * 0.86 : W * 0.58, ox = tall ? W * 0.5 : W * 0.38, across = (word) => (word.w - word.px * 0.6) / word.px;
+        if (t >= hit) { const word = dfWord("oh yeah?", DF_SCRIPT, 220, "#F4F1EA"), big = Math.min(W * (tall ? 0.24 : 0.15), H * 0.26, room / across(word)), w = across(word) * big; dfWordAt(g, word, ox - w / 2, H * (tall ? 0.36 : 0.42), big, -0.05, clamp((t - hit) / 0.3)); }
+        const r = clamp((t - B(27)) / (BAR * 1.7));
+        if (r > 0) {
+          const rows = (tall ? ["yeah,", "no one's left behind"] : ["yeah, no one's left behind"]).map((row) => dfWord(row, DF_NOTE, 120, "#F4F1EA", 700));
+          const size = Math.min(W * (tall ? 0.085 : 0.048), H * 0.075, ...rows.map((word) => room / across(word)));
+          rows.forEach((word, i) => dfWordAt(g, word, ox - (across(word) * size) / 2, H * (tall ? 0.5 : 0.6) + i * size * 1.35, size, -0.02, clamp(r * rows.length - i)));
+        }
+      };
+
+      // ── 8. the table (bars 29-39): the class's four papers, one by one, each in big and readable, stamped DEFENDED
+      //    (set down gently on its second bar), then to its place with the others; "congrats, BSIT - 401" written
+      //    under them by the red pen from bar 37; on the fill the string lights coming up one by one; calm ──
+      const slotOf = (i) => {
+        if (tall) { const cw = Math.min(W * 0.4, H * 0.18); return { x: W * (0.28 + (i % 2) * 0.44), y: H * (0.24 + Math.floor(i / 2) * 0.29), w: cw }; }
+        const cw = Math.min(W * 0.19, H * 0.4); return { x: W * (0.5 + (i - 1.5) * 0.225), y: H * 0.43, w: cw };
+      };
+      const FILL = B(38, 12);
+      const drawTable = (t) => {
+        const z = mix(1.06, 1, ease((t - B(29)) / (8 * BAR)));
+        g.save(); g.translate(W / 2, H / 2); g.scale(z, z); g.translate(-W / 2, -H / 2);
+        g.drawImage(pic("table").c, 0, 0, W, H);
+        g.restore();
+        const things = tableThings();
+        steamOver(things.lx, things.ly, things.r, t);
+        DF_PAPERS.forEach((_, i) => {
+          const inAt = B(29 + 2 * i), stampAt = B(30 + 2 * i), goAt = B(30 + 2 * i, 8);
+          if (t < inAt) return;
+          const slot = slotOf(i), bigW = tall ? W * 0.74 : Math.min(W * 0.34, H * 0.58), cy = tall ? H * 0.46 : H * 0.47;
+          const rise = out((t - inAt) / 0.7), go = ease((t - goAt) / 0.9);
+          const x = mix(W / 2, slot.x, go), y = mix(mix(cy + H * 0.1, cy, rise), slot.y, go), w = mix(bigW, slot.w, go), rot = mix((i % 2 ? 0.04 : -0.04) * (1 - rise), (i - 1.5) * 0.025, go);
+          place(covers[i], x, y, w, rot, clamp(rise * 1.5));
+          if (t >= stampAt) {
+            const s = soft((t - stampAt) / 0.45), sw = w * 0.84;
+            g.save(); g.translate(x, y); g.rotate(rot); g.translate(0, w * 0.3); g.rotate(-0.14); const k = mix(1.12, 1, s); g.scale(k, k); g.globalAlpha = 0.9 * s;
+            g.drawImage(stampPic, -sw / 2, -sw * (220 / 640) / 2, sw, sw * (220 / 640));
+            g.restore();
+          }
+        });
+        // the string lights over the table: low, then on the fill each one up
+        const n = tall ? 9 : 14;
+        for (let i = 0; i < n; i++) {
+          const u = (i + 0.5) / n, x = W * u, y = H * 0.035 + Math.sin(u * Math.PI) * H * 0.045, on = t > FILL ? soft((t - FILL - i * ((END - FILL) * 0.75) / n) / 0.35) : 0;
+          glowAt(x, y, Math.min(W, H) * (0.07 + 0.07 * on), WARM, 0.3 + 0.55 * on);
+          g.fillStyle = `rgb(255, ${Math.round(mix(214, 240, on))}, ${Math.round(mix(160, 200, on))})`; g.beginPath(); g.arc(x, y, Math.max(3, Math.min(W, H) * 0.006), 0, PI2); g.fill();
+        }
+        g.strokeStyle = "rgba(40, 26, 14, 0.5)"; g.lineWidth = 1.2; g.beginPath(); for (let i = 0; i <= 40; i++) { const u = i / 40; g.lineTo(W * u, H * 0.035 + Math.sin(u * Math.PI) * H * 0.045 - 4); } g.stroke();
+        // congrats, BSIT - 401: by the red pen, from bar 37, done as the fill comes in
+        const c = clamp((t - B(37)) / (FILL - B(37) - 0.1));
+        if (c > 0) {
+          const rows = tall ? ["congrats,", "BSIT - 401"] : ["congrats, BSIT - 401"], size = Math.min(W * (tall ? 0.15 : 0.08), H * 0.14), y0 = tall ? H * 0.88 : H * 0.86;
+          rows.forEach((row, i) => {
+            const word = dfWord(row, DF_SCRIPT, 200, RED), rw = (word.w - word.px * 0.6) * (size / word.px), part = clamp(c * rows.length - i), x0 = W / 2 - rw / 2, y = y0 + (i - (rows.length - 1)) * size * 1.1;
+            dfWordAt(g, word, x0, y, size, -0.04, part);
+            if (part > 0 && part < 1) { const [px, py] = dfWordTip(word, x0, y, size, -0.04, part); g.save(); g.translate(px, py); g.rotate(0.6); g.fillStyle = INK; g.fillRect(-4, -60, 9, 60); g.fillStyle = RED; g.beginPath(); g.moveTo(-4, 0); g.lineTo(5, 0); g.lineTo(0.5, 12); g.closePath(); g.fill(); g.restore(); }
+          });
+        }
+        // (the light of the string lights over it all, warmer on the fill)
+        glowAt(W / 2, -H * 0.2, Math.max(W, H) * 0.9, "255, 200, 130", 0.1 + 0.16 * soft((t - FILL) / (END - FILL)));
+      };
+      // the way out (track 1 has come in): the table still, its view drifting back as the scene fades off the page
+      const drawOut = (t) => {
+        const q = ease((t - END) / 1.1);
+        g.save(); g.translate(W / 2, H / 2); g.scale(1 + 0.03 * q, 1 + 0.03 * q); g.translate(-W / 2, -H / 2);
+        drawTable(END - 0.001);
+        g.restore();
+      };
+
+      return {
+        show(name) { box.dataset.cue = name; },
+        tick(now) {
+          if (hidden) return;
+          g.setTransform(ratio, 0, 0, ratio, 0, 0);
+          g.clearRect(0, 0, W, H);
+          g.lineCap = "butt"; g.lineJoin = "miter";
+          if (now < B(5)) drawEdit(now);
+          else if (now < B(9)) drawPrint(now);
+          else if (now < B(10)) drawSeat(now);
+          else if (now < B(14) || (now >= B(16) && now < B(18))) drawDrive(now);
+          else if (now < B(16)) drawSeat(now, true);
+          else if (now < B(20)) drawCafe(now);
+          else if (now < B(26)) drawInside(now);
+          else if (now < B(29)) drawWall(now);
+          else if (now < B(29) + 0.7) {
+            // the view going down off the wall to the table
+            const q = ease((now - B(29)) / 0.7);
+            g.save(); g.translate(0, H * (1 - q)); drawTable(now); g.restore();
+            g.save(); g.translate(0, -H * q); drawWall(now); g.restore();
+          } else if (now < END) drawTable(now);
+          else drawOut(now);
+        },
+        unmount() { window.removeEventListener("resize", resize); clearTimeout(laterTimer); hidden = true; },
+      };
+    },
+  };
+
+  // ── Defended's versions: a card put back drops into its place, and the page turns into that member's version ──
+  // Closing a member's card (THEMES.defended.onCardBack, from closeMember) drops it back into its slot in the
+  // lineup, left empty for it: it lifts, then falls onto the page (turning back to its front if it was turned over),
+  // landing on the groove's next hit with a thud (the slot jolts, the other two hop, dust puffs out from under it,
+  // the page shakes). From the slot the page then turns into that member's version: a circle opening out from it (a
+  // view transition, where the browser has them; elsewhere the switch's sweep), its edge lit in the version's colour.
+  // Put back the card of the version that is on and the page goes back to the default; a member with no version yet
+  // just lands. The versions are variants with no loop of their own (the music goes on), lasting while the theme is.
+  const DF_VERSIONS = {
+    tin: { sub: "Tin's version · vampire · gothic", toast: "🦇 Tin's version · vampire · gothic", edge: "127, 233, 236", dust: "196, 222, 226", scheme: "dark",
+      fonts: ["700 1em 'Grenze Gotisch'", "900 1em 'Grenze Gotisch'", "400 1em UnifrakturMaguntia"] },
+    cheng: { sub: "Cheng's version · rhythm", toast: "◎ Cheng's version · rhythm", edge: "47, 199, 247", dust: "140, 190, 240", scheme: "dark",
+      fonts: ["600 1em Oxanium", "700 1em Oxanium", "800 1em Oxanium", "500 1em Saira", "600 1em Saira"] },
+    andrei: { sub: "Andrei's version · dream sky", toast: "♡ Andrei's version · dream sky", edge: "255, 95, 168", dust: "255, 196, 224", scheme: "light",
+      fonts: ["400 1em Italiana", "500 1em Quicksand", "600 1em Quicksand", "700 1em Quicksand", "400 1em 'Great Vibes'"] },
+  };
+  const DF_PAPER = { edge: "222, 22, 30", dust: "120, 108, 94" };
+  const dfRestart = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
+  // the version on: its line under the brand, its colours for the browser, a word to say so
+  function dfVersionOn(name) {
+    const v = name ? DF_VERSIONS[name] : null;
+    brandSub.textContent = v ? v.sub : THEMES.defended.sub;
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute("content", v?.scheme ?? THEMES.defended.scheme);
+    toast(v ? v.toast : THEMES.defended.toast);
+  }
+  // The card landing, when the sound is on (made here: no file): a low thump falling in pitch, its knock, the slap
+  // of the card.
+  function dfThud() {
+    if (!soundWanted()) return;
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const at = ctx.currentTime + 0.005, out = ctx.createGain();
+    out.gain.value = 0.6;
+    out.connect(ctx.destination);
+    const osc = ctx.createOscillator(), body = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(118, at);
+    osc.frequency.exponentialRampToValueAtTime(40, at + 0.24);
+    body.gain.setValueAtTime(0.0001, at);
+    body.gain.exponentialRampToValueAtTime(1, at + 0.006);
+    body.gain.exponentialRampToValueAtTime(0.0001, at + 0.36);
+    osc.connect(body).connect(out);
+    osc.start(at); osc.stop(at + 0.38);
+    [[240, 0.9, 0.1, 0.8], [2300, 0.32, 0.035, 1.2]].forEach(([freq, level, decay, q]) => {
+      const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), env = ctx.createGain();
+      source.buffer = keysNoise;
+      band.type = "bandpass"; band.frequency.value = freq; band.Q.value = q;
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(level, at + 0.002);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2, decay + 0.02);
+    });
+  }
+  // Chain links knocking together (Tin's), when the sound is on: pings of metal (a few partials not in tune with
+  // each other, quickly gone) and their tick; n of them spread over ms, this loud.
+  function dfClink(n = 1, spread = 0, level = 0.2) {
+    if (!soundWanted()) return;
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const out = ctx.createGain();
+    out.gain.value = level;
+    out.connect(ctx.destination);
+    for (let i = 0; i < n; i++) {
+      const at = ctx.currentTime + 0.005 + (n > 1 ? (i / (n - 1)) * (spread / 1000) * (0.75 + Math.random() * 0.5) : 0), base = 2100 + Math.random() * 2400;
+      [1, 1.73, 2.61].forEach((k, j) => {
+        const osc = ctx.createOscillator(), env = ctx.createGain(), decay = 0.11 / (1 + j * 0.9);
+        osc.type = "sine";
+        osc.frequency.value = base * k * (0.985 + Math.random() * 0.03);
+        env.gain.setValueAtTime(0.0001, at);
+        env.gain.exponentialRampToValueAtTime(0.5 / (1 + j), at + 0.001);
+        env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+        osc.connect(env).connect(out);
+        osc.start(at); osc.stop(at + decay + 0.01);
+      });
+      const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), env = ctx.createGain();
+      source.buffer = keysNoise;
+      band.type = "bandpass"; band.frequency.value = 6500; band.Q.value = 1.4;
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(0.6, at + 0.001);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + 0.014);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2, 0.03);
+    }
+  }
+  // a canvas over the whole page for a moment (the dust, the reveal's edge: kind): paint(g, ms since) until long is up
+  function dfFlash(long, paint, kind = "is-dust") {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5), c = document.createElement("canvas");
+    c.className = `df-dust ${kind}`;
+    c.setAttribute("aria-hidden", "true");
+    c.width = Math.round(W * ratio); c.height = Math.round(H * ratio);
+    document.body.append(c);
+    const g = c.getContext("2d"), began = performance.now();
+    const frame = (now) => {
+      const t = now - began;
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      paint(g, Math.min(t, long));
+      if (t < long) requestAnimationFrame(frame); else c.remove();
+    };
+    requestAnimationFrame(frame);
+  }
+  // dust from under a card as it lands: puffs out of its foot both ways, slowing and spreading; a few flecks thrown
+  // up and falling
+  function dfDust(x0, x1, y, rgb) {
+    const bits = Array.from({ length: 26 }, (_, i) => {
+      const side = i % 2 ? 1 : -1, puff = i < 16;
+      return { x: side > 0 ? x1 - 6 : x0 + 6, y: y - 2 - Math.random() * 6, vx: side * (puff ? 50 + Math.random() * 170 : 90 + Math.random() * 260),
+        vy: puff ? -10 - Math.random() * 50 : -140 - Math.random() * 220, r: puff ? 5 + Math.random() * 9 : 1.2 + Math.random() * 1.8, puff };
+    });
+    dfFlash(650, (g, ms) => {
+      const t = ms / 1000, q = ms / 650;
+      for (const b of bits) {
+        if (b.puff) {
+          // (soft all through: thickest at its heart, gone at its edge)
+          const slow = (1 - Math.exp(-t * 5)) / 5, x = b.x + b.vx * slow, y = b.y + b.vy * slow, r = b.r * (1 + q * 2.6), a = 0.26 * (1 - q) ** 1.3;
+          const puff = g.createRadialGradient(x, y, 0, x, y, r);
+          puff.addColorStop(0, `rgba(${rgb}, ${a.toFixed(3)})`); puff.addColorStop(0.55, `rgba(${rgb}, ${(a * 0.45).toFixed(3)})`); puff.addColorStop(1, `rgba(${rgb}, 0)`);
+          g.fillStyle = puff;
+          g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+        } else {
+          g.fillStyle = `rgba(${rgb}, ${(0.85 * (1 - q)).toFixed(3)})`;
+          g.fillRect(b.x + b.vx * t, b.y + b.vy * t + 900 * t * t, b.r * 2, b.r * 2);
+        }
+      }
+    });
+  }
+  // (resolves once frames come steadily again, after the page has had a lot to draw: four quick ones in a row, a
+  // little while on; or after a second and a half)
+  const dfFlowing = () => new Promise((done) => {
+    const began = performance.now();
+    let prev = 0, quick = 0;
+    const frame = (now) => {
+      quick = prev && now - prev < 24 ? quick + 1 : 0;
+      prev = now;
+      if ((quick >= 4 && now - began > 150) || now - began > 1500) done(); else requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  });
+  // The page turning into version next (null: the default): a circle opening out from x, y, fast out of the slot
+  // and slowing as it reaches the corners, its edge lit in the version's colour. The new page is drawn while the
+  // old one holds still (the moment of the impact, held: a whole page in a new look is a lot to draw); the circle
+  // opens once frames come steadily again, on the beat (the groove's next hit, if it is close), and the version's
+  // stage moves from then.
+  function dfReveal(next, x, y) {
+    const swap = () => setVariant(next, stageClock);
+    if (typeof document.startViewTransition !== "function") {
+      swap();
+      const flash = document.createElement("div");
+      flash.className = "ae-flash";
+      document.body.appendChild(flash);
+      flash.addEventListener("animationend", () => flash.remove());
+      return Promise.resolve();
+    }
+    const W = window.innerWidth, H = window.innerHeight, far = Math.hypot(Math.max(x, W - x), Math.max(y, H - y)) + 24, LONG = 1050;
+    const ease = (q) => 1 - (1 - q) ** 2.6, rgb = (next ? DF_VERSIONS[next] : DF_PAPER).edge;
+    // (the new page shut in a circle of nothing at x, y from its first frame)
+    root.style.setProperty("--df-rx", `${x.toFixed(1)}px`);
+    root.style.setProperty("--df-ry", `${y.toFixed(1)}px`);
+    root.classList.add("df-revealing");
+    dfHold = Infinity;
+    const shift = document.startViewTransition(swap);
+    shift.ready.then(() => {
+      const open = root.animate({ clipPath: Array.from({ length: 17 }, (_, i) => `circle(${(ease(i / 16) * far).toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px)`) },
+        { duration: LONG, easing: "linear", fill: "both", pseudoElement: "::view-transition-new(root)" });
+      open.pause();
+      void dfFlowing().then(() => new Promise((go) => setTimeout(go, dfToBeat()))).then(() => {
+        open.play();
+        dfHold = 0;
+        // (the edge on the circle's own clock: it starts a frame after it is asked to, and it is the one seen)
+        dfFlash(LONG + 80, (g) => {
+          const q = Math.min(1, (Number(open.currentTime) || 0) / LONG), r = ease(q) * far, fade = 1 - q * 0.7;
+          g.strokeStyle = `rgba(${rgb}, ${(0.24 * fade).toFixed(3)})`; g.lineWidth = 20;
+          g.beginPath(); g.arc(x, y, Math.max(0, r - 14), 0, Math.PI * 2); g.stroke();
+          g.strokeStyle = `rgba(${rgb}, ${(0.95 * fade).toFixed(3)})`; g.lineWidth = 3;
+          g.beginPath(); g.arc(x, y, Math.max(0, r - 5), 0, Math.PI * 2); g.stroke();
+        }, "is-edge");
+      });
+    }, () => { dfHold = 0; });
+    return shift.finished.catch(() => undefined).finally(() => {
+      dfHold = 0;
+      root.classList.remove("df-revealing");
+      root.style.removeProperty("--df-rx");
+      root.style.removeProperty("--df-ry");
+    });
+  }
+  let dfDropping = false;
+  function dfDrop({ key, box, flipped }) {
+    if (current !== "defended" || dfDropping) return;
+    const next = variantOn === key || !THEMES.defended.variants?.[key] ? null : key;
+    const plate = lineup.querySelector(`.ae-member[data-member="${key}"]`), photo = plate?.querySelector(".ae-photo");
+    if (!motionOK() || !photo || !box.width) { if (next !== variantOn) setVariant(next, stageClock); return; }
+    dfDropping = true;
+    root.classList.add("df-dropping");
+    plate.classList.add("is-empty");
+    // the open card's dark going (the dialog itself is already gone)
+    const veil = document.createElement("div");
+    veil.className = "df-veil";
+    document.body.append(veil);
+    veil.addEventListener("animationend", () => veil.remove());
+    const ghost = document.createElement("div");
+    ghost.className = "df-ghost";
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.innerHTML = `<i class="df-ghost-face" style="background-image: url('${siteUrl(`defended/${key}.webp`)}')"></i>`
+      + `<i class="df-ghost-face is-back" style="background-image: url('${siteUrl(`defended/${key}-back.webp`)}')"></i>`;
+    document.body.append(ghost);
+    const tilt = parseFloat(getComputedStyle(plate).rotate) || 0;
+    // (where it lands: the photo's middle as the page is now (it may be scrolled), at the photo's own size)
+    const slot = () => { const r = photo.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: photo.offsetWidth, h: photo.offsetHeight }; };
+    const from = { x: box.left + box.width / 2, y: box.top + box.height / 2, w: box.width, h: box.height };
+    // it lifts, then falls (from still, faster and faster) to land on a hit
+    const LIFT = 170, FALL = Math.max(380, dfToHit(LIFT + 380) - LIFT), began = performance.now();
+    const place = (x, y, w, h, turn, flip, high) => {
+      Object.assign(ghost.style, { left: `${(x - w / 2).toFixed(1)}px`, top: `${(y - h / 2).toFixed(1)}px`, width: `${w.toFixed(1)}px`, height: `${h.toFixed(1)}px`,
+        transform: `perspective(1200px) rotate(${turn.toFixed(2)}deg) rotateY(${flip.toFixed(1)}deg)` });
+      ghost.style.setProperty("--high", high.toFixed(3));
+    };
+    const done = () => { dfDropping = false; root.classList.remove("df-dropping"); };
+    const land = () => {
+      ghost.remove();
+      plate.classList.remove("is-empty");
+      const plates = [...lineup.querySelectorAll(".ae-member")], at = plates.indexOf(plate);
+      dfRestart(plate, "df-hit");
+      plates.forEach((other, i) => { if (other !== plate) { other.style.setProperty("--hop-delay", `${Math.abs(i - at) * 45 - 15}ms`); dfRestart(other, "df-hop"); } });
+      dfRestart(root, "df-shake");
+      setTimeout(() => root.classList.remove("df-shake"), 300);
+      dfThud();
+      const r = photo.getBoundingClientRect();
+      dfDust(r.left, r.right, r.bottom - 2, (variantOn ? DF_VERSIONS[variantOn] : DF_PAPER).dust);
+      setTimeout(() => {
+        if (current !== "defended" || next === variantOn) { done(); return; }
+        const c = photo.getBoundingClientRect();
+        void dfReveal(next, c.left + c.width / 2, c.top + c.height / 2).then(done);
+      }, 150);
+    };
+    const frame = (now) => {
+      if (current !== "defended") { ghost.remove(); plate.classList.remove("is-empty"); done(); return; }
+      const t = now - began;
+      if (t < LIFT) {
+        const e = 1 - (1 - t / LIFT) ** 2;
+        place(from.x, from.y - 20 * e, from.w * (1 + 0.03 * e), from.h * (1 + 0.03 * e), 2.4 * e, flipped ? 180 : 0, 1 + 0.2 * e);
+      } else if (t < LIFT + FALL) {
+        const q = (t - LIFT) / FALL, e = q * q, to = slot();
+        place(dfMix(from.x, to.x, e), dfMix(from.y - 20, to.y, e), dfMix(from.w * 1.03, to.w, e), dfMix(from.h * 1.03, to.h, e), dfMix(2.4, tilt, e),
+          flipped ? 180 * (1 - Math.min(1, q * 1.5)) : 0, 1.2 * (1 - e));
+      } else { land(); return; }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
   const THEMES = {
     whiplash: {
       era: "Whiplash", folder: "whiplash/", tag: "WHIPLASH",
@@ -14025,8 +17923,8 @@
       extras: ["logo-black.webp", "kiss.svg", "phone.webp", "heart.webp", "hearts.webp", "doodle-hearts.webp", "doodle-bows.webp", "doodle-sparkle.webp", "teddy.webp", "ribbon.webp", "lightstick.webp", "lightstick-head.webp",
         ...["karina", "giselle", "winter", "ningning"].flatMap((key) => [`${key}-booth.webp`, `${key}-back.webp`])],
     },
-    // Ditto: NewJeans, the one theme that is not aespa's, and not in the playlist until found (the
-    // word "same" in the last quick tip opens it; see the end of this file). A winter, a Y2K desktop,
+    // Ditto: NewJeans, the one theme that is not aespa's, and not in the playlist (pulled from the
+    // gashapon; see the end of this file). A winter, a Y2K desktop,
     // the five of them as they were in 2022. The intro (16 bars at 134 BPM) runs straight into
     // track 1; tracks 1 and 2 (16 bars each) then take turns. The page is a pastel desktop in the
     // snow (ditto.css); the members' cards turn over to a chat window where she says her own line.
@@ -14074,8 +17972,8 @@
         ...["minji", "hanni", "danielle", "haerin", "hyein"].flatMap((key) => [`${key}-back.webp`, `${key}-anime.webp`])].filter((file) => !file.endsWith(".mp4")),
     },
     // Breed: Nirvana's Breed as the theme song of The Guy She Was Interested in Wasn't a Guy at All
-    // (気になってる人が男じゃなかった, Sumiko Arai): the second hidden track, found under a corner of the
-    // café's page once Ditto has been (see the end of this file). A manga in black ink and its lime spot
+    // (気になってる人が男じゃなかった, Sumiko Arai): the second hidden track, pulled from the
+    // gashapon (see the end of this file). A manga in black ink and its lime spot
     // colour (breed.css); Aya and Mitsuki on their key visuals, their character sheets on the back of
     // their cards. The intro (a pickup and 12 bars) runs straight into track 1 (24 bars), then track 2
     // (8 bars); the band plays them at its own tempo.
@@ -14099,8 +17997,8 @@
       decor: `<div class="br-decor" aria-hidden="true"><i class="br-decor-world"></i><svg class="br-decor-tear" viewBox="0 0 64 1000" preserveAspectRatio="none" aria-hidden="true">${BR_TEAR_V}</svg><b class="br-decor-sfx">ジャーン</b><i class="br-decor-burst"></i><div class="br-decor-art"><i></i></div><p class="br-decor-jp"><span>気になってる人が</span><span>男じゃなかった</span></p><i class="br-decor-smiley"></i><p class="br-decor-tag"><small>Opening theme</small><b>Nirvana “Breed”</b></p><i class="br-decor-st is-pin"></i><i class="br-decor-st is-star"></i><i class="br-decor-st is-pick"></i></div>`,
       extras: ["page-a-2.webp", "page-a-3.webp", "page-b-2.webp", "volume-2.webp", "flash-2.webp", "flash-3.webp", "smiley.webp", "smiley-ink.webp", ...["aya", "mitsuki"].flatMap((key) => [`${key}-alt.webp`, `${key}-back.webp`])],
     },
-    // Racing into the Night: YOASOBI's 夜に駆ける, the third hidden track, found where the café's header
-    // leaks pink once Breed has been (see the end of this file). The page is one night, top to bottom
+    // Racing into the Night: YOASOBI's 夜に駆ける, the third hidden track, pulled from the
+    // gashapon (see the end of this file). The page is one night, top to bottom
     // (yoru.css): the header's sky, its moon and city, the sections the hours after midnight, the
     // morning at the foot. Ayase and ikura on their plates, a planisphere on the back of each card. The
     // intro (a pickup and 8 bars) runs straight into track 1 (23 bars), then track 2 (8 bars).
@@ -14126,8 +18024,8 @@
         "lines-pink-1.webp", "lines-teal-2.webp", ...[1, 2, 3, 4, 5, 6].map((n) => `sparkle-${n}.webp`)],
     },
     // I Really Want to Stay at Your House: Rosa Walton's song (in Night City, Hallie Coggins's), as it plays in
-    // Cyberpunk: Edgerunners: the fourth hidden track, glitching out of the café header's logo once Racing into
-    // the Night has been found (see the end of this file). Night City's neon and a braindance replaying a
+    // Cyberpunk: Edgerunners: the fourth hidden track, pulled from the gashapon
+    // (see the end of this file). Night City's neon and a braindance replaying a
     // memory (stay.css): the header the replay of the two of them with the moon in its sights, the foot of the
     // page the Earth seen from the moon, where she ended up. David and Lucy on their plates, a fixer's file on
     // the back of each card, David's corrupted. The intro (8 bars) runs straight into track 1 (20 bars), then
@@ -14157,8 +18055,8 @@
       extras: ["david-back.webp", "lucy-back.webp", "logo.webp",
         ...["danger", "target", "stripes", "chevrons", "code", "frame", "barcode"].map((name) => `hud-${name}.webp`)],
     },
-    // Spicy: aespa's, from MY WORLD (2023), the fifth hidden track, pulled out of the fire alarm on the café
-    // header's wall once Stay has been found (see the end of this file). The intro (5 bars, "ISSUE #1": the
+    // Spicy: aespa's, from MY WORLD (2023), the fifth hidden track, pulled from the gashapon
+    // (see the end of this file). The intro (5 bars, "ISSUE #1": the
     // flames forge the cover of SPICY, a Y2K teen magazine) runs straight into track 1 (8 bars), then track 2
     // (8 bars and a beat). The four on the album's photo cards, front and back. The MV (spicyScene, "Off the
     // scale") only once the page burns (sceneIn: its button waits for the burning variant).
@@ -14178,6 +18076,35 @@
       fonts: ["400 1em 'Bagel Fat One'", "800 1em 'Barlow Condensed'", "700 1em 'Space Mono'", "900 1em Unbounded", "800 1em Unbounded"],
       extras: ["pepper.webp", "pepper-curl.webp", "charm.webp", "sparkle.webp", "myworld-pink.webp", "myworld-green.webp", ...SP_FLOATS.slice(0, 8).map(([file]) => `${file}.webp`),
         ...["karina", "giselle", "winter", "ningning"].map((key) => `${key}-back.webp`)],
+    },
+    // Defended: Steve Lacy's "oh yeah?", the sixth hidden track and the last, its approval sheet
+    // stuck in the gashapon's coin slot, to sign (see the end of this file): Project B.A.R.I.S.T.A., the paper this café's system was built
+    // for, defended. Not a collab: the brand line is the project's. White paper, black serif and red ink. The intro
+    // (24 bars: the night before, the defense, defended) runs straight into track 1 (16 bars), the one loop. The
+    // three on their cards (temporary art), an approval sheet signed on the back of each.
+    defended: {
+      group: "barista", artist: "Steve Lacy",
+      era: "Defended", folder: "defended/", tag: "DEFENDED", back: "image", scheme: "light",
+      title: "Project B.A.R.I.S.T.A. · Defended", toast: "Project B.A.R.I.S.T.A. · Defended ✓",
+      sub: "Defended · oh yeah?", h1: "Every Brew Houze app. Defended.", footer: "Project B.A.R.I.S.T.A. · Defended · Brew Houze Cafe's management system",
+      h1Html: `Every Brew Houze app. <span class="df-h1-red">Defended.</span>`,
+      introClip: "defended/intro.mp3", introStart: DF_START, introLength: DF_INTRO,
+      loops: [{ src: "defended/track.mp3", start: DF_START, length: DF_TRACK }],
+      joined: true, intro: defendedIntro, introClass: "df-intro",
+      // The page is the paper, defended: its cover the header (the intro's last frame, .df-title), its chapters the
+      // sections; the panel's pen goes on marking it to the music.
+      stage: defendedStage,
+      // Its versions, a member's each: putting back that member's card turns the page into theirs (see dfDrop), the
+      // music going on.
+      variants: { tin: { stage: tinStage }, cheng: { stage: chengStage }, andrei: { stage: andreiStage } },
+      // Its MV, "Final copy" (the four papers of BSIT - 401, from the printer to the panel; its button in every version)
+      scene: defendedScene,
+      onCardBack: (put) => dfDrop(put),
+      onVariant: (name) => dfVersionOn(name),
+      fonts: ["600 1em 'Cormorant Garamond'", "900 1em 'Playfair Display'", "400 1em 'Kaushan Script'", "700 1em Kalam", "400 1em Kalam",
+        "500 1em 'EB Garamond'", "600 1em 'EB Garamond'", "700 1em 'EB Garamond'", "italic 500 1em 'EB Garamond'",
+        "700 1em 'Grenze Gotisch'", "900 1em 'Grenze Gotisch'", "400 1em UnifrakturMaguntia", "700 1em Oxanium", "800 1em Oxanium", "500 1em Saira", "400 1em Italiana", "600 1em Quicksand", "400 1em 'Great Vibes'"],
+      extras: ["badge-ink.webp", "logo.webp", "tin-back.webp", "cheng-back.webp", "andrei-back.webp", ...[1, 2, 3, 4, 5, 6, 7, 8, "approval"].map((name) => `pages/${name}.webp`)],
     },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
@@ -14227,7 +18154,7 @@
   function renderLineup(theme) {
     const t = THEMES[theme];
     const group = groupOf(theme);
-    lineup.innerHTML = `<p class="ae-collab"><b>Brew Houze × ${escapeHtml(group.name)}</b> · ${escapeHtml(t.era)}</p><ol>${group.order.map((key, index) => {
+    lineup.innerHTML = `<p class="ae-collab"><b>${group.brand ? escapeHtml(group.brand) : `Brew Houze × ${escapeHtml(group.name)}`}</b> · ${escapeHtml(t.era)}</p><ol>${group.order.map((key, index) => {
       const m = group.members[key];
       return `<li class="ae-member" style="--delay: ${index * 0.35}s" data-member="${key}" role="button" tabindex="0" aria-label="Open ${escapeHtml(m.name)}’s photo card">`
         + `<img draggable="false" class="ae-photo" src="${photoOf(theme, key)}" alt="" loading="lazy" onerror="this.remove()" />`
@@ -14255,6 +18182,7 @@
     yoru: { kicker: "AM 4:00 · 夜明けまで", label: "Race into the night" },
     stay: { kicker: "◢ Breach protocol", label: "Jack in" },
     spicy: { kicker: "🌶 2,400,000 SHU · and rising", label: "Off the scale" },
+    defended: { kicker: "▶ BSIT - 401 · 2026", label: "Final copy" },
   };
   // In the page, after Quick tips (not floating over it): it takes its place at the end of the
   // page, up whenever the theme is on (not only during the bridge).
@@ -14309,6 +18237,9 @@
   let variantOn = null, variantArmed = null, variantSyncing = false, stageLastAt = 0;
   const stageOf = (theme) => (variantOn && THEMES[theme]?.variants?.[variantOn]?.stage) || THEMES[theme]?.stage || null;
   const variantOf = (name) => (current ? THEMES[current].variants?.[name] ?? null : null);
+  // (the music a variant plays: its own loop, or none (null) for one that changes only the page, as Defended's
+  // versions do: the main loop goes on under them)
+  const musicOf = (name) => (name && variantOf(name)?.loops ? name : null);
   // (its loop decoded ahead, so it can come in on time)
   function warmVariant(name) {
     const v = variantOf(name);
@@ -14329,7 +18260,7 @@
     stageLastAt = 0;
     if (name) root.dataset.variant = name; else delete root.dataset.variant;
     if (!current) return;
-    players[current]?.preferSet(name ?? "main");
+    players[current]?.preferSet(musicOf(name) ?? "main");
     startStage(current, clock);
     THEMES[current].onVariant?.(name);
     renderCta(current);
@@ -14393,8 +18324,8 @@
       if (set && set === variantArmed) { setVariant(set); return; }
       // a variant on while the music plays another loop (the sound came back on): the music is asked to follow,
       // and the stage keeps the page clock until it does
-      if (set !== variantOn) {
-        const v = variantOn ? variantOf(variantOn) : null;
+      if (set !== musicOf(variantOn)) {
+        const v = musicOf(variantOn) ? variantOf(variantOn) : null;
         if (v && !variantSyncing) { variantSyncing = true; void player.switchSet(variantOn, v.loops).finally(() => { variantSyncing = false; }); }
         heard = null;
       }
@@ -14462,12 +18393,21 @@
     if (theme) startStage(theme); else stopStage();
     const t = theme ? THEMES[theme] : null;
     if (t) { root.dataset.theme = theme; root.dataset.secret = ""; } else { delete root.dataset.theme; delete root.dataset.secret; }
-    brandName.innerHTML = t ? `Brew Houze <b>×</b> ${escapeHtml(groupOf(theme).name)}` : cafe.brand;
+    // (a theme that is not a collab carries its own brand line)
+    const brand = t ? groupOf(theme).brand : null;
+    brandName.innerHTML = t ? (brand ? escapeHtml(brand) : `Brew Houze <b>×</b> ${escapeHtml(groupOf(theme).name)}`) : cafe.brand;
     brandSub.textContent = t ? t.sub : cafe.sub;
-    heading.textContent = t ? t.h1 : cafe.h1;
+    // (a heading with a word set apart: its own markup)
+    if (t?.h1Html) heading.innerHTML = t.h1Html; else heading.textContent = t ? t.h1 : cafe.h1;
     footerText.textContent = t ? t.footer : cafe.footer;
     document.title = t ? t.title : cafe.title;
-    footerYear.textContent = t ? `${yearText} × ${groupOf(theme).name}` : yearText;
+    // (once an aespa theme has been on here, the line is the playlist's button, glowing, for good: the jig is up)
+    const yearLine = t ? (brand ? `${yearText} · ${brand}` : `${yearText} × ${groupOf(theme).name}`) : yearText;
+    if (ORDER.includes(theme) || visited().length) {
+      footerYear.classList.add("is-found");
+      footerYear.setAttribute("aria-label", `${yearLine}: open the aespa playlist`);
+      footerYear.innerHTML = `<span class="ae-fy-line">${escapeHtml(yearLine)}</span><span class="ae-fy-play"><span class="ae-fy-eq" aria-hidden="true"><i></i><i></i><i></i></span>aespa playlist</span>`;
+    } else footerYear.textContent = yearLine;
     document.querySelector('meta[name="color-scheme"]').setAttribute("content", t ? (t.scheme ?? "dark") : "light");
     decor.innerHTML = t?.decor ?? "";
     if (t) renderLineup(theme); else { lineup.innerHTML = ""; closeMember(); }
@@ -14683,13 +18623,30 @@
         const at = ctx.currentTime + 0.05;
         const node = ctx.createBufferSource();
         node.buffer = part.buffer;
-        node.connect(gain);
         node.start(at, part.offset, part.duration);
-        timeline.push({ index: -1, at, end: at + part.duration, set: "main", node });
+        // (the loop comes in when the lead's own length is up, even where its file runs out a little before it)
+        const span = entry.length ?? part.duration;
+        // (bridge, { from, to } in seconds of the theme's own intro clip: where the lead's file is cut off a moment
+        // short of the loop, the intro's same music played over the cut, crossed in over a few milliseconds and run
+        // on up to the loop's first beat)
+        const bridge = entry.bridge && introPart ? entry.bridge : null;
+        if (bridge) {
+          const len = bridge.to - bridge.from, from = at + span - len, cross = 0.008;
+          const leadOut = ctx.createGain(), bridgeIn = ctx.createGain(), over = ctx.createBufferSource();
+          leadOut.gain.setValueAtTime(1, from); leadOut.gain.linearRampToValueAtTime(0, from + cross);
+          bridgeIn.gain.setValueAtTime(0, from); bridgeIn.gain.linearRampToValueAtTime(1, from + cross);
+          bridgeIn.gain.setValueAtTime(1, at + span - 0.003); bridgeIn.gain.linearRampToValueAtTime(0, at + span);
+          node.connect(leadOut); leadOut.connect(gain);
+          over.buffer = introPart.buffer; over.connect(bridgeIn); bridgeIn.connect(gain);
+          over.start(from, bridge.from, len);
+          over.onended = () => { sources = sources.filter((s) => s !== over); };
+          sources.push(over);
+        } else node.connect(gain);
+        timeline.push({ index: -1, at, end: at + span, set: "main", node });
         node.onended = () => { sources = sources.filter((s) => s !== node); };
         sources.push(node);
         fromTop();
-        nextAt = at + part.duration;
+        nextAt = at + span;
         schedule();
         timer = setInterval(schedule, 1000);
         return () => heard() - at + part.offset;
@@ -14928,6 +18885,7 @@
     yoru: { logo: "yoru/moon.webp", tint: "#FF7A9C", mask: true },
     stay: { logo: "stay/logo.webp", tint: "#FCEE0A", mask: false },
     spicy: { logo: "spicy/myworld-pink.webp", tint: "#FF2D7A", mask: false },
+    defended: { logo: "defended/logo.webp", tint: "#E3171E", mask: false },
   };
   const picker = document.createElement("div");
   picker.className = "ae-picker";
@@ -14939,17 +18897,16 @@
   const EQ = `<span class="ae-pick-eq" aria-hidden="true"><i></i><i></i><i></i></span>`;
   const pickCard = (theme) => {
     if (!theme) return `<button type="button" class="ae-pick is-cafe" data-pick="cafe" role="radio" style="--i: 0"><span class="ae-pick-no">01</span><span class="ae-pick-art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5V9Z"/><path d="M17 10.5h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 3.5c-.6.8-.6 1.7 0 2.5M11.5 3.5c-.6.8-.6 1.7 0 2.5M15 3.5c-.6.8-.6 1.7 0 2.5"/></svg></span><span class="ae-pick-text"><span class="ae-pick-name">Café</span><span class="ae-pick-by">Brew Houze · the everyday look</span></span>${EQ}</button>`;
-    const p = PICKS[theme];
-    const bonus = !ORDER.includes(theme);
-    const n = bonus ? ORDER.length + 2 + BONUS.indexOf(theme) : ORDER.indexOf(theme) + 2;
-    return `<button type="button" class="ae-pick${bonus ? " is-bonus" : ""}" data-pick="${theme}" role="radio" style="--i: ${n - 1}; --tint: ${p.tint}"${bonus ? " hidden" : ""}>`
+    const p = PICKS[theme], n = ORDER.indexOf(theme) + 2;
+    return `<button type="button" class="ae-pick" data-pick="${theme}" role="radio" style="--i: ${n - 1}; --tint: ${p.tint}">`
       + `<span class="ae-pick-no">${String(n).padStart(2, "0")}</span>`
       + `<span class="ae-pick-art" data-src="${flashesOf(theme)[0]}"></span>`
-      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">${escapeHtml(THEMES[theme].artist ?? groupOf(theme).name)}${bonus ? " · hidden track" : ""}</span></span>`
+      + `<span class="ae-pick-text"><span class="ae-pick-name">${escapeHtml(THEMES[theme].era)}</span><span class="ae-pick-by">${escapeHtml(THEMES[theme].artist ?? groupOf(theme).name)}</span></span>`
       + `<i class="ae-pick-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')" aria-hidden="true"></i>${EQ}</button>`;
   };
   picker.innerHTML = `<div class="ae-picker-head"><i class="ae-picker-cover" aria-hidden="true"></i><p><small>Playlist</small><b>Brew Houze × aespa</b><span class="ae-picker-count">${ORDER.length + 1} tracks · pick an era</span></p></div>`
-    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER, ...BONUS].map(pickCard).join("")}</div>`;
+    // (the hidden tracks are not in it: each is played from its capsule under the gashapon, Defended from its seal)
+    + `<div class="ae-picker-row" role="radiogroup" aria-label="Themes">${[null, ...ORDER].map(pickCard).join("")}</div>`;
   document.body.appendChild(picker);
   footerYear.setAttribute("aria-haspopup", "dialog");
   footerYear.setAttribute("aria-controls", "ae-picker");
@@ -14966,11 +18923,11 @@
   }
   function openPicker() {
     picker.querySelectorAll(".ae-pick-art[data-src]").forEach((art) => { art.style.backgroundImage = `url('${siteUrl(art.dataset.src)}')`; art.removeAttribute("data-src"); });
-    const on = current ?? "cafe";
+    // (on a theme not in it, a hidden track, none is checked and the café is the keyboard's stop)
+    const on = current ?? "cafe", stop = pickButtons.some((button) => button.dataset.pick === on) ? on : "cafe";
     pickButtons.forEach((button) => {
-      const isOn = button.dataset.pick === on;
-      button.setAttribute("aria-checked", String(isOn));
-      button.tabIndex = isOn ? 0 : -1;
+      button.setAttribute("aria-checked", String(button.dataset.pick === on));
+      button.tabIndex = button.dataset.pick === stop ? 0 : -1;
     });
     picker.hidden = false;
     footerYear.setAttribute("aria-expanded", "true");
@@ -14978,7 +18935,7 @@
     picker.classList.remove("is-open");
     void picker.offsetWidth;
     picker.classList.add("is-open");
-    pickButtons.find((button) => button.dataset.pick === on)?.focus({ preventScroll: true });
+    pickButtons.find((button) => button.dataset.pick === stop)?.focus({ preventScroll: true });
     window.addEventListener("resize", placePicker);
     window.addEventListener("scroll", placePicker, { passive: true });
   }
@@ -15006,15 +18963,13 @@
     if (event.key === "Escape") { event.preventDefault(); closePicker(true); return; }
     if (event.key === "Tab") { closePicker(); return; }
     const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-    // (A hidden track not found yet is skipped.)
-    const shown = pickButtons.filter((button) => !button.hidden);
-    const home = { Home: 0, End: shown.length - 1 }[event.key];
+    const home = { Home: 0, End: pickButtons.length - 1 }[event.key];
     if (step === undefined && home === undefined) return;
     event.preventDefault();
-    const now = shown.indexOf(document.activeElement);
-    const next = home ?? (now + step + shown.length) % shown.length;
-    shown.forEach((button, index) => { button.tabIndex = index === next ? 0 : -1; });
-    shown[next].focus();
+    const now = pickButtons.indexOf(document.activeElement);
+    const next = home ?? (now + step + pickButtons.length) % pickButtons.length;
+    pickButtons.forEach((button, index) => { button.tabIndex = index === next ? 0 : -1; });
+    pickButtons[next].focus();
   });
   document.addEventListener("pointerdown", (event) => { if (!picker.hidden && !picker.contains(event.target) && event.target !== footerYear) closePicker(); });
 
@@ -15371,6 +19326,10 @@
   }
   function closeMember() {
     if (pcModal.hidden) return;
+    // (a theme that does something with a card put back is told which card, where it was and whether it was turned
+    // over: Defended's drop)
+    const putBack = current ? THEMES[current].onCardBack : null;
+    const put = putBack ? { key: groupOf(current).order[pcIndex], box: pcCard.getBoundingClientRect(), flipped: pcCard.classList.contains("is-flipped") } : null;
     pcModal.hidden = true;
     syStop?.();
     syStop = null;
@@ -15379,6 +19338,7 @@
     document.body.style.overflow = "";
     pcCard.classList.remove("is-flipped");
     if (pcOpener && pcOpener.isConnected) pcOpener.focus();
+    if (put) putBack(put);
   }
   lineup.addEventListener("click", (event) => { const plate = event.target.closest(".ae-member[data-member]"); if (plate) openMember(plate.dataset.member, plate); });
   lineup.addEventListener("keydown", (event) => {
@@ -15677,26 +19637,14 @@
   footerYear.addEventListener("click", togglePicker);
   footerYear.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); togglePicker(); } });
 
-  // ── Ditto: the secret within the secrets ──
-  // Once this device has had all six aespa themes on, one more quick tip shows under the last one,
-  // in Ditto's colours, and only in the café look: "One more thing:". Clicking it types the rest
-  // ("say it ditto <3") and switches to Ditto. That unlocks it for good: the tip goes, and Ditto
-  // shows in the playlist as its hidden track, to be picked again any time like the others.
-  // A hidden track, once found, is in the playlist from then on (the count says how many were hidden).
-  function revealBonus(theme) {
-    const track = picker.querySelector(`.ae-pick[data-pick="${theme}"]`);
-    if (!track || !track.hidden) return;
-    track.hidden = false;
-    const found = BONUS.filter((bonus) => picker.querySelector(`.ae-pick[data-pick="${bonus}"]`)?.hidden === false).length;
-    picker.querySelector(".ae-picker-count").textContent = `${ORDER.length + 1 + found} tracks · ${["", "one was", "two were", "three were", "four were", "five were"][found] ?? `${found} were`} hidden`;
-  }
-  const revealDitto = () => revealBonus("ditto");
-  if (store.get(DITTO_KEY) || current === "ditto") revealDitto();
-  const tips = document.querySelector(".tips");
-  let more = null, typing = false;
-  // Its typing's sound, when the visitor has the sound on: an old keyboard (each key a click, its
-  // body knocking, then the key coming back up; the space bar deeper, the Enter firmer), made here
-  // (no sound file). "wake" only gets it ready: the click on the tip lets it play.
+  // ── The hidden tracks ──
+  // Not in the playlist: each is pulled from the gashapon under the café's quick tips and played again from its capsule
+  // there (see "The hidden tracks' gashapon" below), Defended from its seal on the café header. Here, what their
+  // capsules' entrances share: the sounds' audio context, Stay's takeover, Spicy's alarm.
+  // An old keyboard's sound, made here (no sound file), when the visitor has the sound on: each key a click, its body
+  // knocking, then the key coming back up; the space bar deeper, the Enter firmer (Ditto's way in was typed on it,
+  // before the gashapon). "wake" only gets it ready, in a click (so it may play): the other sounds made here share its
+  // audio context and noise.
   let keysCtx = null, keysNoise = null;
   function keySound(kind) {
     if (!soundWanted()) return;
@@ -15754,288 +19702,9 @@
       tick(now + 0.075 + Math.random() * 0.02, 2800 * vary(), 0.35, 0.02);
     }
   }
-  const unlockDitto = () => {
-    if (typing) return;
-    typing = true;
-    keySound("wake");
-    more.classList.add("is-typing");
-    const typed = more.querySelector(".dt-more-typed");
-    const text = " say it ditto <3";
-    let n = 0;
-    const next = () => {
-      if (n < text.length) {
-        n += motionOK() ? 1 : text.length;
-        typed.textContent = text.slice(0, n);
-        keySound(text[n - 1] === " " ? "space" : "key");
-        window.setTimeout(next, text[n - 1] === " " ? 140 : 70 + Math.random() * 60);
-        return;
-      }
-      // a moment, then Enter
-      window.setTimeout(() => keySound("enter"), 380);
-      window.setTimeout(() => {
-        store.set(DITTO_KEY, new Date().toISOString());
-        revealDitto();
-        closePicker();
-        void switchTo("ditto");
-        window.setTimeout(() => { more?.remove(); more = null; }, 400);
-      }, 750);
-    };
-    window.setTimeout(next, 260);
-  };
-  const showMore = () => {
-    const due = !store.get(DITTO_KEY) && ORDER.every((theme) => visited().includes(theme));
-    if (due && !more && tips) {
-      more = document.createElement("li");
-      more.className = "dt-more";
-      more.setAttribute("role", "button");
-      more.setAttribute("tabindex", "0");
-      more.setAttribute("aria-label", "One more thing");
-      more.innerHTML = `<span class="dt-more-pill"><b class="dt-more-lead">One more thing:</b><span class="dt-more-typed"></span><i class="dt-more-caret" aria-hidden="true"></i></span>`;
-      more.addEventListener("pointerover", () => warm("ditto"), { once: true });
-      more.addEventListener("click", unlockDitto);
-      more.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); unlockDitto(); } });
-      tips.append(more);
-    }
-    if (more && !typing) more.hidden = !due || current !== null;
-  };
-  // ── Breed: the secret after the secret ──
-  // Once Ditto has been found here, a corner of the café's header is turned up (in the café look
-  // only), the lime of a manga page under it. Clicking it turns the whole page over from that corner
-  // onto Breed's intro (its first page, the same one) and unlocks Breed for good: the corner goes, and
-  // Breed shows in the playlist as its second hidden track.
-  if (store.get(BREED_KEY) || current === "breed") revealBonus("breed");
   const hero = document.querySelector(".hero");
-  let peel = null, turning = false;
-  // The screen where x - y > c (the part already turned over: the fold is the line x - y = c), as a
-  // polygon.
-  const turnedPart = (W, H, c) => {
-    const corners = [[0, 0], [W, 0], [W, H], [0, H]], part = [];
-    corners.forEach(([x1, y1], i) => {
-      const [x2, y2] = corners[(i + 1) % 4];
-      const in1 = x1 - y1 > c, in2 = x2 - y2 > c;
-      if (in1) part.push([x1, y1]);
-      if (in1 !== in2) { const q = (c - (x1 - y1)) / ((x2 - y2) - (x1 - y1)); part.push([x1 + (x2 - x1) * q, y1 + (y2 - y1) * q]); }
-    });
-    return part;
-  };
-  const polygonOf = (points) => (points.length ? `polygon(${points.map(([x, y]) => `${x.toFixed(1)}px ${y.toFixed(1)}px`).join(", ")})` : "polygon(0 0, 0 0, 0 0)");
-  // The page turned over from the header's corner (from: how far it is turned up already, px along
-  // the diagonal): under it, the intro's first page (a copy, gone once the intro is over it); over
-  // it, the page's back, folded over (lit at the fold, shaded where it curls), and its shadow.
-  function turnPage(from, done) {
-    const at = hero.getBoundingClientRect();
-    const W = window.innerWidth, H = window.innerHeight, px = Math.min(at.right, W), py = at.top;
-    const layer = document.createElement("div");
-    layer.className = "br-turn";
-    layer.setAttribute("aria-hidden", "true");
-    layer.innerHTML = `<div class="br-intro"></div><i class="br-turn-crease"></i><div class="br-turn-flapwrap"><i class="br-turn-flap"></i></div>`;
-    const under = layer.querySelector(".br-intro");
-    breedIntro.mount(under)(0);
-    document.body.append(layer);
-    const crease = layer.querySelector(".br-turn-crease"), flap = layer.querySelector(".br-turn-flap");
-    const end = px + (H - py) + 60, began = performance.now(), long = 1050;
-    const frame = (now) => {
-      const q = Math.min(1, (now - began) / long);
-      const eased = q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2;
-      const s = from + (end - from) * eased, c = px - py - s;
-      const part = turnedPart(W, H, c);
-      under.style.clipPath = crease.style.clipPath = polygonOf(part);
-      flap.style.clipPath = polygonOf(part.map(([x, y]) => [y + c, x - c]));
-      const fold = (W - c) * Math.SQRT1_2, depth = s * Math.SQRT1_2;
-      flap.style.background = `linear-gradient(225deg, transparent ${fold.toFixed(1)}px, #FFFFFF ${fold.toFixed(1)}px, #F3EEE6 ${(fold + depth * 0.12).toFixed(1)}px, #D6CCBF ${(fold + depth * 0.6).toFixed(1)}px, #ECE5DA ${(fold + depth).toFixed(1)}px)`;
-      crease.style.background = `linear-gradient(225deg, transparent ${(fold - 90).toFixed(1)}px, rgba(0, 0, 0, 0.3) ${fold.toFixed(1)}px)`;
-      if (q < 1) requestAnimationFrame(frame); else done(layer);
-    };
-    requestAnimationFrame(frame);
-  }
-  const unlockBreed = () => {
-    if (turning || switching) return;
-    turning = true;
-    // the sound woken by the click itself (phones only start audio in a tap)
-    if (soundWanted()) playerFor("breed").prime();
-    warm("breed");
-    const finish = (layer) => {
-      store.set(BREED_KEY, new Date().toISOString());
-      revealBonus("breed");
-      closePicker();
-      void switchTo("breed");
-      // the turned page goes once the intro, on the same page, is over it
-      requestAnimationFrame(() => requestAnimationFrame(() => layer?.remove()));
-      peel?.remove();
-      peel = null;
-      hero.classList.remove("has-peel");
-      turning = false;
-    };
-    if (!motionOK()) { finish(null); return; }
-    const from = peel.offsetWidth;
-    peel.style.visibility = "hidden";
-    turnPage(from, finish);
-  };
-  const showPeel = () => {
-    const due = Boolean(store.get(DITTO_KEY)) && !store.get(BREED_KEY);
-    if (due && !peel && hero) {
-      peel = document.createElement("button");
-      peel.type = "button";
-      peel.className = "br-peel";
-      peel.setAttribute("aria-label", "A corner of the page is turned up. Turn the page");
-      peel.innerHTML = `<span class="br-peel-under"><i></i></span><span class="br-peel-flapwrap"><span class="br-peel-flap"></span></span>`;
-      const ready = () => warm("breed");
-      peel.addEventListener("pointerenter", ready, { once: true });
-      peel.addEventListener("focus", ready, { once: true });
-      peel.addEventListener("click", unlockBreed);
-      hero.append(peel);
-    }
-    if (peel && !turning) {
-      peel.hidden = !due || current !== null;
-      hero.classList.toggle("has-peel", !peel.hidden);
-    }
-  };
-  // ── Racing into the Night: the secret after Breed ──
-  // Once Breed has been found here, something pink leaks out from under the café's header, at its
-  // bottom-left corner (in the café look only): it seeps along the edge and drips, a drop falling now
-  // and then. Clicking it lets it flood the screen and plays the theme's intro, which starts as that
-  // pink draining away. That unlocks it for good: the leak is gone, and the theme shows in the playlist
-  // as the third hidden track.
-  if (store.get(YORU_KEY) || current === "yoru") revealBonus("yoru");
-  let leak = null, flooding = false;
-  // The flood: the pink spreading out from the leak (along the header's edge, drips running down the
-  // page ahead of it, and a wavering pool from the corner) until it covers the screen, on a canvas over
-  // the page; done(layer) then.
-  function flood(x0, y0, done) {
-    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
-    const layer = document.createElement("canvas");
-    layer.className = "yr-flood";
-    layer.setAttribute("aria-hidden", "true");
-    layer.width = Math.round(W * ratio); layer.height = Math.round(H * ratio);
-    document.body.append(layer);
-    const g = layer.getContext("2d");
-    const far = Math.hypot(Math.max(x0, W - x0), Math.max(y0, H - y0)) * 1.08;
-    const drips = Array.from({ length: Math.ceil(W / 46) }, (_, n) => [(n + 0.2 + Math.random() * 0.6) * 46, 6 + Math.random() * 10, 0.75 + Math.random() * 0.6]);
-    const began = performance.now(), long = 1050;
-    const frame = (now) => {
-      const q = Math.min(1, (now - began) / long), e = q * q * (3 - 2 * q), t = now - began;
-      g.setTransform(ratio, 0, 0, ratio, 0, 0);
-      g.clearRect(0, 0, W, H);
-      g.fillStyle = "#FF6F91";
-      // along the edge, out from the corner
-      const reach = Math.min(W, W * 1.6 * q + 60);
-      g.fillRect(0, y0 - 4, reach, 10 + 24 * q);
-      // the drips, each once the edge's pink has reached it
-      for (const [x, w, speed] of drips) {
-        if (x > reach) continue;
-        const len = Math.max(0, (q - x / (W * 1.6)) * H * 2.2 * speed);
-        g.beginPath(); g.roundRect(x - w / 2, y0, w, len + w, w / 2); g.fill();
-        g.beginPath(); g.arc(x, y0 + len + w * 0.6, w * 0.75, 0, Math.PI * 2); g.fill();
-      }
-      // the pool from the corner, its edge wavering
-      const R = far * e;
-      g.beginPath();
-      for (let a = 0; a <= 72; a++) {
-        const th = (a / 72) * Math.PI * 2, r = R * (1 + 0.05 * Math.sin(th * 5 + t / 90) + 0.03 * Math.sin(th * 11 - t / 60));
-        const x = x0 + Math.cos(th) * r, y = y0 + Math.sin(th) * r;
-        if (a) g.lineTo(x, y); else g.moveTo(x, y);
-      }
-      g.fill();
-      // the liquid's gloss: a light line along the pool's edge, just inside it
-      g.save(); g.clip(); g.strokeStyle = "rgba(255, 226, 236, 0.75)"; g.lineWidth = 5; g.stroke(); g.restore();
-      g.strokeStyle = "rgba(226, 70, 112, 0.55)"; g.lineWidth = 2; g.stroke();
-      if (q < 1) requestAnimationFrame(frame); else done(layer);
-    };
-    requestAnimationFrame(frame);
-  }
-  const unlockYoru = () => {
-    if (flooding || switching) return;
-    flooding = true;
-    // the sound woken by the click itself (phones only start audio in a tap)
-    if (soundWanted()) playerFor("yoru").prime();
-    warm("yoru");
-    const finish = (layer) => {
-      store.set(YORU_KEY, new Date().toISOString());
-      revealBonus("yoru");
-      closePicker();
-      void switchTo("yoru");
-      // the flood goes once the intro, the same pink, is over it
-      requestAnimationFrame(() => requestAnimationFrame(() => layer?.remove()));
-      leak?.parentElement?.remove();
-      leak = null;
-      flooding = false;
-    };
-    if (!motionOK()) { finish(null); return; }
-    const at = leak.getBoundingClientRect();
-    leak.classList.add("is-flooding");
-    flood(at.left + 24, at.top + 4, finish);
-  };
-  const showLeak = () => {
-    const due = Boolean(store.get(BREED_KEY)) && !store.get(YORU_KEY);
-    if (due && !leak && hero) {
-      // (in a strip of no height between the header and the page, so it hangs from the header's edge)
-      const strip = document.createElement("div");
-      strip.className = "yr-leak-at";
-      leak = document.createElement("button");
-      leak.type = "button";
-      leak.className = "yr-leak";
-      leak.setAttribute("aria-label", "Something pink is leaking out from under the header. Follow it");
-      leak.innerHTML = `<svg viewBox="0 0 240 96" aria-hidden="true">
-        <defs><filter id="yr-goo" x="-20%" y="-20%" width="140%" height="160%"><feGaussianBlur stdDeviation="4.5" /><feColorMatrix values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 20 -8" /></filter>
-        <linearGradient id="yr-leak-pink" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8FB0" /><stop offset="1" stop-color="#F2577F" /></linearGradient></defs>
-        <g class="yr-leak-goo" filter="url(#yr-goo)" fill="url(#yr-leak-pink)">
-          <path class="yr-leak-sheet" d="M0 -6H226C214 3 196 2 172 7C146 12 118 9 92 13C64 17 40 14 24 19C14 22 6 20 0 23Z" />
-          <ellipse class="yr-leak-drip is-a" cx="24" cy="18" rx="8" ry="17" />
-          <ellipse class="yr-leak-drip is-b" cx="86" cy="13" rx="6.5" ry="11" />
-          <ellipse class="yr-leak-drip is-c" cx="158" cy="9" rx="5" ry="7" />
-          <circle class="yr-leak-drop" cx="24" cy="34" r="6.5" />
-        </g>
-        <path class="yr-leak-shine" d="M8 6C40 9 90 6 150 2" />
-        <ellipse class="yr-leak-shine is-dot" cx="20" cy="22" rx="2" ry="4.5" />
-      </svg>`;
-      const ready = () => warm("yoru");
-      leak.addEventListener("pointerenter", ready, { once: true });
-      leak.addEventListener("focus", ready, { once: true });
-      leak.addEventListener("click", unlockYoru);
-      strip.append(leak);
-      hero.after(strip);
-    }
-    if (leak && !flooding) leak.parentElement.hidden = !due || current !== null;
-  };
-  // ── I Really Want to Stay at Your House: the secret after Racing into the Night ──
-  // Once Racing into the Night has been found here, the café header's own logo starts glitching (in the café
-  // look only): now and then it tears into colour and its words corrupt, then it is itself again. Clicking it
-  // (or Enter on it) lets the glitch take the screen, and the theme's intro boots up out of the static. That
-  // unlocks it for good: the logo is just the logo again, and the theme shows in the playlist as the fourth
-  // hidden track.
-  if (store.get(STAY_KEY) || current === "stay") revealBonus("stay");
-  const brand = document.querySelector(".hero .brand");
-  let haunted = false, taking = false, hauntTimer = 0, burstTimer = 0, scrambleTimer = 0;
-  const SY_SIGNALS = ["SIGNAL LOST", "N1GHT C1TY", "FLATLINE", "TO THE MOON"];
-  const garbled = (text, amount) => [...text].map((c) => (c !== " " && Math.random() < amount ? "▓▒░█#%&$01"[Math.floor(Math.random() * 10)] : c)).join("");
-  // a burst: the logo torn into colour, its words scrambling (now and then a word that is not the café's),
-  // for a moment; then the next, a little later
-  const hauntBurst = () => {
-    if (!haunted || taking) return;
-    brand.classList.add("is-burst");
-    let n = 0;
-    scrambleTimer = setInterval(() => {
-      n++;
-      brandName.textContent = garbled("Brew Houze", 0.3);
-      brandSub.textContent = n % 4 === 3 ? SY_SIGNALS[Math.floor(Math.random() * SY_SIGNALS.length)] : garbled(cafe.sub, 0.4);
-    }, 60);
-    burstTimer = setTimeout(() => {
-      clearInterval(scrambleTimer);
-      brandName.innerHTML = cafe.brand;
-      brandSub.textContent = cafe.sub;
-      brand.classList.remove("is-burst");
-    }, 180 + Math.random() * 360);
-    hauntTimer = setTimeout(hauntBurst, 1500 + Math.random() * 2800);
-  };
-  // (leaving the café look: the timers go, the theme's own words are left as they are)
-  const unhaunt = () => {
-    clearTimeout(hauntTimer); clearTimeout(burstTimer); clearInterval(scrambleTimer);
-    brand.classList.remove("sy-haunt", "is-burst");
-    brand.removeAttribute("role"); brand.removeAttribute("tabindex"); brand.removeAttribute("aria-label");
-    haunted = false;
-  };
-  // The takeover: from the logo's line the glitch spreads over the screen (the page jolting under it):
-  // bars of neon and of static, slices of black, until it is all static on black; done(layer) then.
+  // Stay's takeover (out of its capsule: gcTear): from a line across the screen the glitch spreads over it (the page
+  // jolting under it): bars of neon and of static, slices of black, until it is all static on black; done(layer) then.
   function syTakeover(y0, done) {
     const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
     const layer = document.createElement("canvas");
@@ -16070,90 +19739,7 @@
     };
     requestAnimationFrame(frame);
   }
-  const unlockStay = () => {
-    if (!haunted || taking || switching) return;
-    taking = true;
-    clearTimeout(hauntTimer);
-    // the sound woken by the click itself (phones only start audio in a tap)
-    if (soundWanted()) playerFor("stay").prime();
-    warm("stay");
-    const finish = (layer) => {
-      store.set(STAY_KEY, new Date().toISOString());
-      revealBonus("stay");
-      closePicker();
-      taking = false;
-      unhaunt();
-      void switchTo("stay");
-      // the static goes once the intro, booting out of the same static, is over it
-      requestAnimationFrame(() => requestAnimationFrame(() => { layer?.remove(); document.body.classList.remove("sy-corrupting"); }));
-    };
-    if (!motionOK()) { finish(null); return; }
-    const at = brand.getBoundingClientRect();
-    syTakeover(at.top + at.height / 2, finish);
-  };
-  if (brand) {
-    brand.addEventListener("click", () => { if (haunted) unlockStay(); });
-    brand.addEventListener("keydown", (event) => { if (haunted && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); unlockStay(); } });
-    const ready = () => { if (haunted) warm("stay"); };
-    brand.addEventListener("pointerenter", ready);
-    brand.addEventListener("focus", ready);
-  }
-  const showGlitch = () => {
-    if (!brand) return;
-    const due = Boolean(store.get(YORU_KEY)) && !store.get(STAY_KEY) && current === null;
-    if (due && !haunted && !taking) {
-      haunted = true;
-      brand.classList.add("sy-haunt");
-      brand.setAttribute("role", "button");
-      brand.tabIndex = 0;
-      brand.setAttribute("aria-label", "The Brew Houze logo is glitching. Look closer");
-      hauntTimer = setTimeout(hauntBurst, 900);
-    } else if (!due && haunted && !taking) unhaunt();
-  };
-  // ── Spicy: the secret after I Really Want to Stay at Your House ──
-  // Once Stay has been found here, a fire alarm is on the café header's wall (in the café look only): the red
-  // pull station with its strobe above it, someone's chrome chili pepper charm hooked on its handle (swaying,
-  // swinging harder at the pointer) and a sparkle sticker slapped on its corner. Pulling it (a click, or Enter)
-  // rings the bell: the strobe flashes, the café warms up, and chrome flames rise over the screen into the
-  // theme's intro. That unlocks it for good: the alarm is gone, and the theme shows in the playlist as the fifth
-  // hidden track.
-  if (store.get(SPICY_KEY) || current === "spicy") revealBonus("spicy");
   const heroWrap = document.querySelector(".hero .wrap");
-  let alarm = null, pulled = false;
-  const SP_ALARM = `<span class="sp-alarm-strobe" aria-hidden="true"><svg viewBox="0 0 76 62">
-      <defs><linearGradient id="sp-st-body" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" /><stop offset="1" stop-color="#D8D1DB" /></linearGradient></defs>
-      <rect x="2" y="2" width="72" height="58" rx="9" fill="url(#sp-st-body)" stroke="#B7ADBB" stroke-width="1.2" />
-      <rect x="13" y="9" width="50" height="3.2" rx="1.6" fill="#C2B8C6" /><rect x="13" y="15" width="50" height="3.2" rx="1.6" fill="#C2B8C6" /><rect x="13" y="21" width="50" height="3.2" rx="1.6" fill="#C2B8C6" />
-      <text class="sp-st-word" x="38" y="37.5">FIRE</text>
-      <rect class="sp-st-lens" x="19" y="41" width="38" height="14" rx="4" /><rect x="21.5" y="43" width="15" height="2.6" rx="1.3" fill="#FFFFFF" opacity="0.85" />
-      <circle class="sp-st-led" cx="66" cy="10" r="2.3" />
-    </svg></span>
-    <span class="sp-alarm-unit" aria-hidden="true"><svg viewBox="0 0 100 190">
-      <defs>
-        <linearGradient id="sp-al-face" x1="0" y1="0" x2="0.85" y2="1"><stop offset="0" stop-color="#FF5A6C" /><stop offset="0.4" stop-color="#E8122E" /><stop offset="1" stop-color="#9E0A1F" /></linearGradient>
-        <linearGradient id="sp-al-rim" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF9AA6" /><stop offset="0.16" stop-color="#E11632" /><stop offset="1" stop-color="#5C0410" /></linearGradient>
-        <linearGradient id="sp-al-grip" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFFFFF" /><stop offset="0.65" stop-color="#EEE9F0" /><stop offset="1" stop-color="#C4BBC8" /></linearGradient>
-      </defs>
-      <rect x="3" y="3" width="94" height="126" rx="13" fill="url(#sp-al-rim)" />
-      <rect x="8" y="8" width="84" height="116" rx="9" fill="url(#sp-al-face)" />
-      <path d="M13 13h44c-17 3-30 11-38 25-4-7-6-15-6-25z" fill="#FFFFFF" opacity="0.3" />
-      <circle cx="50" cy="15" r="2" fill="#F6D9DE" /><circle cx="50" cy="117" r="2" fill="#B8505F" />
-      <text class="sp-al-fire" x="50" y="38">FIRE</text>
-      <rect x="20" y="45" width="60" height="38" rx="7" fill="#64040F" /><rect x="20" y="45" width="60" height="7" rx="3.5" fill="#2A0006" opacity="0.5" />
-      <text class="sp-al-alarm" x="50" y="99">ALARM</text>
-      <text class="sp-al-print" x="50" y="111">IN CASE OF SPICE</text>
-      <g class="sp-al-handle">
-        <rect x="24" y="47" width="52" height="25" rx="5" fill="url(#sp-al-grip)" /><rect x="24" y="69" width="52" height="4" rx="2" fill="#A99EAE" />
-        <text class="sp-al-pull" x="50" y="57.5">PULL</text><text class="sp-al-pull" x="50" y="66.5">DOWN</text>
-        <g class="sp-al-charm">
-          <circle cx="70" cy="75" r="2.6" fill="none" stroke="#ECE7F0" stroke-width="1.3" />
-          <path d="M70 78.6V110" stroke="#E4DEEA" stroke-width="2.3" stroke-linecap="round" stroke-dasharray="0.01 3" />
-          <circle cx="70" cy="112.5" r="1.7" fill="none" stroke="#ECE7F0" stroke-width="1.1" />
-          <image href="${siteUrl("spicy/charm.webp")}" x="59" y="113.3" width="25.5" height="70" />
-        </g>
-      </g>
-      <image href="${siteUrl("spicy/sparkle.webp")}" x="70" y="-8" width="32" height="33" transform="rotate(14 86 8)" />
-    </svg></span>`;
   // The alarm's sound, when the visitor has the sound on (made here: no file). "pull": the handle snapping down
   // onto its latch. "bell": the bell ringing (a hammer striking its dome twenty times a second) for a couple of
   // seconds, or until the returned stop(seconds of fade).
@@ -16328,8 +19914,8 @@
     rush.start(now);
     rush.stop(now + 0.6);
   }
-  // The alarm going off, from the strobe (x0, y0): its two flashes over the screen (pink over the page, white at
-  // the strobe), and the flames rising from below until they cover it; done(layer) then.
+  // The alarm going off, from (x0, y0) (Spicy's capsule: gcIgnite): its two flashes over the screen (pink over the
+  // page, white at the capsule), and the flames rising from below until they cover it; done(layer) then.
   function spAlarm(x0, y0, done) {
     const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
     const layer = document.createElement("canvas");
@@ -16365,61 +19951,795 @@
     };
     requestAnimationFrame(frame);
   }
-  const pullAlarm = () => {
-    if (!alarm || pulled || switching) return;
-    pulled = true;
+  // ── Defended: the last ──
+  // Its approval sheet is stuck in the gashapon's coin slot (see "The hidden tracks' gashapon"). Pulled out, it flies
+  // up the page and lands on the café header's wall as a slip (in the café look only): "Approved", its box empty, a
+  // line to sign on, and "sign me" in red pen beside it. Signing it (a click, or Enter) ticks the box and signs the line
+  // in red; the pen scribbles through the café's heading, the lights go out, and the theme's intro starts in the dark
+  // (its lamp clicks on). That unlocks it for good: the sheet is gone from the slot, and from then on a seal stamped
+  // DEFENDED stays on the café header, the only way back in (the hidden tracks are not in the playlist).
+  let slip = null, signing = false, slipOut = false;
+  const DF_SLIP = `<span class="df-slip-paper">`
+    + `<span class="df-slip-head">APPROVAL SHEET</span>`
+    + `<span class="df-slip-row"><span class="df-slip-box"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="df-slip-tick" pathLength="1" d="M3 13 L9 20 L23 1" /></svg></span>Approved</span>`
+    + `<span class="df-slip-line"><svg viewBox="0 0 200 44" preserveAspectRatio="none" aria-hidden="true"><path class="df-slip-sign" pathLength="1" d="M10 34 C 20 4, 36 6, 28 30 C 24 42, 42 32, 48 20 C 54 8, 62 12, 60 26 C 58 36, 72 30, 78 18 C 84 8, 94 12, 92 26 C 90 36, 106 34, 114 22 C 120 12, 128 14, 130 24 C 132 32, 152 28, 176 12 M 34 40 C 80 44, 136 42, 192 30" /></svg></span>`
+    + `<span class="df-slip-label">Panel · signature over printed name</span>`
+    + `</span><i class="df-slip-tape" aria-hidden="true"></i><span class="df-slip-note" aria-hidden="true">sign me →</span>`;
+  // The red pen on paper, when the sound is on (made here: no file): a scratch of noise through a high band a stroke,
+  // strokes this far apart and this long (ms).
+  function dfScratch(strokes, gap, length) {
+    if (!soundWanted()) return;
+    keySound("wake"); // (Ditto's keyboard's: the same audio context and noise)
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const out = ctx.createGain();
+    out.gain.value = 0.2;
+    out.connect(ctx.destination);
+    let at = ctx.currentTime + 0.005;
+    for (let i = 0; i < strokes; i++) {
+      const long = (length / 1000) * (0.7 + Math.random() * 0.6);
+      const source = ctx.createBufferSource();
+      source.buffer = keysNoise; source.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = "bandpass"; band.frequency.value = 2800 + Math.random() * 2600; band.Q.value = 1.1;
+      const env = ctx.createGain();
+      env.gain.setValueAtTime(0.0001, at);
+      env.gain.exponentialRampToValueAtTime(1, at + 0.012);
+      env.gain.setValueAtTime(1, at + long * 0.6);
+      env.gain.exponentialRampToValueAtTime(0.0001, at + long);
+      source.connect(band).connect(env).connect(out);
+      source.start(at, Math.random() * 0.2);
+      source.stop(at + long + 0.02);
+      at += (gap / 1000) * (0.8 + Math.random() * 0.4);
+    }
+  }
+  // The pen through the café's heading: four quick lines across it in red, as on the paper's cover; then the lights
+  // going out. done(layer) once it is dark.
+  function dfStrikeOut(done) {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const layer = document.createElement("canvas");
+    layer.className = "df-takeover";
+    layer.setAttribute("aria-hidden", "true");
+    layer.width = Math.round(W * ratio); layer.height = Math.round(H * ratio);
+    document.body.append(layer);
+    const g = layer.getContext("2d");
+    const box = document.querySelector(".hero h1")?.getBoundingClientRect() ?? { left: W * 0.1, right: W * 0.9, top: H * 0.2, bottom: H * 0.4 };
+    const x0 = Math.max(0, box.left - 40), x1 = Math.min(W, box.right + 60), y0 = box.top, y1 = box.bottom;
+    // each line: from one side to the other through the heading, a wave in it
+    const lines = [[0.15, 0.62, 1], [0.7, 0.2, -1], [0.35, 0.92, 1], [0.88, 0.45, -1]].map(([a, b, dir], i) => {
+      const pts = [];
+      for (let k = 0; k <= 30; k++) {
+        const s = k / 30, x = dir > 0 ? x0 + (x1 - x0) * s : x1 - (x1 - x0) * s;
+        pts.push([x, y0 + (y1 - y0) * (a + (b - a) * s) + Math.sin(s * 7 + i * 2) * 7]);
+      }
+      return pts;
+    });
+    const began = performance.now(), long = 1250;
+    const frame = (now) => {
+      const t = now - began;
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      g.clearRect(0, 0, W, H);
+      g.strokeStyle = "#E3171E"; g.lineWidth = Math.max(5, (y1 - y0) * 0.07); g.lineCap = "round"; g.lineJoin = "round";
+      lines.forEach((pts, i) => {
+        const q = Math.min(1, Math.max(0, (t - i * 120) / 170));
+        if (q <= 0) return;
+        const n = Math.max(1, Math.round(q * (pts.length - 1)));
+        g.beginPath(); g.moveTo(...pts[0]);
+        for (let k = 1; k <= n; k++) g.lineTo(...pts[k]);
+        g.stroke();
+      });
+      const dark = Math.min(1, Math.max(0, (t - 700) / 450));
+      if (dark > 0) { g.fillStyle = `rgba(0, 0, 0, ${dark.toFixed(3)})`; g.fillRect(0, 0, W, H); }
+      if (t < long) requestAnimationFrame(frame); else done(layer);
+    };
+    requestAnimationFrame(frame);
+  }
+  const signSlip = () => {
+    if (!slip || signing || switching) return;
+    signing = true;
     // the sound woken by the click itself (phones only start audio in a tap)
-    if (soundWanted()) playerFor("spicy").prime();
-    warm("spicy");
-    alarm.classList.add("is-pulled");
-    alarmSound("pull");
-    let bell = () => {}, ringing = 0;
+    if (soundWanted()) playerFor("defended").prime();
+    warm("defended");
+    slip.classList.add("is-signed");
+    dfScratch(2, 90, 80);
     const finish = (layer) => {
-      clearTimeout(ringing);
-      store.set(SPICY_KEY, new Date().toISOString());
-      revealBonus("spicy");
+      store.set(DEFENDED_KEY, new Date().toISOString());
+      slipOut = false;
       closePicker();
-      bell(0.35);
-      void switchTo("spicy");
-      // the flames go once the intro, the same flames, is over them
-      requestAnimationFrame(() => requestAnimationFrame(() => { layer?.remove(); document.body.classList.remove("sp-alarmed"); }));
-      alarm?.remove();
-      alarm = null;
-      heroWrap.parentElement.classList.remove("has-alarm");
-      pulled = false;
+      void switchTo("defended");
+      // the dark goes once the intro, as dark, is over it
+      requestAnimationFrame(() => requestAnimationFrame(() => layer?.remove()));
+      slip?.remove();
+      slip = null;
+      heroWrap.parentElement.classList.remove("has-slip");
+      signing = false;
     };
     if (!motionOK()) { finish(null); return; }
-    ringing = setTimeout(() => { bell = alarmSound("bell"); alarm?.classList.add("is-ringing"); document.body.classList.add("sp-alarmed"); }, 60);
-    // (the strobe; on a phone, where the alarm has none, the pull station's top)
-    const strobe = alarm.querySelector(".sp-alarm-strobe").getBoundingClientRect();
-    const unit = alarm.querySelector(".sp-alarm-unit").getBoundingClientRect();
-    const at = strobe.width ? strobe : unit;
-    spAlarm(at.left + at.width / 2, at.top + (strobe.width ? at.height * 0.78 : 8), finish);
+    setTimeout(() => dfScratch(8, 72, 60), 300);
+    setTimeout(() => { dfScratch(4, 120, 150); dfStrikeOut(finish); }, 1000);
   };
-  const showAlarm = () => {
+  // The seal: red ink, the paper's name round its top (PROJECT B.A.R.I.S.T.A.) and its class round its foot (BSIT -
+  // 401 · 2026), DEFENDED across its middle on a band; worn a little, as a rubber stamp's mark is. Its ids end in key
+  // (the one on the header, and the big one it stamps on the heading).
+  const dfSealMark = (key) => `<svg class="df-seal-mark" viewBox="0 0 200 200" aria-hidden="true">`
+    + `<defs><mask id="df-seal-gap-${key}"><rect width="200" height="200" fill="#FFF" /><rect x="2" y="80" width="196" height="40" fill="#000" /></mask>`
+    + `<filter id="df-seal-worn-${key}" x="-5%" y="-5%" width="110%" height="110%"><feTurbulence type="fractalNoise" baseFrequency="0.75" numOctaves="2" seed="7" result="grain" />`
+    + `<feColorMatrix in="grain" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -3 2.3" result="holes" /><feComposite in="SourceGraphic" in2="holes" operator="in" /></filter>`
+    + `<path id="df-seal-top-${key}" d="M 32.9 80 A 70 70 0 0 1 167.1 80" /><path id="df-seal-foot-${key}" d="M 21 122 A 82 82 0 0 0 179 122" /></defs>`
+    + `<g filter="url(#df-seal-worn-${key})"><g mask="url(#df-seal-gap-${key})"><circle class="df-seal-ring" cx="100" cy="100" r="92" stroke-width="5" /><circle class="df-seal-ring" cx="100" cy="100" r="64" stroke-width="2" /></g>`
+    + `<path class="df-seal-band" d="M 8 80 H 192 M 8 120 H 192" stroke-width="2.5" />`
+    + `<text class="df-seal-arc"><textPath href="#df-seal-top-${key}" startOffset="50%" text-anchor="middle">PROJECT B.A.R.I.S.T.A.</textPath></text>`
+    + `<text class="df-seal-arc is-foot"><textPath href="#df-seal-foot-${key}" startOffset="50%" text-anchor="middle">BSIT - 401 · 2026</textPath></text>`
+    + `<text class="df-seal-word" x="100" y="110.5" text-anchor="middle" textLength="168" lengthAdjust="spacingAndGlyphs">DEFENDED</text></g></svg>`;
+  let seal = null, sealing = false;
+  // Pressed: the seal comes down on the café's heading, big (a thump), and the lights go out. done(layer) once dark.
+  function dfStampOut(done) {
+    const W = window.innerWidth, H = window.innerHeight, box = document.querySelector(".hero h1")?.getBoundingClientRect() ?? { left: W * 0.1, right: W * 0.9, top: H * 0.2, bottom: H * 0.4 };
+    const size = Math.min(W * 0.62, H * 0.62, 440), layer = document.createElement("div");
+    layer.className = "df-takeover is-stamp";
+    layer.setAttribute("aria-hidden", "true");
+    layer.innerHTML = `<div class="df-stamp-big" style="left: ${((box.left + box.right) / 2 - size / 2).toFixed(1)}px; top: ${((box.top + box.bottom) / 2 - size / 2).toFixed(1)}px; width: ${size.toFixed(1)}px; height: ${size.toFixed(1)}px">${dfSealMark("big")}</div><div class="df-stamp-dark"></div>`;
+    document.body.append(layer);
+    const big = layer.firstElementChild, dark = layer.lastElementChild;
+    big.animate([{ opacity: 0, scale: 1.7, rotate: "-26deg", easing: "cubic-bezier(0.55, 0, 1, 0.45)" }, { opacity: 1, scale: 1, rotate: "-12deg", offset: 0.4, easing: "ease-out" },
+      { opacity: 1, scale: 1.035, rotate: "-12deg", offset: 0.7, easing: "ease-in-out" }, { opacity: 1, scale: 1, rotate: "-12deg" }], { duration: 430, fill: "both" });
+    setTimeout(dfThud, 150);
+    dark.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 450, delay: 760, easing: "ease-in", fill: "both" }).finished.then(() => done(layer), () => done(layer));
+  }
+  const pressSeal = () => {
+    if (!seal || sealing || switching) return;
+    sealing = true;
+    // the sound woken by the press itself (phones only start audio in a tap)
+    if (soundWanted()) playerFor("defended").prime();
+    warm("defended");
+    seal.classList.remove("is-pressed");
+    void seal.offsetWidth;
+    seal.classList.add("is-pressed");
+    const finish = (layer) => {
+      seal.hidden = true;
+      heroWrap.parentElement.classList.remove("has-seal");
+      closePicker();
+      void switchTo("defended");
+      // the dark goes once the intro, as dark, is over it
+      requestAnimationFrame(() => requestAnimationFrame(() => layer?.remove()));
+      sealing = false;
+    };
+    if (!motionOK()) { dfThud(); finish(null); return; }
+    dfStampOut(finish);
+  };
+  const showSeal = () => {
     if (!heroWrap) return;
-    const due = Boolean(store.get(STAY_KEY)) && !store.get(SPICY_KEY);
-    if (due && !alarm) {
-      alarm = document.createElement("button");
-      alarm.type = "button";
-      alarm.className = "sp-alarm";
-      alarm.setAttribute("aria-label", "A fire alarm on the wall, a chili pepper charm hooked on its handle. Pull it");
-      alarm.innerHTML = SP_ALARM;
-      const ready = () => warm("spicy");
-      alarm.addEventListener("pointerenter", ready, { once: true });
-      alarm.addEventListener("focus", ready, { once: true });
-      alarm.addEventListener("click", pullAlarm);
-      heroWrap.append(alarm);
+    const due = Boolean(store.get(DEFENDED_KEY));
+    if (due && !seal) {
+      seal = document.createElement("button");
+      seal.type = "button";
+      seal.className = "df-seal";
+      seal.setAttribute("aria-label", "A seal stamped DEFENDED: Project B.A.R.I.S.T.A., BSIT - 401, 2026. Open the Defended theme");
+      seal.innerHTML = `${dfSealMark("seal")}<span class="df-seal-note" aria-hidden="true">relive it →</span>`;
+      const ready = () => warm("defended");
+      seal.addEventListener("pointerenter", ready, { once: true });
+      seal.addEventListener("focus", ready, { once: true });
+      seal.addEventListener("click", pressSeal);
+      heroWrap.append(seal);
     }
-    if (alarm && !pulled) {
-      alarm.hidden = !due || current !== null;
-      heroWrap.parentElement.classList.toggle("has-alarm", !alarm.hidden);
+    if (seal && !sealing) {
+      seal.hidden = !due || current !== null;
+      heroWrap.parentElement.classList.toggle("has-seal", !seal.hidden);
     }
   };
-  onThemeApplied = () => { showMore(); showPeel(); showLeak(); showGlitch(); showAlarm(); };
-  showMore();
-  showPeel();
-  showLeak();
-  showGlitch();
-  showAlarm();
+  // The approval sheet stuck in the gashapon's coin slot, pulled out: it flies up the page (the page going up with it,
+  // to the top) and lands on the café header's wall as the slip, to sign. (Once signed, there is no sheet to pull.)
+  function dfPaperUp(from) {
+    if (slipOut || signing || switching || current || !heroWrap || store.get(DEFENDED_KEY)) return;
+    warm("defended");
+    const start = (from.querySelector(".gc-paper-sheet") ?? from).getBoundingClientRect();
+    slipOut = true;
+    showSlip();
+    showGacha();
+    if (!slip) return;
+    if (!motionOK()) { window.scrollTo(0, 0); slip.focus({ preventScroll: true }); return; }
+    // (the slip in its place, unseen till the paper is there: where it is once the page is at its top)
+    slip.classList.add("is-landing");
+    const y0 = window.scrollY, box = slip.getBoundingClientRect(), w = slip.offsetWidth, h = slip.offsetHeight;
+    const cx = box.left + box.width / 2, cy = box.top + box.height / 2 + y0;
+    const fly = slip.cloneNode(true);
+    fly.classList.remove("is-landing");
+    fly.classList.add("is-flying");
+    fly.removeAttribute("aria-label");
+    fly.setAttribute("aria-hidden", "true");
+    fly.tabIndex = -1;
+    Object.assign(fly.style, { left: `${cx - w / 2}px`, top: `${cy - h / 2}px`, width: `${w}px` });
+    document.body.append(fly);
+    const sx = start.left + start.width / 2 - cx, sy = start.top + start.height / 2 - cy, s0 = Math.max(0.12, start.width / w), long = Math.min(1700, 760 + y0 * 0.35);
+    const along = (q, wob) => `translate(${(sx * (1 - q) + Math.sin(q * Math.PI) * wob).toFixed(1)}px, ${(sy * (1 - q)).toFixed(1)}px)`;
+    fly.animate([
+      { transform: `${along(0, 0)} scale(${s0}) rotate(14deg)` },
+      { transform: `${along(0.3, -70)} scale(${s0 + (1 - s0) * 0.35}) rotate(-16deg)`, offset: 0.3 },
+      { transform: `${along(0.65, 60)} scale(${s0 + (1 - s0) * 0.8}) rotate(10deg)`, offset: 0.65 },
+      { transform: `${along(1, 0)} scale(1) rotate(0deg)` },
+    ], { duration: long, easing: "cubic-bezier(0.45, 0, 0.35, 1)", fill: "forwards" });
+    // the page going up under it, as it goes
+    const began = performance.now(), ease = (q) => (q < 0.5 ? 4 * q * q * q : 1 - (-2 * q + 2) ** 3 / 2);
+    const scroll = (now) => {
+      const q = Math.min(1, (now - began) / long);
+      window.scrollTo(0, y0 * (1 - ease(q)));
+      if (q < 1) { requestAnimationFrame(scroll); return; }
+      fly.remove();
+      slip?.classList.remove("is-landing");
+      slip?.classList.add("is-landed");
+      slip?.animate([{ scale: 1.05 }, { scale: 1 }], { duration: 240, easing: "ease-out" });
+      slip?.focus({ preventScroll: true });
+    };
+    requestAnimationFrame(scroll);
+  }
+  const showSlip = () => {
+    showSeal();
+    if (!heroWrap) return;
+    const due = slipOut;
+    if (due && !slip) {
+      slip = document.createElement("button");
+      slip.type = "button";
+      slip.className = "df-slip";
+      slip.setAttribute("aria-label", "A slip of an approval sheet taped to the header: Approved, its box empty, a line to sign. Sign it");
+      slip.innerHTML = DF_SLIP;
+      const ready = () => warm("defended");
+      slip.addEventListener("pointerenter", ready, { once: true });
+      slip.addEventListener("focus", ready, { once: true });
+      slip.addEventListener("click", signSlip);
+      heroWrap.append(slip);
+    }
+    if (slip && !signing) {
+      slip.hidden = !due || current !== null;
+      heroWrap.parentElement.classList.toggle("has-slip", !slip.hidden);
+    }
+  };
+  // ── The hidden tracks' gashapon (the user's plan, 2026-11-04) ──
+  // No longer a secret each in turn: once all six aespa themes have been on here, a capsule machine stands under the
+  // café's quick tips (in the café look only). Its crank pulls a hidden track not yet found, at random (never one
+  // already found): the capsules in its globe tumble, one drops into its chute, and opening it plays that track (its
+  // intro), found for good. Those found sit in their colours under the machine, the way back into each (the hidden
+  // tracks are not in the playlist); with none left in its globe it is out of order. Defended is not in it: its
+  // approval sheet is stuck in the coin slot (pulled out, it flies up to the header as the slip to sign: dfPaperUp)
+  // till Defended is unlocked; then the sheet is gone, and the seal on the café header is the way back.
+  const GC_TRACKS = { ditto: DITTO_KEY, breed: BREED_KEY, yoru: YORU_KEY, stay: STAY_KEY, spicy: SPICY_KEY };
+  const GC_SHORT = { ditto: "Ditto", breed: "Breed", yoru: "Racing into the Night", stay: "Stay", spicy: "Spicy" };
+  const GC_MYSTERY = ["#E8B98A", "#B9D7C3", "#F2C6C2", "#C9D6EE", "#E9D98B"];
+  const gcLeft = () => Object.keys(GC_TRACKS).filter((key) => !store.get(GC_TRACKS[key]));
+  // (found, in the order they were: each key holds when)
+  const gcFound = () => Object.keys(GC_TRACKS).filter((key) => store.get(GC_TRACKS[key])).sort((a, b) => String(store.get(GC_TRACKS[a])).localeCompare(String(store.get(GC_TRACKS[b]))));
+  // The machine, drawn in units of 300 × 510: its feet, the cabinet (BREW HOUZE · HIDDEN TRACKS on its plate), the
+  // crank's brass plate, the coin slot, the chute, the brass collar, and the glass globe (its capsules on a canvas laid
+  // over it, on a bed of coffee beans; its shine and its lid over that).
+  const GC_BACK = `<svg class="gc-art" viewBox="0 0 300 510" aria-hidden="true">`
+    + `<defs><linearGradient id="gc-wood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7A5442" /><stop offset="1" stop-color="#3D2B1F" /></linearGradient>`
+    + `<linearGradient id="gc-brass" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#A86C12" /><stop offset="0.35" stop-color="#F2C873" /><stop offset="0.7" stop-color="#C98A24" /><stop offset="1" stop-color="#8A5610" /></linearGradient></defs>`
+    + `<ellipse cx="150" cy="500" rx="122" ry="8" fill="#2A1D14" opacity="0.18" />`
+    + `<rect x="68" y="474" width="30" height="24" rx="6" fill="#2A1D14" /><rect x="202" y="474" width="30" height="24" rx="6" fill="#2A1D14" />`
+    + `<rect x="44" y="296" width="212" height="190" rx="24" fill="url(#gc-wood)" />`
+    + `<rect x="74" y="310" width="152" height="34" rx="9" fill="#F3EDE5" />`
+    + `<text x="150" y="327.5" text-anchor="middle" class="gc-plate-name">BREW HOUZE</text><text x="150" y="339" text-anchor="middle" class="gc-plate-sub">HIDDEN TRACKS</text>`
+    + `<circle cx="150" cy="386" r="32" fill="url(#gc-brass)" /><circle cx="150" cy="386" r="25" fill="#2A1D14" />`
+    + `<rect x="212" y="366" width="24" height="40" rx="6" fill="url(#gc-brass)" /><rect x="221" y="373" width="6" height="26" rx="3" fill="#160E09" />`
+    + `<path d="M104 486 V 456 a 46 28 0 0 1 92 0 V 486 Z" fill="#160E09" /><path d="M98 486 H 202" stroke="url(#gc-brass)" stroke-width="6" stroke-linecap="round" />`
+    + `<rect x="58" y="280" width="184" height="24" rx="10" fill="url(#gc-brass)" />`
+    + `<circle cx="150" cy="166" r="122" fill="#FDF9F5" fill-opacity="0.6" /></svg>`;
+  const GC_FRONT = `<svg class="gc-front" viewBox="0 0 300 510" aria-hidden="true">`
+    + `<circle cx="150" cy="166" r="122" fill="none" stroke="#D9CCC1" stroke-width="4" />`
+    + `<path d="M72 118 A 92 92 0 0 1 146 70" fill="none" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="8" stroke-linecap="round" />`
+    + `<path d="M63 152 A 94 94 0 0 1 65 136" fill="none" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="6" stroke-linecap="round" />`
+    + `<path d="M234 230 A 100 100 0 0 1 208 256" fill="none" stroke="#FFFFFF" stroke-opacity="0.4" stroke-width="5" stroke-linecap="round" />`
+    + `<path d="M94 54 Q 150 18 206 54 L 214 64 H 86 Z" fill="url(#gc-wood)" /><circle cx="150" cy="30" r="9" fill="url(#gc-brass)" /></svg>`;
+  const GC_CRANK = `<svg viewBox="0 0 64 64" aria-hidden="true"><rect x="6" y="27" width="52" height="10" rx="5" fill="url(#gc-brass)" /><circle cx="32" cy="32" r="9" fill="#E9C27A" stroke="#8A5610" stroke-width="2" /><circle cx="51" cy="32" r="6.5" fill="#F3EDE5" stroke="#8A5610" stroke-width="1.5" /></svg>`;
+
+  // ── the globe: its capsules (mystery colours, as many as there are tracks left) tumbling on a bed of beans, in the
+  //    globe's own units (its middle at 0, 0; the glass 116 in; the beans' top at 62) ──
+  function gcGlobe(canvas) {
+    const g = canvas.getContext("2d"), R = 116, RC = 31, FLOOR = 62, C = 124, PI2 = Math.PI * 2;
+    const SPOTS = [[-62, 31], [0, 31], [62, 31], [-31, -23], [31, -23]];
+    let k = 1, balls = [], beans = null, raf = 0, last = 0, until = 0, stirFrom = 0, stirTo = 0, leaving = null;
+    const capsule = (q, x, y, r, a, color, scale = 1) => {
+      q.save(); q.translate(x, y); q.rotate(a); q.scale(scale, scale);
+      q.beginPath(); q.arc(0, 0, r, 0, Math.PI); q.closePath(); q.fillStyle = color; q.fill();
+      q.beginPath(); q.arc(0, 0, r, Math.PI, PI2); q.closePath(); q.fillStyle = "rgba(255, 255, 255, 0.62)"; q.fill();
+      q.strokeStyle = "rgba(61, 43, 31, 0.32)"; q.lineWidth = r * 0.07; q.beginPath(); q.moveTo(-r, 0); q.lineTo(r, 0); q.stroke();
+      q.beginPath(); q.arc(0, 0, r, 0, PI2); q.lineWidth = r * 0.05; q.stroke();
+      q.restore();
+      const hl = q.createRadialGradient(x - r * 0.35 * scale, y - r * 0.42 * scale, 0, x - r * 0.35 * scale, y - r * 0.42 * scale, r * 0.62 * scale);
+      hl.addColorStop(0, "rgba(255, 255, 255, 0.9)"); hl.addColorStop(1, "rgba(255, 255, 255, 0)");
+      q.fillStyle = hl; q.beginPath(); q.arc(x, y, r * scale, 0, PI2); q.fill();
+    };
+    const makeBeans = () => {
+      const c = document.createElement("canvas"); c.width = canvas.width; c.height = canvas.height;
+      const q = c.getContext("2d"), rnd = dfSeeded(2020);
+      q.scale(k, k); q.translate(C, C);
+      q.beginPath(); q.arc(0, 0, R + 2, 0, PI2); q.clip();
+      for (let i = 0; i < 190; i++) {
+        const x = (rnd() - 0.5) * 2 * R, y = FLOOR - 6 + rnd() * (R - FLOOR + 10);
+        if (Math.hypot(x, y) > R + 4) continue;
+        q.save(); q.translate(x, y); q.rotate(rnd() * PI2);
+        q.fillStyle = ["#4A2E1D", "#5C3A22", "#3B2416", "#6B4329"][Math.floor(rnd() * 4)];
+        q.beginPath(); q.ellipse(0, 0, 8, 5.6, 0, 0, PI2); q.fill();
+        q.strokeStyle = "rgba(20, 10, 4, 0.6)"; q.lineWidth = 1.1; q.beginPath(); q.moveTo(-6, 0); q.bezierCurveTo(-2, -2, 2, 2, 6, 0); q.stroke();
+        q.fillStyle = "rgba(255, 220, 180, 0.14)"; q.beginPath(); q.ellipse(-2, -2, 3.4, 1.6, -0.3, 0, PI2); q.fill();
+        q.restore();
+      }
+      return c;
+    };
+    const draw = (now = performance.now()) => {
+      g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, canvas.width, canvas.height);
+      if (beans) g.drawImage(beans, 0, 0);
+      g.setTransform(k, 0, 0, k, C * k, C * k);
+      g.save(); g.beginPath(); g.arc(0, 0, R, 0, PI2); g.clip();
+      for (const b of balls) capsule(g, b.x, b.y, RC, b.a, b.color);
+      // (the one going: down through the beans' middle)
+      if (leaving) {
+        const q = Math.min(1, (now - leaving.at) / 320), e = q * q;
+        if (q < 1) capsule(g, leaving.x * (1 - e), leaving.y + (FLOOR + 10 - leaving.y) * e, RC, leaving.a, leaving.color, 1 - e * 0.85);
+        else leaving = null;
+      }
+      g.restore();
+    };
+    const step = (dt, stir) => {
+      for (const b of balls) {
+        b.vy += 1500 * dt;
+        if (stir > 0) { const d = Math.hypot(b.x, b.y) || 1; b.vx += (-b.y / d) * 3400 * stir * dt; b.vy += (b.x / d) * 3400 * stir * dt - 1100 * stir * dt; }
+        b.vx *= 0.992; b.vy *= 0.992;
+        b.x += b.vx * dt; b.y += b.vy * dt; b.a += (b.vx * dt) / RC;
+      }
+      for (let it = 0; it < 3; it++) {
+        for (const b of balls) {
+          const d = Math.hypot(b.x, b.y), lim = R - RC;
+          if (d > lim) { const nx = b.x / d, ny = b.y / d, vn = b.vx * nx + b.vy * ny; b.x = nx * lim; b.y = ny * lim; if (vn > 0) { b.vx -= 1.45 * vn * nx; b.vy -= 1.45 * vn * ny; } }
+          if (b.y > FLOOR - RC) { b.y = FLOOR - RC; if (b.vy > 0) b.vy *= -0.3; b.vx *= 0.9; }
+        }
+        for (let i = 0; i < balls.length; i++) for (let j = i + 1; j < balls.length; j++) {
+          const p = balls[i], o = balls[j], dx = o.x - p.x, dy = o.y - p.y, d = Math.hypot(dx, dy) || 0.001;
+          if (d >= 2 * RC) continue;
+          const nx = dx / d, ny = dy / d, push = (2 * RC - d) / 2, rel = (o.vx - p.vx) * nx + (o.vy - p.vy) * ny;
+          p.x -= nx * push; p.y -= ny * push; o.x += nx * push; o.y += ny * push;
+          if (rel < 0) { const j2 = -0.75 * rel; p.vx -= j2 * nx; p.vy -= j2 * ny; o.vx += j2 * nx; o.vy += j2 * ny; }
+        }
+      }
+    };
+    const frame = (now) => {
+      const dt = Math.min(0.033, (now - last) / 1000), stir = now < stirTo ? Math.sin(Math.PI * (now - stirFrom) / (stirTo - stirFrom)) : 0;
+      last = now;
+      for (let s = 0; s < 3; s++) step(dt / 3, stir);
+      draw(now);
+      raf = now < until || leaving ? requestAnimationFrame(frame) : 0;
+    };
+    const run = (ms) => { until = Math.max(until, performance.now() + ms); if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); } };
+    return {
+      size() {
+        const w = canvas.clientWidth;
+        if (!w) return;
+        k = (w / 248) * Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.round(248 * k); canvas.height = Math.round(248 * k);
+        beans = makeBeans(); draw();
+      },
+      // (as many as are left, settled where they lie)
+      set(colors) { balls = colors.map((color, i) => ({ x: SPOTS[i][0], y: SPOTS[i][1], vx: 0, vy: 0, a: i * 1.3, color })); draw(); },
+      count: () => balls.length,
+      stir(ms) { stirFrom = performance.now(); stirTo = stirFrom + ms; run(ms + 1500); },
+      // the one nearest the beans' middle, out through it; its colour
+      drop() {
+        if (!balls.length) return null;
+        const ball = balls.reduce((a, b) => (Math.abs(b.x) - b.y * 0.6 < Math.abs(a.x) - a.y * 0.6 ? b : a));
+        balls = balls.filter((b) => b !== ball);
+        leaving = { at: performance.now(), x: ball.x, y: ball.y, a: ball.a, color: ball.color };
+        run(1200);
+        return ball.color;
+      },
+      stop() { cancelAnimationFrame(raf); raf = 0; },
+    };
+  }
+
+  // Its sounds, when the sound is on (made here: no file): the crank's ratchet and the capsules rattling, a capsule
+  // dropping into the chute, one popping open.
+  function gcSound(kind) {
+    if (!soundWanted()) return;
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const out = ctx.createGain();
+    out.gain.value = 0.45;
+    out.connect(ctx.destination);
+    const at0 = ctx.currentTime + 0.005;
+    const tick = (at, freq, level, decay, q = 1.4) => {
+      const source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), env = ctx.createGain();
+      source.buffer = keysNoise; band.type = "bandpass"; band.frequency.value = freq; band.Q.value = q;
+      env.gain.setValueAtTime(0.0001, at); env.gain.exponentialRampToValueAtTime(level, at + 0.002); env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      source.connect(band).connect(env).connect(out); source.start(at, Math.random() * 0.2, decay + 0.02);
+    };
+    const tone = (at, f0, f1, level, decay, type = "sine") => {
+      const osc = ctx.createOscillator(), env = ctx.createGain();
+      osc.type = type; osc.frequency.setValueAtTime(f0, at); osc.frequency.exponentialRampToValueAtTime(f1, at + decay);
+      env.gain.setValueAtTime(0.0001, at); env.gain.exponentialRampToValueAtTime(level, at + 0.004); env.gain.exponentialRampToValueAtTime(0.0001, at + decay);
+      osc.connect(env).connect(out); osc.start(at); osc.stop(at + decay + 0.02);
+    };
+    if (kind === "crank") {
+      for (let i = 0; i < 6; i++) { tick(at0 + i * 0.17, 2600, 0.7, 0.03); tick(at0 + i * 0.17 + 0.012, 900, 0.35, 0.05); }
+      for (let i = 0; i < 10; i++) tick(at0 + 0.1 + Math.random() * 0.9, 1100 + Math.random() * 900, 0.2, 0.04, 2.5);
+    } else if (kind === "drop") { tick(at0, 1400, 0.9, 0.06, 2); tone(at0, 520, 300, 0.25, 0.09, "triangle"); tick(at0 + 0.14, 1700, 0.5, 0.05, 2); tick(at0 + 0.22, 1900, 0.3, 0.04, 2); }
+    else if (kind === "pop") { tone(at0, 380, 1500, 0.4, 0.12); tick(at0, 3200, 0.6, 0.05, 0.9); }
+    // (Ditto's camcorder: its two beeps as it starts recording; the tape's mechanism as it goes to play)
+    else if (kind === "rec") { tone(at0 + 0.08, 2200, 2200, 0.28, 0.08); tone(at0 + 0.2, 2200, 2200, 0.28, 0.08); }
+    else if (kind === "tape") { tick(at0, 700, 0.6, 0.05, 1.2); tone(at0, 140, 80, 0.4, 0.09, "triangle"); tick(at0 + 0.06, 2400, 0.3, 0.03); }
+  }
+
+  // ── A track coming out of its capsule (x, y: the capsule's middle on the screen), each its own way into its intro:
+  //    play() once the screen is the intro's first moment, the entrance going once the intro is over it ──
+  let gcGoing = false;
+  const gcAfter = (fn) => requestAnimationFrame(() => requestAnimationFrame(fn));
+  // a canvas over the screen, for one
+  const gcCanvas = (name) => {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const layer = document.createElement("canvas");
+    layer.className = `gc-layer ${name}`;
+    layer.setAttribute("aria-hidden", "true");
+    layer.width = Math.round(W * ratio); layer.height = Math.round(H * ratio);
+    document.body.append(layer);
+    const g = layer.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return { layer, g, W, H };
+  };
+  function gcEntrance(theme, x, y, play) {
+    gcGoing = true;
+    const go = () => { gcGoing = false; play(); };
+    if (!motionOK()) { go(); return; }
+    ({ ditto: gcRec, breed: gcPaka, yoru: gcPour, stay: gcTear, spicy: gcIgnite })[theme](x, y, go);
+  }
+
+  // Ditto: a flash, and the page is in a camcorder's viewfinder, recording (the red dot, the tape's counter running,
+  // the night's date in its corner, its focus closing in on the capsule, the picture scanned and tinted); the tape
+  // rolls and the picture goes dark, and in it is the room (the intro), played back, before the viewfinder goes.
+  function gcRec(x0, y0, play) {
+    const layer = document.createElement("div");
+    layer.className = "gc-rec";
+    layer.setAttribute("aria-hidden", "true");
+    layer.style.setProperty("--x", `${x0.toFixed(1)}px`);
+    layer.style.setProperty("--y", `${y0.toFixed(1)}px`);
+    layer.innerHTML = `<i class="gc-rec-tape"></i><i class="gc-rec-dim"></i><canvas class="gc-rec-noise"></canvas><i class="gc-rec-flash"></i>`
+      + ["tl", "tr", "bl", "br"].map((corner) => `<i class="gc-rec-corner is-${corner}"></i>`).join("")
+      + `<i class="gc-rec-focus"></i><p class="gc-rec-mode"><b></b><span>REC</span></p><i class="gc-rec-battery"></i>`
+      + `<p class="gc-rec-date">DEC.19 2022<br />12:19 AM</p><p class="gc-rec-count">00:00:00</p>`;
+    document.body.append(layer);
+    const $ = (s) => layer.querySelector(s), noise = $(".gc-rec-noise"), g = noise.getContext("2d"), count = $(".gc-rec-count");
+    noise.width = Math.round(window.innerWidth / 2); noise.height = Math.round(window.innerHeight / 2);
+    gcSound("rec");
+    const CUT = 1150, pad = (n) => String(n).padStart(2, "0");
+    $(".gc-rec-flash").animate([{ opacity: 0 }, { opacity: 1, offset: 0.12 }, { opacity: 0 }], { duration: 460, easing: "ease-out", fill: "forwards" });
+    $(".gc-rec-tape").animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, delay: 60, fill: "backwards" });
+    layer.querySelectorAll(".gc-rec-corner, .gc-rec-mode, .gc-rec-battery, .gc-rec-date, .gc-rec-count").forEach((part, n) => part.animate([{ opacity: 0, scale: 1.3 }, { opacity: 1, scale: 1 }], { duration: 220, delay: 90 + n * 18, easing: "cubic-bezier(0.2, 0.9, 0.3, 1.2)", fill: "backwards" }));
+    // (its focus: from wide in to the capsule, then a blink or two as it holds there)
+    $(".gc-rec-focus").animate([
+      { width: "44vmin", height: "32vmin", opacity: 0 }, { width: "44vmin", height: "32vmin", opacity: 1, offset: 0.12 },
+      { width: "86px", height: "64px", opacity: 1, offset: 0.55 }, { opacity: 0.15, offset: 0.64 }, { opacity: 1, offset: 0.73 }, { opacity: 0.15, offset: 0.82 },
+      { width: "86px", height: "64px", opacity: 1 },
+    ], { duration: 900, delay: 60, easing: "ease-out", fill: "both" });
+    // (the picture going dark as the tape rolls; the room coming up out of the dark once it is there)
+    const dark = $(".gc-rec-dim").animate([{ opacity: 0 }, { opacity: 0.94 }], { duration: CUT - 780, delay: 780, easing: "ease-in", fill: "both" });
+    const began = performance.now();
+    let cut = false;
+    const frame = (now) => {
+      const t = Math.max(0, now - began), f = Math.floor(Math.max(0, cut ? t - CUT : t) / (1000 / 30)), w = noise.width, h = noise.height;
+      count.textContent = `00:${pad(Math.floor(f / 30) % 60)}:${pad(f % 30)}`;
+      g.clearRect(0, 0, w, h);
+      // the tape's dropouts, a few flecks across the picture, and as it rolls, its tracking: a band of noise going up it
+      // (gone by the cut)
+      if (!cut) {
+        g.fillStyle = "rgba(255, 255, 255, 0.7)";
+        for (let i = 0; i < 5; i++) g.fillRect(Math.random() * w, Math.random() * h, 3 + Math.random() * 26, 1);
+      }
+      const k = (t - 700) / (CUT - 760);
+      if (!cut && k > 0 && k < 1) {
+        const mid = h * (1.15 - 1.4 * k), band = h * 0.15;
+        for (let i = 0; i < 70; i++) {
+          g.fillStyle = `rgba(${Math.random() < 0.5 ? "255, 255, 255" : "196, 200, 255"}, ${(0.15 + Math.random() * 0.6).toFixed(2)})`;
+          g.fillRect(Math.random() * w * 0.3 - w * 0.1, mid + (Math.random() * 2 - 1) * band, w * (0.2 + Math.random() * 1.1), 1 + Math.random() * 2);
+        }
+      }
+      if (!cut && t >= CUT) {
+        cut = true;
+        g.clearRect(0, 0, w, h);
+        layer.classList.add("is-play");
+        $(".gc-rec-mode span").textContent = "PLAY";
+        gcSound("tape");
+        play();
+        // (once the intro is there: the room up out of the dark, and a moment later the viewfinder gone)
+        gcAfter(() => {
+          dark.cancel();
+          $(".gc-rec-dim").animate([{ opacity: 0.94 }, { opacity: 0 }], { duration: 420, easing: "ease-out", fill: "forwards" });
+          const gone = () => layer.remove();
+          layer.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 380, delay: 1000, fill: "forwards" }).finished.then(gone, gone);
+        });
+      }
+      if (layer.isConnected) requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  // Breed: the capsule popping open in ink (the screen a manga panel, lime, its speed lines rushing in on the capsule,
+  // its sound lettered beside it), and the intro's first page flying out of it at the screen until it is the screen.
+  function gcPaka(x0, y0, play) {
+    const W = window.innerWidth, H = window.innerHeight, ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    const layer = document.createElement("div");
+    layer.className = "gc-manga";
+    layer.setAttribute("aria-hidden", "true");
+    layer.innerHTML = `<canvas class="gc-manga-lines"></canvas><b class="gc-manga-sfx">パカッ</b><div class="br-intro"></div>`;
+    const lines = layer.querySelector("canvas"), sfx = layer.querySelector(".gc-manga-sfx"), page = layer.querySelector(".br-intro");
+    page.style.visibility = "hidden";
+    document.body.append(layer);
+    lines.width = Math.round(W * ratio); lines.height = Math.round(H * ratio);
+    const g = lines.getContext("2d");
+    g.setTransform(ratio, 0, 0, ratio, 0, 0);
+    // (its sound up to the capsule's right; to its left by the screen's right edge)
+    const sw = sfx.offsetWidth, sh = sfx.offsetHeight;
+    sfx.style.left = `${(x0 + 24 + sw < W - 10 ? x0 + 24 : Math.max(10, x0 - 24 - sw)).toFixed(1)}px`;
+    sfx.style.top = `${Math.max(10, y0 - 20 - sh).toFixed(1)}px`;
+    sfx.animate([{ scale: 0.2, opacity: 0 }, { scale: 1.18, opacity: 1, offset: 0.6 }, { scale: 1, opacity: 1 }], { duration: 260, delay: 40, easing: "ease-out", fill: "backwards" });
+    const far = Math.hypot(Math.max(x0, W - x0), Math.max(y0, H - y0)) * 1.1, rnd = dfSeeded(1991);
+    const spokes = Array.from({ length: 110 }, () => ({ a: rnd() * Math.PI * 2, end: 70 + rnd() * far * 0.28, half: 0.003 + rnd() * 0.011 }));
+    // the page (a lot to make: made once the lines are in), in the capsule till it flies out at the screen
+    const dx = x0 - W / 2, dy = y0 - H / 2;
+    let made = false, over = false;
+    const launch = () => {
+      breedIntro.mount(page)(0);
+      page.querySelectorAll("img").forEach((img) => img.decode?.().catch(() => undefined));
+      const flying = page.animate([
+        { transform: `translate(${dx.toFixed(1)}px, ${dy.toFixed(1)}px) scale(0.04) rotate(-24deg)`, opacity: 0 },
+        { transform: `translate(${(dx * 0.8).toFixed(1)}px, ${(dy * 0.8).toFixed(1)}px) scale(0.15) rotate(-19deg)`, opacity: 1, offset: 0.12 },
+        { transform: `translate(${(dx * 0.3).toFixed(1)}px, ${(dy * 0.3).toFixed(1)}px) scale(0.62) rotate(-5deg)`, offset: 0.55 },
+        { transform: "translate(0px, 0px) scale(1) rotate(0deg)" },
+      ], { duration: 640, easing: "cubic-bezier(0.4, 0, 0.2, 1)", fill: "both" });
+      page.style.visibility = "";
+      const done = () => { over = true; play(); gcAfter(() => layer.remove()); };
+      flying.finished.then(done, done);
+    };
+    const began = performance.now();
+    const frame = (now) => {
+      if (over) return;
+      // (a frame's time can be from just before the click)
+      const t = Math.max(0, now - began), rush = 1 - (1 - Math.min(1, t / 210)) ** 3, shake = Math.floor(t / 55);
+      g.clearRect(0, 0, W, H);
+      g.globalAlpha = Math.min(1, 0.35 + t / 90);
+      g.fillStyle = "#B1F700";
+      g.fillRect(0, 0, W, H);
+      // each line from past the screen's edge in to its end, trembling as it holds
+      g.fillStyle = "#111111";
+      for (const s of spokes) {
+        const end = far - (far - s.end * (1 + 0.05 * Math.sin(shake * 2.3 + s.a * 17))) * rush;
+        g.beginPath();
+        g.moveTo(x0 + Math.cos(s.a - s.half) * far, y0 + Math.sin(s.a - s.half) * far);
+        g.lineTo(x0 + Math.cos(s.a) * end, y0 + Math.sin(s.a) * end);
+        g.lineTo(x0 + Math.cos(s.a + s.half) * far, y0 + Math.sin(s.a + s.half) * far);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+      if (t >= 220 && !made) { made = true; setTimeout(launch, 0); }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  // Racing into the Night: the capsule's pink spilling out of it (splashing up, running down the page in streams, a
+  // pool spreading from it, its edge wavering) until it covers the screen; the intro starts as that pink draining.
+  function gcPour(x0, y0, play) {
+    const { layer, g, W, H } = gcCanvas("is-pour");
+    const far = Math.hypot(Math.max(x0, W - x0), Math.max(y0, H - y0)) * 1.12, rnd = dfSeeded(1158);
+    const drops = Array.from({ length: 16 }, () => { const a = -Math.PI / 2 + (rnd() * 2 - 1) * 1.3, v = 360 + rnd() * 540; return { vx: Math.cos(a) * v, vy: Math.sin(a) * v, r: 4 + rnd() * 9 }; });
+    const streams = Array.from({ length: 7 }, (_, n) => ({ dx: (n - 3) * 15 + (rnd() * 2 - 1) * 6, w: 7 + rnd() * 13, speed: 0.75 + rnd() * 0.6 }));
+    const began = performance.now(), long = 1100;
+    const frame = (now) => {
+      const ms = Math.max(0, now - began), t = ms / 1000, q = Math.min(1, ms / long), e = q * q * (3 - 2 * q);
+      g.clearRect(0, 0, W, H);
+      g.fillStyle = "#FF6F91";
+      for (const d of drops) { g.beginPath(); g.arc(x0 + d.vx * t, y0 + d.vy * t + 900 * t * t, d.r, 0, Math.PI * 2); g.fill(); }
+      for (const s of streams) {
+        const len = H * 2.2 * s.speed * q;
+        g.beginPath(); g.roundRect(x0 + s.dx - s.w / 2, y0, s.w, len + s.w, s.w / 2); g.fill();
+        g.beginPath(); g.arc(x0 + s.dx, y0 + len + s.w * 0.6, s.w * 0.75, 0, Math.PI * 2); g.fill();
+      }
+      // the pool, its edge wavering, and the liquid's gloss: a light line along it, just inside
+      const R = far * e;
+      g.beginPath();
+      for (let a = 0; a <= 72; a++) {
+        const th = (a / 72) * Math.PI * 2, r = R * (1 + 0.05 * Math.sin(th * 5 + ms / 90) + 0.03 * Math.sin(th * 11 - ms / 60));
+        if (a) g.lineTo(x0 + Math.cos(th) * r, y0 + Math.sin(th) * r); else g.moveTo(x0 + Math.cos(th) * r, y0 + Math.sin(th) * r);
+      }
+      g.fill();
+      g.save(); g.clip(); g.strokeStyle = "rgba(255, 226, 236, 0.75)"; g.lineWidth = 5; g.stroke(); g.restore();
+      g.strokeStyle = "rgba(226, 70, 112, 0.55)"; g.lineWidth = 2; g.stroke();
+      if (q < 1) { requestAnimationFrame(frame); return; }
+      g.fillRect(0, 0, W, H);
+      play();
+      gcAfter(() => layer.remove());
+    };
+    requestAnimationFrame(frame);
+  }
+
+  // I Really Want to Stay at Your House: the capsule tearing into static (neon slices and static breaking out of it,
+  // along its line, the page jolting), then the glitch taking the screen from that line (syTakeover); the intro boots
+  // up out of the static.
+  function gcTear(x0, y0, play) {
+    const { layer, g, W, H } = gcCanvas("is-tear");
+    const noisy = g.createPattern(syStatic(), "repeat");
+    document.body.classList.add("sy-corrupting");
+    const began = performance.now(), long = 380;
+    let taken = false, over = false;
+    const frame = (now) => {
+      if (over) return;
+      const q = Math.min(1, Math.max(0, now - began) / long), across = 40 + W * 0.7 * q * q, high = 14 + 60 * q;
+      g.clearRect(0, 0, W, H);
+      for (let i = 0, n = Math.round(6 + 22 * q); i < n; i++) {
+        const w = 20 + Math.random() * across, x = x0 - w / 2 + (Math.random() * 2 - 1) * across * 0.5, y = y0 + (Math.random() * 2 - 1) * high, h = 2 + Math.random() * (5 + 18 * q), kind = Math.random();
+        if (kind < 0.5) {
+          g.fillStyle = ["rgba(0, 229, 255, 0.7)", "rgba(255, 46, 151, 0.7)", "rgba(252, 238, 10, 0.65)"][i % 3];
+          g.fillRect(x, y, w, h);
+        } else if (kind < 0.85) {
+          g.save(); g.beginPath(); g.rect(x, y, w, h); g.clip(); g.globalAlpha = 0.85; g.translate(-Math.random() * 160, -Math.random() * 160); g.fillStyle = noisy; g.fillRect(x, y, w + 160, h + 160); g.restore();
+        } else { g.fillStyle = "#04040A"; g.fillRect(x, y, w, h); }
+      }
+      // (torn right across, it goes on tearing under the takeover)
+      if (q >= 1 && !taken) {
+        taken = true;
+        syTakeover(y0, (cover) => { over = true; play(); gcAfter(() => { cover.remove(); layer.remove(); document.body.classList.remove("sy-corrupting"); }); });
+      }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  // Spicy: the capsule going off like the fire alarm (its bell ringing, two flashes from it, the page warming), sparks
+  // thrown out of it, and the chrome flames rising over the screen (spAlarm); the intro starts in the same flames.
+  function gcIgnite(x0, y0, play) {
+    const bell = alarmSound("bell"), { layer, g, W, H } = gcCanvas("is-sparks"), rnd = Math.random;
+    document.body.classList.add("sp-alarmed");
+    let over = false;
+    spAlarm(x0, y0, (cover) => {
+      over = true;
+      bell(0.35);
+      play();
+      gcAfter(() => { cover.remove(); layer.remove(); document.body.classList.remove("sp-alarmed"); });
+    });
+    // (the sparks over the flames)
+    document.body.append(layer);
+    const sparks = Array.from({ length: 44 }, () => { const a = rnd() * Math.PI * 2, v = 300 + rnd() * 820; return { vx: Math.cos(a) * v, vy: Math.sin(a) * v - 280, life: 0.5 + rnd() * 0.5, w: 2 + rnd() * 2.6 }; });
+    const began = performance.now();
+    g.lineCap = "round";
+    const frame = (now) => {
+      if (over) return;
+      const t = Math.max(0, now - began) / 1000;
+      g.clearRect(0, 0, W, H);
+      // each a streak along its way: a hot pink glow round a white core, cooling as it goes
+      for (const s of sparks) {
+        if (t > s.life) continue;
+        const k = t / s.life, x = x0 + s.vx * t, y = y0 + s.vy * t + 700 * t * t;
+        g.beginPath(); g.moveTo(x - s.vx * 0.05, y - (s.vy + 1400 * t) * 0.05); g.lineTo(x, y);
+        g.strokeStyle = `rgba(255, 45, 122, ${(0.55 * (1 - k)).toFixed(2)})`; g.lineWidth = s.w * 3; g.stroke();
+        g.strokeStyle = `rgba(255, ${Math.round(250 - 120 * k)}, ${Math.round(252 - 90 * k)}, ${(1 - k * k).toFixed(2)})`; g.lineWidth = s.w; g.stroke();
+      }
+      requestAnimationFrame(frame);
+    };
+    requestAnimationFrame(frame);
+  }
+
+  let gc = null, gcBusy = false, gcPrize = null;
+  const gcBallHtml = (key) => {
+    const p = PICKS[key], name = THEMES[key].era;
+    return `<li><button type="button" class="gc-ball" data-track="${key}" style="--tint: ${p.tint}" aria-label="Play ${escapeHtml(name)}" title="${escapeHtml(name)}">`
+      + `<span class="gc-ball-cap"><i class="gc-ball-logo${p.mask ? " is-mask" : ""}" style="--logo: url('${siteUrl(p.logo)}')"></i></span><span class="gc-ball-name">${escapeHtml(GC_SHORT[key])}</span></button></li>`;
+  };
+  function gcMake() {
+    const section = document.createElement("section");
+    section.className = "section gc";
+    section.setAttribute("aria-labelledby", "gc-title");
+    section.innerHTML = `<div class="section-head"><div><p class="eyebrow">You found all six</p><h2 id="gc-title">One more thing</h2><p class="section-note">The playlist kept a few tracks hidden. Turn the crank for one.</p></div></div>`
+      + `<div class="gc-stage"><div class="gc-machine">${GC_BACK}<canvas class="gc-globe" aria-hidden="true"></canvas>${GC_FRONT}`
+      + `<button type="button" class="gc-crank">${GC_CRANK}</button>`
+      + `<button type="button" class="gc-paper" aria-label="An approval sheet stuck in the coin slot. Pull it out"><span class="gc-paper-sheet"><i></i><i></i><i></i><b>✓</b></span><span class="gc-paper-note" aria-hidden="true">pull me</span></button>`
+      + `<button type="button" class="gc-prize" hidden aria-label="Open the capsule"><span class="gc-prize-top"></span><span class="gc-prize-bottom"></span></button>`
+      + `<p class="gc-out" hidden><b>OUT OF ORDER</b><span>every hidden track's been pulled</span></p></div>`
+      + `<p class="gc-hint" aria-live="polite"></p><ul class="gc-shelf" aria-label="Hidden tracks found"></ul></div>`;
+    const el = (s) => section.querySelector(s);
+    const machine = { section, canvas: el(".gc-globe"), crank: el(".gc-crank"), paper: el(".gc-paper"), prize: el(".gc-prize"), out: el(".gc-out"), hint: el(".gc-hint"), shelf: el(".gc-shelf") };
+    machine.globe = gcGlobe(machine.canvas);
+    machine.crank.addEventListener("click", gcTurn);
+    machine.prize.addEventListener("click", gcOpen);
+    machine.paper.addEventListener("click", () => dfPaperUp(machine.paper));
+    machine.paper.addEventListener("pointerenter", () => warm("defended"), { once: true });
+    machine.shelf.addEventListener("click", (event) => { const ball = event.target.closest(".gc-ball"); if (ball) gcPlay(ball.dataset.track, ball); });
+    machine.shelf.addEventListener("pointerover", (event) => { const ball = event.target.closest(".gc-ball"); if (ball) warm(ball.dataset.track); });
+    if ("ResizeObserver" in window) new ResizeObserver(() => machine.globe.size()).observe(machine.canvas);
+    return machine;
+  }
+  function gcRefresh() {
+    if (!gc) return;
+    const left = gcLeft(), found = gcFound(), out = !left.length && !gcPrize;
+    if (!gcBusy && !gcPrize && gc.globe.count() !== left.length) gc.globe.set(left.map((_, i) => GC_MYSTERY[i % GC_MYSTERY.length]));
+    gc.out.hidden = !out;
+    gc.section.classList.toggle("is-out", out);
+    gc.crank.disabled = !left.length || Boolean(gcPrize);
+    gc.crank.setAttribute("aria-label", left.length ? "Turn the crank for a hidden track" : "Out of order: every hidden track has been found");
+    gc.shelf.innerHTML = found.length ? found.map(gcBallHtml).join("") : `<li class="gc-shelf-empty">Your capsules land here.</li>`;
+    gc.paper.hidden = slipOut || Boolean(store.get(DEFENDED_KEY));
+    gc.hint.textContent = gcPrize ? "Open your capsule." : left.length ? (found.length ? "Turn the crank for another." : "Turn the crank.") : "Out of order: every hidden track has been pulled.";
+  }
+  // The crank: a track left, at random; the capsules tumble as it turns, and one drops into the chute.
+  function gcTurn() {
+    if (!gc || gcBusy || gcPrize || gcGoing || switching) return;
+    const left = gcLeft();
+    if (!left.length) return;
+    gcBusy = true;
+    const theme = left[Math.floor(Math.random() * left.length)], moving = motionOK(), turn = moving ? 1100 : 0;
+    warm(theme);
+    gcSound("crank");
+    gc.crank.disabled = true;
+    if (moving) { gc.crank.animate([{ rotate: "0deg" }, { rotate: "360deg" }], { duration: turn, easing: "cubic-bezier(0.4, 0, 0.3, 1)" }); gc.globe.stir(900); }
+    setTimeout(() => {
+      const color = gc.globe.drop() ?? GC_MYSTERY[0];
+      setTimeout(() => {
+        gcPrize = { theme, color };
+        gc.prize.style.setProperty("--shell", color);
+        gc.prize.hidden = false;
+        if (moving) gc.prize.animate([{ translate: "0 -70%", opacity: 0 }, { translate: "0 6%", opacity: 1, offset: 0.55 }, { translate: "0 -12%", offset: 0.75 }, { translate: "0 0" }], { duration: 560, easing: "ease-in" });
+        gcSound("drop");
+        gcBusy = false;
+        gcRefresh();
+        gc.prize.focus({ preventScroll: true });
+      }, moving ? 280 : 0);
+    }, turn);
+  }
+  // The capsule opened: the track found for good, its halves apart, and out it comes (its entrance) into its intro.
+  function gcOpen() {
+    if (!gc || !gcPrize || gcGoing || switching) return;
+    const { theme } = gcPrize;
+    gcPrize = null;
+    if (soundWanted()) playerFor(theme).prime();
+    warm(theme);
+    store.set(GC_TRACKS[theme], new Date().toISOString());
+    gcSound("pop");
+    const box = gc.prize.getBoundingClientRect();
+    if (motionOK()) {
+      gc.prize.querySelector(".gc-prize-top").animate([{ translate: "0 0", rotate: "0deg" }, { translate: "-40% -170%", rotate: "-50deg", opacity: 0 }], { duration: 440, easing: "ease-out", fill: "forwards" });
+      gc.prize.querySelector(".gc-prize-bottom").animate([{ translate: "0 0", rotate: "0deg" }, { translate: "30% 50%", rotate: "30deg", opacity: 0 }], { duration: 440, easing: "ease-in", fill: "forwards" });
+    }
+    gcEntrance(theme, box.left + box.width / 2, box.top + box.height / 2, () => {
+      gc.prize.hidden = true;
+      gc.prize.getAnimations({ subtree: true }).forEach((animation) => animation.cancel());
+      closePicker();
+      void switchTo(theme);
+    });
+  }
+  // A found track's capsule: back into it, the same way.
+  function gcPlay(theme, from) {
+    if (switching || gcBusy || gcGoing) return;
+    if (soundWanted()) playerFor(theme).prime();
+    warm(theme);
+    gcSound("pop");
+    const box = from.getBoundingClientRect();
+    gcEntrance(theme, box.left + box.width / 2, box.top + box.height / 2, () => { closePicker(); void switchTo(theme); });
+  }
+  const showGacha = () => {
+    const tips = document.getElementById("tips-title")?.closest("section");
+    const due = !current && ORDER.every((theme) => visited().includes(theme));
+    if (due && !gc && tips) {
+      gc = gcMake();
+      tips.after(gc.section);
+      // (the entrances' lettering, ready by the first one: Breed's sound, Ditto's viewfinder)
+      document.fonts?.load("400 60px 'Dela Gothic One'", "パカッ").catch(() => undefined);
+      document.fonts?.load("30px VT323", "RECPLAYDEC.19 2022 12:19 AM 0123456789").catch(() => undefined);
+    }
+    if (!gc) return;
+    gc.section.hidden = !due;
+    if (!due) return;
+    gc.globe.size();
+    gcRefresh();
+  };
+  // (in the café look: the gashapon, and Defended's slip once pulled out of it)
+  onThemeApplied = () => { showGacha(); showSlip(); };
+  showGacha();
+  showSlip();
 })();
