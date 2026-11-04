@@ -454,7 +454,7 @@ export async function GET(request: Request) {
     // Stock bought in the range (Inventory: restocks and new items started with packages that had a price), by
     // item. Money spent on stock, not a cost yet: stock is a cost when it is sold (cost of goods) or written off.
     const stockBought = await pool.query(`
-      SELECT il.item_name, COUNT(*)::int AS entries, SUM(il.packs_added)::int AS packs, SUM(il.quantity_delta) AS quantity, MIN(il.unit_of_measure) AS unit,
+      SELECT il.item_name, COUNT(*)::int AS entries, (SUM(il.packs_added) FILTER (WHERE il.packaging_id IS NOT NULL))::int AS packs, SUM(il.quantity_delta) AS quantity, MIN(il.unit_of_measure) AS unit,
         SUM(il.packs_added * il.pack_price) AS spent
       FROM inventory_log il LEFT JOIN shifts sh ON sh.shift_id = il.shift_id
       WHERE il.change_type IN ('restocked', 'created') AND il.packs_added > 0 AND il.pack_price IS NOT NULL

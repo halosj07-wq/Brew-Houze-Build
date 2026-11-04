@@ -16,7 +16,10 @@ type Product = {
   category: string;
   description: string;
   price: number;
-  productType?: "recipe" | "stock";
+  productType?: "recipe" | "stock" | "bundle";
+  // A bundle (combo): what comes in it, and what those cost bought one by one.
+  bundleItems?: { name: string; detail: string; quantity: number; price: number }[];
+  separately?: number;
   // Made at the bar (drinks) or in the kitchen (food); the menu has a Drinks and a Food side.
   station?: "bar" | "kitchen";
   categoryOrder?: number | null;
@@ -29,11 +32,15 @@ type Product = {
   featuredOrder?: number;
   variants?: Variant[];
 };
-type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number };
+type Ingredient = { inventoryId: number; requiredQuantity: number; availableQuantity: number; name?: string; customizable?: boolean; whole?: boolean };
+// A customer's request on one item: less (half) or none of an ingredient the café allows, as at the counter.
+type ItemCustomization = { inventoryId: number; name: string; level: "less" | "none" };
+const ITEM_NOTE_MAX = 120;
+const customText = (item: { customizations?: ItemCustomization[]; note?: string }) => [(item.customizations ?? []).map((entry) => `${entry.level === "none" ? "No" : "Less"} ${entry.name}`).join(", "), item.note ?? ""].filter(Boolean).join(" · ");
 type Addition = { id: number; name: string; quantity: number; price: number; unit: string; inventoryId: number; availableQuantity: number };
 type Variant = { id: number; size: string | null; temperature?: "hot" | "cold" | "both" | null; price: number; maxQuantity: number; available: boolean; ingredients: Ingredient[] };
 // rewardId: a loyalty reward line (one item, free, paid with the customer's stars).
-type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
+type CartItem = { key: string; product: Product; variantId: number | null; variantName: string; price: number; quantity: number; ingredients: Ingredient[]; additions: Addition[]; customizations?: ItemCustomization[]; note?: string; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean };
 type OrderStatus = "waiting" | "served" | "flushed";
 // delivery: a delivery order; deliveryStatus its progress (preparing, ready, out, delivered, failed, cancelled).
 // doneAt: when a delivery was first seen delivered. The café never clears a delivery from the queue
@@ -68,6 +75,12 @@ const sentCartStorageKey = "brew-houze-sent-cart";
 const FAVORITES = "__favorites";
 // The Popular chip: best sellers of the last 30 days.
 const POPULAR = "__popular";
+// The Combos chip: every bundle, whatever the side.
+const COMBOS = "__combos";
+const isBundle = (product: Product) => product.productType === "bundle";
+// "Tapsilog + Americano 12 oz Hot"
+const bundleLine = (product: Product) => (product.bundleItems ?? []).map((item) => `${item.quantity > 1 ? `${item.quantity} × ` : ""}${item.name}${item.detail ? ` ${item.detail}` : ""}`).join(" + ");
+const bundleSaving = (product: Product) => Math.max(0, Math.round(((product.separately ?? 0) - Math.min(...(product.variants ?? []).map((variant) => variant.price).concat(product.price))) * 100) / 100);
 const POPULAR_COUNT = 12;
 type MenuSide = "bar" | "kitchen";
 // An ID photo the café is checking (or approved), so a reload keeps following it.
@@ -202,6 +215,11 @@ export default function MenuPage() {
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
+  // Special requests on the item being chosen (folded until opened), and the café's quick requests.
+  const [selectedLevels, setSelectedLevels] = useState<Map<number, "less" | "none">>(new Map());
+  const [selectedNote, setSelectedNote] = useState("");
+  const [requestsOpen, setRequestsOpen] = useState(false);
+  const [quickRequests, setQuickRequests] = useState<{ text: string; station: "bar" | "kitchen" }[]>([]);
   // The cart line being changed in the item sheet (null: adding a new one).
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [cartOpen, setCartOpen] = useState(false);
@@ -246,6 +264,18 @@ export default function MenuPage() {
   // Delivery: the café's rules and zones, the address chosen in the cart, and GCash or cash on delivery.
   const [deliveryInfo, setDeliveryInfo] = useState<DeliveryInfo | null>(null);
   const [deliveryAddressId, setDeliveryAddressId] = useState<number | null>(null);
+  // The customer's own location for the rider (optional, asked through the browser).
+  const [deliveryPin, setDeliveryPin] = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null);
+  const [pinState, setPinState] = useState<"" | "asking" | "denied" | "failed">("");
+  function shareLocation() {
+    if (!("geolocation" in navigator)) { setPinState("failed"); return; }
+    setPinState("asking");
+    navigator.geolocation.getCurrentPosition(
+      (position) => { setDeliveryPin({ lat: position.coords.latitude, lng: position.coords.longitude, accuracy: Number.isFinite(position.coords.accuracy) ? Math.round(position.coords.accuracy) : null }); setPinState(""); },
+      (problem) => { setDeliveryPin(null); setPinState(problem.code === problem.PERMISSION_DENIED ? "denied" : "failed"); },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }
   const [deliveryPayment, setDeliveryPayment] = useState<"gcash" | "cod">("gcash");
   // Without an account, delivery takes the address in the cart and is paid by GCash.
   const [guestAddress, setGuestAddress] = useState<GuestAddress>(emptyGuestAddress);
@@ -581,13 +611,14 @@ export default function MenuPage() {
   const loadMenu = useCallback(async (fresh = false): Promise<boolean> => {
     try {
       const response = await fetch("/api/products", { cache: fresh ? "no-store" : "default" });
-      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; pickup?: "together" | "separate" | "per_order"; error?: string };
+      const payload = await response.json() as { data?: Product[]; storeOpen?: boolean; payment?: PaymentConfig; pickup?: "together" | "separate" | "per_order"; requests?: { text: string; station: "bar" | "kitchen" }[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "Unable to load the menu.");
       const menu = payload.data ?? [];
       setProducts(menu);
       setStoreOpen(payload.storeOpen !== false);
       if (payload.payment) setPaymentConfig(payload.payment);
       setPickupSetting(payload.pickup ?? "together");
+      setQuickRequests(payload.requests ?? []);
       setError("");
       let changed = false;
       setCart((current) => { const result = reconcileCart(current, menu); changed = result.changed; return result.cart; });
@@ -620,7 +651,7 @@ export default function MenuPage() {
   // order, with ready-made only categories (bottled drinks, pastries) last.
   const categoryInfo = useMemo(() => {
     const info = new Map<string, { order: number; bar: number; kitchen: number; madeToOrder: boolean }>();
-    for (const product of products) {
+    for (const product of products.filter((entry) => !isBundle(entry))) {
       const entry = info.get(product.category) ?? { order: Number.MAX_SAFE_INTEGER, bar: 0, kitchen: 0, madeToOrder: false };
       entry.order = Math.min(entry.order, product.categoryOrder ?? Number.MAX_SAFE_INTEGER);
       entry[product.station === "kitchen" ? "kitchen" : "bar"] += 1;
@@ -639,14 +670,16 @@ export default function MenuPage() {
     setCategory(null);
   }
   const favoriteIds = useMemo(() => customer.account?.favorites ?? [], [customer.account]);
+  // The combos, in a strip at the top of both sides and under their own chip.
+  const combos = useMemo(() => products.filter(isBundle), [products]);
   const lowestPrice = (product: Product) => { const prices = (product.variants ?? []).map((variant) => variant.price); return prices.length ? Math.min(...prices) : product.price; };
   // What the list shows: the chip, the search, and the filter sheet (temperature, sort, available only).
   const visibleProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
     const list = products.filter((product) => {
-      if (category === FAVORITES ? !favoriteIds.includes(product.id) : category === POPULAR ? !popularIds.includes(product.id) : category !== null && product.category !== category) return false;
-      // All: the chosen side only. A search looks through the whole menu.
-      if (category === null && !query && categoryInfo.get(product.category)?.side !== currentSide) return false;
+      if (category === FAVORITES ? !favoriteIds.includes(product.id) : category === POPULAR ? !popularIds.includes(product.id) : category === COMBOS ? !isBundle(product) : category !== null && product.category !== category) return false;
+      // All: the chosen side only (combos have their own strip). A search looks through the whole menu.
+      if (category === null && !query && (isBundle(product) || categoryInfo.get(product.category)?.side !== currentSide)) return false;
       if (query && !`${product.name} ${product.description} ${product.category}`.toLowerCase().includes(query)) return false;
       if (tempFilter !== "any" && !(product.variants ?? []).some((variant) => variant.temperature === tempFilter || variant.temperature === "both")) return false;
       if (availableOnly && product.variants?.length && !product.variants.some((variant) => variant.available)) return false;
@@ -662,7 +695,7 @@ export default function MenuPage() {
     if (category !== null || sortBy !== "menu") return [["", visibleProducts]] as [string, Product[]][];
     const groups = new Map<string, Product[]>();
     visibleProducts.forEach((product) => {
-      const group = product.category || "Other";
+      const group = isBundle(product) ? "Combos" : product.category || "Other";
       groups.set(group, [...(groups.get(group) ?? []), product]);
     });
     // In menu order (drinks before food when a search spans both).
@@ -670,7 +703,8 @@ export default function MenuPage() {
   }, [category, categoryInfo, sortBy, visibleProducts]);
   const featuredProducts = useMemo(() => products.filter((product) => product.featured).sort((a, b) => (a.featuredOrder ?? 0) - (b.featuredOrder ?? 0)), [products]);
   const filtersOn = tempFilter !== "any" || sortBy !== "menu" || availableOnly;
-  const sideFeatured = featuredProducts.filter((product) => categoryInfo.get(product.category)?.side === currentSide);
+  const sideFeatured = featuredProducts.filter((product) => !isBundle(product) && categoryInfo.get(product.category)?.side === currentSide);
+  const showCombos = category === null && !search.trim() && !filtersOn && combos.length > 0;
   const showFeatured = category === null && !search.trim() && !filtersOn && sideFeatured.length > 0;
   useEffect(() => {
     if (!addedNote) return;
@@ -737,6 +771,9 @@ export default function MenuPage() {
     setSelectedVariantId(line?.variantId ?? sortedVariants.find((variant) => variant.available)?.id ?? sortedVariants[0]?.id ?? null);
     setSelectedQuantity(line?.quantity ?? 1);
     setSelectedAdditionIds(line ? line.additions.map((addition) => addition.id) : []);
+    setSelectedLevels(new Map((line?.customizations ?? []).map((entry) => [entry.inventoryId, entry.level])));
+    setSelectedNote(line?.note ?? "");
+    setRequestsOpen(Boolean(line && customText(line)));
     setEditingKey(line?.key ?? null);
     if (line) setCartOpen(false);
   }
@@ -771,7 +808,11 @@ export default function MenuPage() {
     const variant = selectedProduct.variants?.find((item) => item.id === selectedVariantId);
     const price = variant?.price ?? selectedProduct.price;
     const selectedAdditions = (selectedProduct.additions ?? []).filter((addition) => selectedAdditionIds.includes(addition.id));
-    const key = `${selectedProduct.id}-${variant?.id ?? "regular"}-${[...selectedAdditionIds].sort((a, b) => a - b).join(",")}`;
+    // Only the ingredients this size has and the café allows changing.
+    const customizations: ItemCustomization[] = (variant?.ingredients ?? []).filter((ingredient) => ingredient.customizable && selectedLevels.has(ingredient.inventoryId))
+      .map((ingredient) => ({ inventoryId: ingredient.inventoryId, name: ingredient.name ?? "Item", level: ingredient.whole ? "none" : selectedLevels.get(ingredient.inventoryId)! }));
+    const note = selectedNote.replace(/\s+/g, " ").trim().slice(0, ITEM_NOTE_MAX);
+    const key = `${selectedProduct.id}-${variant?.id ?? "regular"}-${[...selectedAdditionIds].sort((a, b) => a - b).join(",")}|${customizations.map((entry) => `${entry.inventoryId}${entry.level}`).join(",")}|${note.toLowerCase()}`;
     const others = editingKey ? cart.filter((item) => item.key !== editingKey) : cart;
     if (variant) {
       // Counts a line with the same choices too: the units join it.
@@ -782,7 +823,7 @@ export default function MenuPage() {
     setCart(() => {
       const existing = others.find((item) => item.key === key);
       if (existing) return others.map((item) => item.key === key ? { ...item, quantity: item.quantity + selectedQuantity } : item);
-      const line = { key, product: selectedProduct, variantId: variant?.id ?? null, variantName: variant?.size ?? "Regular", price, quantity: selectedQuantity, ingredients: variant?.ingredients ?? [], additions: selectedAdditions };
+      const line = { key, product: selectedProduct, variantId: variant?.id ?? null, variantName: variant?.size ?? "Regular", price, quantity: selectedQuantity, ingredients: variant?.ingredients ?? [], additions: selectedAdditions, customizations, note };
       const at = editingKey ? cart.findIndex((item) => item.key === editingKey) : -1;
       return at >= 0 ? [...others.slice(0, at), line, ...others.slice(at)] : [...others, line];
     });
@@ -792,6 +833,9 @@ export default function MenuPage() {
     if (wasEditing) setCartOpen(true);
     else setAddedNote(`${selectedQuantity > 1 ? `${selectedQuantity} × ` : ""}${selectedProduct.name} added`);
   }
+
+  // A line's special requests as the server takes them (lib/orders.ts), as at the counter.
+  const itemRequests = (item: CartItem) => ({ customizations: (item.customizations ?? []).map((entry) => ({ inventory_id: entry.inventoryId, level: entry.level })), note: item.note ?? "" });
 
   function updateCartItem(key: string, change: number) {
     setCart((current) => current.flatMap((item) => {
@@ -853,7 +897,7 @@ export default function MenuPage() {
   const claiming = claimIdType !== null && !rewardsInCart;
 
   async function sendToCounter() {
-    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) }));
+    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), ...itemRequests(item) }));
     setPlacingOrder(true);
     setOrderError("");
     try {
@@ -877,7 +921,7 @@ export default function MenuPage() {
   const idMode = (claimMode === "saved" && !savedIdUsable) || (claimMode === "counter" && serviceType === "delivery") ? "photo" : claimMode;
   const activeIdRule = idDiscountOptions.find((option) => option.id === (idMode === "saved" && savedId ? savedId.typeId : claimIdType)) ?? null;
   const idPayLabel = paymentConfig.method === "gcash" ? "Pay with GCash" : "Send order";
-  const idOrderItems = () => cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id) }));
+  const idOrderItems = () => cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), ...itemRequests(item) }));
   const idSheetLines = cart.filter((item) => item.variantId !== null).map((item) => ({ label: `${item.product.name} · ${item.variantName}${item.additions.length ? ` + ${item.additions.map((addition) => addition.name).join(", ")}` : ""}`, qty: item.quantity, unit: item.price + item.additions.reduce((sum, addition) => sum + addition.price, 0) }));
 
   function forgetIdCheck() {
@@ -994,8 +1038,14 @@ export default function MenuPage() {
             : minimumShort > 0 ? `Delivery to ${chosenZone?.name ?? "this area"} starts at ₱${chosenZone?.minOrder?.toFixed(2)} of items. Add ₱${minimumShort.toFixed(2)} more.`
               : "";
   const deliveryBody = !isDelivery ? undefined
-    : isGuest ? { address: { recipient_name: guestAddress.recipientName, phone: guestAddress.phone, zone_id: Number(guestAddress.zoneId), street: guestAddress.street, landmark: guestAddress.landmark, rider_notes: guestAddress.riderNotes }, payment: "gcash" }
-      : chosenAddress ? { address_id: chosenAddress.id, payment: payCod ? "cod" : "gcash" } : undefined;
+    : isGuest ? { address: { recipient_name: guestAddress.recipientName, phone: guestAddress.phone, zone_id: Number(guestAddress.zoneId), street: guestAddress.street, landmark: guestAddress.landmark, rider_notes: guestAddress.riderNotes }, payment: "gcash", pin: deliveryPin }
+      : chosenAddress ? { address_id: chosenAddress.id, payment: payCod ? "cod" : "gcash", pin: deliveryPin } : undefined;
+  const pinBox = <div className={`cart-pin${deliveryPin ? " is-on" : ""}`}>
+    {deliveryPin
+      ? <><span>📍 Location shared with the rider{deliveryPin.accuracy !== null ? ` (within about ${deliveryPin.accuracy} m)` : ""}</span><button type="button" onClick={() => setDeliveryPin(null)}>Remove</button></>
+      : <><button type="button" className="cart-pin-share" onClick={shareLocation} disabled={pinState === "asking"}>📍 {pinState === "asking" ? "Finding you…" : "Share my location with the rider"}</button>
+        <small>{pinState === "denied" ? "Location is blocked for this site. Allow it in your browser settings, or the rider will use your address." : pinState === "failed" ? "Couldn't find your location. The rider will use your address." : "Optional. Use it when you're at the delivery address: the rider's map goes straight to you."}</small></>}
+  </div>;
 
   async function submitOrder() {
     if (cart.length === 0) return;
@@ -1009,7 +1059,7 @@ export default function MenuPage() {
     setPlacingOrder(true);
     setOrderError("");
     if (discountPreview.problem) { setOrderError(discountPreview.problem); setPlacingOrder(false); return; }
-    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), reward_id: item.rewardId ?? null }));
+    const orderItems = cart.filter((item) => item.variantId !== null).map((item) => ({ product_variant_id: item.variantId, quantity: item.quantity, addition_ids: item.additions.map((addition) => addition.id), ...itemRequests(item), reward_id: item.rewardId ?? null }));
     const discountRewardId = discountReward?.id ?? null;
     // Rewards can make the whole order free: nothing to pay, so it goes straight to the café.
     if (paymentConfig.method === "gcash" && orderTotal > 0 && !payCod) {
@@ -1148,6 +1198,29 @@ export default function MenuPage() {
     </article>;
   };
 
+  // A combo's card: its picture, what comes in it, and what it saves.
+  const comboCard = (product: Product) => {
+    const out = soldOut(product);
+    const count = inCart.get(product.id) ?? 0;
+    const saving = bundleSaving(product);
+    return <article className={`bh-card is-combo${out ? " is-out" : ""}`} key={`combo-${product.id}`}>
+      <button type="button" className="bh-card-open" disabled={out} onClick={() => openProduct(product)} aria-label={`${product.name}: ${bundleLine(product)}, ${out ? "sold out" : priceText(product)}`}>
+        <span className="bh-card-photo">
+          {product.image ? <Image src={product.image} alt="" fill unoptimized sizes="(max-width: 560px) 82vw, 320px" style={{ objectFit: "cover" }} /> : <span className="bh-placeholder"><IconCoffee /></span>}
+          {saving > 0 && !out && <span className="bh-combo-save">Save ₱{saving.toFixed(0)}</span>}
+          {out && <span className="bh-soldout">Sold out</span>}
+          {count > 0 && <span className="bh-incart">{count} in cart</span>}
+        </span>
+        <span className="bh-card-body">
+          <strong>{product.name}</strong>
+          <small>{bundleLine(product)}</small>
+          <b>{out ? "Sold out" : priceText(product)}{!out && saving > 0 && <s>₱{(product.separately ?? 0).toFixed(2)}</s>}</b>
+        </span>
+      </button>
+      {!out && <button type="button" className="bh-plus" onClick={() => (isSimple(product) ? quickAdd(product) : openProduct(product))} aria-label={`Add ${product.name} to cart`}>+</button>}
+    </article>;
+  };
+
   // The item sheet: temperature, size, add-ons and quantity; adds a new line or updates the one
   // being edited from the cart.
   const sheetVariants = selectedProductVariants;
@@ -1156,7 +1229,7 @@ export default function MenuPage() {
   const sheetTemperatures = Array.from(new Set(sheetVariants.map(temperatureOf)));
   const hasTemperatureChoice = sheetTemperatures.length > 1 && !sheetTemperatures.includes(null);
   const shownVariants = hasTemperatureChoice ? sheetVariants.filter((variant) => temperatureOf(variant) === temperatureOf(sheetVariant)) : sheetVariants;
-  const showSizes = shownVariants.length > 1 || (shownVariants.length === 1 && Boolean(shownVariants[0].size) && shownVariants[0].size !== "Regular" && selectedProduct?.productType !== "stock");
+  const showSizes = shownVariants.length > 1 || (shownVariants.length === 1 && Boolean(shownVariants[0].size) && shownVariants[0].size !== "Regular" && selectedProduct?.productType !== "stock" && selectedProduct?.productType !== "bundle");
   function chooseTemperature(temperature: "hot" | "cold") {
     const options = sheetVariants.filter((variant) => temperatureOf(variant) === temperature);
     const next = options.find((variant) => variant.size === sheetVariant?.size && variant.available) ?? options.find((variant) => variant.available) ?? options[0];
@@ -1314,6 +1387,7 @@ export default function MenuPage() {
         <button type="button" aria-pressed={category === null} onClick={() => setCategory(null)}>All</button>
         {favoriteIds.length > 0 && <button type="button" aria-pressed={category === FAVORITES} onClick={() => setCategory(FAVORITES)}>★ Favorites</button>}
         {popularIds.length > 0 && <button type="button" aria-pressed={category === POPULAR} onClick={() => setCategory(POPULAR)}>🔥 Popular</button>}
+        {combos.length > 0 && <button type="button" aria-pressed={category === COMBOS} onClick={() => setCategory(COMBOS)}>🍱 Combos</button>}
         {categories.map((name) => <button key={name} type="button" aria-pressed={category === name} onClick={() => setCategory(name)}>{name}</button>)}
       </nav>
 
@@ -1325,11 +1399,18 @@ export default function MenuPage() {
             <h2 id="featured-title"><IconSparkle />Barista Featured Specials</h2>
             <div className="bh-row">{sideFeatured.map((product) => productCard(product, "row"))}</div>
           </section>}
+          {showCombos && <section className="bh-combos" aria-labelledby="combos-title">
+            <div className="bh-combos-head"><h2 id="combos-title">Combos</h2><button type="button" onClick={() => setCategory(COMBOS)}>See all</button></div>
+            <div className="bh-row">{combos.map(comboCard)}</div>
+          </section>}
+          {category === COMBOS && <p className="bh-note">A drink and a meal together, for less than ordering them one by one.</p>}
           {category === FAVORITES && <p className="bh-note">What you order most, most first.</p>}
           {category === POPULAR && <p className="bh-note">What the café sold most in the last 30 days.</p>}
           {groupedProducts.map(([group, groupProducts]) => groupProducts.length > 0 && <section className="bh-group" key={group || "all"}>
             {group && <h2 className="bh-group-title">{group}</h2>}
-            {groupProducts.every((product) => !product.image)
+            {groupProducts.every(isBundle)
+              ? <div className="bh-combo-list">{groupProducts.map(comboCard)}</div>
+              : groupProducts.every((product) => !product.image)
               ? <div className="bh-list">{groupProducts.map((product) => productCard(product, "list"))}</div>
               : <div className="bh-grid">{groupProducts.map((product) => productCard(product, "grid"))}</div>}
           </section>)}
@@ -1388,9 +1469,15 @@ export default function MenuPage() {
         <div className="bh-sheet-scroll">
           <div className="bh-item-photo">{selectedProduct.image ? <Image src={selectedProduct.image} alt="" fill unoptimized sizes="560px" style={{ objectFit: "cover" }} /> : <span className="bh-placeholder"><IconCoffee /></span>}</div>
           <div className="bh-item-body">
-            <p className="bh-eyebrow">{selectedProduct.category}</p>
+            <p className="bh-eyebrow">{isBundle(selectedProduct) ? "Combo" : selectedProduct.category}</p>
             <h2>{selectedProduct.name}</h2>
-            {selectedProduct.description && <p className="bh-item-desc">{selectedProduct.description}</p>}
+            {isBundle(selectedProduct)
+              ? <div className="bh-option-block">
+                <div className="bh-option-head"><strong>What&apos;s inside</strong>{bundleSaving(selectedProduct) > 0 && <span className="is-save">Save ₱{bundleSaving(selectedProduct).toFixed(2)}</span>}</div>
+                <ul className="bh-inside">{(selectedProduct.bundleItems ?? []).map((item, index) => <li key={index}><b>{item.quantity}×</b><span>{item.name}{item.detail && <small>{item.detail}</small>}</span><em>₱{(item.price * item.quantity).toFixed(2)}</em></li>)}</ul>
+                <p className="bh-inside-note">₱{(selectedProduct.separately ?? 0).toFixed(2)} if ordered one by one. Each part is made at its own station and comes together.</p>
+              </div>
+              : selectedProduct.description && <p className="bh-item-desc">{selectedProduct.description}</p>}
             {hasTemperatureChoice && <div className="bh-option-block">
               <div className="bh-option-head"><strong>Temperature</strong></div>
               <div className="bh-temp" role="radiogroup" aria-label="Temperature">
@@ -1420,6 +1507,30 @@ export default function MenuPage() {
                 </button>;
               })}</div>
             </div>}
+            {(() => {
+              // Special requests: less or none of what the café allows changing, its quick requests (a combo gets
+              // both drink and food ones), and a short note. Folded until opened.
+              const choices = (sheetVariant?.ingredients ?? []).filter((ingredient) => ingredient.customizable);
+              const buttons = quickRequests.filter((request) => isBundle(selectedProduct) || request.station === (selectedProduct.station ?? "bar")).map((request) => request.text);
+              const parts = selectedNote.split(",").map((part) => part.trim()).filter(Boolean);
+              const toggle = (text: string) => setSelectedNote((parts.some((part) => part.toLowerCase() === text.toLowerCase()) ? parts.filter((part) => part.toLowerCase() !== text.toLowerCase()) : [...parts, text]).join(", ").slice(0, ITEM_NOTE_MAX));
+              const summary = [choices.filter((ingredient) => selectedLevels.has(ingredient.inventoryId)).map((ingredient) => `${selectedLevels.get(ingredient.inventoryId) === "none" ? "No" : "Less"} ${ingredient.name}`).join(", "), selectedNote.trim()].filter(Boolean).join(" · ");
+              return <div className="bh-option-block">
+                <button type="button" className={`bh-requests-toggle${requestsOpen ? " is-open" : ""}`} aria-expanded={requestsOpen} onClick={() => setRequestsOpen((open) => !open)}>
+                  <span><strong>Special requests</strong><small>{summary || (choices.length ? `e.g. ${choices.slice(0, 2).map((ingredient) => `no ${ingredient.name?.toLowerCase()}`).join(", ")}` : "A note for the barista or kitchen")}</small></span><b>{requestsOpen ? "−" : "+"}</b>
+                </button>
+                {requestsOpen && <div className="bh-requests">
+                  {choices.length > 0 && <ul className="bh-levels">{choices.map((ingredient) => {
+                    const level = selectedLevels.get(ingredient.inventoryId) ?? "normal";
+                    return <li key={ingredient.inventoryId}><span>{ingredient.name}</span>
+                      <div className="bh-segment" role="group" aria-label={ingredient.name}>{(ingredient.whole ? ["normal", "none"] as const : ["normal", "less", "none"] as const).map((option) => <button key={option} type="button" aria-pressed={level === option} onClick={() => setSelectedLevels((current) => { const next = new Map(current); if (option === "normal") next.delete(ingredient.inventoryId); else next.set(ingredient.inventoryId, option); return next; })}>{option === "normal" ? "Normal" : option === "less" ? "Less" : "None"}</button>)}</div>
+                    </li>;
+                  })}</ul>}
+                  {buttons.length > 0 && <div className="bh-request-chips">{buttons.map((text) => <button key={text} type="button" aria-pressed={parts.some((part) => part.toLowerCase() === text.toLowerCase())} onClick={() => toggle(text)}>{text}</button>)}</div>}
+                  <input className="bh-request-note" value={selectedNote} onChange={(event) => setSelectedNote(event.target.value.slice(0, ITEM_NOTE_MAX))} maxLength={ITEM_NOTE_MAX} placeholder="Anything else? e.g. half sugar" aria-label="Note for this item" />
+                </div>}
+              </div>;
+            })()}
           </div>
         </div>
         <div className="bh-sheet-foot">
@@ -1459,7 +1570,8 @@ export default function MenuPage() {
                 <span className="bh-line-photo">{item.product.image ? <Image src={item.product.image} alt="" fill unoptimized sizes="56px" style={{ objectFit: "cover" }} /> : <IconCoffee />}</span>
                 <span className="bh-line-main">
                   <strong>{item.product.name}</strong>
-                  <small>{item.rewardId ? `🎁 Reward · ${item.rewardName}${item.rewardCost ? ` · ★ ${item.rewardCost}` : ""}` : `${item.variantName}${(() => { const variant = item.product.variants?.find((option) => option.id === item.variantId); return variant?.temperature === "hot" ? " · Hot" : variant?.temperature === "cold" ? " · Iced" : ""; })()}`}</small>
+                  <small>{item.rewardId ? `🎁 Reward · ${item.rewardName}${item.rewardCost ? ` · ★ ${item.rewardCost}` : ""}` : isBundle(item.product) ? bundleLine(item.product) : `${item.variantName}${(() => { const variant = item.product.variants?.find((option) => option.id === item.variantId); return variant?.temperature === "hot" ? " · Hot" : variant?.temperature === "cold" ? " · Iced" : ""; })()}`}</small>
+                  {customText(item) && <small className="bh-line-requests">✎ {customText(item)}</small>}
                   {item.additions.length > 0 && <small>+ {item.additions.map((addition) => addition.name).join(", ")}</small>}
                   <span className="bh-line-foot">
                     <b>{item.rewardId ? "Free" : `₱${(unit * item.quantity).toFixed(2)}`}</b>
@@ -1499,6 +1611,7 @@ export default function MenuPage() {
                     <label><span>Mobile number</span><PhoneField value={guestAddress.phone} onChange={(phone) => editGuestAddress({ phone })} autoComplete="tel" placeholder="0917 123 4567" /></label>
                     <label className="is-wide"><span>Notes for the rider (optional)</span><input value={guestAddress.riderNotes} onChange={(event) => editGuestAddress({ riderNotes: event.target.value })} placeholder="Gate code, floor, where to leave it" maxLength={200} /></label>
                   </div>
+                  {pinBox}
                   <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
                     <button type="button" role="radio" aria-checked="true"><strong>GCash</strong><span>Pay now</span></button>
                     <button type="button" role="radio" aria-checked="false" disabled><strong>Cash on delivery</strong><span>{codProblem}</span></button>
@@ -1511,6 +1624,7 @@ export default function MenuPage() {
                         <select value={chosenAddress.id} onChange={(event) => setDeliveryAddressId(Number(event.target.value))}>{deliveryAddresses.map((address) => <option key={address.id} value={address.id}>{address.label} · {address.street}</option>)}</select>
                       </label>
                       <small className="cart-delivery-detail">{chosenAddress.recipientName} · {chosenAddress.phone} · {chosenZone?.name ?? chosenAddress.zoneName}{chosenAddress.landmark ? ` · near ${chosenAddress.landmark}` : ""} · <button type="button" onClick={() => { setAccountAddresses(true); setAccountOpen(true); }}>Manage</button></small>
+                      {pinBox}
                       <div className="cart-delivery-pay" role="radiogroup" aria-label="How you pay">
                         <button type="button" role="radio" aria-checked={!payCod} onClick={() => setDeliveryPayment("gcash")}><strong>GCash</strong><span>Pay now</span></button>
                         <button type="button" role="radio" aria-checked={payCod} disabled={codProblem !== null} onClick={() => setDeliveryPayment("cod")}><strong>Cash on delivery</strong><span>{codProblem ?? "Pay the rider"}</span></button>

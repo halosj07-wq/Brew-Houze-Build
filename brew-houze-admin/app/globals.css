@@ -1786,7 +1786,53 @@ strong.is-low { color: #B45309 !important; }
 .inv-bulk-fields > select { flex: 1 1 160px; min-width: 0; }
 .inv-bulk-fields label { display: flex; flex-direction: column; gap: 3px; flex: 0 1 110px; min-width: 0; }
 .inv-bulk-fields label span { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #9C8278; }
-.inv-bulk-pack { flex: 1 1 160px; font-size: 12.5px; font-weight: 600; color: #6B4C3B; align-self: center; }
+.inv-bulk-fields label.inv-bulk-package { flex: 1 1 190px; }
+.inv-bulk-pack { display: flex; align-items: center; min-height: 38px; padding: 0 12px; overflow: hidden; border: 1px dashed #E8DDD5; border-radius: 10px; background: #FDF9F5; font-size: 12.5px; font-weight: 600; color: #6B4C3B; white-space: nowrap; text-overflow: ellipsis; }
 .inv-bulk-note { grid-column: 1 / -1; margin: 0; font-size: 12px; color: #15803D; }
 .inv-bulk-note.is-problem { color: #B91C1C; }
 @media (max-width: 640px) { .inv-bulk li { grid-template-columns: 1fr; } }
+
+/* Accounts: Admins and Staff in their own sections. */
+.acc-section + .acc-section { margin-top: 22px; }
+
+/* Inventory: Restock soon and the holiday plan fold to one line. */
+.inv-fold { padding: 0; }
+.inv-fold-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; background: none; border: 0; text-align: left; cursor: pointer; }
+.inv-fold-head > span:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-fold-head strong { font-family: 'Hanken Grotesk', sans-serif; font-size: 14px; color: #3D2B1F; }
+.inv-fold-head em { font-style: normal; font-size: 12.5px; color: #B45309; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-fold.is-plan .inv-fold-head em { color: #6B4C3B; }
+.inv-fold-body { padding: 0 16px 14px; }
+.inv-fold-note { margin: 0; font-size: 12px; color: #9C8278; }
+.inv-fold.is-plan { border-color: #E8DDD5; background: #FDF9F5; }
+.inv-fold.is-plan .ins-plan { margin-top: 10px; }
+
+/* Inventory history: every entry opens, explained in full. */
+.invh-row.is-clickable { cursor: pointer; transition: background 120ms ease; }
+.invh-row.is-clickable:hover { background: #FFF7ED; }
+.invh-row.is-clickable:focus-visible { outline: 2px solid #D97706; outline-offset: -2px; }
+.invh-detail { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 14px; margin: 0; padding: 14px 16px; background: #FFFFFF; border: 1px solid #E8DDD5; border-radius: 12px; }
+.invh-detail dt { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; color: #9C8278; padding-top: 2px; }
+.invh-detail dd { margin: 0; font-size: 13.5px; color: #3D2B1F; overflow-wrap: anywhere; }
+.invh-meaning { margin: 0; padding: 10px 12px; background: #F3EDE5; border-radius: 10px; font-size: 12.5px; color: #6B4C3B; line-height: 1.5; }
+@media (max-width: 520px) { .invh-detail { grid-template-columns: 1fr; gap: 2px; } .invh-detail dd { margin-bottom: 8px; } }
+
+/* A package in its parts: brand · type · size. */
+.pk-name { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 7px; }
+.pk-name > i { color: #C9B8AF; font-style: normal; font-weight: 400; }
+.pk-name .is-muted { color: #9C8278; font-weight: 600; font-style: italic; }
+
+/* Bulk restock: the review step. */
+.inv-review { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; border: 1px solid #E8DDD5; border-radius: 12px; overflow: hidden; background: #FFFFFF; }
+.inv-review li { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.1fr); gap: 12px; align-items: center; padding: 11px 14px; }
+.inv-review li + li { border-top: 1px solid #F0E8E1; }
+.inv-review-what { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.inv-review-what strong { font-size: 13.5px; color: #3D2B1F; }
+.inv-review-what span { font-size: 12px; color: #6B4C3B; }
+.inv-review-stock, .inv-review-cost { display: flex; flex-direction: column; gap: 1px; font-size: 12.5px; color: #3D2B1F; }
+.inv-review-stock em, .inv-review-cost em { font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; color: #9C8278; }
+.inv-review-stock b, .inv-review-cost b { font-weight: 700; }
+.inv-review-stock small { color: #15803D; font-weight: 700; font-size: 11.5px; }
+.inv-review-cost small { color: #9C8278; font-size: 11.5px; }
+.inv-review-cost b.is-muted { color: #9C8278; }
+@media (max-width: 640px) { .inv-review li { grid-template-columns: 1fr 1fr; } .inv-review-what { grid-column: 1 / -1; } }

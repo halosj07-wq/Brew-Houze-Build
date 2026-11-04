@@ -82,13 +82,30 @@ export async function starBalance(customerId: number, campaignId: number, db: Db
 
 // Stars an order earns under the campaign's rules, before the daily limit. Free reward lines do
 // not count, and for per-amount earning the order's discount is taken off first.
+// A combo (bundle-products-migration.sql) counts as its items: a Breakfast Combo earns the star its
+// Americano would, and its price is shared between its items by what each costs on its own.
+const COMBO_STAR_LINES = `
+      UNION ALL
+      SELECT soi.quantity * b.quantity, COALESCE(item_product.product_category, ''),
+        soi.unit_price * soi.quantity * (item_variant.price * b.quantity) / NULLIF(combo.separately, 0)
+      FROM sales_order_items soi
+      JOIN products p ON p.product_id = soi.product_id AND p.product_type = 'bundle'
+      JOIN product_bundle_items b ON b.bundle_id = soi.product_id
+      JOIN product_variants item_variant ON item_variant.product_variant_id = b.product_variant_id
+      JOIN products item_product ON item_product.product_id = item_variant.product_id
+      CROSS JOIN LATERAL (SELECT SUM(pv.price * other.quantity) AS separately FROM product_bundle_items other JOIN product_variants pv ON pv.product_variant_id = other.product_variant_id WHERE other.bundle_id = soi.product_id) combo
+      WHERE soi.order_id = $1 AND soi.reward_id IS NULL`;
+
 async function starsForOrder(client: PoolClient, orderId: number, campaign: RunningCampaign): Promise<number> {
+  // (checked first: inside the order's transaction a failed query would undo the whole order)
+  const combos = Boolean((await client.query("SELECT to_regclass('public.product_bundle_items') IS NOT NULL AS ready")).rows[0]?.ready);
   const [lines, order] = await Promise.all([
     client.query(`
       SELECT soi.quantity, COALESCE(p.product_category, '') AS category,
         soi.unit_price * soi.quantity + COALESCE((SELECT SUM(a.unit_price * a.quantity) FROM sales_order_item_additions a WHERE a.order_item_id = soi.order_item_id), 0) AS amount
       FROM sales_order_items soi JOIN products p ON p.product_id = soi.product_id
-      WHERE soi.order_id = $1 AND soi.reward_id IS NULL
+      WHERE soi.order_id = $1 AND soi.reward_id IS NULL${combos ? " AND p.product_type IS DISTINCT FROM 'bundle'" : ""}
+      ${combos ? COMBO_STAR_LINES : ""}
     `, [orderId]),
     client.query("SELECT COALESCE(discount_amount, 0) AS discount FROM sales_orders WHERE order_id = $1", [orderId]),
   ]);

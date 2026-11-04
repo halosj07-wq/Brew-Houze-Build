@@ -12,15 +12,16 @@ function isUniqueViolation(error: unknown) {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");
 }
 
-// The same package already on this item (the same brand and the same contents): its name, or null.
-async function samePackage(inventoryId: number, brand: string | null, contentQuantity: number, exceptId: number | null): Promise<string | null> {
+// One package per brand and type on an item ("Nescafe Coffee Bean Bag" and "Nescafe Coffee Bean Jar" can both be
+// there; a second Nescafe bag cannot): a package whose name, without its size, matches. Its name, or null.
+// A different size of the same package is an edit of that package, not a second one.
+const stem = (name: string) => name.replace(/\s+[\d.,]+\s+\S+$/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+async function samePackage(inventoryId: number, name: string, exceptId: number | null): Promise<string | null> {
   const found = await pool.query(`
     SELECT packaging_name FROM inventory_packaging
-    WHERE inventory_id = $1 AND is_archived = FALSE AND LOWER(TRIM(COALESCE(brand, ''))) = LOWER(TRIM(COALESCE($2, ''))) AND content_quantity = $3
-      AND ($4::int IS NULL OR packaging_id <> $4)
-    LIMIT 1
-  `, [inventoryId, brand, contentQuantity, exceptId]);
-  return found.rows[0]?.packaging_name ?? null;
+    WHERE inventory_id = $1 AND is_archived = FALSE AND ($2::int IS NULL OR packaging_id <> $2)
+  `, [inventoryId, exceptId]);
+  return found.rows.map((row) => String(row.packaging_name)).find((other) => stem(other) === stem(name)) ?? null;
 }
 
 async function postHandler(request: Request) {
@@ -38,8 +39,8 @@ async function postHandler(request: Request) {
     }
     const parsed = parsePackaging(body, Boolean(item.rows[0].is_whole_unit));
     if (parsed.error || !parsed.value) return NextResponse.json({ error: parsed.error }, { status: 400 });
-    const same = await samePackage(inventoryId, parsed.value.brand, parsed.value.contentQuantity, null);
-    if (same) return NextResponse.json({ error: `${same} is already listed for this item. Restock it instead.` }, { status: 409 });
+    const same = await samePackage(inventoryId, parsed.value.name, null);
+    if (same) return NextResponse.json({ error: `${same} is already listed for this item. Edit it to change the size, or pick another brand or type.` }, { status: 409 });
 
     await pool.query(`
       INSERT INTO inventory_packaging (inventory_id, packaging_name, brand, content_quantity, last_pack_price)
@@ -70,8 +71,8 @@ async function patchHandler(request: Request) {
     if (existing.rowCount === 0) return NextResponse.json({ error: "Packaging not found." }, { status: 404 });
     const parsed = parsePackaging(body, Boolean(existing.rows[0].is_whole_unit));
     if (parsed.error || !parsed.value) return NextResponse.json({ error: parsed.error }, { status: 400 });
-    const same = await samePackage(Number(existing.rows[0].inventory_id), parsed.value.brand, parsed.value.contentQuantity, packagingId);
-    if (same) return NextResponse.json({ error: `${same} is already listed for this item with that brand and size.` }, { status: 409 });
+    const same = await samePackage(Number(existing.rows[0].inventory_id), parsed.value.name, packagingId);
+    if (same) return NextResponse.json({ error: `${same} is already listed for this item. Change that one instead, or pick another brand or type.` }, { status: 409 });
 
     await pool.query(`
       UPDATE inventory_packaging

@@ -388,6 +388,12 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
       INSERT INTO deliveries (order_id, customer_id, address_id, recipient_name, phone, street, landmark, rider_notes, zone_id, zone_name, fee, payment, check_id, cod_amount)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     `, [orderId, delivery.customerId, delivery.addressId, delivery.recipientName, delivery.phone, delivery.street, delivery.landmark, delivery.riderNotes, delivery.zoneId, delivery.zoneName, deliveryFee, delivery.payment, plannedIdDiscounts.length > 0, delivery.payment === "cod" ? total : null]);
+    // The customer shared where they are: the map uses it as is (see lib/delivery-map.ts). Checked
+    // first, so a database without the tracking columns (revision-migration.sql) skips it cleanly.
+    if (delivery.pin) {
+      const tracked = await client.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'deliveries' AND column_name = 'dest_lat'");
+      if (tracked.rowCount) await client.query("UPDATE deliveries SET dest_lat = $2, dest_lng = $3, dest_located_at = CURRENT_TIMESTAMP WHERE order_id = $1", [orderId, delivery.pin.lat, delivery.pin.lng]);
+    }
   }
 
   for (const [inventoryId, detail] of deductionDetails) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, Fragment, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import * as XLSX from "xlsx";
 import { excelPayment, excelReturnMethod, excelStatus, getFinanceDateStamp } from "@/lib/excel-format";
@@ -202,6 +202,20 @@ const openModals: symbol[] = [];
 const unsavedModals = new Set<symbol>();
 if (typeof window !== "undefined") {
   window.addEventListener("beforeunload", (event) => { if (unsavedModals.size) event.preventDefault(); });
+  // A save that went through (any request other than a read, answered OK) tells the open windows:
+  // the top one counts as saved again, so a window that stays open after saving (Packaging, an
+  // employee or customer) no longer asks "Discard your changes?" for what was just saved.
+  const flagged = window as Window & { __bhSaveSignal?: boolean };
+  if (!flagged.__bhSaveSignal) {
+    flagged.__bhSaveSignal = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const response = await originalFetch(input, init);
+      const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
+      if (response.ok && method !== "GET" && method !== "HEAD") window.dispatchEvent(new Event("bh-saved"));
+      return response;
+    };
+  }
 }
 
 function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60, children }: { onClose: () => void; closeDisabled?: boolean; label?: string; labelledBy?: string; zIndex?: number; children: React.ReactNode }) {
@@ -259,8 +273,16 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
       }
     };
     document.addEventListener("keydown", onKeyDown);
+    // Saved: nothing left to lose (only the top window, the one the save came from).
+    const onSaved = () => {
+      if (openModals[openModals.length - 1] !== id) return;
+      dirty.current = false;
+      unsavedModals.delete(id);
+    };
+    window.addEventListener("bh-saved", onSaved);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("bh-saved", onSaved);
       openModals.splice(openModals.indexOf(id), 1);
       unsavedModals.delete(id);
       scrollers.forEach((element, index) => { element.style.overflowY = previousOverflow[index]; });
@@ -1637,7 +1659,7 @@ const packagingInput: React.CSSProperties = { border: "1px solid #E8DDD5", borde
 function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; onClose: () => void; onChanged: (updated: InventoryItem) => void }) {
   const confirmAction = useConfirm();
   const packagings = item.packagings ?? [];
-  const emptyDraft = { name: "", brand: "", content: "", price: "" };
+  const emptyDraft = { brand: "", type: "", content: "", price: "" };
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState(emptyDraft);
   const [saving, setSaving] = useState(false);
@@ -1646,7 +1668,7 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
   function startEdit(pack: InventoryPackaging) {
     setError("");
     setEditingId(pack.packagingId);
-    setDraft({ name: pack.name, brand: pack.brand ?? "", content: String(Number(pack.contentQuantity)), price: pack.lastPackPrice === null ? "" : String(Number(pack.lastPackPrice)) });
+    setDraft({ brand: pack.brand ?? "", type: packageTypeOf(pack.name, pack.brand ?? "", item.item_name), content: String(Number(pack.contentQuantity)), price: pack.lastPackPrice === null ? "" : String(Number(pack.lastPackPrice)) });
   }
 
   function resetDraft() {
@@ -1672,7 +1694,7 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
 
   function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const fields = { packaging_name: draft.name, brand: draft.brand, content_quantity: Number(draft.content), pack_price: draft.price === "" ? null : Number(draft.price) };
+    const fields = { packaging_name: packageNameOf(draft.brand, item.item_name, Number(draft.content), item.unit_of_measure, draft.type), brand: draft.brand.trim(), content_quantity: Number(draft.content), pack_price: draft.price === "" ? null : Number(draft.price) };
     if (editingId === null) void send("POST", { inventory_id: item.inventory_id, ...fields }, "Failed to add the packaging.");
     else void send("PATCH", { packaging_id: editingId, ...fields }, "Failed to update the packaging.");
   }
@@ -1701,7 +1723,7 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
               const price = pack.lastPackPrice === null ? null : Number(pack.lastPackPrice);
               return <div key={pack.packagingId} className="flex items-center justify-between gap-3" style={{ padding: "10px 12px", borderTop: index ? "1px solid #F0E8E2" : "none", background: editingId === pack.packagingId ? "#FFF7ED" : "#FFFFFF" }}>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F" }}>{pack.name}{pack.brand && <span style={{ marginLeft: 6, padding: "1px 7px", borderRadius: 6, background: "#F3EDE5", color: "#6B4C3B", fontSize: 11, fontWeight: 600 }}>{pack.brand}</span>}{index === 0 && pack.lastRestockedAt && <span style={{ marginLeft: 6, color: "#15803D", fontSize: 11, fontWeight: 600 }}>last bought</span>}</p>
+                  <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}><PackageName pack={pack} item={item} />{index === 0 && pack.lastRestockedAt && <span style={{ color: "#15803D", fontSize: 11, fontWeight: 600 }}>last bought</span>}</p>
                   <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9C8278" }}>1 pack = {formatAmount(content)} {item.unit_of_measure}{price !== null ? ` · ₱${price.toFixed(2)} per pack (${formatPeso(price / content)} per ${singularUnit(item.unit_of_measure)})` : " · no price yet"}</p>
                 </div>
                 <div className="flex gap-2" style={{ flexShrink: 0 }}>
@@ -1713,18 +1735,18 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
           </div>}
 
         <form onSubmit={save} className="flex flex-col gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
-          <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F" }}>{editingId === null ? "Add a packaging" : "Edit packaging"}</p>
+          <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F" }}>{editingId === null ? "Add a package" : "Edit package"}</p>
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Packaging name</span><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Nescafe Bean Bag 1 kg" style={packagingInput} /></label>
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Brand</span><input value={draft.brand} onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Comes in <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><PackageTypeField value={draft.type} onChange={(type) => setDraft((current) => ({ ...current, type }))} style={packagingInput} /></label>
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>One pack contains ({item.unit_of_measure})</span><input type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={draft.content} onChange={(event) => setDraft((current) => ({ ...current, content: item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={item.is_whole_unit ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></label>
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Price per pack (₱) <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><MoneyField value={draft.price} onChange={(typed) => setDraft((current) => ({ ...current, price: typed }))} placeholder="e.g. 850" style={packagingInput} /></label>
           </div>
-          {draftPerUnit !== null && <span style={{ fontSize: 12, color: "#6B4C3B" }}>= {formatPeso(draftPerUnit)} per {singularUnit(item.unit_of_measure)}</span>}
+          {draft.brand.trim() && draftContent > 0 && <span style={{ fontSize: 12, color: "#6B4C3B" }}>Saved as <b>{packageNameOf(draft.brand, item.item_name, draftContent, item.unit_of_measure, draft.type)}</b>{draftPerUnit !== null ? ` · ${formatPeso(draftPerUnit)} per ${singularUnit(item.unit_of_measure)}` : ""}</span>}
           {error && <p style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
           <div className="flex justify-end gap-2">
             {editingId !== null && <button type="button" onClick={resetDraft} disabled={saving} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer" }}>Cancel edit</button>}
-            <button type="submit" disabled={saving || !draft.name.trim() || !draft.brand.trim() || !(draftContent > 0)} style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: saving || !draft.name.trim() || !draft.brand.trim() || !(draftContent > 0) ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : editingId === null ? "Add packaging" : "Save changes"}</button>
+            <button type="submit" disabled={saving || !draft.brand.trim() || !(draftContent > 0)} style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: saving || !draft.brand.trim() || !(draftContent > 0) ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : editingId === null ? "Add package" : "Save changes"}</button>
           </div>
         </form>
       </div>
@@ -1733,11 +1755,24 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
 }
 
 // ─── Bulk restock: several items at once, after a supplier delivery ──────────
+// A package shown in its parts: brand · type · size ("Magnolia · Carton · 1,000 mL"). The item is shown
+// around it already; the stored name (Brand Item Type size) stays whole for search and history.
+function packageParts(pack: InventoryPackaging, item: { item_name: string; unit_of_measure: string }): string[] {
+  const type = packageTypeOf(pack.name, pack.brand ?? "", item.item_name);
+  return [pack.brand?.trim() || "No brand", type, formatStock(Number(pack.contentQuantity), item.unit_of_measure)].filter(Boolean);
+}
+const bulkPackLabel = (pack: InventoryPackaging, item: { item_name: string; unit_of_measure: string }) => packageParts(pack, item).join(" · ");
+function PackageName({ pack, item }: { pack: InventoryPackaging; item: { item_name: string; unit_of_measure: string } }) {
+  return <span className="pk-name" title={pack.name}>{packageParts(pack, item).map((part, index) => <Fragment key={index}>
+    {index > 0 && <i aria-hidden="true">·</i>}
+    <span className={index === 0 && !pack.brand?.trim() ? "is-muted" : undefined}>{part}</span>
+  </Fragment>)}</span>;
+}
 // Every stocked item (not portions) in one list, those that need restocking first. Ticking an item (or typing
 // an amount) adds it: by package (how many packs, at what price each: the cost is averaged in, as with one
 // restock), or by amount for an item without a package. Each one is saved as its own restock, so History and
 // Finance's "Stock bought" show them the same way. If one fails, the others still go through and it stays ticked.
-type BulkLine = { on: boolean; packagingId: number; packs: string; price: string; quantity: string };
+type BulkLine = { on: boolean; packagingId: number; packs: string; price: string; quantity: string; paid?: string };
 
 function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: InventoryItem[]; restockBy: Map<number, string | null>; onClose: () => void; onDone: (message: string) => Promise<void> }) {
   const stocked = useMemo(() => items.filter((item) => !item.derived_from_inventory_id).sort((a, b) => {
@@ -1753,6 +1788,8 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
   const [problems, setProblems] = useState<Record<number, string>>({});
+  // Step two: everything ticked, read back before anything is saved.
+  const [reviewing, setReviewing] = useState(false);
   const set = (id: number, change: Partial<BulkLine>) => setLines((current) => ({ ...current, [id]: { ...current[id], ...change } }));
 
   const needs = (item: InventoryItem) => Number(item.quantity) <= 0 || isLowStock(item) || Boolean(restockBy.get(item.inventory_id));
@@ -1770,7 +1807,9 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
     }
     const amount = Number(line.quantity);
     if (!(amount > 0) || (item.is_whole_unit && !Number.isInteger(amount))) return { problem: `Enter how many ${item.unit_of_measure} to add${item.is_whole_unit ? " (whole)" : ""}.` };
-    return { body: { inventory_id: item.inventory_id, quantity_delta: amount }, added: amount, cost: 0 };
+    const paid = (line.paid ?? "") === "" ? null : Number(line.paid);
+    if (paid !== null && !(paid >= 0)) return { problem: "What you paid must be 0 or more." };
+    return { body: { inventory_id: item.inventory_id, quantity_delta: amount, total_paid: paid }, added: amount, cost: paid ?? 0 };
   };
 
   const chosen = stocked.filter((item) => lines[item.inventory_id]?.on);
@@ -1782,6 +1821,7 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving || chosen.length === 0 || firstProblem) return;
+    if (!reviewing) { setReviewing(true); return; }
     setSaving(true);
     const failed: Record<number, string> = {};
     let done = 0;
@@ -1799,6 +1839,7 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
     }
     setProblems(failed);
     setSaving(false);
+    setReviewing(false);
     const failures = Object.keys(failed).length;
     if (failures === 0) await onDone(`Restocked ${done} item${done === 1 ? "" : "s"}${totalCost > 0 ? ` (${peso(totalCost)} at the prices entered)` : ""}. Each is in History.`);
     else if (done > 0) await onDone(`Restocked ${done} item${done === 1 ? "" : "s"}. ${failures} could not be saved: they are still ticked here.`).then(() => undefined);
@@ -1806,7 +1847,30 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
 
   return <Modal onClose={onClose} closeDisabled={saving} label="Bulk restock">
     <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 860, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-      <DialogHeader title="Bulk restock" sub="Tick the items that came in and enter what you got. Each is saved as its own restock." onClose={onClose} disabled={saving} />
+      <DialogHeader title={reviewing ? "Review the restock" : "Bulk restock"} sub={reviewing ? "Check each item before it is saved. Nothing is restocked until you confirm." : "Tick the items that came in and enter what you got. Each is saved as its own restock."} onClose={onClose} disabled={saving} />
+      {reviewing ? <div className="px-6 py-4" style={{ overflowY: "auto", minHeight: 0 }}>
+        <ul className="inv-review">
+          {ready.map(({ item, request }) => {
+            if ("problem" in request) return null;
+            const line = lines[item.inventory_id];
+            const pack = (item.packagings ?? []).find((entry) => entry.packagingId === line.packagingId);
+            const unit = item.unit_of_measure;
+            const before = Number(item.quantity);
+            const costBefore = toOptionalNumber(item.unit_cost);
+            const costAfter = request.cost > 0 || (pack ? line.price !== "" : (line.paid ?? "") !== "") ? previewWeightedAverage(before, costBefore, request.added, request.cost) : costBefore;
+            return <li key={item.inventory_id}>
+              <div className="inv-review-what">
+                <strong>{item.item_name}</strong>
+                <span>{pack ? <>{Number(line.packs)} × <PackageName pack={pack} item={item} /></> : "By amount (bought loose)"}</span>
+              </div>
+              <div className="inv-review-stock"><em>Stock</em>{formatStock(before, unit)} → <b>{formatStock(before + request.added, unit)}</b><small>+{formatStock(request.added, unit)}</small></div>
+              <div className="inv-review-cost"><em>Paid</em>{request.cost > 0 || (pack ? line.price !== "" : (line.paid ?? "") !== "")
+                ? <><b>{peso(request.cost)}</b><small>{pack ? `${peso(Number(line.price))} each` : "in all"}{costAfter !== null && costAfter !== costBefore ? ` · cost ${costBefore === null ? "not set" : formatPeso(costBefore)} → ${formatPeso(costAfter)} per ${singularUnit(unit)}` : ""}</small></>
+                : <><b className="is-muted">No price</b><small>cost stays {costBefore === null ? "unset" : formatPeso(costBefore)}</small></>}</div>
+            </li>;
+          })}
+        </ul>
+      </div> : <>
       <div className="flex flex-wrap items-center gap-2 px-6 pt-4">
         <div className="inv-search" style={{ flex: 1, minWidth: 200 }}>
           <IconSearch size={14} />
@@ -1832,13 +1896,16 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
                 <span><strong>{item.item_name}</strong><em className={`is-${status}`}>{formatStock(Number(item.quantity), item.unit_of_measure)} on hand{status === "out" ? " · out" : status === "low" ? " · low" : due ? " · restock soon" : ""}</em></span>
               </label>
               {pack ? <div className="inv-bulk-fields">
-                {packs.length > 1 ? <select value={line.packagingId} onChange={(event) => { const next = packs.find((entry) => entry.packagingId === Number(event.target.value)); set(item.inventory_id, { packagingId: Number(event.target.value), price: next?.lastPackPrice === null || next?.lastPackPrice === undefined ? "" : String(Number(next.lastPackPrice)), on: true }); }} style={packagingInput} aria-label="Package">
-                  {packs.map((entry) => <option key={entry.packagingId} value={entry.packagingId}>{entry.name}{entry.brand ? ` (${entry.brand})` : ""}</option>)}
-                </select> : <span className="inv-bulk-pack">{pack.name}{pack.brand ? ` · ${pack.brand}` : ""}</span>}
+                <label className="inv-bulk-package"><span>Package{packs.length > 1 ? ` · ${packs.length} to choose from` : ""}</span>
+                  {packs.length > 1 ? <select value={line.packagingId} onChange={(event) => { const next = packs.find((entry) => entry.packagingId === Number(event.target.value)); set(item.inventory_id, { packagingId: Number(event.target.value), price: next?.lastPackPrice === null || next?.lastPackPrice === undefined ? "" : String(Number(next.lastPackPrice)), on: true }); }} style={packagingInput} disabled={saving}>
+                    {packs.map((entry) => <option key={entry.packagingId} value={entry.packagingId}>{bulkPackLabel(entry, item)}</option>)}
+                  </select> : <span className="inv-bulk-pack" title={pack.name}>{bulkPackLabel(pack, item)}</span>}
+                </label>
                 <label><span>Packs</span><input type="number" min={1} step={1} value={line.packs} onChange={(event) => set(item.inventory_id, { packs: sanitizeWholeUnitValue(event.target.value), on: true })} style={packagingInput} disabled={saving} /></label>
                 <label><span>₱ per pack</span><input type="number" min={0} step="0.01" value={line.price} onChange={(event) => set(item.inventory_id, { price: event.target.value, on: true })} placeholder="optional" style={packagingInput} disabled={saving} /></label>
               </div> : <div className="inv-bulk-fields">
                 <label><span>Add ({item.unit_of_measure})</span><input type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={line.quantity} onChange={(event) => set(item.inventory_id, { quantity: item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value, on: event.target.value !== "" })} placeholder="0" style={packagingInput} disabled={saving} /></label>
+                <label><span>₱ paid in all</span><input type="number" min={0} step="0.01" value={line.paid ?? ""} onChange={(event) => set(item.inventory_id, { paid: event.target.value, on: true })} placeholder="optional" style={packagingInput} disabled={saving} /></label>
               </div>}
               {line.on && request && ("problem" in request
                 ? <p className="inv-bulk-note is-problem">{request.problem}</p>
@@ -1848,11 +1915,14 @@ function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: Inven
           })}
         </ul>}
       </div>
+      </>}
       <div className="flex items-center justify-between gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
         <span className="inv-footer-note">{chosen.length === 0 ? "Tick the items you are restocking." : firstProblem ? `${firstProblem.item.item_name}: ${"problem" in firstProblem.request ? firstProblem.request.problem : ""}` : `${chosen.length} item${chosen.length === 1 ? "" : "s"}${totalCost > 0 ? ` · ${peso(totalCost)} in total` : ""}`}</span>
         <div className="flex gap-2">
-          <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
-          <button type="submit" className="ui-button ui-button-primary" disabled={saving || chosen.length === 0 || Boolean(firstProblem)}>{saving ? "Restocking…" : `Restock ${chosen.length || ""} item${chosen.length === 1 ? "" : "s"}`.replace("  ", " ")}</button>
+          {reviewing
+            ? <button type="button" className="ui-button ui-button-secondary" onClick={() => setReviewing(false)} disabled={saving}>Back to edit</button>
+            : <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>}
+          <button type="submit" className="ui-button ui-button-primary" disabled={saving || chosen.length === 0 || Boolean(firstProblem)}>{saving ? "Restocking…" : reviewing ? `Confirm restock of ${chosen.length} item${chosen.length === 1 ? "" : "s"}` : `Review ${chosen.length || ""} item${chosen.length === 1 ? "" : "s"}`.replace("  ", " ")}</button>
         </div>
       </div>
     </form>
@@ -1866,6 +1936,7 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
   const [packs, setPacks] = useState("1");
   const [packPrice, setPackPrice] = useState(packagings[0]?.lastPackPrice === null || packagings[0]?.lastPackPrice === undefined ? "" : String(Number(packagings[0].lastPackPrice)));
   const [quantity, setQuantity] = useState(item.is_whole_unit ? "1" : "100");
+  const [totalPaid, setTotalPaid] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const pack = packagings.find((entry) => entry.packagingId === packagingId);
@@ -1880,12 +1951,15 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
   const price = packPrice === "" ? null : Number(packPrice);
   const addedQuantity = mode === "package" ? (pack && Number.isInteger(packCount) && packCount > 0 ? packCount * Number(pack.contentQuantity) : 0) : Number(quantity);
   const costBefore = toOptionalNumber(item.unit_cost);
+  const paid = totalPaid === "" ? null : Number(totalPaid);
   const costAfter = mode === "package" && addedQuantity > 0 && price !== null && Number.isFinite(price) && price >= 0
     ? previewWeightedAverage(Number(item.quantity), costBefore, addedQuantity, packCount * price)
-    : costBefore;
+    : mode === "quantity" && addedQuantity > 0 && paid !== null && Number.isFinite(paid) && paid >= 0
+      ? previewWeightedAverage(Number(item.quantity), costBefore, addedQuantity, paid)
+      : costBefore;
   const valid = mode === "package"
     ? Boolean(pack) && Number.isInteger(packCount) && packCount > 0 && (price === null || (Number.isFinite(price) && price >= 0))
-    : Number.isFinite(addedQuantity) && addedQuantity > 0 && (!item.is_whole_unit || Number.isInteger(addedQuantity));
+    : Number.isFinite(addedQuantity) && addedQuantity > 0 && (!item.is_whole_unit || Number.isInteger(addedQuantity)) && (paid === null || (Number.isFinite(paid) && paid >= 0));
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1895,7 +1969,7 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
     try {
       const body = mode === "package"
         ? { restock_packaging: true, packaging_id: packagingId, packs: packCount, pack_price: price }
-        : { inventory_id: item.inventory_id, quantity_delta: addedQuantity };
+        : { inventory_id: item.inventory_id, quantity_delta: addedQuantity, total_paid: paid };
       const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Failed to add stock.");
@@ -1925,7 +1999,7 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
         ) : <>
           <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Packaging bought</span>
             <select value={packagingId} onChange={(event) => choosePackaging(Number(event.target.value))} style={packagingInput}>
-              {packagings.map((entry) => <option key={entry.packagingId} value={entry.packagingId}>{entry.name}{entry.brand ? ` (${entry.brand})` : ""} · {formatAmount(Number(entry.contentQuantity))} {item.unit_of_measure}</option>)}
+              {packagings.map((entry) => <option key={entry.packagingId} value={entry.packagingId}>{bulkPackLabel(entry, item)}</option>)}
             </select>
           </label>
           <div className="grid grid-cols-2 gap-3">
@@ -1933,7 +2007,10 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Price per pack (₱)</span><MoneyField value={packPrice} onChange={(typed) => setPackPrice(typed)} placeholder="Not recorded" style={packagingInput} /></label>
           </div>
         </>) : (
-          <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Quantity to add ({item.unit_of_measure})</span><input autoFocus type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={quantity} onChange={(event) => setQuantity(item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value)} style={packagingInput} /></label>
+          <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Quantity to add ({item.unit_of_measure})</span><input autoFocus type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={quantity} onChange={(event) => setQuantity(item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value)} style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Total paid (₱) <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><MoneyField value={totalPaid} onChange={setTotalPaid} placeholder="e.g. 150" style={packagingInput} /></label>
+          </div>
         )}
         {valid && addedQuantity > 0 && <div style={{ padding: "10px 12px", borderRadius: 10, background: "#FFFFFF", border: "1px solid #E8DDD5", fontSize: 12.5, color: "#3D2B1F", lineHeight: 1.6 }}>
           <div><strong>+{formatAmount(addedQuantity)} {item.unit_of_measure}</strong> → {formatAmount(Number(item.quantity) + addedQuantity)} {item.unit_of_measure} on hand</div>
@@ -1941,7 +2018,9 @@ function RestockDialog({ item, onClose, onRestocked, onManagePackaging }: { item
             ? price === null
               ? <div style={{ color: "#9C8278" }}>No price entered: the unit cost stays {costBefore === null ? "unset" : formatPeso(costBefore)}.</div>
               : <div>Average cost per {singularUnit(item.unit_of_measure)}: {costBefore === null ? "not set" : formatPeso(costBefore)} → <strong>{costAfter === null ? "—" : formatPeso(costAfter)}</strong></div>
-            : <div style={{ color: "#9C8278" }}>Adding by {item.unit_of_measure} keeps the unit cost as is. Restock by package to update it.</div>}
+            : paid === null
+              ? <div style={{ color: "#9C8278" }}>No price entered: the unit cost stays {costBefore === null ? "unset" : formatPeso(costBefore)}.</div>
+              : <div>Average cost per {singularUnit(item.unit_of_measure)}: {costBefore === null ? "not set" : formatPeso(costBefore)} → <strong>{costAfter === null ? "—" : formatPeso(costAfter)}</strong></div>}
         </div>}
         {error && <p style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
       </div>
@@ -2012,6 +2091,37 @@ function unitWord(quantity: number, unit: string): string {
 
 function formatStock(quantity: number, unit: string): string {
   return `${formatAmount(quantity)} ${unitWord(quantity, unit)}`;
+}
+
+// A package's name, always built the same way: Brand + Item + size ("Magnolia Fresh Milk 1,000 mL").
+// A brand ending in the item's first word is not repeated ("Uji Matcha" + "Matcha Powder" = "Uji Matcha Powder").
+function packageNameOf(brand: string, itemName: string, content: number, unit: string, type = ""): string {
+  const cleanBrand = brand.trim().replace(/\s+/g, " ");
+  const words = itemName.trim().split(/\s+/);
+  const overlap = cleanBrand && words.length > 1 && cleanBrand.split(" ").pop()!.toLowerCase() === words[0].toLowerCase();
+  const cleanType = type.trim().replace(/\s+/g, " ");
+  return `${cleanBrand ? `${cleanBrand} ` : ""}${overlap ? words.slice(1).join(" ") : words.join(" ")}${cleanType ? ` ${cleanType}` : ""} ${formatStock(content, unit)}`;
+}
+// How a package comes (optional, part of its name): one package per brand and type on an item.
+const PACKAGE_TYPES = ["Bag", "Bottle", "Box", "Can", "Carton", "Case", "Jar", "Pack", "Pouch", "Sachet", "Sleeve", "Tray", "Tub"];
+// A name without its size ("Nescafe Coffee Bean Jar 200 grams" -> "nescafecoffeebeanjar"), to tell packages apart.
+const packageStem = (name: string) => name.replace(/\s+[\d.,]+\s+\S+$/, "").toLowerCase().replace(/[^a-z0-9]/g, "");
+// The type in a package's name: what comes between "Brand Item" and the size, or one of the usual
+// types at its end when the name was written another way.
+function packageTypeOf(name: string, brand: string, itemName: string): string {
+  const withoutSize = name.replace(/\s+[\d.,]+\s+\S+$/, "").trim();
+  const prefix = packageNameOf(brand, itemName, 1, "x").replace(/\s+1 x$/, "");
+  if (withoutSize.toLowerCase().startsWith(prefix.toLowerCase())) return withoutSize.slice(prefix.length).trim();
+  const word = withoutSize.split(/\s+/).pop() ?? "";
+  return PACKAGE_TYPES.find((type) => type.toLowerCase() === word.toLowerCase()) ?? "";
+}
+// The usual types to pick from, or any other typed in (e.g. Gallon, Bucket).
+function PackageTypeField({ value, onChange, style }: { value: string; onChange: (value: string) => void; style: React.CSSProperties }) {
+  const listId = useId();
+  return <>
+    <input value={value} onChange={(event) => onChange(event.target.value.replace(/[0-9]/g, "").slice(0, 30))} list={listId} placeholder="e.g. Bag, Jar, or type one" style={style} aria-label="Package type" />
+    <datalist id={listId}>{PACKAGE_TYPES.map((type) => <option key={type} value={type} />)}</datalist>
+  </>;
 }
 
 function buildStockGroups(items: InventoryItem[]): StockGroup[] {
@@ -2116,7 +2226,7 @@ function ThresholdField({ unit, value, onChange }: { unit: string; value: string
 function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: { items: InventoryItem[]; categories: string[]; preset: AddPreset; onClose: () => void; onCreated: () => Promise<void> }) {
   const stockItems = items.filter((item) => !item.derived_from_inventory_id);
   const [kind, setKind] = useState<AddPreset["kind"]>(preset.kind);
-  const [pack, setPack] = useState({ brand: "", price: "" });
+  const [pack, setPack] = useState({ brand: "", type: "", price: "" });
   const presetItem = stockItems.find((item) => item.inventory_id === preset.existingItemId);
   const [detail, setDetail] = useState({ name: presetItem?.item_name ?? "", category: "", unit: "grams", content: "", packs: "", loose: "", quantity: "", unitCost: "", threshold: "", group: "" });
   const groupNames = [...new Set(items.map((item) => item.item_group?.trim()).filter((name): name is string => Boolean(name)))].sort();
@@ -2150,8 +2260,9 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
       if (inside === "new" && !detail.category.trim()) return "Give the item a category.";
       if (!pack.brand.trim()) return "Enter the brand, e.g. Nescafe.";
       if (!(content > 0) || (whole && !Number.isInteger(content))) return `Enter how many ${unit} one package contains${whole ? " (a whole number)" : ""}.`;
-      const twin = existing?.packagings?.find((entry) => (entry.brand ?? "").trim().toLowerCase() === pack.brand.trim().toLowerCase() && Number(entry.contentQuantity) === content);
-      if (twin) return `${twin.name} is already listed. Restock it instead.`;
+      // One package per brand and type on an item.
+      const twin = existing?.packagings?.find((entry) => packageStem(entry.name) === packageStem(packageNameOf(pack.brand, existing.item_name, content, unit, pack.type)));
+      if (twin) return `${twin.name} is already listed. Restock it, or pick another brand or type.`;
       if (packPrice !== null && !(packPrice >= 0)) return "The package price must be 0 or more.";
       if (!Number.isInteger(packCount) || packCount < 0) return "Packages on hand must be a whole number.";
       if (!(loose >= 0) || (whole && !Number.isInteger(loose))) return "The loose amount must be 0 or more.";
@@ -2189,7 +2300,7 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
     setError("");
     try {
       const itemName = existing?.item_name ?? detail.name.trim();
-      const packaging = { packaging_name: `${pack.brand.trim()} ${itemName} ${formatStock(content, unit)}`, brand: pack.brand.trim(), content_quantity: content, pack_price: packPrice };
+      const packaging = { packaging_name: packageNameOf(pack.brand, itemName, content, unit, pack.type), brand: pack.brand.trim(), content_quantity: content, pack_price: packPrice };
       const threshold = detail.threshold === "" ? null : Number(detail.threshold);
       if (kind === "packaged" && inside === "new") {
         await request("POST", "/api/inventory", {
@@ -2225,8 +2336,8 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
 
   const categoryList = <datalist id="inventory-category-options">{categories.map((category) => <option key={category} value={category} />)}</datalist>;
   const kindOptions: { id: NonNullable<AddPreset["kind"]>; title: string; text: string; example: string; Icon: React.FC<{ size?: number }> }[] = [
-    { id: "packaged", title: "A packaged product", text: "Bought in a bag, box, carton or case. You restock by package.", example: "Nescafe Bean Bag 1 kg → Coffee Bean (grams)", Icon: IconBox },
-    { id: "loose", title: "A loose item", text: "Counted directly, with no package to track.", example: "Ice (grams), Lemons (pieces)", Icon: IconTag },
+    { id: "packaged", title: "A packaged product", text: "Bought in a bag, box, carton or case. You restock by package.", example: "Nescafe · Bag · 1,000 grams → Coffee Bean (grams)", Icon: IconBox },
+    { id: "loose", title: "A loose item", text: "Bought loose, with no brand or package, like market produce or ice. You restock by amount and what you paid.", example: "Garlic (grams), Ice (grams), Lemons (pieces)", Icon: IconTag },
     { id: "portion", title: "A portion of an item", text: "Has no stock of its own. It is drawn from another item.", example: "Espresso Shot (mL) from Coffee Bean", Icon: IconLink },
   ];
 
@@ -2265,6 +2376,7 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
             <p className="inv-step-title"><span>2</span>The package you buy</p>
             <div className="inv-step-grid">
               <WizardField label="Brand"><input value={pack.brand} onChange={(event) => setPack((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></WizardField>
+              <WizardField label={<>Comes in {optionalTag}</>}><PackageTypeField value={pack.type} onChange={(type) => setPack((current) => ({ ...current, type }))} style={packagingInput} /></WizardField>
               <WizardField label={`One package contains (${unit})`}><input type="number" min={0} step={whole ? 1 : "any"} value={detail.content} onChange={(event) => update("content", wholeAware(event.target.value))} placeholder={whole ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></WizardField>
               <WizardField label={<>Price per package (₱) {optionalTag}</>} hint="Sets the item cost. Restocks update it as a weighted average."><MoneyField value={pack.price} onChange={(typed) => setPack((current) => ({ ...current, price: typed }))} placeholder="e.g. 850" style={packagingInput} /></WizardField>
             </div>
@@ -2486,7 +2598,7 @@ function StockGroupCard({ group, expanded, onToggle, actions, forecast, today }:
                 const price = toOptionalNumber(entry.lastPackPrice);
                 const contentQuantity = Number(entry.contentQuantity);
                 return <li key={entry.packagingId}>
-                  <div className="inv-pack-name"><strong>{entry.name}</strong>{entry.brand && <span className="inv-brand">{entry.brand}</span>}{index === 0 && entry.lastRestockedAt && <span className="inv-latest">last bought</span>}</div>
+                  <div className="inv-pack-name"><strong><PackageName pack={entry} item={item} /></strong>{index === 0 && entry.lastRestockedAt && <span className="inv-latest">last bought</span>}</div>
                   <span>{formatStock(contentQuantity, unit)} per pack{price !== null ? ` · ${peso(price)} (${formatPeso(price / contentQuantity)} per ${singularUnit(unit)})` : " · no price yet"}{entry.lastRestockedAt ? ` · restocked ${shiftTime(entry.lastRestockedAt)}` : ""}</span>
                 </li>;
               })}
@@ -2610,7 +2722,7 @@ function describeInventoryLog(log: InventoryLogEntry): string {
     case "restocked":
       return log.packaging_name
         ? `${inPacks(packs)}${toOptionalNumber(log.pack_price) !== null ? ` at ${peso(Number(log.pack_price))} each` : ""}${costChange}`
-        : `Added by amount${costChange}`;
+        : `Added by amount${toOptionalNumber(log.pack_price) !== null ? ` · ${peso(Number(log.pack_price))} paid` : ""}${costChange}`;
     case "created":
       return log.packaging_name ? `Started with ${inPacks(packs)}` : "New item";
     case "order_deduction": return log.order_id ? `Order #${log.order_id}` : "Order";
@@ -2735,6 +2847,8 @@ function InventoryHistory({ focus, onClearFocus }: { focus: { ids: number[]; lab
   const [typeFilter, setTypeFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [visible, setVisible] = useState(HISTORY_PAGE_SIZE);
+  // The entry opened in its own window, explained in full.
+  const [openLog, setOpenLog] = useState<InventoryLogEntry | null>(null);
   const [exportNote, setExportNote] = useState("");
 
   const start = range === "custom" ? custom.start : addDays(today, range === "today" ? 0 : 1 - Number(range));
@@ -2835,7 +2949,7 @@ function InventoryHistory({ focus, onClearFocus }: { focus: { ids: number[]; lab
                   const delta = Number(log.quantity_delta);
                   const tone = inventoryChangeTone[log.change_type] ?? "item";
                   const who = log.admin_name ?? (log.source_app === "mobile" ? "Mobile order" : "System");
-                  return <li key={log.log_id} className="invh-row">
+                  return <li key={log.log_id} className="invh-row is-clickable" role="button" tabIndex={0} title="Open this change" onClick={() => setOpenLog(log)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpenLog(log); } }}>
                     <span className="invh-time">{clockTime(log.created_at)}</span>
                     <span className={`invh-type is-${tone}`}>{inventoryChangeLabels[log.change_type] ?? log.change_type}</span>
                     <div className="invh-main">
@@ -2856,7 +2970,88 @@ function InventoryHistory({ focus, onClearFocus }: { focus: { ids: number[]; lab
             {shown.length > visible && <button type="button" className="inv-secondary" style={{ alignSelf: "center" }} onClick={() => setVisible((count) => count + HISTORY_PAGE_SIZE)}>Show {Math.min(HISTORY_PAGE_SIZE, shown.length - visible)} more of {shown.length - visible}</button>}
             {logs.length >= 5000 && <p className="inv-hint" style={{ textAlign: "center" }}>Only the latest 5,000 changes in this period are loaded. Pick a shorter range to see older ones.</p>}
           </div>}
+    {openLog && <HistoryEntryDialog log={openLog} onClose={() => setOpenLog(null)}
+      onShowItem={() => { setSearch(openLog.item_name); setTypeFilter("all"); setOpenLog(null); }}
+      onShowOrder={openLog.order_id ? () => { setSearch(`#${openLog.order_id}`); setTypeFilter("all"); setOpenLog(null); } : undefined} />}
   </div>;
+}
+
+// What each kind of change means, in a sentence, for the entry's window.
+const inventoryChangeMeaning: Record<string, string> = {
+  order_deduction: "Selling an order takes what its recipe uses out of stock by itself. Nobody typed this in.",
+  void_restore: "The order was voided before it was made, so what it used went back into stock.",
+  refund_restore: "The order was refunded before it was made, so what it used went back into stock.",
+  restocked: "Stock bought and added. The cost per unit becomes the average of the stock on hand and the new packs, weighted by amount.",
+  created: "The item was added to inventory with this starting stock.",
+  manual_edit: "Someone counted the stock and corrected the number by hand.",
+  written_off: "Stock that left without being sold. Its cost counts in Finance as stock written off.",
+  cost_updated: "Only the cost per unit changed. The amount in stock stayed the same.",
+  archived: "The item was hidden from the stock list and can be restored from Archives. Its stock did not change.",
+  restored: "The item was brought back from Archives. Its stock did not change.",
+};
+
+// One stock change, explained in full: what happened, by how much, who did it, from where, and why.
+function HistoryEntryDialog({ log, onClose, onShowItem, onShowOrder }: { log: InventoryLogEntry; onClose: () => void; onShowItem: () => void; onShowOrder?: () => void }) {
+  const unit = log.unit_of_measure;
+  const delta = Number(log.quantity_delta);
+  const amount = formatStock(Math.abs(delta), unit);
+  const who = log.admin_name ?? (log.source_app === "mobile" ? "A customer (mobile order)" : "The system");
+  const packs = toOptionalNumber(log.packs_added);
+  const packPrice = toOptionalNumber(log.pack_price);
+  const costBefore = toOptionalNumber(log.unit_cost_before);
+  const costAfter = toOptionalNumber(log.unit_cost_after);
+  const writeOffCost = toOptionalNumber(log.write_off_cost);
+  const per = singularUnit(unit);
+  const headline = (() => {
+    switch (log.change_type) {
+      case "order_deduction": return `Order #${log.order_id ?? "?"} used ${amount} of ${log.item_name}.`;
+      case "void_restore": return `${amount} of ${log.item_name} went back into stock when order #${log.order_id ?? "?"} was voided.`;
+      case "refund_restore": return `${amount} of ${log.item_name} went back into stock when order #${log.order_id ?? "?"} was refunded.`;
+      case "restocked": return `${who} restocked ${amount} of ${log.item_name}${packs && log.packaging_name ? `: ${packs} × ${log.packaging_name}` : ""}.`;
+      case "created": return `${who} added ${log.item_name} to inventory with ${amount}.`;
+      case "manual_edit": return `${who} changed ${log.item_name} by hand: ${delta >= 0 ? "+" : "−"}${amount}.`;
+      case "written_off": return `${who} wrote off ${amount} of ${log.item_name} (${writeOffReasonLabel(log.write_off_reason).toLowerCase()}).`;
+      case "cost_updated": return `${who} changed the cost of ${log.item_name}.`;
+      case "archived": return `${who} archived ${log.item_name}.`;
+      case "restored": return `${who} restored ${log.item_name}.`;
+      default: return `${inventoryChangeLabels[log.change_type] ?? log.change_type}: ${log.item_name}.`;
+    }
+  })();
+  const rows: [string, React.ReactNode][] = [
+    ["When", new Date(log.created_at).toLocaleString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })],
+    ["Item", `${log.item_name} · ${log.ingredient_category}`],
+    ...(log.change_type === "cost_updated" ? [] : [["Stock", <><b>{formatStock(Number(log.quantity_before), unit)}</b> → <b>{formatStock(Number(log.quantity_after), unit)}</b> <span style={{ color: delta > 0 ? "#15803D" : delta < 0 ? "#B91C1C" : "#9C8278", fontWeight: 700 }}>({delta > 0 ? "+" : delta < 0 ? "−" : "±"}{amount})</span></>] as [string, React.ReactNode]]),
+    ...(log.packaging_name ? [["Package", log.packaging_name] as [string, React.ReactNode]] : []),
+    ...(packs && log.packaging_name ? [["Packs", `${packs} × ${formatStock(Math.abs(delta) / packs, unit)}`] as [string, React.ReactNode]] : []),
+    ...(packPrice !== null ? [["Price", log.packaging_name ? `${peso(packPrice)} per pack${packs ? ` · ${peso(packPrice * packs)} in all` : ""}` : `${peso(packPrice)} paid in all (bought loose)`] as [string, React.ReactNode]] : []),
+    ...(costAfter !== null && (log.change_type === "restocked" || log.change_type === "cost_updated" || log.change_type === "created")
+      ? [["Cost per " + per, costBefore !== null && costBefore !== costAfter ? `${formatPeso(costBefore)} → ${formatPeso(costAfter)}` : formatPeso(costAfter)] as [string, React.ReactNode]] : []),
+    ...(log.change_type === "written_off" ? [["Reason", writeOffReasonLabel(log.write_off_reason)] as [string, React.ReactNode], ["Worth", writeOffCost !== null ? peso(writeOffCost) : "No cost set"] as [string, React.ReactNode]] : []),
+    ...(log.write_off_request_id ? [["Waste report", `#${log.write_off_request_id}, filed by staff and approved by an admin`] as [string, React.ReactNode]] : []),
+    ...(log.note ? [["Note", log.note] as [string, React.ReactNode]] : []),
+    ...(log.order_id ? [["Order", `#${log.order_id}`] as [string, React.ReactNode]] : []),
+    ["Done by", who],
+    ["From", `${sourceAppLabels[log.source_app] ?? log.source_app}${log.shift_id ? ` · shift #${log.shift_id}` : ""}`],
+  ];
+  return <Modal onClose={onClose} label="Stock change">
+    <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 520, maxHeight: "90vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <div className="flex items-start justify-between gap-3 px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5" }}>
+        <div>
+          <span className={`invh-type is-${inventoryChangeTone[log.change_type] ?? "item"}`}>{inventoryChangeLabels[log.change_type] ?? log.change_type}</span>
+          <p style={{ margin: "8px 0 0", fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F", lineHeight: 1.35 }}>{headline}</p>
+        </div>
+        <button type="button" onClick={onClose} title="Close" style={{ width: 30, height: 30, flexShrink: 0, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button>
+      </div>
+      <div className="flex flex-col gap-4 px-6 py-5" style={{ overflowY: "auto" }}>
+        <dl className="invh-detail">{rows.map(([label, value]) => <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}</dl>
+        {inventoryChangeMeaning[log.change_type] && <p className="invh-meaning">{inventoryChangeMeaning[log.change_type]}</p>}
+        <div className="flex flex-wrap justify-end gap-2">
+          {onShowOrder && <button type="button" className="inv-secondary" onClick={onShowOrder}>Everything order #{log.order_id} used</button>}
+          <button type="button" className="inv-secondary" onClick={onShowItem}>All changes to {log.item_name}</button>
+        </div>
+      </div>
+    </div>
+  </Modal>;
 }
 
 // ─── Write-offs: stock that leaves without being sold ─────────────────────────
@@ -3417,10 +3612,9 @@ function Inventory({
               <div className="inv-stat is-static"><span>Stock value</span><strong>{peso(summary.value)}</strong><em>items with a cost</em></div>
             </div>
 
-            {restockSoon.length > 0 && forecast && <section className="inv-forecast" aria-label="Restock soon">
-              <div className="inv-forecast-head">
-                <p><strong>Restock soon</strong><span>When each item reaches its low-stock alert at its pace of use. Worked out from your sales and waste, no AI.</span></p>
-              </div>
+            {restockSoon.length > 0 && forecast && <FoldBox title="Restock soon" className="inv-forecast"
+              summary={(() => { const now = restockSoon.filter((entry) => entry.restockBy && entry.restockBy <= forecast.today).length; return `${restockSoon.length} item${restockSoon.length === 1 ? "" : "s"}${now ? ` · ${now} to restock today` : ""} · first: ${restockSoon[0].item}, by ${forecastDay(restockSoon[0].restockBy ?? forecast.today, forecast.today)}`; })()}
+              note="When each item reaches its low-stock alert at its pace of use. Worked out from your sales and waste, no AI.">
               <ul>
                 {restockSoon.map((entry) => <li key={entry.inventoryId}>
                   <button type="button" onClick={() => { setFilter("search", entry.item); setExpanded((current) => new Set(current).add(entry.inventoryId)); }} title={confidenceText[entry.confidence]}>
@@ -3430,10 +3624,11 @@ function Inventory({
                   </button>
                 </li>)}
               </ul>
-            </section>}
+            </FoldBox>}
 
-            {forecast && <DashCard title="Holidays and events ahead: what to prepare"
-              sub={<>The next 45 days: Philippine holidays and your events in Promotions &amp; Events. Such a day is expected to be about <b>{forecast.rush}×</b> as busy ({forecast.rushBasis}). Worked out from your records, no AI. Claude can also chart this on Insights.</>}>
+            {forecast && <FoldBox title="Holidays and events ahead: what to prepare" className="inv-forecast is-plan"
+              summary={forecast.events.length === 0 ? "Nothing in the next 45 days" : `${forecast.events.length} in the next 45 days · next: ${forecast.events[0].name}, in ${forecast.events[0].daysAway} day${forecast.events[0].daysAway === 1 ? "" : "s"}${forecast.events.some((event) => event.stock.length > 0) ? " · stock to buy" : ""}`}
+              note={<>The next 45 days: Philippine holidays and your events in Promotions &amp; Events. Such a day is expected to be about <b>{forecast.rush}×</b> as busy ({forecast.rushBasis}). Worked out from your records, no AI. Claude can also chart this on Insights.</>}>
               {forecast.events.length === 0 ? <p className="inv-hint">No holidays or events in the next 45 days.</p> : <div className="ins-plan">
                 {forecast.events.map((event) => <article key={`${event.day}-${event.name}`} className="ins-plan-event">
                   <header><strong>{event.name}</strong><span>{forecastDay(event.day, forecast.today)}{event.endDay !== event.day ? ` to ${forecastDay(event.endDay, forecast.today)}` : ""} · in {event.daysAway} day{event.daysAway === 1 ? "" : "s"}{event.kind === "event" ? " · your event" : ""}</span></header>
@@ -3443,7 +3638,7 @@ function Inventory({
                   {event.products.length > 0 && <p className="ins-plan-make">Prepare for about: {event.products.slice(0, 4).map((product) => `${product.expected} ${product.product}`).join(" · ")} <em>(usually {event.products.slice(0, 4).map((product) => product.usual).join(" · ")} a day)</em></p>}
                 </article>)}
               </div>}
-            </DashCard>}
+            </FoldBox>}
 
             <div className="inv-toolbar">
               <div className="inv-search is-wide">
@@ -6523,9 +6718,9 @@ function FinanceOverview({ data, today, onOpenOrders, onOpenExpenses, onOpenInve
       </ul>
     </DashCard>}
 
-    {(data.stockBought ?? []).length > 0 && <DashCard title="Stock bought" action={onOpenInventory ? <DashLink label="Inventory" onClick={onOpenInventory} /> : undefined} sub={<>{peso((data.stockBought ?? []).reduce((sum, row) => sum + row.spent, 0))} spent on stock (restocks in Inventory, at their pack price). It is not taken off profit here: stock counts as a cost when it is sold (cost of goods) or written off.</>}>
+    {(data.stockBought ?? []).length > 0 && <DashCard title="Stock bought" action={onOpenInventory ? <DashLink label="Inventory" onClick={onOpenInventory} /> : undefined} sub={<>{peso((data.stockBought ?? []).reduce((sum, row) => sum + row.spent, 0))} spent on stock (restocks in Inventory: packs at their price, loose items at what was paid). It is not taken off profit here: stock counts as a cost when it is sold (cost of goods) or written off.</>}>
       <ul className="fin-simple-list">
-        {(data.stockBought ?? []).map((row) => <li key={row.item}><span><strong>{row.item}</strong><em>{row.packs} pack{row.packs === 1 ? "" : "s"} · {formatStock(row.quantity, row.unit)} · {row.entries} restock{row.entries === 1 ? "" : "s"}</em></span><strong>{peso(row.spent)}</strong></li>)}
+        {(data.stockBought ?? []).map((row) => <li key={row.item}><span><strong>{row.item}</strong><em>{row.packs > 0 ? `${row.packs} pack${row.packs === 1 ? "" : "s"} · ` : "bought loose · "}{formatStock(row.quantity, row.unit)} · {row.entries} restock{row.entries === 1 ? "" : "s"}</em></span><strong>{peso(row.spent)}</strong></li>)}
       </ul>
     </DashCard>}
     {(data.writeOffs ?? []).length > 0 && <DashCard title="Stock written off" sub={<>{peso(current.writtenOff ?? 0)} of stock that left without being sold, at its cost. Taken off net profit.{(current.uncostedWriteOffs ?? 0) > 0 ? ` ${current.uncostedWriteOffs} without a cost counted as ₱0.` : ""}</>}>
@@ -8441,6 +8636,18 @@ const STAFF_ROLE_OPTIONS: { id: StaffRole; title: string; description: string }[
   { id: "kitchen", title: "Kitchen staff", description: "Makes the food: sees only the kitchen queue. No register, cash or refunds." },
   { id: "rider", title: "Rider", description: "Only sees the deliveries: picks up, delivers, collects cash on delivery." },
 ];
+// A box that folds to one line (its title and a summary) and opens to show the rest.
+function FoldBox({ title, summary, note, className, children }: { title: string; summary: React.ReactNode; note: React.ReactNode; className?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <section className={`inv-fold ${className ?? ""}${open ? " is-open" : ""}`} aria-label={title}>
+    <button type="button" className="inv-fold-head" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+      <span><strong>{title}</strong><em>{summary}</em></span>
+      <span className="inv-chevron" style={{ transform: open ? "rotate(90deg)" : undefined }}><IconChevron size={16} /></span>
+    </button>
+    {open && <div className="inv-fold-body"><p className="inv-fold-note">{note}</p>{children}</div>}
+  </section>;
+}
+
 function staffRoleOf(role: string): StaffRole {
   const value = role.toLowerCase();
   return value === "barista" ? "barista" : value === "kitchen" ? "kitchen" : value === "rider" ? "rider" : value === "admin" ? "admin" : "cashier";
@@ -8646,9 +8853,9 @@ function EmployeeDialog({ account, now, exporting, onClose, onChanged, onReload,
 
   async function setRole(role: StaffRole) {
     if (role === staffRoleOf(account.role)) return;
-    if (role !== "cashier" && !(await confirmAction({ title: `Make ${account.fullName} a ${role}?`, message: role === "rider" ? "They will only see the deliveries. Their cashier permissions are turned off, and the register closes for them on their next tap." : role === "kitchen" ? "They will only see the kitchen queue. Their cashier permissions are turned off, and the register closes for them on their next tap." : "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: `Make ${role}`, tone: "default" }))) return;
+    if (role !== "cashier" && !(await confirmAction({ title: `Make ${account.fullName} a ${role}?`, message: role === "admin" ? "They can sign in to this admin app and change anything here, including other accounts. Their changes are recorded in the audit log." : role === "rider" ? "They will only see the deliveries. Their cashier permissions are turned off, and the register closes for them on their next tap." : role === "kitchen" ? "They will only see the kitchen queue. Their cashier permissions are turned off, and the register closes for them on their next tap." : "They will only see and manage the queue. Their cashier permissions are turned off, and the register closes for them on their next tap.", confirmLabel: `Make ${role}`, tone: "default" }))) return;
     const saved = await patch({ action: "set_role", role }, "role", "Could not change the role.");
-    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "barista" ? "Now a barista. They only see the queue." : role === "kitchen" ? "Now kitchen staff. They only see the kitchen queue." : role === "rider" ? "Now a rider. They only see the deliveries." : "Now a cashier. Turn on any permissions they need."); }
+    if (saved) { onChanged({ ...account, role: saved.role, canOpenShift: saved.canOpenShift, canCloseShift: saved.canCloseShift, canVoidOrders: saved.canVoidOrders, canRefundOrders: saved.canRefundOrders }); setNotice(role === "admin" ? "Now an admin. They can sign in to the admin app." : role === "barista" ? "Now a barista. They only see the queue." : role === "kitchen" ? "Now kitchen staff. They only see the kitchen queue." : role === "rider" ? "Now a rider. They only see the deliveries." : "Now a cashier. Turn on any permissions they need."); }
   }
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
@@ -11534,7 +11741,7 @@ function Accounts({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) =
   return <div className="inv-wrap">
     <div className="inv">
       <div className="inv-summary">
-        <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active staff</span><strong>{active.length}</strong><em>{accounts.length - active.length} deactivated</em></button>
+        <button type="button" className="inv-stat" aria-pressed={statusFilter === "active"} onClick={() => setStatusFilter("active")}><span>Active staff</span><strong>{active.filter((account) => staffRoleOf(account.role) !== "admin").length}</strong><em>{(() => { const admins = active.filter((account) => staffRoleOf(account.role) === "admin").length; return `plus ${admins} admin${admins === 1 ? "" : "s"} · ${accounts.length - active.length} deactivated`; })()}</em></button>
         <button type="button" className="inv-stat" aria-pressed={statusFilter === "duty"} onClick={() => setStatusFilter(statusFilter === "duty" ? "active" : "duty")}><span>On duty now</span><strong style={{ color: onDuty.length ? "#15803D" : undefined }}>{onDuty.length}</strong><em>{onDuty.length ? onDuty.map((account) => account.fullName.split(/\s+/)[0]).join(", ") : "Nobody is clocked in"}</em></button>
         <div className="inv-stat is-static"><span>Hours this week</span><strong>{formatHours(active.reduce((sum, account) => sum + account.stats.hoursThisWeek, 0))}</strong><em>all staff, since Monday</em></div>
         <div className="inv-stat is-static"><span>Can open the store</span><strong>{active.filter((account) => account.canOpenShift).length}</strong><em>{active.filter((account) => account.canCloseShift).length} can close the shift · plus every admin</em></div>
@@ -11563,15 +11770,17 @@ function Accounts({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) =
           <button type="button" className="inv-primary" onClick={() => setAdding(true)}><IconPlus size={15} />Add employee</button>
         </div>
           : shown.length === 0 ? <div className="inv-empty">No employees match. <button type="button" className="inv-link" onClick={() => { setSearch(""); setStatusFilter("all"); }}>Show everyone</button></div>
-            : <div className="acc-grid">
-              {shown.map((account) => <button key={account.id} type="button" className={`acc-card${account.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(account.id)}>
+            : <>{([["Admins", shown.filter((account) => staffRoleOf(account.role) === "admin")], ["Staff", shown.filter((account) => staffRoleOf(account.role) !== "admin")]] as const).map(([title, group]) => group.length > 0 && <section key={title} className="acc-section">
+              <p className="inv-section-label">{title}<span>{group.length}</span></p>
+              <div className="acc-grid">
+              {group.map((account) => <button key={account.id} type="button" className={`acc-card${account.isActive ? "" : " is-inactive"}`} onClick={() => setSelectedId(account.id)}>
                 <span className="acc-card-top">
                   <UserAvatar name={account.fullName} size={44} />
                   <span className="acc-card-name"><strong>{account.fullName}</strong><em>{account.email}</em><span className={`acc-role is-${staffRoleOf(account.role)}`}>{staffRoleLabel(account.role)}</span></span>
                   <span className={`acc-status ${!account.isActive ? "is-off" : account.onDutySince ? "is-on" : ""}`}><i />{!account.isActive ? "Deactivated" : account.onDutySince ? `On duty · ${clockTime(account.onDutySince)}` : "Off duty"}</span>
                 </span>
                 <span className="acc-perms">
-                  {staffRoleOf(account.role) !== "cashier" ? <span className="acc-perm is-on">✓ {staffRoleOf(account.role) === "rider" ? "Deliveries only" : staffRoleOf(account.role) === "kitchen" ? "Kitchen queue only" : "Queue only"}</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
+                  {staffRoleOf(account.role) !== "cashier" ? <span className="acc-perm is-on">✓ {staffRoleOf(account.role) === "admin" ? "Full access" : staffRoleOf(account.role) === "rider" ? "Deliveries only" : staffRoleOf(account.role) === "kitchen" ? "Kitchen queue only" : "Queue only"}</span> : ([["Open store", account.canOpenShift], ["Close shift", account.canCloseShift], ["Void", account.canVoidOrders], ["Refund", account.canRefundOrders]] as const).map(([label, allowed]) => <span key={label} className={`acc-perm${allowed ? " is-on" : ""}`}>{allowed ? "✓" : "✕"} {label}</span>)}
                 </span>
                 <span className="acc-card-stats">
                   <span><em>This week</em><strong>{formatHours(account.stats.hoursThisWeek)}</strong></span>
@@ -11580,7 +11789,8 @@ function Accounts({ onOpenSecurity }: { onOpenSecurity: (focus: SecurityFocus) =
                 </span>
                 <span className="acc-card-foot">{account.sessions && account.sessions.length > 0 ? `Signed in on ${account.sessions.length} device${account.sessions.length === 1 ? "" : "s"}` : account.lastSeenAt ? `Last active ${shiftTime(account.lastSeenAt)}` : "Has not signed in yet"}<span>Manage <IconChevron size={13} /></span></span>
               </button>)}
-            </div>}
+              </div>
+            </section>)}</>}
 
       <section className="acc-block acc-mine">
         <button type="button" className="acc-mine-toggle" aria-expanded={myActivityOpen} onClick={() => { const next = !myActivityOpen; setMyActivityOpen(next); if (next && !myActivity) void loadMyActivity(); }}>

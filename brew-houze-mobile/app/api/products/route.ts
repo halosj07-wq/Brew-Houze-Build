@@ -98,6 +98,10 @@ export async function GET() {
               'ingredients', COALESCE((
                 SELECT json_agg(json_build_object(
                   'inventoryId', vi.inventory_id,
+                  'name', i.item_name,
+                  -- Customers can ask for less or none of it (Inventory, per item); whole items only none.
+                  'customizable', COALESCE(i.is_customizable, FALSE),
+                  'whole', COALESCE(i.is_whole_unit, FALSE),
                   'requiredQuantity', vi.required_quantity,
                   'availableQuantity', CASE
                     WHEN i.derived_from_inventory_id IS NOT NULL THEN
@@ -124,13 +128,41 @@ export async function GET() {
       ORDER BY p.product_category ASC NULLS LAST, p.product_name ASC
     `);
 
+    // What comes in each bundle (bundle-products-migration.sql), in its order; none before that script.
+    type BundleItem = { name: string; detail: string; quantity: number; price: number };
+    const bundleItems = new Map<number, BundleItem[]>();
+    const hasBundles = await pool.query("SELECT to_regclass('public.product_bundle_items') IS NOT NULL AS ready").then((found) => Boolean(found.rows[0]?.ready)).catch(() => false);
+    if (hasBundles) {
+      const items = await pool.query(`
+        SELECT b.bundle_id, b.quantity, p.product_name, pv.size_label, pv.temperature, pv.price,
+          (SELECT COUNT(*) FROM product_variants o WHERE o.product_id = p.product_id AND o.is_archived = FALSE)::int AS sizes
+        FROM product_bundle_items b
+        JOIN product_variants pv ON pv.product_variant_id = b.product_variant_id
+        JOIN products p ON p.product_id = pv.product_id
+        ORDER BY b.bundle_id, b.sort_order
+      `);
+      for (const row of items.rows) {
+        // "12 oz Hot" only when the item comes in more than one size or temperature.
+        const size = row.size_label && row.size_label !== "Regular" ? String(row.size_label) : "";
+        const temperature = row.temperature === "hot" ? "Hot" : row.temperature === "cold" ? "Iced" : "";
+        const detail = Number(row.sizes) > 1 || size ? [size, temperature].filter(Boolean).join(" ") : "";
+        const list = bundleItems.get(Number(row.bundle_id)) ?? [];
+        list.push({ name: row.product_name, detail, quantity: Number(row.quantity), price: Number(row.price) });
+        bundleItems.set(Number(row.bundle_id), list);
+      }
+    }
+
     const data = result.rows.map((row) => ({
       id: Number(row.product_id),
       name: row.product_name,
       description: row.product_description || "Prepared fresh by Brew Houze.",
       category: row.product_category || "Menu",
       price: Number(row.price),
-      productType: row.product_type === "stock" ? "stock" : "recipe",
+      productType: row.product_type === "stock" ? "stock" : row.product_type === "bundle" ? "bundle" : "recipe",
+      ...(row.product_type === "bundle" ? (() => {
+        const items = bundleItems.get(Number(row.product_id)) ?? [];
+        return { bundleItems: items, separately: Math.round(items.reduce((sum, item) => sum + item.price * item.quantity, 0) * 100) / 100 };
+      })() : {}),
       station: row.station === "kitchen" ? "kitchen" : "bar",
       categoryOrder: row.category_order === null ? null : Number(row.category_order),
       recentSold: Number(row.recent_sold ?? 0),
@@ -155,7 +187,11 @@ export async function GET() {
     // How orders with drinks and food are picked up: "per_order" asks at checkout (together or separately).
     const pickup = await pool.query("SELECT setting_value FROM store_settings WHERE setting_key = 'pickup_mode'")
       .then((pickupResult) => String(pickupResult.rows[0]?.setting_value ?? "together")).catch(() => "together");
-    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open), payment, pickup }, {
+    // The quick request buttons (Admin, Menu, Requests), each for drinks (bar) or food (kitchen).
+    const requests = await pool.query("SELECT request_text, station FROM quick_requests ORDER BY request_id")
+      .then((found) => found.rows.map((row) => ({ text: String(row.request_text), station: row.station === "kitchen" ? "kitchen" : "bar" })))
+      .catch(() => []);
+    return NextResponse.json({ data, storeOpen: Boolean(shiftResult.rows[0]?.store_open), payment, pickup, requests }, {
       headers: {
         "Cache-Control": "public, max-age=5, stale-while-revalidate=30",
       },

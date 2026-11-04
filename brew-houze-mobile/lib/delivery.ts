@@ -63,7 +63,19 @@ export type DeliveryPlan = {
   customerId: number | null; addressId: number | null; recipientName: string; phone: string; street: string; landmark: string | null; riderNotes: string | null;
   zoneId: number; zoneName: string; zoneFee: number; zoneMinOrder: number | null; freeAbove: number | null;
   payment: DeliveryPayment; codMaxAmount: number | null;
+  // Where the customer is, from their phone (they chose to share it): the rider's map uses it in
+  // place of looking up the typed address. Absent on older checkouts.
+  pin?: { lat: number; lng: number; accuracy: number | null } | null;
 };
+
+// A shared location, kept only when it is a real spot in the Philippines; anything else is dropped.
+function readPin(raw: unknown): DeliveryPlan["pin"] {
+  const pin = (raw ?? null) as { lat?: unknown; lng?: unknown; accuracy?: unknown } | null;
+  if (!pin || typeof pin !== "object") return null;
+  const lat = Number(pin.lat), lng = Number(pin.lng), accuracy = pin.accuracy === null || pin.accuracy === undefined ? null : Number(pin.accuracy);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < 4 || lat > 22 || lng < 116 || lng > 127) return null;
+  return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6, accuracy: accuracy !== null && Number.isFinite(accuracy) && accuracy >= 0 ? Math.round(accuracy) : null };
+}
 export const ACTIVE_DELIVERY_STATUSES = ["preparing", "ready", "out"];
 
 type TypedAddress = { recipient_name?: unknown; phone?: unknown; zone_id?: unknown; street?: unknown; landmark?: unknown; rider_notes?: unknown };
@@ -95,7 +107,7 @@ async function typedAddress(db: Db, raw: TypedAddress) {
 // and zone are checked, and cash on delivery is open to anyone.
 export async function planDelivery(db: Db, customerId: number | null, input: unknown, options: { staff?: boolean } = {}): Promise<DeliveryPlan> {
   const staff = options.staff === true;
-  const raw = (input ?? {}) as { address_id?: unknown; address?: unknown; payment?: unknown };
+  const raw = (input ?? {}) as { address_id?: unknown; address?: unknown; payment?: unknown; pin?: unknown };
   const payment: DeliveryPayment = raw.payment === "cod" ? "cod" : "gcash";
   const settings = await deliverySettings(db);
   if (!staff) {
@@ -138,6 +150,7 @@ export async function planDelivery(db: Db, customerId: number | null, input: unk
     customerId, addressId: row.address_id === null ? null : Number(row.address_id), recipientName: String(row.recipient_name), phone: String(row.phone), street: String(row.street), landmark: (row.landmark as string | null) ?? null, riderNotes: (row.rider_notes as string | null) ?? null,
     zoneId: Number(row.zone_id), zoneName: String(row.zone_name), zoneFee: Number(row.fee), zoneMinOrder: row.min_order === null ? null : Number(row.min_order), freeAbove: settings.freeAbove,
     payment, codMaxAmount: payment === "cod" && !staff ? settings.cod.maxAmount : null,
+    pin: readPin(raw.pin),
   };
 }
 

@@ -701,3 +701,50 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .bh-bundle li button { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 10px; border: 1px solid #F3D9B1; background: #FFFFFF; color: #3D2B1F; font-size: 14px; font-weight: 600; cursor: pointer; }
 .bh-bundle-note { margin: 0; font-size: 12px; color: #9C8278; }
 .bh-bundle-tag { position: absolute; top: 8px; right: 8px; z-index: 1; padding: 3px 8px; border-radius: 999px; background: #C2410C; color: #FFFFFF; font-size: 10.5px; font-weight: 800; letter-spacing: .02em; pointer-events: none; }
+
+/* Combos: a strip at the top of the menu (both sides), their own chip, and what's inside in the item sheet. */
+.bh-combos { margin-top: 6px; }
+.bh-combos-head { display: flex; align-items: baseline; justify-content: space-between; margin: 18px 0 10px; }
+.bh-combos-head h2 { margin: 0; font-family: 'Gloock', serif; font-weight: 400; font-size: 21px; }
+.bh-combos-head button { padding: 4px 2px; color: var(--teal); background: none; border: 0; font-size: 13.5px; font-weight: 700; }
+.bh-row .bh-card.is-combo { flex: 0 0 min(82%, 320px); }
+.bh-card.is-combo .bh-card-photo { aspect-ratio: 4 / 3; }
+.bh-card.is-combo .bh-card-body small { -webkit-line-clamp: 2; }
+.bh-card.is-combo .bh-card-body b { display: flex; align-items: baseline; gap: 8px; }
+.bh-card.is-combo .bh-card-body s { color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.bh-combo-save { position: absolute; top: 8px; left: 8px; padding: 4px 10px; color: #FFFFFF; background: var(--teal); border-radius: 999px; font-size: 11.5px; font-weight: 800; }
+.bh-combo-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
+.bh-option-head .is-save { color: var(--teal); font-weight: 700; }
+.bh-inside { margin: 8px 0 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: #FFFFFF; }
+.bh-inside li { display: flex; align-items: center; gap: 10px; padding: 11px 14px; font-size: 14.5px; }
+.bh-inside li + li { border-top: 1px solid var(--line); }
+.bh-inside li b { min-width: 26px; color: var(--brown); font-weight: 800; }
+.bh-inside li span { display: flex; flex: 1; flex-direction: column; min-width: 0; font-weight: 600; }
+.bh-inside li small { color: var(--muted); font-size: 12px; font-weight: 500; }
+.bh-inside li em { color: var(--muted); font-size: 12.5px; font-style: normal; }
+.bh-inside-note { margin: 8px 2px 0; color: var(--muted); font-size: 12.5px; line-height: 1.45; }
+
+/* Checkout: the customer's location for the rider (optional). */
+.cart-pin { display: flex; flex-direction: column; gap: 4px; }
+.cart-pin.is-on { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 11px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 11px; color: #065f46; font-size: 13px; font-weight: 600; }
+.cart-pin.is-on button { padding: 0; color: #065f46; background: none; border: 0; font-weight: 700; text-decoration: underline; flex-shrink: 0; }
+.cart-pin-share { padding: 10px 12px; color: var(--brown); background: #fff; border: 1.5px dashed #d9c3b0; border-radius: 11px; font-size: 13.5px; font-weight: 700; text-align: left; }
+.cart-pin-share:disabled { opacity: 0.7; }
+.cart-pin small { color: var(--muted); font-size: 11.5px; line-height: 1.4; }
+
+/* Item sheet: special requests (less or none, quick requests, a note), folded until opened. */
+.bh-requests-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 12px 14px; color: var(--ink); text-align: left; background: #FFFFFF; border: 1px solid var(--line); border-radius: 12px; }
+.bh-requests-toggle > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.bh-requests-toggle strong { font-size: 15px; }
+.bh-requests-toggle small { overflow: hidden; color: var(--muted); font-size: 12.5px; white-space: nowrap; text-overflow: ellipsis; }
+.bh-requests-toggle b { display: grid; place-items: center; width: 28px; height: 28px; flex-shrink: 0; color: var(--brown); background: var(--brown-soft); border-radius: 50%; font-size: 18px; }
+.bh-requests-toggle.is-open { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.bh-requests { display: flex; flex-direction: column; gap: 12px; padding: 12px 14px 14px; background: #FFFFFF; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 12px 12px; }
+.bh-levels { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.bh-levels li { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; font-weight: 600; }
+.bh-levels .bh-segment { flex-shrink: 0; }
+.bh-request-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bh-request-chips button { padding: 7px 12px; color: var(--ink); background: var(--cream); border: 1px solid var(--line); border-radius: 999px; font-size: 13px; font-weight: 600; }
+.bh-request-chips button[aria-pressed="true"] { color: #FFFFFF; background: var(--brown); border-color: var(--brown); }
+.bh-request-note { width: 100%; padding: 10px 12px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 14.5px; }
+.bh-line-requests { display: block; color: var(--orange); font-weight: 600; }

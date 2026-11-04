@@ -857,3 +857,7 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .dlv-sharing { margin: 0; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; font-weight: 600; background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
 .dlv-sharing.is-denied, .dlv-sharing.is-unavailable { background: #FEF2F2; color: #B91C1C; border-color: #FECACA; }
 .dlv-sharing.is-off { background: #FFF7ED; color: #B45309; border-color: #FED7AA; }
+
+/* Combos: their own tab under Popular, apart from the drink and food categories. */
+.pos-cat.is-combos:not([aria-pressed="true"]) { border-color: #99F6E4; background: #F0FDFA; color: #0F766E; }
+.pos-cat.is-combos[aria-pressed="true"] { border-color: #0F766E; background: #0F766E; }

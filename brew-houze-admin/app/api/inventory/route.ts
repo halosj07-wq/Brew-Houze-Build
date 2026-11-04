@@ -380,6 +380,10 @@ async function patchHandler(request: Request) {
     // --- Branch 1: restock (add a positive quantity delta to a directly-stocked item) ---
     const quantityDelta = body?.quantity_delta === undefined ? null : Number(body.quantity_delta);
     if (body?.bind_edit !== true && Number.isInteger(Number(body?.inventory_id)) && quantityDelta !== null && Number.isFinite(quantityDelta) && quantityDelta > 0) {
+      // What it cost in all (optional; a loose item bought at the market): updates the unit cost as a
+      // weighted average, like a package, and counts in Finance as stock bought.
+      const totalPaid = body?.total_paid === undefined || body?.total_paid === null || body?.total_paid === "" ? null : Number(body.total_paid);
+      if (totalPaid !== null && !(Number.isFinite(totalPaid) && totalPaid >= 0)) return NextResponse.json({ error: "What you paid must be 0 or more." }, { status: 400 });
       const targetResult = await pool.query(
         `SELECT derived_from_inventory_id, (SELECT item_name FROM inventory p WHERE p.inventory_id = inventory.derived_from_inventory_id) AS derived_from_item_name
          FROM inventory WHERE inventory_id = $1 AND is_archived = FALSE`,
@@ -391,22 +395,27 @@ async function patchHandler(request: Request) {
       if (targetResult.rows[0].derived_from_inventory_id) {
         return NextResponse.json({ error: `This item's stock is bound to ${targetResult.rows[0].derived_from_item_name ?? "another item"}. Restock that item instead.` }, { status: 409 });
       }
+      const before = await pool.query("SELECT quantity, unit_cost FROM inventory WHERE inventory_id = $1", [Number(body.inventory_id)]);
+      const costBefore = before.rows[0]?.unit_cost === null || before.rows[0]?.unit_cost === undefined ? null : Number(before.rows[0].unit_cost);
+      const costAfter = totalPaid === null ? costBefore : weightedAverageUnitCost(Number(before.rows[0]?.quantity ?? 0), costBefore, quantityDelta, totalPaid);
       const stockResult = await pool.query(`
         UPDATE inventory
-        SET quantity = quantity + $1, updated_at = CURRENT_TIMESTAMP
+        SET quantity = quantity + $1, unit_cost = COALESCE($3, unit_cost), updated_at = CURRENT_TIMESTAMP
         WHERE inventory_id = $2
           AND is_archived = FALSE
           AND (NOT is_whole_unit OR $1::numeric = TRUNC($1::numeric))
         RETURNING inventory_id, ingredient_category, item_name, unit_of_measure, quantity
-      `, [quantityDelta, Number(body.inventory_id)]);
+      `, [quantityDelta, Number(body.inventory_id), totalPaid === null ? null : costAfter]);
       if (stockResult.rowCount === 0) {
         return NextResponse.json({ error: "Inventory item not found or quantity is invalid for its unit." }, { status: 400 });
       }
       const restockedItem = stockResult.rows[0];
+      // (what was paid is kept as one "pack" with no package, so Finance's Stock bought counts it)
       await pool.query(`
-        INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
-        VALUES ($1, $2, $3, $4, 'restocked', $5, $6, $7, $8, 'admin')
-      `, [restockedItem.inventory_id, restockedItem.item_name, restockedItem.ingredient_category, restockedItem.unit_of_measure, Number(restockedItem.quantity) - quantityDelta, restockedItem.quantity, quantityDelta, await getAdminId()]);
+        INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app, unit_cost_before, unit_cost_after, packs_added, pack_price)
+        VALUES ($1, $2, $3, $4, 'restocked', $5, $6, $7, $8, 'admin', $9, $10, $11, $12)
+      `, [restockedItem.inventory_id, restockedItem.item_name, restockedItem.ingredient_category, restockedItem.unit_of_measure, Number(restockedItem.quantity) - quantityDelta, restockedItem.quantity, quantityDelta, await getAdminId(),
+        totalPaid === null ? null : costBefore, totalPaid === null ? null : costAfter, totalPaid === null ? null : 1, totalPaid]);
       return NextResponse.json({ data: await loadInventoryItem(Number(restockedItem.inventory_id)) });
     }
 

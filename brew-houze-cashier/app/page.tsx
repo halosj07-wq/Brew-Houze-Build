@@ -670,6 +670,8 @@ function AccountPage({ user, onSignOut }: { user: Session; onSignOut: () => void
 
 const ADDONS_TAB = "__addons__";
 const POPULAR_TAB = "__popular__";
+// Combos (bundles): their own tab, apart from the drink and food categories.
+const COMBOS_TAB = "__combos__";
 // How many best sellers the Popular tab shows.
 const POPULAR_COUNT = 12;
 
@@ -2131,7 +2133,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   // "count" is how many of this add-on go on EACH cup of the line (Double Shot x2 per cup).
   type CartAddition = Addition & { count: number };
   // rewardId: a loyalty reward line (one item, free, paid with stars; its add-ons are still charged).
-  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean; customizations?: LineCustomization[]; note?: string };
+  type CartItem = { key: string; productId: number; variantId: number | null; name: string; size?: string | null; temperature?: "hot" | "cold" | "both" | null; isRecipe: boolean; isBundle?: boolean; qty: number; price: number; ingredients: Ingredient[]; additions: CartAddition[]; rewardId?: number; rewardName?: string; rewardCost?: number; rewardBirthday?: boolean; customizations?: LineCustomization[]; note?: string };
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingOut, setCheckingOut] = useState(false);
@@ -2539,7 +2541,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       if (isRecipe) setSelectedKey(plain.key);
       return;
     }
-    setCart((prev) => [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, temperature: variant?.temperature, isRecipe, qty: 1, price, ingredients: variant?.ingredients ?? [], additions: [] }]);
+    setCart((prev) => [...prev, { key, productId: product.product_id, variantId, name: product.product_name, size: variant?.size_label ?? null, temperature: variant?.temperature, isRecipe, isBundle: product.product_type === "bundle", qty: 1, price, ingredients: variant?.ingredients ?? [], additions: [] }]);
     // A newly punched drink becomes the target for the add-ons tapped next.
     if (isRecipe) setSelectedKey(key);
   }
@@ -3037,7 +3039,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   // categories of ready-made items only (bottled drinks, pastries) last.
   const categoryOf = (product: Product) => product.product_category?.trim() || "Other";
   const categoryInfo = new Map<string, { order: number; bar: number; kitchen: number; count: number; madeToOrder: boolean }>();
-  for (const product of products) {
+  for (const product of products.filter((entry) => entry.product_type !== "bundle")) {
     const name = categoryOf(product);
     const info = categoryInfo.get(name) ?? { order: Number.MAX_SAFE_INTEGER, bar: 0, kitchen: 0, count: 0, madeToOrder: false };
     if (product.product_type !== "stock") info.madeToOrder = true;
@@ -3056,11 +3058,12 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   const categories = categoryGroups.flatMap((group) => group.categories.map((category) => category.name));
   // Best sellers of the last 30 days, so most orders are punched without changing tabs.
   const popular = products.filter((product) => (product.recent_sold ?? 0) > 0).sort((a, b) => (b.recent_sold ?? 0) - (a.recent_sold ?? 0) || a.product_name.localeCompare(b.product_name)).slice(0, POPULAR_COUNT);
-  const currentCategory = (activeCategory === POPULAR_TAB && popular.length > 0) || activeCategory === ADDONS_TAB || categories.includes(activeCategory) ? activeCategory : popular.length > 0 ? POPULAR_TAB : categories[0] ?? ADDONS_TAB;
+  const combos = products.filter((product) => product.product_type === "bundle");
+  const currentCategory = (activeCategory === POPULAR_TAB && popular.length > 0) || (activeCategory === COMBOS_TAB && combos.length > 0) || activeCategory === ADDONS_TAB || categories.includes(activeCategory) ? activeCategory : popular.length > 0 ? POPULAR_TAB : categories[0] ?? ADDONS_TAB;
   // Searching looks across every category and the add-ons; otherwise only the active tab is shown.
   const searching = search.trim() !== "";
   const filteredAdditions = additions.filter((addition) => forSelected(addition) && addition.addition_name.toLowerCase().includes(search.toLowerCase().trim()));
-  const visibleProducts = searching ? filtered : currentCategory === POPULAR_TAB ? popular : products.filter((product) => categoryOf(product) === currentCategory);
+  const visibleProducts = searching ? filtered : currentCategory === POPULAR_TAB ? popular : currentCategory === COMBOS_TAB ? combos : products.filter((product) => product.product_type !== "bundle" && categoryOf(product) === currentCategory);
   // The category tag on a card is only needed when the list mixes categories.
   const mixedList = searching || currentCategory === POPULAR_TAB;
   const visibleAdditions = searching ? filteredAdditions : currentCategory === ADDONS_TAB ? additions.filter(forSelected) : [];
@@ -3168,6 +3171,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       <div className="pos-menu-body">
       <nav className="pos-cat-rail" aria-label="Product categories">
         {popular.length > 0 && <button type="button" className="pos-cat is-popular" aria-pressed={!searching && currentCategory === POPULAR_TAB} onClick={() => { setActiveCategory(POPULAR_TAB); setSearch(""); }}><span>⭐ Popular</span><em>{popular.length}</em></button>}
+        {combos.length > 0 && <button type="button" className="pos-cat is-combos" aria-pressed={!searching && currentCategory === COMBOS_TAB} onClick={() => { setActiveCategory(COMBOS_TAB); setSearch(""); }}><span>🍱 Combos</span><em>{combos.length}</em></button>}
         {categoryGroups.map((group) => <div key={group.station} className="pos-cat-group" role="group" aria-label={group.label}>
           {categoryGroups.length > 1 && <p className="pos-cat-label">{group.icon} {group.label}</p>}
           {group.categories.map((category) => <button key={category.name} type="button" className="pos-cat" aria-pressed={!searching && currentCategory === category.name} onClick={() => { setActiveCategory(category.name); setSearch(""); }}><span>{category.name}</span><em>{category.count}</em></button>)}
@@ -3362,7 +3366,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
                   </div>)}
                 </div>}
                 {lineCustomText(item) && <div className="pos-line-custom">✎ {lineCustomText(item)}{item.qty > 1 ? " (each)" : ""}</div>}
-                {item.isRecipe && <button type="button" className="pos-customize-link" onClick={(event) => { event.stopPropagation(); setCustomizeKey(item.key); }}>{lineCustomText(item) ? "Change requests" : "Customize"}</button>}
+                {(item.isRecipe || item.isBundle) && <button type="button" className="pos-customize-link" onClick={(event) => { event.stopPropagation(); setCustomizeKey(item.key); }}>{lineCustomText(item) ? "Change requests" : "Customize"}</button>}
                 {isSelected && <div style={{ marginTop: 5, fontSize: 10, fontWeight: 700, color: "#D97706", textTransform: "uppercase", letterSpacing: "0.04em" }}>Add-ons go to this item</div>}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -3472,7 +3476,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     {customizeKey && (() => {
       const line = cart.find((item) => item.key === customizeKey);
       const lineStation = products.find((product) => product.product_id === line?.productId)?.station ?? "bar";
-      return line ? <CustomizeDialog key={line.key} requests={quickRequests.filter((request) => request.station === lineStation).map((request) => request.text)} title={getLineLabel(line)} quantity={line.qty} ingredients={line.ingredients} customizations={line.customizations ?? []} note={line.note ?? ""} onClose={() => setCustomizeKey(null)} onSave={(customizations, note, justOne) => saveCustomization(line.key, customizations, note, justOne)} /> : null;
+      // A combo has a drink and a food: both kinds of requests (each goes to its own item on the queue).
+      return line ? <CustomizeDialog key={line.key} requests={quickRequests.filter((request) => line.isBundle || request.station === lineStation).map((request) => request.text)} title={getLineLabel(line)} quantity={line.qty} ingredients={line.ingredients} customizations={line.customizations ?? []} note={line.note ?? ""} onClose={() => setCustomizeKey(null)} onSave={(customizations, note, justOne) => saveCustomization(line.key, customizations, note, justOne)} /> : null;
     })()}
     {claimAsk && <Modal onClose={() => setClaimAsk(null)} label="Is this their order?">
       <section className="pos-customer-dialog pos-claim-ask">

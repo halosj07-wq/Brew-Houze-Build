@@ -25,6 +25,16 @@ const BUNDLE_LINES = `JOIN products detail_sold ON detail_sold.product_id = deta
             JOIN products bundle_product ON bundle_product.product_id = bundle_variant.product_id
             WHERE detail_sold.product_type = 'bundle' AND bundle_item.bundle_id = detail_item.product_id
           ) detail_line`;
+// A combo item's requests: "Part of" the combo, then the combo's ingredient changes that are in this
+// item's own recipe (No Egg goes to the Tapsilog), and its notes, less the quick requests made for the
+// other station (Less ice goes to the drink only; a typed note goes to every item).
+const BUNDLE_CUSTOM = `CONCAT_WS(' · ', 'Part of ' || detail_line.part_of,
+              (SELECT STRING_AGG(CASE WHEN custom->>'level' = 'none' THEN 'No ' ELSE 'Less ' END || (custom->>'name'), ', ')
+                FROM jsonb_array_elements(COALESCE(detail_item.customizations, '[]'::jsonb)) custom
+                WHERE EXISTS (SELECT 1 FROM variant_ingredients own WHERE own.product_variant_id = detail_line.variant_id AND own.inventory_id = (custom->>'inventory_id')::int)),
+              (SELECT STRING_AGG(note_part, ', ')
+                FROM (SELECT TRIM(raw_part) AS note_part FROM unnest(string_to_array(COALESCE(detail_item.item_note, ''), ',')) raw_part) note_parts
+                WHERE note_part <> '' AND NOT EXISTS (SELECT 1 FROM quick_requests other WHERE LOWER(other.request_text) = LOWER(note_part) AND other.station <> COALESCE(detail_line.station, 'bar'))))`;
 let bundlesReady = false;
 async function bundleLines(): Promise<boolean> {
   if (bundlesReady) return true;
@@ -105,7 +115,7 @@ export async function GET(request: Request) {
             'size_label', detail_variant.size_label,
             'temperature', detail_variant.temperature,
             'quantity', detail_line.quantity,
-            'custom', CASE WHEN detail_line.part_of IS NOT NULL THEN 'Part of ' || detail_line.part_of ELSE ${customTextSql("detail_item")} END,
+            'custom', CASE WHEN detail_line.part_of IS NOT NULL THEN ${bundles ? BUNDLE_CUSTOM : "'Part of ' || detail_line.part_of"} ELSE ${customTextSql("detail_item")} END,
             'station', COALESCE(detail_line.station, 'bar'),
             'additions', COALESCE((
               SELECT json_agg(json_build_object(
