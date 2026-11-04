@@ -82,13 +82,14 @@
     lucy: { name: "Lucy", hangul: "ルーシー", short: "Netrunner", real: "Lucyna Kushinada", role: "Netrunner",
       chrome: "Cyberdeck · monowire", cv: "Aoi Yūki · Emi Lo", status: "ALIVE · LUNA", line: "She made it to the moon. He is in every memory she plays back." },
   };
-  // Project B.A.R.I.S.T.A.'s three, for Defended (the paper this café's system was built for): each with a version of
-  // the theme of their own. No photos yet: temporary art on their cards (a silhouette in their version's look, an
-  // approval sheet signed on the back).
+  // Project B.A.R.I.S.T.A.'s four, for Defended (the paper this café's system was built for): each with a version of
+  // the theme of their own (their photo on the front of their card, in their version's look; an approval sheet
+  // signed on the back). No one's left behind: Romer joined them last.
   const DF_MEMBERS = {
     tin: { name: "Tin", hangul: "vampire · gothic", short: "Lead Developer", role: "Lead Developer", real: "Tin" },
     cheng: { name: "Cheng", hangul: "rhythm", short: "Documentation", role: "Documentation", real: "Kristian" },
     andrei: { name: "Andrei", hangul: "dream sky", short: "Documentation", role: "Documentation", real: "Andrei" },
+    romer: { name: "Romer", hangul: "night ride", short: "Finance", role: "Finance", real: "Romer" },
   };
   // A theme's group (THEMES[x].group, aespa when unset): its name and members, in their order (brand: the brand line
   // of a theme that is not a collab, in place of "Brew Houze × the group").
@@ -15322,6 +15323,8 @@
     let state = "idle"; // idle, ready, play, result
     let pass = null, pad = null, button = null, result = null, live = null;
     const cursor = { x: -1, y: -1, trail: [], shown: false };
+    // (the cover's equalizer, its bars' heights; the chapters' hit rings; the pointer's trail while the map is not on)
+    let eq = null, eqSeen = null, eqBars = [], eqSix = -1, rings = [], idleTrail = [];
     const keys = new Set(); // (keys, buttons and touches held)
     const presses = []; // [{ t, x, y }] not yet judged
     const resize = () => {
@@ -15509,9 +15512,9 @@
     const start = () => {
       if (state !== "idle") return;
       result?.remove(); result = null;
-      // on the next phrase's downbeat at least a second and a quarter away (its first circle has to come in)
+      // on the next phrase's downbeat with room for the whole count (3, 2, 1, GO!: four beats) and a moment of READY
       const now = musicNow(), phrase = 16 * DF_BEAT, inLoop = ((now % DF_TRACK) + DF_TRACK) % DF_TRACK;
-      let next = Math.ceil((inLoop + 1.25) / phrase) * phrase;
+      let next = Math.ceil((inLoop + 4 * DF_BEAT + 0.6) / phrase) * phrase;
       const fromSix = Math.round(next / CH_SIX) % 256;
       pass = buildPass(now - inLoop + next, fromSix);
       presses.length = 0;
@@ -15560,7 +15563,10 @@
       keys.add(`p${event.pointerId}:${event.button}`);
       press(event.timeStamp, event.clientX, event.clientY);
     };
-    const move = (event) => { if (pad) point(event); else if (event.pointerType === "mouse") { cursor.x = event.clientX; cursor.y = event.clientY; } };
+    const move = (event) => {
+      if (pad) point(event);
+      else if (event.pointerType === "mouse") { cursor.x = event.clientX; cursor.y = event.clientY; idleTrail.push({ x: event.clientX, y: event.clientY, t: performance.now() }); if (idleTrail.length > 40) idleTrail.shift(); }
+    };
     const up = (event) => { for (const k of [...keys]) if (k.startsWith(`p${event.pointerId}:`)) keys.delete(k); };
     const key = (event) => {
       if (event.repeat || event.target.matches?.("input, textarea")) return;
@@ -15679,17 +15685,31 @@
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, canvas.width, canvas.height);
       g.setTransform(ratio, 0, 0, ratio, 0, 0);
-      if (state === "idle" || state === "result") { attract(now); return; }
+      if (state === "idle" || state === "result") { attract(now); drawIdleTrail(); return; }
       const p = pass, s = field.s;
       // the page dimmed under the field
       g.fillStyle = "rgba(6, 9, 20, 0.82)"; g.fillRect(0, 0, W, H);
-      if (state === "ready") {
-        const left = p.objects[0].t - now, [cx, cy] = toScreen(256, 192);
-        g.textAlign = "center"; g.fillStyle = "#FFFFFF"; g.font = `800 ${Math.round(46 * Math.min(1.4, s))}px ${CH_FONT}`;
-        g.fillText(left > 3 * DF_BEAT ? "READY" : String(Math.max(1, Math.ceil(left / DF_BEAT))), cx, cy);
-        g.font = `600 15px ${CH_FONT}`; g.fillStyle = "#9FE6FF";
-        g.fillText(soundWanted() ? "oh yeah? · Steve Lacy · [Defended]" : "oh yeah? · [Defended] · the sound is off", cx, cy + 32);
-        g.textAlign = "left";
+      // READY, then the count on the beat into the map's first downbeat: 3, 2, 1, GO! (each with a pulse), kept up
+      // until that downbeat, under the circles already coming in (at AR 9 the first shows during the GO).
+      const left = p.objects[0].t - now;
+      if (left > 0 && (state === "ready" || state === "play")) {
+        const [cx, cy] = toScreen(256, 192), beats = left / DF_BEAT;
+        const word = beats > 4 ? "READY" : beats > 1 ? String(Math.ceil(beats) - 1) : "GO!";
+        // (how far into its beat: a swell on the beat, settling)
+        const into = beats > 4 ? 1 : 1 - (beats - Math.floor(beats) || 1), swell = 1 + 0.32 * (1 - Math.min(1, into * 3)) ** 2;
+        g.save();
+        g.translate(cx, cy); g.scale(swell, swell);
+        g.globalAlpha = state === "play" ? 0.75 : 1;
+        g.textAlign = "center"; g.textBaseline = "middle";
+        g.shadowColor = word === "GO!" ? "rgba(162, 60, 240, 0.9)" : "rgba(47, 199, 247, 0.85)"; g.shadowBlur = 22;
+        g.fillStyle = "#FFFFFF"; g.font = `800 ${Math.round((beats > 4 ? 46 : 64) * Math.min(1.4, s))}px ${CH_FONT}`;
+        g.fillText(word, 0, 0);
+        g.restore();
+        if (beats > 4) {
+          g.textAlign = "center"; g.font = `600 15px ${CH_FONT}`; g.fillStyle = "#9FE6FF";
+          g.fillText(soundWanted() ? "oh yeah? · Steve Lacy · [Defended]" : "oh yeah? · [Defended] · the sound is off", cx, cy + 36);
+          g.textAlign = "left";
+        }
       }
       // the objects in sight, the later ones under the earlier
       const shown = p.objects.filter((o) => now >= o.t - CH_PRE - 0.05 && now <= (o.end ?? o.t) + 0.4);
@@ -15718,6 +15738,57 @@
         g.fillStyle = held() ? "#A23CF0" : "#2FC7F7"; g.beginPath(); g.arc(cursor.x, cursor.y, 5, 0, Math.PI * 2); g.fill();
       }
     };
+    // (idle, on a computer: the pointer leaves a short neon trail over the page, purple fading into cyan, as the
+    // game's cursor does; gone a quarter of a second after it stops)
+    const drawIdleTrail = () => {
+      const nowMs = performance.now();
+      idleTrail = idleTrail.filter((p) => nowMs - p.t < 240);
+      if (idleTrail.length < 2) return;
+      g.lineCap = "round";
+      for (let i = 1; i < idleTrail.length; i++) {
+        const a = idleTrail[i - 1], b = idleTrail[i], q = 1 - (nowMs - b.t) / 240;
+        g.strokeStyle = `rgba(${Math.round(162 + (47 - 162) * q)}, ${Math.round(60 + (199 - 60) * q)}, ${Math.round(240 + (247 - 240) * q)}, ${(0.6 * q).toFixed(3)})`;
+        g.lineWidth = 1 + 5 * q;
+        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+      }
+      const head = idleTrail.at(-1);
+      if (nowMs - head.t < 90) {
+        const glow = g.createRadialGradient(head.x, head.y, 0, head.x, head.y, 12);
+        glow.addColorStop(0, "rgba(47, 199, 247, 0.45)"); glow.addColorStop(1, "rgba(47, 199, 247, 0)");
+        g.fillStyle = glow; g.beginPath(); g.arc(head.x, head.y, 12, 0, Math.PI * 2); g.fill();
+      }
+    };
+    // The cover's equalizer along its foot: neon bars thrown up on the groove's hits (higher in the middle, on 0 and 8
+    // the most), settling between them; drawn only while the cover is on screen.
+    const eqDraw = (dt) => {
+      if (!eq || !eqBars.length) return;
+      const box = eq.getBoundingClientRect();
+      for (let i = 0; i < eqBars.length; i++) eqBars[i] *= Math.exp(-dt * 5.5);
+      if (box.bottom < 0 || box.top > H || !box.width) return;
+      const r = Math.min(window.devicePixelRatio || 1, 1.5), w = Math.round(box.width * r), h = Math.round(box.height * r);
+      if (eq.width !== w || eq.height !== h) { eq.width = w; eq.height = h; }
+      const c = eq.getContext("2d"), n = eqBars.length, gap = 3 * r, bw = (w - gap * (n - 1)) / n;
+      c.clearRect(0, 0, w, h);
+      const fill = c.createLinearGradient(0, h, 0, 0);
+      fill.addColorStop(0, "rgba(47, 199, 247, 0.65)"); fill.addColorStop(1, "rgba(162, 60, 240, 0.85)");
+      c.fillStyle = fill;
+      for (let i = 0; i < n; i++) { const bh = Math.max(2 * r, eqBars[i] * h); c.fillRect(i * (bw + gap), h - bh, bw, bh); }
+    };
+    const eqHit = (strong) => {
+      const n = eqBars.length;
+      for (let i = 0; i < n; i++) {
+        const shape = 0.55 + 0.45 * Math.sin((Math.PI * i) / Math.max(1, n - 1));
+        eqBars[i] = Math.max(eqBars[i], (strong ? 0.5 : 0.28) * shape + Math.random() * (strong ? 0.5 : 0.3));
+      }
+    };
+    // a hit ring bursting from each chapter's number on screen (the downbeats)
+    const ringsPulse = () => {
+      for (const ring of rings) {
+        const box = ring.parentElement?.getBoundingClientRect();
+        if (!box || box.bottom < 0 || box.top > H) continue;
+        ring.animate([{ transform: "scale(0.7)", opacity: 0.95 }, { transform: "scale(3.4)", opacity: 0 }], { duration: 760, easing: "cubic-bezier(0.2, 0.7, 0.3, 1)" });
+      }
+    };
     // (idle: the cover's circles hit in turn on the groove's hits, their approach rings closing as the hit comes)
     let tb = null;
     const attract = (now) => {
@@ -15744,6 +15815,19 @@
         resize();
         window.addEventListener("resize", resize);
         title ??= dfHeaderTitle("PROJECT B.A.R.I.S.T.A., its dots hit circles, and under it a slider: defended", chTitleArt, CH_FONTS);
+        const hero = document.querySelector(".hero");
+        if (hero && !eq) {
+          eq = document.createElement("canvas");
+          eq.className = "ch-eq";
+          eq.setAttribute("aria-hidden", "true");
+          hero.append(eq);
+          const count = () => { eqBars = Array.from({ length: Math.max(16, Math.min(64, Math.round((eq?.getBoundingClientRect().width ?? 0) / 22))) }, () => 0.04); };
+          eqSeen = new ResizeObserver(count);
+          eqSeen.observe(eq);
+          count();
+        }
+        rings = [...document.querySelectorAll(".section-head")].map((head) => { const ring = document.createElement("i"); ring.className = "ch-ring"; ring.setAttribute("aria-hidden", "true"); head.prepend(ring); return ring; });
+        eqSix = -1; idleTrail = [];
         synced = false; loops = 0; lastAt = -1; state = "idle";
         button = document.createElement("button");
         button.type = "button";
@@ -15771,6 +15855,16 @@
         last = nowMs;
         if (state === "ready" && pass && now >= pass.objects[0].t - CH_PRE - 0.2) { setState("play"); if (live) live.textContent = "Playing."; }
         if (state === "play" && pass) step(now, dt);
+        // the groove's hits: the equalizer thrown up; on the downbeats the chapters' rings
+        if (at >= 0) {
+          const six = Math.floor(at / CH_SIX);
+          if (six !== eqSix) {
+            const s16 = ((six % 16) + 16) % 16;
+            if (eqSix >= 0 && [0, 4, 8, 14].includes(s16)) { eqHit(s16 === 0 || s16 === 8); if (s16 === 0 && state !== "play") ringsPulse(); }
+            eqSix = six;
+          }
+        }
+        eqDraw(dt);
         draw(now);
       },
       unmount() {
@@ -15786,6 +15880,8 @@
         root.classList.remove("ch-playing");
         title?.remove(); title = null;
         pass = null; state = "idle"; canvas = null; g = null; keys.clear(); presses.length = 0;
+        eqSeen?.disconnect(); eqSeen = null; eq?.remove(); eq = null; eqBars = [];
+        rings.forEach((ring) => ring.remove()); rings = []; idleTrail = [];
         delete window.__chDebug;
       },
     };
@@ -15891,6 +15987,18 @@
     const sea = g.createLinearGradient(0, horizon, 0, h);
     [[0, "#F7D3D6"], [0.35, "#D9B2D9"], [1, "#9C8CCB"]].forEach(([at, color]) => sea.addColorStop(at, color));
     g.fillStyle = sea; g.fillRect(0, horizon, w, h - horizon);
+    // a crescent moon high on the right, its halo round it
+    const moonX = w * 0.88, moonY = horizon * 0.2, moonR = Math.max(12, Math.min(26, w * 0.016));
+    const halo = g.createRadialGradient(moonX, moonY, moonR * 0.5, moonX, moonY, moonR * 4);
+    halo.addColorStop(0, "rgba(255, 250, 255, 0.5)"); halo.addColorStop(1, "rgba(255, 250, 255, 0)");
+    g.fillStyle = halo; g.fillRect(moonX - moonR * 4, moonY - moonR * 4, moonR * 8, moonR * 8);
+    const moon = document.createElement("canvas"), ms = 3;
+    moon.width = moon.height = Math.ceil((moonR * 2 + 4) * ms);
+    const mc = moon.getContext("2d");
+    mc.scale(ms, ms);
+    mc.fillStyle = "#FFFBFF"; mc.beginPath(); mc.arc(moonR + 2, moonR + 2, moonR, 0, Math.PI * 2); mc.fill();
+    mc.globalCompositeOperation = "destination-out"; mc.beginPath(); mc.arc(moonR + 2 + moonR * 0.5, moonR + 2 - moonR * 0.22, moonR * 0.9, 0, Math.PI * 2); mc.fill();
+    g.drawImage(moon, moonX - moonR - 2, moonY - moonR - 2, moonR * 2 + 4, moonR * 2 + 4);
     // clouds: soft lumps of light, a bank of them on the horizon
     const cloud = (cx, cy, rx, ry, alpha) => {
       g.save(); g.translate(cx, cy); g.scale(1, ry / rx);
@@ -15936,7 +16044,12 @@
 
   const andreiStage = (() => {
     let canvas = null, g = null, W = 0, H = 0, ratio = 1, title = null, sky = null, skySeen = null, last = 0, lastSix = -1, fresh = false;
-    let bubbles = [], bursts = [], twinkles = [], held = null, swallow = null, nextBig = 0;
+    let bubbles = [], bursts = [], twinkles = [], held = null, swallow = null, nextBig = 0, shooters = [];
+    // a shooting star across the top of the sky, down and to the left (one by itself every four bars, now and then
+    // another on a big hit)
+    const shoot = (now) => {
+      shooters.push({ born: now, x: W * (0.45 + Math.random() * 0.5), y: H * (0.04 + Math.random() * 0.2), a: Math.PI * (0.8 + Math.random() * 0.08), len: 110 + Math.random() * 110, run: Math.min(W, 900) * (0.4 + Math.random() * 0.25) });
+    };
     // the sky behind the header, drawn at its size
     const drawSky = () => {
       const hero = document.querySelector(".hero");
@@ -16042,6 +16155,16 @@
       g.setTransform(1, 0, 0, 1, 0, 0);
       g.clearRect(0, 0, canvas.width, canvas.height);
       g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      shooters = shooters.filter((st) => now - st.born < 1100);
+      for (const st of shooters) {
+        const q = (now - st.born) / 1100, e = 1 - (1 - q) ** 2, hx = st.x + Math.cos(st.a) * st.run * e, hy = st.y + Math.sin(st.a) * st.run * e;
+        const tail = st.len * Math.min(1, q / 0.2) * (1 - q * 0.5), tx = hx - Math.cos(st.a) * tail, ty = hy - Math.sin(st.a) * tail, fade = q < 0.8 ? 1 : (1 - q) / 0.2;
+        const streak = g.createLinearGradient(tx, ty, hx, hy);
+        streak.addColorStop(0, "rgba(255, 255, 255, 0)"); streak.addColorStop(1, `rgba(255, 240, 250, ${(0.9 * fade).toFixed(3)})`);
+        g.strokeStyle = streak; g.lineWidth = 2; g.lineCap = "round";
+        g.beginPath(); g.moveTo(tx, ty); g.lineTo(hx, hy); g.stroke();
+        anSparkle(g, hx, hy, 7 * fade, 0.95 * fade);
+      }
       for (const b of bubbles) { if (b.y - b.r > H || b.y + b.r < 0) continue; anBubbleAt(g, b.x, b.y, b.r * (1 + b.swell)); }
       // the bursts: a ring opening, droplets flying, a sparkle where it was
       bursts = bursts.filter((p) => now - p.born < 520);
@@ -16094,7 +16217,7 @@
         const now = performance.now();
         if (at >= 0) { dfHeard.at = at; dfHeard.now = now; }
         if (!g || now < dfHold) return;
-        if (fresh) { fresh = false; last = now; anPop(false); }
+        if (fresh) { fresh = false; last = now; anPop(false); shoot(now); }
         const dt = Math.min(0.05, (now - last) / 1000);
         last = now;
         // the groove's hits: the bubbles swell, sparkles wink in the sky
@@ -16106,6 +16229,7 @@
               const strong = s === 0 || s === 8;
               for (const b of bubbles) b.swell = Math.max(b.swell, strong ? 0.07 : 0.035);
               for (let i = 0; i < (strong ? 3 : 1); i++) twinkles.push({ x: Math.random() * W, y: Math.random() * H * 0.9, size: 4 + Math.random() * 6, born: now });
+              if (strong && (six % 64 === 0 || Math.random() < 0.08)) shoot(now);
             }
             lastSix = six;
           }
@@ -16124,7 +16248,7 @@
         root.classList.remove("an-hover", "an-holding");
         skySeen?.disconnect(); skySeen = null; sky?.remove(); sky = null;
         title?.remove(); title = null;
-        bubbles = []; bursts = []; twinkles = []; held = null; canvas = null; g = null;
+        bubbles = []; bursts = []; twinkles = []; shooters = []; held = null; canvas = null; g = null;
         delete window.__anDebug;
       },
     };
@@ -16160,6 +16284,249 @@
     source.connect(band).connect(env).connect(out);
     source.start(at, Math.random() * 0.2, 0.03);
     if (big) for (let i = 0; i < 5; i++) blip(1400 + Math.random() * 900, 700, 0.05, 0.4, 0.05 + i * 0.04);
+  }
+
+  // ── Romer's version of Defended: night ride ──
+  // A ride at night, kept quiet beside the others: the page dark asphalt, a headlight's warm orange for its accents,
+  // condensed type (Barlow Condensed, Rajdhani). The header's cover: a few faint speed lines, B.A.R.I.S.T.A. leaning
+  // forward over a thin orange shadow, "defended" in orange over a pinstripe. Its play, a small one: a slim strip of
+  // road along the foot of the screen (canvas .ro-road), its lane marks running with the music, a rider on it; a tap
+  // on the page (anywhere not a link, a button or a card) revs the engine (the road speeds up, exhaust puffs out),
+  // and three taps in quick succession pull a little wheelie.
+  const RO_ORANGE = "#FF7A1A", RO_AMBER = "#FFB347";
+  const RO_COND = "'Barlow Condensed', Rajdhani, sans-serif";
+  const RO_TITLE_FONTS = ["700 92px 'Barlow Condensed'", "600 38px 'Barlow Condensed'"];
+  // The cover, his: a few faint speed lines off to the left, PROJECT in leaning caps (the badge in orange for its O),
+  // B.A.R.I.S.T.A. leaning over a thin orange shadow, and "defended" in orange over a pinstripe.
+  let roBadgePic = null;
+  const roTitleArt = (g) => {
+    const badge = dfBadgeImg(), rnd = dfSeeded(31);
+    g.textBaseline = "alphabetic";
+    for (let i = 0; i < 6; i++) {
+      const y = -64 + rnd() * 150, len = 60 + rnd() * 110, x0 = -300 + rnd() * 40;
+      const streak = g.createLinearGradient(x0, 0, x0 + len, 0);
+      streak.addColorStop(0, "rgba(255, 179, 71, 0)"); streak.addColorStop(1, i % 2 ? "rgba(244, 241, 234, 0.16)" : "rgba(255, 122, 26, 0.28)");
+      g.strokeStyle = streak; g.lineWidth = 1 + rnd() * 1.4; g.lineCap = "round";
+      g.beginPath(); g.moveTo(x0, y); g.lineTo(x0 + len, y); g.stroke();
+    }
+    // (leaning type: the letters drawn upright, then slanted)
+    const lean = (x, y, k, draw) => { g.save(); g.translate(x, y); g.transform(1, 0, -k, 1, 0, 0); draw(); g.restore(); };
+    g.font = `600 38px ${RO_COND}`; g.textAlign = "left";
+    const parts = ["P", "R", null, "J", "E", "C", "T"], gap = 16, o = 42, ws = parts.map((ch) => (ch ? g.measureText(ch).width : o));
+    let x = -(ws.reduce((a, b) => a + b, 0) + gap * 6) / 2;
+    parts.forEach((ch, i) => {
+      if (ch) lean(x, -76, 0.14, () => { g.fillStyle = "#E9E5DC"; g.fillText(ch, 0, 0); });
+      else if (badge.complete && badge.naturalWidth) {
+        if (!roBadgePic) { const c = document.createElement("canvas"); c.width = c.height = 200; const b = c.getContext("2d"); b.drawImage(badge, 0, 0, 200, 200); b.globalCompositeOperation = "source-in"; b.fillStyle = RO_ORANGE; b.fillRect(0, 0, 200, 200); roBadgePic = c; }
+        g.drawImage(roBadgePic, x, -76 - o * 0.86, o, o);
+      }
+      x += ws[i] + gap;
+    });
+    g.font = `700 92px ${RO_COND}`; g.textAlign = "center";
+    const fit = Math.min(1, 500 / Math.max(1, g.measureText("B.A.R.I.S.T.A.").width));
+    lean(0, 30, 0.14, () => {
+      g.scale(fit, fit);
+      g.fillStyle = "rgba(255, 122, 26, 0.75)"; g.fillText("B.A.R.I.S.T.A.", 2.5, 2.5);
+      g.fillStyle = "#EDE9E0"; g.fillText("B.A.R.I.S.T.A.", 0, 0);
+    });
+    g.font = `700 66px ${RO_COND}`;
+    const word = g.measureText("defended").width;
+    lean(10, 112, 0.16, () => {
+      const ink = g.createLinearGradient(-word / 2, 0, word / 2, 0);
+      ink.addColorStop(0, RO_ORANGE); ink.addColorStop(1, RO_AMBER);
+      g.fillStyle = ink; g.fillText("defended", 0, 0);
+      g.fillStyle = "rgba(255, 122, 26, 0.85)"; g.fillRect(-word * 0.42, 14, word * 0.84, 2.5);
+      g.fillStyle = "rgba(244, 241, 234, 0.55)"; g.fillRect(-word * 0.36, 20, word * 0.72, 1.2);
+    });
+  };
+  // A rider on a bike, side on, facing right (the headlight's beam ahead of it), in a 160 x 90 box: drawn with its
+  // rear wheel's foot at x, y, scale k; spin turns the spokes; lift tips it back on its rear wheel (a wheelie).
+  const RO_PI2 = Math.PI * 2;
+  const roBike = (g, x, y, k, spin, lift = 0, light = 1) => {
+    g.save();
+    g.translate(x, y); g.rotate(-lift); g.scale(k, k); g.translate(-30, -84);
+    if (light > 0) {
+      const beam = g.createLinearGradient(116, 0, 250, 0);
+      beam.addColorStop(0, `rgba(255, 231, 176, ${(0.42 * light).toFixed(3)})`); beam.addColorStop(1, "rgba(255, 231, 176, 0)");
+      g.fillStyle = beam; g.beginPath(); g.moveTo(114, 30); g.lineTo(250, 4); g.lineTo(250, 82); g.lineTo(114, 40); g.closePath(); g.fill();
+    }
+    g.lineCap = "round"; g.lineJoin = "round";
+    const wheel = (cx) => {
+      g.strokeStyle = "#0B0B0D"; g.lineWidth = 7; g.beginPath(); g.arc(cx, 62, 19, 0, RO_PI2); g.stroke();
+      g.strokeStyle = "#8A8F98"; g.lineWidth = 1.6; g.beginPath(); g.arc(cx, 62, 13.5, 0, RO_PI2); g.stroke();
+      for (let i = 0; i < 5; i++) { const a = spin + (i * RO_PI2) / 5; g.beginPath(); g.moveTo(cx, 62); g.lineTo(cx + Math.cos(a) * 13.5, 62 + Math.sin(a) * 13.5); g.stroke(); }
+      g.fillStyle = "#C9CED6"; g.beginPath(); g.arc(cx, 62, 3, 0, RO_PI2); g.fill();
+    };
+    wheel(30); wheel(128);
+    g.strokeStyle = "#9AA0A8"; g.lineWidth = 4.5; g.beginPath(); g.moveTo(66, 60); g.lineTo(20, 50); g.stroke(); // the exhaust
+    g.strokeStyle = "#2C2E33"; g.lineWidth = 5; g.beginPath(); g.moveTo(30, 62); g.lineTo(64, 56); g.stroke(); // the swingarm
+    g.fillStyle = "#2A2C31"; g.beginPath(); g.rect(52, 42, 34, 22); g.fill(); // the engine
+    g.strokeStyle = "#B8BEC6"; g.lineWidth = 4; g.beginPath(); g.moveTo(106, 28); g.lineTo(128, 62); g.stroke(); // the fork
+    g.fillStyle = RO_ORANGE; g.beginPath(); g.moveTo(24, 40); g.lineTo(58, 36); g.lineTo(72, 28); g.lineTo(100, 26); g.lineTo(110, 34); g.lineTo(98, 46); g.lineTo(60, 48); g.closePath(); g.fill(); // tail and tank
+    g.fillStyle = "#16171A"; g.beginPath(); g.moveTo(32, 37); g.lineTo(60, 33); g.lineTo(66, 28); g.lineTo(38, 31); g.closePath(); g.fill(); // the seat
+    g.fillStyle = "#FFE7B0"; g.beginPath(); g.arc(113, 34, 4, 0, RO_PI2); g.fill(); // the headlight
+    // the rider: a leg, the torso leaning in, an arm to the bars, the helmet and its visor
+    g.strokeStyle = "#1B1C20"; g.lineWidth = 7; g.beginPath(); g.moveTo(58, 32); g.lineTo(76, 44); g.lineTo(70, 58); g.stroke();
+    g.lineWidth = 10; g.beginPath(); g.moveTo(56, 30); g.lineTo(82, 12); g.stroke();
+    g.lineWidth = 5; g.beginPath(); g.moveTo(80, 16); g.lineTo(103, 24); g.stroke();
+    g.strokeStyle = "#B8BEC6"; g.lineWidth = 3; g.beginPath(); g.moveTo(99, 24); g.lineTo(110, 18); g.stroke();
+    g.fillStyle = RO_ORANGE; g.beginPath(); g.arc(90, 6, 9, 0, RO_PI2); g.fill();
+    g.fillStyle = "#121318"; g.beginPath(); g.moveTo(91, 1); g.lineTo(99, 3); g.lineTo(98, 10); g.lineTo(91, 9); g.closePath(); g.fill();
+    g.restore();
+  };
+
+  const romerStage = (() => {
+    let canvas = null, g = null, W = 0, H = 0, ratio = 1, title = null, last = 0, lastSix = -1, fresh = false;
+    let road = 0, boost = 0, spin = 0, bob = 0, liftAt = -1e9, puffs = [], taps = [];
+    const CRUISE = 140; // (px a second)
+    const strip = () => (W < 600 ? 34 : 40);
+    const resize = () => {
+      W = window.innerWidth; H = window.innerHeight; ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      if (canvas) { canvas.width = Math.round(W * ratio); canvas.height = Math.round(H * ratio); }
+    };
+    const blocked = () => Boolean(document.querySelector(".ae-pc-modal:not([hidden]), .ae-picker:not([hidden]), .df-intro, .ae-scene"));
+    // the throttle: the road speeds up, exhaust puffs out, the engine revs; a third tap in a second pulls a wheelie
+    const rev = () => {
+      const now = performance.now();
+      taps = taps.filter((t) => now - t < 1100);
+      taps.push(now);
+      const wheelie = taps.length >= 3 && now - liftAt > 1400;
+      if (wheelie) { taps = []; liftAt = now; }
+      boost = Math.min(1000, boost + (wheelie ? 560 : 360));
+      for (let i = 0; i < (wheelie ? 5 : 3); i++) puffs.push({ born: now + i * 45, vx: -50 - Math.random() * 90, vy: -8 - Math.random() * 22, r: 2.5 + Math.random() * 3 });
+      roRev(wheelie);
+    };
+    const tap = (event) => {
+      if (event.defaultPrevented || event.button !== 0 || blocked()) return;
+      if (event.target instanceof Element && event.target.closest("a, button, input, select, textarea, label, summary, [role='button'], .ae-lineup, .ae-member, .ae-cta, .ae-sound, .toast, .ch-pad")) return;
+      if (String(window.getSelection?.() ?? "").length) return;
+      rev();
+    };
+    const draw = (now) => {
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, canvas.width, canvas.height);
+      g.setTransform(ratio, 0, 0, ratio, 0, 0);
+      const h = strip(), top = H - h, fast = Math.min(1, boost / 900);
+      // the road: asphalt, its orange edge, the lane marks running, streaks when it is fast
+      const asphalt = g.createLinearGradient(0, top, 0, H);
+      asphalt.addColorStop(0, "rgba(26, 26, 30, 0.86)"); asphalt.addColorStop(1, "rgba(12, 12, 14, 0.92)");
+      g.fillStyle = asphalt; g.fillRect(0, top, W, h);
+      g.fillStyle = "rgba(255, 122, 26, 0.5)"; g.fillRect(0, top, W, 1);
+      g.fillStyle = "rgba(244, 241, 234, 0.42)";
+      const mid = top + h * 0.64;
+      for (let x = -road; x < W; x += 48) g.fillRect(x, mid - 1, 20, 2);
+      if (fast > 0.04) {
+        g.strokeStyle = `rgba(255, 179, 71, ${(0.22 * fast).toFixed(3)})`; g.lineWidth = 1;
+        for (let i = 0; i < 7; i++) { const y = top + 5 + ((i * 29) % (h - 10)), sx = W - ((i * 211 + now * 1.1) % (W + 120)); g.beginPath(); g.moveTo(sx, y); g.lineTo(sx + 40 + 70 * fast, y); g.stroke(); }
+      }
+      // the rider at the left of the road, the exhaust's puffs drifting back from it
+      const k = (h / 64) * 0.92, bx = Math.min(96, W * 0.09), by = top + h - 5 - bob;
+      const tl = (now - liftAt) / 1000;
+      const lift = tl >= 0 && tl < 1.3 ? 0.24 * (tl < 0.28 ? 1 - (1 - tl / 0.28) ** 3 : tl < 0.8 ? 1 : 1 - ((tl - 0.8) / 0.5) ** 2) : 0;
+      puffs = puffs.filter((p) => now - p.born < 750);
+      for (const p of puffs) {
+        const t = (now - p.born) / 1000;
+        if (t < 0) continue;
+        const q = t / 0.75, px = bx + (20 - 30) * k + p.vx * t - boost * 0.06 * t, py = by + (50 - 84) * k + p.vy * t;
+        g.fillStyle = `rgba(190, 186, 178, ${(0.26 * (1 - q)).toFixed(3)})`;
+        g.beginPath(); g.arc(px, py, p.r * (1 + q * 2.4), 0, RO_PI2); g.fill();
+      }
+      roBike(g, bx, by, k, spin, lift, 0.45 + 0.25 * fast);
+    };
+    return {
+      beat: DF_BEAT, parts: [DF_TRACK], grid: 0, sections: [[0, "calm"]],
+      fx: `<canvas class="ro-road"></canvas>`,
+      mount(fx) {
+        canvas = fx.querySelector(".ro-road");
+        g = canvas.getContext("2d");
+        title ??= dfHeaderTitle("PROJECT B.A.R.I.S.T.A. in leaning letters, and under it, in orange over a pinstripe: defended", roTitleArt, RO_TITLE_FONTS);
+        road = 0; boost = 0; spin = 0; bob = 0; liftAt = -1e9; puffs = []; taps = []; lastSix = -1; fresh = true;
+        resize();
+        window.addEventListener("resize", resize);
+        document.addEventListener("click", tap);
+        draw(performance.now());
+      },
+      tick(at) {
+        const now = performance.now();
+        if (at >= 0) { dfHeard.at = at; dfHeard.now = now; }
+        if (!g || now < dfHold) return;
+        if (fresh) { fresh = false; last = now; }
+        const dt = Math.min(0.05, (now - last) / 1000);
+        last = now;
+        // the groove's hits: a little push of speed, the bike bobbing
+        if (at >= 0) {
+          const six = Math.floor(at / (DF_BEAT / 4));
+          if (six !== lastSix) {
+            const s16 = six % 16;
+            if (lastSix >= 0 && [0, 4, 8, 14].includes(s16)) { const strong = s16 === 0 || s16 === 8; bob = strong ? 1 : 0.5; boost += strong ? 90 : 40; }
+            lastSix = six;
+          }
+        }
+        boost *= Math.exp(-dt * 2.2);
+        const speed = CRUISE + boost;
+        road = (road + speed * dt) % 48;
+        spin += (speed * dt) / (19 * (strip() / 64));
+        bob *= Math.exp(-dt * 9);
+        draw(now);
+      },
+      unmount() {
+        window.removeEventListener("resize", resize);
+        document.removeEventListener("click", tap);
+        title?.remove(); title = null;
+        puffs = []; taps = []; canvas = null; g = null;
+      },
+    };
+  })();
+  // The engine revving (when the sound is on, made here): two sawtooths a little apart through a low filter, their
+  // pitch climbing as the throttle opens and falling back, a low pulse chopping them into the engine's putter; a
+  // wheelie revs longer and higher, with an exhaust pop at its end.
+  function roRev(big) {
+    if (!soundWanted()) return;
+    keySound("wake");
+    const ctx = keysCtx;
+    if (!ctx || !keysNoise) return;
+    void ctx.resume();
+    const at = ctx.currentTime + 0.004, long = big ? 0.95 : 0.55, out = ctx.createGain();
+    out.gain.value = big ? 0.2 : 0.16;
+    out.connect(ctx.destination);
+    const filter = ctx.createBiquadFilter(), env = ctx.createGain(), amp = ctx.createGain();
+    filter.type = "lowpass"; filter.Q.value = 2;
+    filter.frequency.setValueAtTime(480, at);
+    filter.frequency.linearRampToValueAtTime(big ? 1700 : 1250, at + long * 0.35);
+    filter.frequency.linearRampToValueAtTime(420, at + long);
+    env.gain.setValueAtTime(0.0001, at);
+    env.gain.exponentialRampToValueAtTime(1, at + 0.03);
+    env.gain.setValueAtTime(1, at + long * 0.5);
+    env.gain.exponentialRampToValueAtTime(0.0001, at + long);
+    amp.gain.value = 0.65;
+    amp.connect(filter).connect(env).connect(out);
+    const top = big ? 150 : 118;
+    [0, 9].forEach((cents) => {
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth"; osc.detune.value = cents;
+      osc.frequency.setValueAtTime(48, at);
+      osc.frequency.exponentialRampToValueAtTime(top, at + long * 0.35);
+      osc.frequency.exponentialRampToValueAtTime(52, at + long);
+      osc.connect(amp);
+      osc.start(at); osc.stop(at + long + 0.05);
+    });
+    const pulse = ctx.createOscillator(), depth = ctx.createGain();
+    pulse.type = "square"; depth.gain.value = 0.35;
+    pulse.frequency.setValueAtTime(24, at);
+    pulse.frequency.exponentialRampToValueAtTime(top / 2, at + long * 0.35);
+    pulse.frequency.exponentialRampToValueAtTime(26, at + long);
+    pulse.connect(depth).connect(amp.gain);
+    pulse.start(at); pulse.stop(at + long + 0.05);
+    if (big) {
+      const pop = at + long * 0.82, source = ctx.createBufferSource(), band = ctx.createBiquadFilter(), burst = ctx.createGain();
+      source.buffer = keysNoise;
+      band.type = "bandpass"; band.frequency.value = 320; band.Q.value = 1.1;
+      burst.gain.setValueAtTime(0.0001, pop);
+      burst.gain.exponentialRampToValueAtTime(0.9, pop + 0.004);
+      burst.gain.exponentialRampToValueAtTime(0.0001, pop + 0.09);
+      source.connect(band).connect(burst).connect(out);
+      source.start(pop, Math.random() * 0.2, 0.12);
+    }
   }
 
   // ── Defended's MV: "Final copy" (defendedScene; its button at the foot of the page, in every version) ──
@@ -17395,7 +17762,7 @@
   // ── Defended's versions: a card put back drops into its place, and the page turns into that member's version ──
   // Closing a member's card (THEMES.defended.onCardBack, from closeMember) drops it back into its slot in the
   // lineup, left empty for it: it lifts, then falls onto the page (turning back to its front if it was turned over),
-  // landing on the groove's next hit with a thud (the slot jolts, the other two hop, dust puffs out from under it,
+  // landing on the groove's next hit with a thud (the slot jolts, the others hop, dust puffs out from under it,
   // the page shakes). From the slot the page then turns into that member's version: a circle opening out from it (a
   // view transition, where the browser has them; elsewhere the switch's sweep), its edge lit in the version's colour.
   // Put back the card of the version that is on and the page goes back to the default; a member with no version yet
@@ -17407,6 +17774,8 @@
       fonts: ["600 1em Oxanium", "700 1em Oxanium", "800 1em Oxanium", "500 1em Saira", "600 1em Saira"] },
     andrei: { sub: "Andrei's version · dream sky", toast: "♡ Andrei's version · dream sky", edge: "255, 95, 168", dust: "255, 196, 224", scheme: "light",
       fonts: ["400 1em Italiana", "500 1em Quicksand", "600 1em Quicksand", "700 1em Quicksand", "400 1em 'Great Vibes'"] },
+    romer: { sub: "Romer's version · night ride", toast: "🏍 Romer's version · night ride", edge: "255, 122, 26", dust: "196, 176, 150", scheme: "dark",
+      fonts: ["600 1em 'Barlow Condensed'", "700 1em 'Barlow Condensed'", "800 1em 'Barlow Condensed'", "500 1em Rajdhani", "600 1em Rajdhani"] },
   };
   const DF_PAPER = { edge: "222, 22, 30", dust: "120, 108, 94" };
   const dfRestart = (el, cls) => { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); };
@@ -18081,7 +18450,7 @@
     // stuck in the gashapon's coin slot, to sign (see the end of this file): Project B.A.R.I.S.T.A., the paper this café's system was built
     // for, defended. Not a collab: the brand line is the project's. White paper, black serif and red ink. The intro
     // (24 bars: the night before, the defense, defended) runs straight into track 1 (16 bars), the one loop. The
-    // three on their cards (temporary art), an approval sheet signed on the back of each.
+    // four on their cards, an approval sheet signed on the back of each.
     defended: {
       group: "barista", artist: "Steve Lacy",
       era: "Defended", folder: "defended/", tag: "DEFENDED", back: "image", scheme: "light",
@@ -18096,15 +18465,16 @@
       stage: defendedStage,
       // Its versions, a member's each: putting back that member's card turns the page into theirs (see dfDrop), the
       // music going on.
-      variants: { tin: { stage: tinStage }, cheng: { stage: chengStage }, andrei: { stage: andreiStage } },
+      variants: { tin: { stage: tinStage }, cheng: { stage: chengStage }, andrei: { stage: andreiStage }, romer: { stage: romerStage } },
       // Its MV, "Final copy" (the four papers of BSIT - 401, from the printer to the panel; its button in every version)
       scene: defendedScene,
       onCardBack: (put) => dfDrop(put),
       onVariant: (name) => dfVersionOn(name),
       fonts: ["600 1em 'Cormorant Garamond'", "900 1em 'Playfair Display'", "400 1em 'Kaushan Script'", "700 1em Kalam", "400 1em Kalam",
         "500 1em 'EB Garamond'", "600 1em 'EB Garamond'", "700 1em 'EB Garamond'", "italic 500 1em 'EB Garamond'",
-        "700 1em 'Grenze Gotisch'", "900 1em 'Grenze Gotisch'", "400 1em UnifrakturMaguntia", "700 1em Oxanium", "800 1em Oxanium", "500 1em Saira", "400 1em Italiana", "600 1em Quicksand", "400 1em 'Great Vibes'"],
-      extras: ["badge-ink.webp", "logo.webp", "tin-back.webp", "cheng-back.webp", "andrei-back.webp", ...[1, 2, 3, 4, 5, 6, 7, 8, "approval"].map((name) => `pages/${name}.webp`)],
+        "700 1em 'Grenze Gotisch'", "900 1em 'Grenze Gotisch'", "400 1em UnifrakturMaguntia", "700 1em Oxanium", "800 1em Oxanium", "500 1em Saira", "400 1em Italiana", "600 1em Quicksand", "400 1em 'Great Vibes'",
+        "700 1em 'Barlow Condensed'", "500 1em Rajdhani"],
+      extras: ["badge-ink.webp", "logo.webp", "tin-back.webp", "cheng-back.webp", "andrei-back.webp", "romer-back.webp", ...[1, 2, 3, 4, 5, 6, 7, 8, "approval"].map((name) => `pages/${name}.webp`)],
     },
   };
   // Every theme also has four group photos (flash-1..4.webp) that its intro flashes. Its photos, group
