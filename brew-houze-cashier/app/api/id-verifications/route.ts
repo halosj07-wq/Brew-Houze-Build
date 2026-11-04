@@ -112,7 +112,9 @@ export async function PATCH(request: Request) {
       }
     }
     await client.query("COMMIT");
-    return NextResponse.json({ data: { id, status: body.action === "approve" ? "approved" : "rejected" } });
+    // (checked, not assumed: the photo is gone from the database once the decision is saved)
+    const left = await client.query("SELECT photo IS NOT NULL AS has_photo FROM id_verifications WHERE verification_id = $1", [id]);
+    return NextResponse.json({ data: { id, status: body.action === "approve" ? "approved" : "rejected", photoDeleted: left.rows[0]?.has_photo !== true } });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     console.error("PATCH /api/id-verifications failed:", error);

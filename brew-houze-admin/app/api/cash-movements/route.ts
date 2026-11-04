@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 import { pesoText, recordDrawerExpense, recordDrawerMovement, SafeShortError } from "@/lib/treasury";
+import { audited } from "@/lib/audit";
 
 // Cash put into or taken out of the drawer during the open shift for reasons other than a sale:
 // change fund added (cash_in), something paid for from the drawer (cash_out), or large bills moved
@@ -44,7 +45,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
@@ -102,3 +103,6 @@ export async function POST(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Treasury", postHandler);

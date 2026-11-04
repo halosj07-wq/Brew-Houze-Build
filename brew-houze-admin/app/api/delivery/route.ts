@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // Admin, Delivery (see delivery-setup-migration.sql): the delivery rules and the zones.
 //   GET                                 rules, every zone (with how many addresses use it), and the
@@ -84,7 +85,7 @@ function cleanZone(body: Body) {
   return { name, description, fee, minOrder: minOrder === 0 ? null : minOrder, isActive: body.isActive !== false };
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
@@ -101,7 +102,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
@@ -149,7 +150,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   const id = Number(new URL(request.url).searchParams.get("id"));
@@ -164,3 +165,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not delete the zone." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Delivery", postHandler);
+export const PATCH = audited("Delivery", patchHandler);
+export const DELETE = audited("Delivery", deleteHandler);

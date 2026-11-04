@@ -42,6 +42,31 @@ const CARD_SCHEMA = {
           title: { type: "string", description: "2 to 5 words, like 'Heads up' or 'Beans run out Thursday'." },
           message: { type: "string", description: "One or two plain sentences with the specific numbers, dates and names from the facts." },
           page: { type: "string", enum: [...PAGES], description: "The admin page where the owner can act on it." },
+          chart: {
+            type: "object",
+            description: "A small chart that shows this card's point at a glance (see the instructions on charts).",
+            properties: {
+              kind: { type: "string", enum: ["columns", "bars"], description: "columns: values over time or by hour, left to right (sales by day with your forecast after them). bars: a ranking, longest first (best sellers, days of stock left, what to prepare)." },
+              title: { type: "string", description: "Under 60 characters, saying what is shown and, when there is one, that it includes your forecast." },
+              unit: { type: "string", enum: ["peso", "orders", "items", "days", "amount"], description: "What the values are: peso amounts, orders, items or portions, days, or an amount of stock (say the stock unit in the point labels)." },
+              points: {
+                type: "array",
+                description: "2 to 31 points.",
+                items: {
+                  type: "object",
+                  properties: {
+                    label: { type: "string", description: "Short: a date like 'Oct 3', an hour like '2 PM', a product or item name." },
+                    value: { type: "number", description: "The value, 0 or more." },
+                    forecast: { type: "boolean", description: "true only for a value you projected; false for a value copied from the facts." },
+                  },
+                  required: ["label", "value", "forecast"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            required: ["kind", "title", "unit", "points"],
+            additionalProperties: false,
+          },
         },
         required: ["tone", "title", "message", "page"],
         additionalProperties: false,
@@ -54,7 +79,7 @@ const CARD_SCHEMA = {
 
 const SYSTEM_PROMPT = `You write short insight cards for the owner of Brew Houze, a small cafe in the Philippines. The owner reads them on the Insights page of their admin app, like a usage warning: specific, forward-looking, and quick to act on.
 
-You receive facts the app already worked out from its own records, as JSON. Every number you use must come from those facts: never estimate, round differently, or invent numbers, dates, products or causes. If the facts do not support a point, leave it out.
+You receive facts the app already worked out from its own records, as JSON. Every number you use must come from those facts: never estimate, round differently, or invent numbers, dates, products or causes (the one exception is the forecast points of a chart, as the instructions on charts below say). If the facts do not support a point, leave it out.
 
 Write 3 to 5 cards, most urgent first, each with one tone:
 1. alert: money being lost now. A net loss for the period, cash drawer shortages, or stock written off that costs more than a tenth of net sales. Use alert only for these.
@@ -64,9 +89,28 @@ Write 3 to 5 cards, most urgent first, each with one tone:
 
 Small numbers are not patterns. When a point rests on only a few orders (under 10, as with the busiest hours early on), say how many it is based on and present it as an early sign, not a trend.
 
+Charts: give at least three of the cards a chart, each showing that card's own point. Draw them from chart_data and the other facts:
+- A card about sales: the last 14 days of daily net sales (columns, peso, each day copied from chart_data.daily_sales), then your forecast for the next 7 days as more columns marked forecast, projected from the same weekdays in the data. Say in the message that the next days are your forecast.
+- A card about stock running low: days of stock left for each item (bars, days), worked out as on_hand divided by used_per_day from chart_data.stock_pace, marked forecast.
+- A card about the busiest hours: orders by hour (columns, orders), copied from chart_data.orders_by_hour.
+- A card about best sellers: units sold (bars, items), copied from chart_data.best_sellers.
+- A card about a holiday or event in chart_data.holidays_and_events_ahead: what to prepare for that day, the best sellers' usual daily sales times past_holiday_rush.times_busier, rounded up (bars, items, marked forecast). Name the day in the message.
+Copy actual values exactly. Only forecast points may be numbers you work out, and only as described above. A card without numbers to show has no chart.
+
 Write amounts with the peso sign and two decimals, for example ₱1,240.00. Say when something runs out the way the facts give it, for example "Thursday afternoon". Keep each message to one or two short sentences in plain words, no jargon and no exclamation marks. If the period has no sales yet, say so in one card and give one tip for getting started. Never mention staff by name and never blame anyone; describe what happened.`;
 
-type Card = { tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: (typeof PAGES)[number] };
+type ChartPoint = { label: string; value: number; forecast: boolean };
+type Card = { tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: (typeof PAGES)[number]; chart?: { kind: "columns" | "bars"; title: string; unit: string; points: ChartPoint[] } };
+
+// A card's chart as Claude drew it, kept only when it is usable: 2 to 31 points, each a label and a number 0 or more.
+function cleanChart(chart: Card["chart"]): Card["chart"] | undefined {
+  if (!chart || !Array.isArray(chart.points)) return undefined;
+  const points = chart.points
+    .filter((point) => point && typeof point.label === "string" && Number.isFinite(Number(point.value)) && Number(point.value) >= 0)
+    .slice(chart.kind === "columns" ? -31 : 0, chart.kind === "columns" ? undefined : 31).map((point) => ({ label: point.label.slice(0, 40), value: Math.round(Number(point.value) * 100) / 100, forecast: point.forecast === true }));
+  if (points.length < 2) return undefined;
+  return { kind: chart.kind === "bars" ? "bars" : "columns", title: String(chart.title ?? "").slice(0, 80), unit: String(chart.unit ?? "amount"), points };
+}
 
 function mapInsight(row: Record<string, unknown>) {
   const saved = (row.cards ?? {}) as { kind?: unknown; area?: unknown; searches?: unknown };
@@ -306,7 +350,7 @@ export async function POST(request: Request) {
     const client = new Anthropic();
     const response = await client.beta.messages.create({
       model: MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       // If Claude declines (not expected for cafe numbers), the API retries on another model
       // instead of failing.
       betas: ["server-side-fallback-2026-07-01"],
@@ -323,7 +367,8 @@ export async function POST(request: Request) {
     } catch {
       return NextResponse.json({ error: "Claude's answer could not be read. Try again." }, { status: 502 });
     }
-    const cards = (Array.isArray(parsed.cards) ? parsed.cards : []).filter((card) => card && typeof card.message === "string").slice(0, 5);
+    const cards = (Array.isArray(parsed.cards) ? parsed.cards : []).filter((card) => card && typeof card.message === "string").slice(0, 5)
+      .map((card) => { const chart = cleanChart(card.chart); return chart ? { ...card, chart } : { tone: card.tone, title: card.title, message: card.message, page: card.page }; });
     const saved = await pool.query(`
       INSERT INTO ai_insights (period_start, period_end, facts, cards, model, input_tokens, output_tokens, requested_by)
       VALUES ($1::date, $2::date, $3::jsonb, $4::jsonb, $5, $6, $7, $8) RETURNING insight_id

@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import pool from "@/lib/db";
 
 // Shared row shape for every inventory response, so the UI always receives the same fields.
@@ -10,6 +10,8 @@ export const inventorySelect = `
     inventory.inventory_id,
     inventory.ingredient_category,
     inventory.item_name,
+    -- its group in the stock list (read this way, empty until revision-migration.sql adds it)
+    to_jsonb(inventory) ->> 'item_group' AS item_group,
     inventory.unit_of_measure,
     CASE
       WHEN inventory.derived_from_inventory_id IS NOT NULL THEN
@@ -84,6 +86,37 @@ export async function loadInventoryItem(inventoryId: number, client: PoolClient 
   return result.rows[0] ?? null;
 }
 
+// A low-stock alert level the owner typed: a number, 0 or more (whole for whole-unit items); blank keeps the
+// default for the unit. { error } when it is not a valid level.
+export function parseThreshold(value: unknown, whole: boolean): { value: number | null; error?: string } {
+  if (value === undefined || value === null || value === "") return { value: null };
+  const threshold = Number(value);
+  if (!Number.isFinite(threshold) || threshold < 0 || (whole && !Number.isInteger(threshold))) {
+    return { value: null, error: `The low-stock alert must be ${whole ? "a whole number" : "a number"} (0 or more).` };
+  }
+  return { value: threshold };
+}
+
+// Another item (not archived) already named this, ignoring case, spaces and punctuation ("Oatmilk" = "Oat Milk"): its name, or null.
+export async function duplicateItemName(client: Pool | PoolClient, name: string, exceptId: number | null = null): Promise<string | null> {
+  const found = await client.query(
+    "SELECT item_name FROM inventory WHERE REGEXP_REPLACE(LOWER(item_name), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($1), '[^a-z0-9]', '', 'g') AND is_archived = FALSE AND ($2::int IS NULL OR inventory_id <> $2) LIMIT 1",
+    [name, exceptId],
+  );
+  return found.rows[0]?.item_name ?? null;
+}
+
+// Puts an item in a group of the stock list (Cups, Straws…), or none. Nothing happens before revision-migration.sql.
+export async function saveItemGroup(inventoryId: number, value: unknown): Promise<void> {
+  if (value === undefined) return;
+  const group = String(value ?? "").replace(/\s+/g, " ").trim().slice(0, 60) || null;
+  try {
+    await pool.query("UPDATE inventory SET item_group = $2 WHERE inventory_id = $1", [inventoryId, group]);
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42703") throw error;
+  }
+}
+
 export type PackagingInput = { name: string; brand: string | null; contentQuantity: number; packPrice: number | null };
 
 // Validates a packaging description. Contents are in the stock item's own unit (1000 for a
@@ -97,6 +130,7 @@ export function parsePackaging(value: unknown, itemIsWholeUnit: boolean): { valu
   const packPrice = rawPrice === undefined || rawPrice === null || rawPrice === "" ? null : Number(rawPrice);
 
   if (!name) return { error: "Give the packaging a name, e.g. Nescafe Bean Bag 1 kg." };
+  if (!brand) return { error: "Enter the brand, e.g. Nescafe." };
   if (!Number.isFinite(contentQuantity) || contentQuantity <= 0) return { error: "Enter how much one pack contains (more than 0)." };
   if (itemIsWholeUnit && !Number.isInteger(contentQuantity)) return { error: "This item is counted in whole units, so one pack must contain a whole number." };
   if (packPrice !== null && (!Number.isFinite(packPrice) || packPrice < 0)) return { error: "The pack price must be 0 or more." };

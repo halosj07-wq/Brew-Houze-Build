@@ -197,6 +197,8 @@ export default function MenuPage() {
   const [newsOpen, setNewsOpen] = useState(false);
   const [newsFocus, setNewsFocus] = useState<number | null>(null);
   const news = useNews(useCallback((post: NewsPost) => setAddedNote(`New ${post.kind === "event" ? "event" : "promo"}: ${post.title}`), []));
+  // Menu items in a bundle deal showing now (a promo post's bundle), tagged on their cards.
+  const bundled = useMemo(() => new Set(news.posts.flatMap((post) => post.bundle?.items.map((item) => item.id) ?? [])), [news.posts]);
   const [selectedVariantId, setSelectedVariantId] = useState<number | null>(null);
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [selectedAdditionIds, setSelectedAdditionIds] = useState<number[]>([]);
@@ -1135,6 +1137,7 @@ export default function MenuPage() {
           {out && <span className="bh-soldout">Sold out</span>}
           {count > 0 && <span className="bh-incart">{count} in cart</span>}
         </span>}
+        {bundled.has(product.id) && <span className="bh-bundle-tag">Bundle deal</span>}
         <span className="bh-card-body">
           <strong>{product.name}{where === "list" && product.badge ? <em className="bh-list-flag is-badge">★ {product.badge}</em> : null}{where === "list" && count > 0 ? <em className="bh-list-flag">{count} in cart</em> : null}</strong>
           {product.description && <small>{product.description}</small>}

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // Quick requests (see quick-requests-migration.sql): short notes the cashier taps in the Customize
 // window, such as Less ice or Spicy, each for drinks (bar) or food (kitchen). Notes only, so they
@@ -35,7 +36,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const parsed = parse(await request.json());
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const body = await request.json();
@@ -67,7 +68,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   try {
     const body = await request.json();
@@ -80,3 +81,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not remove the request." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Menu", postHandler);
+export const PATCH = audited("Menu", patchHandler);
+export const DELETE = audited("Menu", deleteHandler);

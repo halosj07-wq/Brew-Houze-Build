@@ -4,6 +4,8 @@ import { setDb } from "./fake-db";
 import { latte, order, orderDb } from "./order-fixture";
 import { deliveryFeeFor, withinDeliveryHours, type DeliveryPlan } from "@/lib/delivery";
 import { PATCH as deliveryAction } from "@/app/api/deliveries/route";
+// A stand-in for the photo the rider takes at the door (a JPEG data URL of about 3 KB).
+const PROOF = `data:image/jpeg;base64,${Buffer.alloc(3000, 7).toString("base64")}`;
 
 const h = vi.hoisted(() => ({ session: null as Record<string, unknown> | null }));
 vi.mock("@/lib/db", () => import("./fake-db").then((m) => m.poolModule));
@@ -55,9 +57,11 @@ unitCases("cashier", "Objective 3 - Delivery", [
     expected: { error: "Cash on delivery is only for delivery orders." }, run: () => order(orderDb().db, { paymentMethod: "cod" }) },
   // Cash on delivery
   { id: "UT-DEL-10", fn: "PATCH /api/deliveries (delivered)", kind: "Negative", title: "the rider must collect the full COD amount", input: "COD ₱350.00, rider collected ₱300.00",
-    expected: { status: 400, body: { error: "Collect ₱350.00 for this order." } }, run: () => { deliveryDb({}); return act(rider, { action: "delivered", collected: 300 }); } },
+    expected: { status: 400, body: { error: "Collect ₱350.00 for this order." } }, run: () => { deliveryDb({}); return act(rider, { action: "delivered", collected: 300, photo: PROOF }); } },
   { id: "UT-DEL-11", fn: "PATCH /api/deliveries (delivered)", kind: "Positive", title: "delivered with the COD collected: the cash is recorded with the rider", input: "COD ₱350.00, rider collected ₱350.00",
-    expected: { status: 200, collected: 350 }, run: async () => { const db = deliveryDb({}); const result = await act(rider, { action: "delivered", collected: 350 }); return { status: result.status, collected: db.ran(/^UPDATE deliveries SET status = 'delivered'/)[0]?.params[1] }; } },
+    expected: { status: 200, collected: 350 }, run: async () => { const db = deliveryDb({}); const result = await act(rider, { action: "delivered", collected: 350, photo: PROOF }); return { status: result.status, collected: db.ran(/^UPDATE deliveries SET status = 'delivered'/)[0]?.params[1] }; } },
+  { id: "UT-DEL-10b", fn: "PATCH /api/deliveries (delivered)", kind: "Negative", title: "a delivery cannot be marked delivered without the photo at the door (proof of delivery)", input: "COD ₱350.00, collected ₱350.00, no photo",
+    expected: { status: 400, body: { error: "Take a photo of the order at the door first: it is the proof of delivery." } }, run: () => { deliveryDb({}); return act(rider, { action: "delivered", collected: 350 }); } },
   { id: "UT-DEL-12", fn: "PATCH /api/deliveries (remit)", kind: "Positive", title: "the cashier receives the rider's COD cash into the open shift's drawer", input: "Delivered, ₱350.00 collected, shift #7 open",
     expected: { status: 200, receivedBy: 2, shift: 7 }, run: async () => { const db = deliveryDb({ status: "delivered", cod_collected: "350.00" }); const result = await act(cashier, { action: "remit" }); const params = db.ran(/^UPDATE deliveries SET cod_remitted_at/)[0]?.params ?? []; return { status: result.status, receivedBy: params[1], shift: params[2] }; } },
   { id: "UT-DEL-13", fn: "PATCH /api/deliveries (remit)", kind: "Negative", title: "a rider cannot record their own hand-in", input: "Rider sends \"remit\"",

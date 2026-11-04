@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
-import { inventorySelect, loadInventoryItem, parsePackaging, weightedAverageUnitCost } from "@/lib/inventory";
+import { duplicateItemName, inventorySelect, loadInventoryItem, parsePackaging, parseThreshold, saveItemGroup, weightedAverageUnitCost } from "@/lib/inventory";
 import { signalChange } from "@/lib/realtime";
+import { audited } from "@/lib/audit";
 
 async function getAdminId(): Promise<number | null> {
   const session = await getSession();
@@ -72,7 +73,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   const client = await pool.connect();
@@ -85,6 +86,11 @@ export async function POST(request: Request) {
     if (!ingredientCategory || !itemName || !unitOfMeasure) {
       return NextResponse.json({ error: "Category, item name, and a valid unit are required." }, { status: 400 });
     }
+    // (one item per name: another brand or size of it is another package of the same item)
+    const sameName = await duplicateItemName(pool, itemName);
+    if (sameName) return NextResponse.json({ error: `${sameName} is already in your stock. Add this as another package of it instead.` }, { status: 409 });
+    const threshold = parseThreshold(body?.low_stock_threshold, unitOfMeasure.whole);
+    if (threshold.error) return NextResponse.json({ error: threshold.error }, { status: 400 });
     const unitCost = parseUnitCost(body?.unit_cost);
     if (!unitCost.valid) {
       return NextResponse.json({ error: "Unit cost must be a valid non-negative amount, or left blank." }, { status: 400 });
@@ -161,7 +167,7 @@ export async function POST(request: Request) {
       INSERT INTO inventory (ingredient_category, item_name, unit_of_measure, quantity, low_stock_threshold, is_whole_unit, derived_from_inventory_id, derived_ratio, unit_cost)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING inventory_id
-    `, [ingredientCategory, itemName, unitOfMeasure.label, quantity, unitOfMeasure.threshold, unitOfMeasure.whole, derivedFromInventoryId, derivedRatio, initialUnitCost]);
+    `, [ingredientCategory, itemName, unitOfMeasure.label, quantity, threshold.value ?? unitOfMeasure.threshold, unitOfMeasure.whole, derivedFromInventoryId, derivedRatio, initialUnitCost]);
     const inventoryId = Number(result.rows[0].inventory_id);
 
     let packagingId: number | null = null;
@@ -181,8 +187,9 @@ export async function POST(request: Request) {
     `, [createdItem.inventory_id, createdItem.item_name, createdItem.ingredient_category, createdItem.unit_of_measure, createdItem.quantity, await getAdminId(), initialUnitCost,
       (initialPacks ?? 0) > 0 ? packagingId : null, (initialPacks ?? 0) > 0 ? packaging?.name ?? null : null, (initialPacks ?? 0) > 0 ? initialPacks : null, (initialPacks ?? 0) > 0 ? packaging?.packPrice ?? null : null]);
     await client.query("COMMIT");
+    await saveItemGroup(inventoryId, body?.item_group);
 
-    return NextResponse.json({ data: createdItem }, { status: 201 });
+    return NextResponse.json({ data: { ...createdItem, item_group: typeof body?.item_group === "string" ? body.item_group.trim() || null : null } }, { status: 201 });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
     console.error("POST /api/inventory failed:", error);
@@ -192,7 +199,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   try {
@@ -254,6 +261,10 @@ export async function PATCH(request: Request) {
       if (newQuantity !== null && (!Number.isFinite(newQuantity) || newQuantity < 0 || (resolvedUnit.whole && !Number.isInteger(newQuantity)))) {
         return NextResponse.json({ error: `The stock count must be ${resolvedUnit.whole ? "a whole number" : "a number"} (0 or more).` }, { status: 400 });
       }
+      const threshold = parseThreshold(body?.low_stock_threshold, resolvedUnit.whole);
+      if (threshold.error) return NextResponse.json({ error: threshold.error }, { status: 400 });
+      const sameName = await duplicateItemName(pool, itemName, inventoryId);
+      if (sameName) return NextResponse.json({ error: `${sameName} is already in your stock. Use another name.` }, { status: 409 });
 
       const client = await pool.connect();
       try {
@@ -286,9 +297,10 @@ export async function PATCH(request: Request) {
         const quantityAfter = newQuantity ?? quantityBefore;
         await client.query(`
           UPDATE inventory
-          SET ingredient_category = $1, item_name = $2, unit_of_measure = $3, is_whole_unit = $4, low_stock_threshold = $5, quantity = $6, updated_at = CURRENT_TIMESTAMP
+          SET ingredient_category = $1, item_name = $2, unit_of_measure = $3, is_whole_unit = $4,
+            low_stock_threshold = COALESCE($5, CASE WHEN unit_of_measure = $3 THEN low_stock_threshold END, $8), quantity = $6, updated_at = CURRENT_TIMESTAMP
           WHERE inventory_id = $7
-        `, [ingredientCategory, itemName, resolvedUnit.label, resolvedUnit.whole, resolvedUnit.threshold, quantityAfter, inventoryId]);
+        `, [ingredientCategory, itemName, resolvedUnit.label, resolvedUnit.whole, threshold.value, quantityAfter, inventoryId, resolvedUnit.threshold]);
         if (quantityAfter !== quantityBefore) {
           await client.query(`
             INSERT INTO inventory_log (inventory_id, item_name, ingredient_category, unit_of_measure, change_type, quantity_before, quantity_after, quantity_delta, admin_id, source_app)
@@ -296,6 +308,7 @@ export async function PATCH(request: Request) {
           `, [inventoryId, itemName, ingredientCategory, resolvedUnit.label, quantityBefore, quantityAfter, quantityAfter - quantityBefore, await getAdminId()]);
         }
         await client.query("COMMIT");
+        await saveItemGroup(inventoryId, body?.item_group);
         return NextResponse.json({ data: await loadInventoryItem(inventoryId) });
       } catch (detailsError) {
         await client.query("ROLLBACK").catch(() => undefined);
@@ -594,7 +607,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   try {
@@ -680,3 +693,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not archive inventory item." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Inventory", postHandler);
+export const PATCH = audited("Inventory", patchHandler);
+export const DELETE = audited("Inventory", deleteHandler);

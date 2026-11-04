@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 import { lastFloatKept, pesoText, recordShiftDeposit, recordShiftFloat, recordShiftGcash, SafeShortError } from "@/lib/treasury";
+import { audited } from "@/lib/audit";
 
 // Shift reports for Finance. Shifts are opened/closed from the staff app; totals come from
 // the shift_summaries view (see shift-migration.sql). A shift's business date is the date it
@@ -277,7 +278,7 @@ function parseAmount(value: unknown): number | null {
 // Opens or closes the store from the admin app. Opening does not clock the admin in (they may
 // not be at the counter), but cashiers already signed in join the new shift. Closing works like
 // the staff app: everyone is clocked out and signed out of the staff app, and the queue clears.
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
@@ -376,3 +377,6 @@ export async function POST(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Shifts", postHandler);

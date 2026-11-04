@@ -6,6 +6,7 @@ import { logSecurityEvent, setMustChangePassword } from "@/lib/security-log";
 import { runningCampaign } from "@/lib/loyalty";
 import { getSession } from "@/lib/sessions";
 import { forgetTrustedDevices, twoFactorEnabled } from "@/lib/two-factor";
+import { audited } from "@/lib/audit";
 
 // The customer directory (see customer-accounts-migration.sql): customers who made an account on
 // the mobile menu, and profiles the admin made for regulars without one. Purchases fill in from
@@ -157,7 +158,7 @@ export async function GET() {
 
 // Adds a customer profile. A login (username and temporary password) is optional: many regulars
 // only need their notes and purchases kept.
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   let body: { fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; phone?: unknown };
@@ -196,7 +197,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   let body: { id?: unknown; action?: unknown; fullName?: unknown; email?: unknown; birthday?: unknown; notes?: unknown; username?: unknown; password?: unknown; isActive?: unknown; stars?: unknown; reason?: unknown; phone?: unknown; codBlocked?: unknown };
@@ -339,6 +340,11 @@ export async function PATCH(request: Request) {
 }
 
 // Customers are never deleted outright: their orders are sales records. Use "erase" instead.
-export async function DELETE() {
+async function deleteHandler() {
   return NextResponse.json({ error: "Customers are kept with their sales records. Erase their personal details instead." }, { status: 403 });
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Customers", postHandler);
+export const PATCH = audited("Customers", patchHandler);
+export const DELETE = audited("Customers", deleteHandler);

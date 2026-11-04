@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // Loyalty campaigns (see loyalty-campaigns-migration.sql and loyalty-extras-migration.sql).
 //   seasonal  Brew Houze runs its loyalty program in seasons: each campaign sets how stars are
@@ -277,7 +278,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   let body: CampaignInput & { activate?: unknown };
@@ -318,7 +319,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   let body: CampaignInput & { id?: unknown; action?: unknown };
@@ -393,7 +394,7 @@ export async function PATCH(request: Request) {
 
 // Campaigns are never deleted: their star history is part of the customers' records. A draft
 // that was never started can be removed, since nothing points to it.
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   const auth = await requireAdmin();
   if ("error" in auth) return auth.error;
   const id = Number(new URL(request.url).searchParams.get("id"));
@@ -411,3 +412,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not delete the campaign." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Loyalty", postHandler);
+export const PATCH = audited("Loyalty", patchHandler);
+export const DELETE = audited("Loyalty", deleteHandler);

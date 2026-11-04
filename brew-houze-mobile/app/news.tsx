@@ -14,6 +14,8 @@ import { manilaWhen, type PromotionKind } from "@/lib/promotions";
 export type NewsPost = {
   id: number; kind: PromotionKind; title: string; message: string; image: string;
   productId: number | null; productName: string | null;
+  // A bundle deal: the menu items sold together, and its price for all of them.
+  bundle?: { items: { id: number; name: string }[]; price: number | null } | null;
   eventStartsAt: string | null; eventEndsAt: string | null; showFrom: string; showUntil: string | null;
   version: string;
 };
@@ -133,6 +135,11 @@ export function NewsSheet({ posts, focusId, onClose, onSeeItem }: { posts: NewsP
               <h3>{post.title}</h3>
               {post.kind === "event" && post.eventEndsAt && <p className="bh-news-until">Until {manilaWhen(post.eventEndsAt)}</p>}
               <p className="bh-news-message">{post.message}</p>
+              {post.bundle && <div className="bh-bundle">
+                <p className="bh-bundle-head"><span>Bundle deal</span>{post.bundle.price !== null && <strong>₱{post.bundle.price.toFixed(2)} for all {post.bundle.items.length}</strong>}</p>
+                <ul>{post.bundle.items.map((item) => <li key={item.id}><button type="button" onClick={() => onSeeItem(item.id)}>{item.name}<span aria-hidden="true">›</span></button></li>)}</ul>
+                <p className="bh-bundle-note">Tap an item to add it. Show this post at the counter for the bundle price.</p>
+              </div>}
               {post.productId !== null && post.productName && <button type="button" className="bh-primary" onClick={() => onSeeItem(post.productId as number)}>See {post.productName}</button>}
             </div>
           </article>)}

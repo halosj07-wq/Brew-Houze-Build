@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 async function requireAdmin() {
   const session = await getSession();
@@ -193,7 +194,7 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const session = await requireAdmin();
   if (!session) return NextResponse.json({ error: "Only an admin can restore archived records." }, { status: 403 });
 
@@ -320,6 +321,10 @@ export async function PATCH(request: Request) {
 }
 
 // Archived records are never deleted for good: they stay as the record of what the café had.
-export async function DELETE() {
+async function deleteHandler() {
   return NextResponse.json({ error: "Archived records cannot be deleted. They are kept for good; restore one instead." }, { status: 405 });
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const PATCH = audited("Archives", patchHandler);
+export const DELETE = audited("Archives", deleteHandler);

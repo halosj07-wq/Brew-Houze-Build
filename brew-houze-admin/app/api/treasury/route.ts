@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 import { addSafeEntry, lastFloatKept, lockAccount, pesoText, SafeShortError, type TreasuryAccountKey } from "@/lib/treasury";
 import { gcashMethod } from "@/lib/gcash";
+import { audited } from "@/lib/audit";
 
 // The treasury (see treasury-migration.sql, treasury-paymongo-migration.sql and lib/treasury.ts):
 // each account's balance and its history, like a ledger.
@@ -147,7 +148,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
 
@@ -239,3 +240,6 @@ export async function POST(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Treasury", postHandler);

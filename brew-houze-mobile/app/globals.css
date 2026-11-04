@@ -691,3 +691,13 @@ body { background: #FFFFFF; font-family: 'Outfit', 'DM Sans', sans-serif; }
 .bh-news-message { margin: 2px 0 4px; color: #4A3529; font-size: 14px; line-height: 1.55; white-space: pre-line; }
 .bh-news-item .bh-primary { flex: none; align-self: flex-start; min-height: 46px; }
 @media (prefers-reduced-motion: reduce) { .bh-news-bell.has-new svg { animation: none; } }
+
+/* Bundle deals (a promo post's bundle): the items in it on the post, and a tag on their menu cards */
+.bh-bundle { margin: 4px 0 8px; padding: 10px 12px; border-radius: 14px; background: #FFF7ED; border: 1px solid #FED7AA; display: flex; flex-direction: column; gap: 6px; }
+.bh-bundle-head { margin: 0; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.bh-bundle-head span { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #C2410C; }
+.bh-bundle-head strong { font-size: 15px; color: #3D2B1F; }
+.bh-bundle ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.bh-bundle li button { width: 100%; display: flex; justify-content: space-between; align-items: center; padding: 8px 10px; border-radius: 10px; border: 1px solid #F3D9B1; background: #FFFFFF; color: #3D2B1F; font-size: 14px; font-weight: 600; cursor: pointer; }
+.bh-bundle-note { margin: 0; font-size: 12px; color: #9C8278; }
+.bh-bundle-tag { position: absolute; top: 8px; right: 8px; z-index: 1; padding: 3px 8px; border-radius: 999px; background: #C2410C; color: #FFFFFF; font-size: 10.5px; font-weight: 800; letter-spacing: .02em; pointer-events: none; }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 import { signalChange } from "@/lib/realtime";
+import { audited } from "@/lib/audit";
 
 async function getAdminId(): Promise<number | null> {
   const session = await getSession();
@@ -50,7 +51,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -100,7 +101,7 @@ export async function POST(request: Request) {
 }
 
 // Edits an add-on. Past sales keep the name, amount and price recorded when they were sold.
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -144,7 +145,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -186,3 +187,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not archive addition item." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Menu", postHandler);
+export const PATCH = audited("Menu", patchHandler);
+export const DELETE = audited("Menu", deleteHandler);

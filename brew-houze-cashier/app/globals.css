@@ -11,6 +11,8 @@
 
 * { box-sizing: border-box; }
 html, body { min-height: 100%; margin: 0; }
+/* Signed in, only the screen's own areas scroll: the window never scrolls past the app (no grey band under it). */
+html:has(.app-shell), body:has(.app-shell) { overflow: hidden; overscroll-behavior: none; }
 body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .app-sidebar { position: relative; transition: width 160ms ease; }
 .app-sidebar.is-collapsed > div:first-child { justify-content: center; padding-left: .35rem; padding-right: .35rem; }
@@ -480,6 +482,15 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .pos-idcheck-photo img { display: block; width: 100%; height: auto; max-height: 240px; object-fit: contain; }
 .pos-idcheck-photo.is-zoomed { cursor: zoom-out; }
 .pos-idcheck-photo.is-zoomed img { max-height: none; }
+/* A tablet (or phone) on its side: the ID photo on the left, as tall as the window allows, the details and the
+   choices beside it, so the photo is never squeezed into a short strip. */
+@media (orientation: landscape) and (min-width: 700px) {
+  .pos-idcheck-dialog { width: min(100%, 980px); max-height: 92vh; max-height: 92dvh; }
+  .pos-idcheck-dialog .pos-idd-scroll { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; column-gap: 16px; row-gap: 12px; }
+  .pos-idcheck-dialog .pos-idd-scroll > * { grid-column: 2; }
+  .pos-idcheck-dialog .pos-idd-scroll > .pos-idcheck-photo, .pos-idcheck-dialog .pos-idd-scroll > .pos-idd-problem:first-child { grid-column: 1; grid-row: 1 / span 30; position: sticky; top: 0; }
+  .pos-idcheck-dialog .pos-idcheck-photo img, .pos-idcheck-dialog .pos-idcheck-photo.is-zoomed img { max-height: calc(92dvh - 130px); }
+}
 .pos-idcheck-photo span { position: absolute; right: 8px; bottom: 8px; padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,0.6); color: #FFFFFF; font-size: 11px; font-weight: 700; }
 .pos-idcheck-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .pos-idcheck-facts span { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 7px 9px; border-radius: 9px; background: #F3EDE5; }
@@ -829,3 +840,20 @@ body { font-family: 'Inter', sans-serif; background: #F8F9FA; color: #3D2B1F; }
 .gcash-reference input { padding: 12px 14px; border: 1px solid #BFDBFE; border-radius: 12px; background: #FFFFFF; color: #3D2B1F; font-family: 'JetBrains Mono', monospace; font-size: 20px; letter-spacing: 0.06em; outline: none; }
 .gcash-reference input:focus { border-color: #0057E4; box-shadow: 0 0 0 3px rgba(0,87,228,0.15); }
 .gcash-seen { margin-top: 10px; text-align: left; }
+
+/* The delivery map (app/delivery-map.tsx, Leaflet on OpenStreetMap): pins as round badges */
+.dm-wrap { display: flex; flex-direction: column; gap: 6px; }
+.dm-map { width: 100%; border-radius: 14px; border: 1px solid #E8DDD5; overflow: hidden; z-index: 0; }
+.dm-note { margin: 0; font-size: 12px; color: #9C8278; }
+.dm-pin { display: flex !important; align-items: center; justify-content: center; border-radius: 50%; border: 2px solid #FFFFFF; box-shadow: 0 3px 10px rgba(61,43,31,0.35); font: 800 11px/1 'Inter', sans-serif; color: #FFFFFF; }
+.dm-pin.is-cafe { background: #3D2B1F; font-size: 16px; }
+.dm-pin.is-ready { background: #9C8278; }
+.dm-pin.is-out { background: #D97706; }
+.dm-pin.is-rider { background: #FFFFFF; border-color: #D97706; font-size: 18px; }
+/* Proof of delivery: the photo taken at the door */
+.dlv-proof { flex-wrap: wrap; }
+.dlv-proof-photo { width: 100%; max-height: 240px; object-fit: contain; border-radius: 10px; border: 1px solid #E8DDD5; background: #1F1611; }
+.dlv-proof-take, .dlv-proof label { cursor: pointer; }
+.dlv-sharing { margin: 0; padding: 8px 12px; border-radius: 10px; font-size: 12.5px; font-weight: 600; background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.dlv-sharing.is-denied, .dlv-sharing.is-unavailable { background: #FEF2F2; color: #B91C1C; border-color: #FECACA; }
+.dlv-sharing.is-off { background: #FFF7ED; color: #B45309; border-color: #FED7AA; }

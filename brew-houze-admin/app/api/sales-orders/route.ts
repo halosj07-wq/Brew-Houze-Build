@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 export async function GET(request: Request) {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -244,12 +245,16 @@ export async function GET(request: Request) {
 // drawers. A wrong sale is corrected with a void or refund in the staff app, which stays on record.
 const KEPT_FOREVER = { error: "Sales records are kept permanently. Void or refund the order in the staff app to correct it." };
 
-export async function DELETE() {
+async function deleteHandler() {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   return NextResponse.json(KEPT_FOREVER, { status: 403 });
 }
 
-export async function PATCH() {
+async function patchHandler() {
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   return NextResponse.json(KEPT_FOREVER, { status: 403 });
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const DELETE = audited("Orders", deleteHandler);
+export const PATCH = audited("Orders", patchHandler);

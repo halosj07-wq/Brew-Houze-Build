@@ -5,11 +5,13 @@ import Image from "next/image";
 import { groupMoney, MoneyField, PhoneField } from "@/lib/input-format";
 import { passwordChecks, passwordProblem } from "@/lib/password-policy";
 import { livePollGate, onLive } from "@/lib/live";
+import DeliveryMap, { type MapStopView } from "./delivery-map";
 import { escposReceipt, needsSignature, rawbtIntentUrl, RECEIPT_BUSINESS, receiptDeliveryStatus, receiptFooter, receiptItemsByStation, receiptMoney, receiptNumber, receiptSubtotal, receiptTime, type ReceiptData } from "@/lib/receipt";
 import { forgetSession, isNetworkError, nextTicket, readOutbox, readSynced, rememberedMenu, rememberedSession, rememberedShift, rememberMenu, rememberSession, rememberShift, saveOfflineOrder, writeOutbox, writeSynced, type OfflineOrder, type OfflineReceiptLine, type OfflineSynced } from "@/lib/offline";
 
 // line: the counter line, everything from the mobile menu waiting for the cashier (see CounterLine).
-type Page = "pos" | "line" | "queue" | "reversals" | "deliveries" | "accounts";
+const PAGES = ["pos", "line", "queue", "reversals", "deliveries", "accounts"] as const;
+type Page = typeof PAGES[number];
 type Session = { adminId: number; fullName: string; email: string; role: string; canVoidOrders?: boolean; canRefundOrders?: boolean; canOpenShift?: boolean; canCloseShift?: boolean; mustChangePassword?: boolean };
 
 // Baristas and kitchen staff only see and manage their queue, riders only the deliveries (the
@@ -1995,7 +1997,8 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
       const response = await fetch("/api/id-verifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: check.id, action, reason, ...(action === "approve" ? { coverage } : {}) }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not save the decision.");
-      onDecided(action === "approve" ? `Approved ${check.holderName}'s ${check.discountName} ID. They can pay on their phone now.` : `Rejected ${check.holderName}'s ID. They were told why.`);
+      const deleted = payload?.data?.photoDeleted === true ? " The ID photo was deleted from the system." : " The ID photo could not be confirmed deleted: it is cleared within a day.";
+      onDecided((action === "approve" ? `Approved ${check.holderName}'s ${check.discountName} ID. They can pay on their phone now.` : `Rejected ${check.holderName}'s ID. They were told why.`) + deleted);
     } catch (decideError) {
       setError(decideError instanceof Error ? decideError.message : "Could not save the decision.");
       setWorking(false);
@@ -2018,7 +2021,7 @@ function IdCheckDialog({ check, lines, types, vat, onDecided, onClose }: {
           <span><em>Order</em><strong>{check.serviceType === "take_out" ? "Take Out/Pick Up" : "Dine in"}{check.customerName ? ` · ${check.customerName}` : " · guest"}</strong></span>
         </div>
         <IdHistoryNote history={check.history ?? null} holderName={check.holderName} />
-        {check.remember && check.username && <p className="pos-idcheck-remember">They asked to remember this ID on their account (@{check.username}), so their next orders get the discount without a photo. Only the name and ID number are saved.</p>}
+        {check.remember && check.username && <p className="pos-idcheck-remember">They asked to remember this ID for 30 days on their account (@{check.username}), so their next orders get the discount without a photo. Only the name and ID number are saved.</p>}
         <p className="pos-idcheck-remember">Choose which items get the discount. The customer can&apos;t pick this on their phone.</p>
         <div className="pos-idd-mode" role="radiogroup" aria-label="What the discount covers">
           <button type="button" role="radio" aria-checked={mode === "items"} className={mode === "items" ? "is-on" : ""} disabled={working} onClick={() => setMode("items")}><strong>Their own items</strong><em>Tick what they will eat or drink</em></button>
@@ -2123,7 +2126,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
   type Ingredient = { inventory_id: number; item_name?: string; customizable?: boolean; whole?: boolean; required_quantity: string | number; available_quantity: string | number };
   type Addition = { addition_id: number; addition_name: string; quantity: string | number; price: string | number; station?: Station; categories?: string[]; unit_of_measure: string; inventory_id: number; available_quantity: string | number };
   type Variant = { product_variant_id: number; price: string | number; size_label: string | null; temperature?: "hot" | "cold" | "both" | null; available?: boolean; max_quantity?: number; ingredients: Ingredient[] };
-  type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; product_type?: "recipe" | "stock"; station?: Station; category_order?: number | null; recent_sold?: number; image_url?: string | null; variants: Variant[] };
+  type Product = { product_id: number; product_name: string; product_description?: string; product_category: string | null; product_type?: "recipe" | "stock" | "bundle"; station?: Station; category_order?: number | null; recent_sold?: number; image_url?: string | null; variants: Variant[] };
   type ProductsResponse = { data?: Product[]; additions?: Addition[]; requests?: QuickRequest[]; pickup?: "together" | "separate" | "per_order" };
   // "count" is how many of this add-on go on EACH cup of the line (Double Shot x2 per cup).
   type CartAddition = Addition & { count: number };
@@ -2526,7 +2529,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     cartLineId.current += 1;
     const key = `${product.product_id}:${variantId ?? "v"}:${cartLineId.current}`;
     const price = variant ? Number(variant.price) : 0;
-    const isRecipe = product.product_type !== "stock";
+    const isRecipe = (product.product_type ?? "recipe") === "recipe";
     if (variant && getCartLimit(variant, cart, key) <= 0) return;
     // The same item again joins its plain line (one with no add-ons and not a reward), so two
     // taps are "2 ×", not two lines. Add-ons still split one cup off (see addAdditionToSelected).
@@ -2663,8 +2666,8 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
     cartLineId.current += 1;
     const key = `${product.product_id}:${variant.product_variant_id}:reward:${cartLineId.current}`;
     if (getCartLimit(variant, cart, key) <= 0) return;
-    setCart((prev) => [...prev, { key, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name, size: variant.size_label, temperature: variant.temperature, isRecipe: product.product_type !== "stock", qty: 1, price: 0, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.kind === "birthday" ? 0 : reward.starsCost, rewardBirthday: reward.kind === "birthday" }]);
-    if (product.product_type !== "stock") setSelectedKey(key);
+    setCart((prev) => [...prev, { key, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name, size: variant.size_label, temperature: variant.temperature, isRecipe: (product.product_type ?? "recipe") === "recipe", qty: 1, price: 0, ingredients: variant.ingredients, additions: [], rewardId: reward.id, rewardName: reward.name, rewardCost: reward.kind === "birthday" ? 0 : reward.starsCost, rewardBirthday: reward.kind === "birthday" }]);
+    if ((product.product_type ?? "recipe") === "recipe") setSelectedKey(key);
     setRewardForItem(null);
   }
 
@@ -2702,7 +2705,7 @@ function POSPage({ userName, view, onView, onLineChanged, onQueueAssigned }: { u
       const { product, variant } = match;
       return [{
         key: `${product.product_id}:${variant.product_variant_id}:${cartLineId.current}`, productId: product.product_id, variantId: Number(variant.product_variant_id), name: product.product_name,
-        size: variant.size_label ?? null, temperature: variant.temperature, isRecipe: product.product_type !== "stock", qty: item.quantity, price: Number(variant.price), ingredients: variant.ingredients ?? [],
+        size: variant.size_label ?? null, temperature: variant.temperature, isRecipe: (product.product_type ?? "recipe") === "recipe", qty: item.quantity, price: Number(variant.price), ingredients: variant.ingredients ?? [],
         additions: additions.filter((addition) => item.additionIds.includes(addition.addition_id)).map((addition) => ({ ...addition, count: 1 })),
       }];
     });
@@ -3611,6 +3614,25 @@ function IconTruck({ size = 20 }: IconProps) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="17" r="2.5" /><circle cx="18" cy="17" r="2.5" /><path d="M8.5 17h7M15 17l-2-6h-3M13 11l1-3h3M5 12h5v3" /></svg>;
 }
 
+// A photo from the phone's camera, made smaller (at most 1280 px across, JPEG) before it is sent.
+async function shrinkPhoto(file: File): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const picture = await new Promise<HTMLImageElement>((resolve, reject) => { const image = new window.Image(); image.onload = () => resolve(image); image.onerror = () => reject(new Error("That photo could not be read. Take it again.")); image.src = url; });
+    const scale = Math.min(1, 1280 / Math.max(picture.naturalWidth, picture.naturalHeight));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(picture.naturalWidth * scale);
+    canvas.height = Math.round(picture.naturalHeight * scale);
+    canvas.getContext("2d")?.drawImage(picture, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.75);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// The delivery map's data (lib/delivery-map.ts), loaded with the list.
+type DeliveryMapData = { ready: boolean; cafe: { lat: number; lng: number } | null; stops: (MapStopView & { riderId: number | null })[] };
+
 function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; onOpenReversals: () => void; onChanged?: () => void }) {
   const [list, setList] = useState<DeliveryCard[] | null>(null);
   const [error, setError] = useState("");
@@ -3622,6 +3644,10 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
   const [riders, setRiders] = useState<{ id: number; name: string; onDuty: boolean }[]>([]);
   const [handing, setHanding] = useState<{ id: number; riderId: number } | null>(null);
   const isRider = user.role.toLowerCase() === "rider";
+  // Proof of delivery: the photo taken at the door, before the delivery can be marked delivered.
+  const [proof, setProof] = useState<{ id: number; photo: string | null; reading: boolean } | null>(null);
+  const [mapData, setMapData] = useState<DeliveryMapData | null>(null);
+  const [sharing, setSharing] = useState<"off" | "on" | "denied" | "unavailable">("off");
 
   const load = useCallback(async () => {
     try {
@@ -3631,6 +3657,7 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       setList(payload.data ?? []);
       setRiders(payload.riders ?? []);
       setError("");
+      fetch("/api/deliveries/map", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((map) => { if (map?.data) setMapData(map.data as DeliveryMapData); }).catch(() => undefined);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Could not load the deliveries.");
       setList((current) => current ?? []);
@@ -3649,6 +3676,33 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  // The rider's phone shares where it is while they carry deliveries (at most every 15 s), for the café's map.
+  const carrying = (list ?? []).some((card) => card.status === "out" && card.orderStatus === "completed" && card.riderId === user.adminId);
+  useEffect(() => {
+    if (!carrying) { setSharing("off"); return; }
+    if (!("geolocation" in navigator)) { setSharing("unavailable"); return; }
+    let last = 0;
+    const watch = navigator.geolocation.watchPosition((position) => {
+      setSharing("on");
+      if (Date.now() - last < 15_000) return;
+      last = Date.now();
+      void fetch("/api/deliveries/location", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat: position.coords.latitude, lng: position.coords.longitude, accuracy: position.coords.accuracy }) }).catch(() => undefined);
+    }, (positionError) => setSharing(positionError.code === positionError.PERMISSION_DENIED ? "denied" : "unavailable"), { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 });
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [carrying]);
+
+  async function takeProof(card: DeliveryCard, file: File | undefined) {
+    if (!file) return;
+    setProof({ id: card.id, photo: null, reading: true });
+    try {
+      const photo = await shrinkPhoto(file);
+      setProof({ id: card.id, photo, reading: false });
+    } catch (photoError) {
+      setProof({ id: card.id, photo: null, reading: false });
+      setError(photoError instanceof Error ? photoError.message : "That photo could not be read. Take it again.");
+    }
+  }
+
   async function act(card: DeliveryCard, action: "pickup" | "delivered" | "failed" | "remit", extra: Record<string, unknown> = {}) {
     setBusyId(card.id);
     setError("");
@@ -3661,6 +3715,7 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       setFailing(null);
       setCollecting(null);
       setHanding(null);
+      setProof(null);
       onChanged?.();
       await load();
     } catch (actError) {
@@ -3700,9 +3755,8 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       <span className="dlv-actions">
         <a className="dlv-button is-light" href={mapsLink(card)} target="_blank" rel="noopener">Open in Maps</a>
         {card.status === "ready" && handing?.id !== card.id && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => isRider ? void act(card, "pickup") : setHanding({ id: card.id, riderId: riders[0]?.id ?? user.adminId })}>{busyId === card.id ? "…" : isRider ? "Pick up" : "Picked up…"}</button>}
-        {card.status === "out" && (card.payment === "cod" && collecting !== card.id
-          ? <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => setCollecting(card.id)}>Delivered</button>
-          : card.status === "out" && card.payment !== "cod" && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered")}>{busyId === card.id ? "…" : "Delivered"}</button>)}
+        {card.status === "out" && proof?.id !== card.id && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => { setCollecting(null); setProof({ id: card.id, photo: null, reading: false }); }}>Delivered…</button>}
+        {card.status === "delivered" && <a className="dlv-button is-light" href={`/api/deliveries/proof?id=${card.id}`} target="_blank" rel="noopener">Proof photo</a>}
         {(card.status === "out" || card.status === "ready") && <button type="button" className="dlv-button is-danger" disabled={busyId !== null} onClick={() => setFailing({ id: card.id, reason: "" })}>Not delivered…</button>}
         {cash.includes(card) && !isRider && <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "remit")}>{busyId === card.id ? "…" : `Received ₱${(card.codCollected ?? 0).toFixed(2)}`}</button>}
         {failed.includes(card) && !isRider && <button type="button" className="dlv-button is-danger" onClick={onOpenReversals}>Void in Order history</button>}
@@ -3717,10 +3771,16 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
       <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "pickup", { riderId: handing.riderId })}>{busyId === card.id ? "…" : "Confirm"}</button>
       <button type="button" className="dlv-button is-light" onClick={() => setHanding(null)}>Back</button>
     </div>}
-    {collecting === card.id && <div className="dlv-confirm">
-      <span>Did you collect <strong>₱{(card.codAmount ?? 0).toFixed(2)}</strong> in cash?</span>
-      <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered", { collected: card.codAmount })}>{busyId === card.id ? "…" : "Yes, collected"}</button>
-      <button type="button" className="dlv-button is-light" onClick={() => setCollecting(null)}>Back</button>
+    {proof?.id === card.id && <div className="dlv-confirm dlv-proof">
+      <span>Proof of delivery: take a photo of the order at the door{card.payment === "cod" ? ", then confirm the cash" : ""}.</span>
+      {proof.photo
+        ? <img className="dlv-proof-photo" src={proof.photo} alt={`Proof of delivery for order #${card.queueNumber ?? ""}`} />
+        : <label className="dlv-button dlv-proof-take">{proof.reading ? "Reading the photo…" : "📷 Take photo"}<input type="file" accept="image/*" capture="environment" hidden onChange={(event) => void takeProof(card, event.target.files?.[0])} /></label>}
+      {proof.photo && <label className="dlv-button is-light">Retake<input type="file" accept="image/*" capture="environment" hidden onChange={(event) => void takeProof(card, event.target.files?.[0])} /></label>}
+      {proof.photo && (card.payment === "cod"
+        ? <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered", { collected: card.codAmount, photo: proof.photo })}>{busyId === card.id ? "…" : `Collected ₱${(card.codAmount ?? 0).toFixed(2)} · Delivered`}</button>
+        : <button type="button" className="dlv-button" disabled={busyId !== null} onClick={() => void act(card, "delivered", { photo: proof.photo })}>{busyId === card.id ? "…" : "Mark delivered"}</button>)}
+      <button type="button" className="dlv-button is-light" onClick={() => setProof(null)}>Back</button>
     </div>}
     {failing?.id === card.id && <div className="dlv-confirm">
       <input value={failing.reason} onChange={(event) => setFailing({ id: card.id, reason: event.target.value })} placeholder="Why? e.g. no one home, wrong address" maxLength={200} autoFocus />
@@ -3742,6 +3802,12 @@ function DeliveriesPage({ user, onOpenReversals, onChanged }: { user: Session; o
     </div>
     {error && <p className="dlv-error" role="alert">{error}</p>}
     {notice && <p className="dlv-notice" role="status">{notice}</p>}
+    {carrying && <p className={`dlv-sharing is-${sharing}`} role="status">{sharing === "on" ? "📍 Sharing your location with the café while you deliver." : sharing === "denied" ? "📍 Location is blocked: allow it for this site so the café can follow the delivery." : sharing === "unavailable" ? "📍 Your location can't be found right now." : "📍 Finding your location…"}</p>}
+    {mapData?.ready && mapData.stops.length > 0 && <section className="dlv-section">
+      <h3>Map <span>{mapData.stops.length}</span></h3>
+      <p className="dlv-hint">{isRider ? "Your stops and the road there. Tap a pin for the address." : "Every delivery packed or on its way, and each rider where their phone last was."}</p>
+      <DeliveryMap cafe={mapData.cafe} stops={mapData.stops} height={300} />
+    </section>}
     {list === null ? <p className="dlv-hint">Loading deliveries…</p> : <>
       {section(isRider ? "Your cash to hand in" : "Cash on delivery to receive", cash, isRider ? "Give this cash to the cashier. They record it." : "Riders hand this in. Tap Received when you have counted it: it goes into this shift's drawer.")}
       {section("Ready for pickup", ready, "Packed by the barista.")}
@@ -3869,7 +3935,7 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
       </div>
       {queueError && <p style={{ margin: 0, padding: "10px 14px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13, flexShrink: 0 }}>{queueError}</p>}
 
-      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4, display: "flex", flexDirection: "column", gap: 14 }}>
         {queue.length === 0 && !queueError && (
           <div style={{ height: "100%", minHeight: 220, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, border: "2px dashed #E8DDD5", borderRadius: 16, color: "#9C8278" }}>
             <strong style={{ fontFamily: "Hanken Grotesk, sans-serif", fontSize: 20, color: "#6B4C3B" }}>All caught up</strong>
@@ -3950,6 +4016,10 @@ function QueuePage({ onCounts }: { onCounts?: (counts: QueueCounts) => void }) {
             </article>;
           })}
         </div>
+        {/* (a short queue: the space under it says what comes next, rather than standing empty) */}
+        {queue.length > 0 && !queueError && <div style={{ flex: 1, minHeight: 90, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, border: "2px dashed #EFE6DE", borderRadius: 16, color: "#B8A69C", fontSize: 13, fontWeight: 600, textAlign: "center", padding: 12 }}>
+          {mine === "kitchen" ? "New food orders appear here automatically, oldest first." : "New orders from the counter and the mobile menu appear here automatically, oldest first."}
+        </div>}
       </div>
     </section>
 
@@ -5431,6 +5501,23 @@ export default function App() {
     setLoginNotice(notice);
   }
   const [page, setPage] = useState<Page>("pos");
+  // The page lives in the address bar (#queue), so a refresh stays on it and Back returns to the last one.
+  const pageFromUrl = useRef(false);
+  useEffect(() => {
+    const readHash = () => {
+      const named = window.location.hash.slice(1) as Page;
+      if (PAGES.includes(named)) setPage(named);
+    };
+    readHash();
+    window.addEventListener("hashchange", readHash);
+    return () => window.removeEventListener("hashchange", readHash);
+  }, []);
+  useEffect(() => {
+    // (not on the first render: that one is the default page, before the address bar has been read)
+    if (!pageFromUrl.current) { pageFromUrl.current = true; return; }
+    if (window.location.hash === `#${page}`) return;
+    window.history.pushState(null, "", `${window.location.pathname}${window.location.search}#${page}`);
+  }, [page]);
   // How many are waiting in the counter line (the sidebar badge).
   const [lineCount, setLineCount] = useState(0);
   const [showSignOut, setShowSignOut] = useState(false);

@@ -4,6 +4,7 @@ import { passwordProblem } from "@/lib/password-policy";
 import { logSecurityEvent, sendSecurityAlert, setMustChangePassword } from "@/lib/security-log";
 import { endAllSessions, getSession } from "@/lib/sessions";
 import { forgetTrustedDevices } from "@/lib/two-factor";
+import { audited } from "@/lib/audit";
 
 // Staff accounts (cashiers and baristas) for Accounts & Employees: who they are, what they may do, whether they are
 // on duty, how much they worked and sold, and their recent activity. Only admins reach this app.
@@ -16,7 +17,7 @@ function isUniqueViolation(error: unknown) {
   return Boolean(error && typeof error === "object" && (error as { code?: string }).code === "23505");
 }
 
-const ROLE_NAMES: Record<string, string> = { cashier: "cashier", barista: "barista", kitchen: "kitchen staff", rider: "rider" };
+const ROLE_NAMES: Record<string, string> = { cashier: "cashier", barista: "barista", kitchen: "kitchen staff", rider: "rider", admin: "admin" };
 
 export async function GET() {
   const session = await getSession();
@@ -36,7 +37,7 @@ export async function GET() {
         COALESCE((SELECT SUM(so.total_amount) FROM sales_orders so WHERE so.cashier_admin_id = u.admin_id AND so.is_archived = FALSE AND so.status = 'completed' AND so.created_at >= (CURRENT_TIMESTAMP - INTERVAL '30 days') AT TIME ZONE 'UTC'), 0) AS sales_30d,
         (SELECT COUNT(*) FROM sales_orders so WHERE so.reversed_by_admin_id = u.admin_id AND so.is_archived = FALSE AND so.reversed_at >= CURRENT_TIMESTAMP - INTERVAL '30 days')::int AS reversals_30d
       FROM admin_users u
-      WHERE LOWER(u.role) IN ('cashier', 'barista', 'kitchen', 'rider')
+      WHERE LOWER(u.role) IN ('cashier', 'barista', 'kitchen', 'rider', 'admin')
       ORDER BY u.is_active DESC, u.full_name ASC
     `);
     const ids = result.rows.map((account) => Number(account.admin_id));
@@ -152,7 +153,9 @@ export async function GET() {
 // Staff roles an admin can give. A barista only sees and manages the queue in the staff app, and a
 // rider only the deliveries, so
 // the cashier permissions are always off for them.
-const STAFF_ROLES = ["cashier", "barista", "kitchen", "rider"] as const;
+// An admin runs the Admin Portal like the owner (several admins can share the work; the audit log in Security shows
+// which one changed what).
+const STAFF_ROLES = ["cashier", "barista", "kitchen", "rider", "admin"] as const;
 type StaffRole = (typeof STAFF_ROLES)[number];
 function staffRole(value: unknown): StaffRole | null {
   const role = String(value ?? "cashier").toLowerCase();
@@ -161,7 +164,7 @@ function staffRole(value: unknown): StaffRole | null {
 
 // Adds a staff account. The admin gives them a temporary password to change from the staff app
 // (My Account) after signing in.
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   if (String(session.role).toLowerCase() !== "admin") return NextResponse.json({ error: "Only an admin can add employee accounts." }, { status: 403 });
@@ -175,7 +178,7 @@ export async function POST(request: Request) {
     const problem = passwordProblem(password, { name: fullName, email });
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
     const role = staffRole(body.role);
-    if (!role) return NextResponse.json({ error: "Choose cashier, barista, kitchen staff or rider." }, { status: 400 });
+    if (!role) return NextResponse.json({ error: "Choose admin, cashier, barista, kitchen staff or rider." }, { status: 400 });
     const cashier = role === "cashier";
 
     const result = await pool.query(`
@@ -194,7 +197,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") {
     return NextResponse.json({ error: "Only an admin can change employee accounts." }, { status: 403 });
@@ -204,15 +207,22 @@ export async function PATCH(request: Request) {
     const body = await request.json() as { id?: unknown; action?: unknown; role?: unknown; canVoidOrders?: unknown; canRefundOrders?: unknown; canOpenShift?: unknown; canCloseShift?: unknown; fullName?: unknown; email?: unknown; password?: unknown; isActive?: unknown };
     const id = Number(body.id);
     if (!Number.isInteger(id) || id <= 0) return NextResponse.json({ error: "A valid employee account is required." }, { status: 400 });
-    const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista', 'kitchen', 'rider')", [id]);
+    const exists = await pool.query("SELECT LOWER(role) AS role FROM admin_users WHERE admin_id = $1 AND LOWER(role) IN ('cashier', 'barista', 'kitchen', 'rider', 'admin')", [id]);
     if (exists.rowCount === 0) return NextResponse.json({ error: "Employee account not found." }, { status: 404 });
     const currentRole = String(exists.rows[0].role) as StaffRole;
+    // An admin never removes their own admin access, and the café always keeps at least one active admin.
+    const losesAdmin = currentRole === "admin" && ((body.action === "set_role" && staffRole(body.role) !== "admin") || (body.action === "set_active" && body.isActive !== true));
+    if (losesAdmin) {
+      if (id === session.adminId) return NextResponse.json({ error: "You cannot remove your own admin access. Ask another admin to do it." }, { status: 409 });
+      const others = await pool.query("SELECT COUNT(*)::int AS count FROM admin_users WHERE LOWER(role) = 'admin' AND is_active = TRUE AND admin_id <> $1", [id]);
+      if (Number(others.rows[0].count) === 0) return NextResponse.json({ error: "This is the only active admin. Add another admin first." }, { status: 409 });
+    }
 
     // Cashier <-> barista. Becoming a barista turns every cashier permission off; the change
     // applies on their next request, since the staff app reads the role fresh each time.
     if (body.action === "set_role") {
       const role = staffRole(body.role);
-      if (!role) return NextResponse.json({ error: "Choose cashier, barista, kitchen staff or rider." }, { status: 400 });
+      if (!role) return NextResponse.json({ error: "Choose admin, cashier, barista, kitchen staff or rider." }, { status: 400 });
       const result = await pool.query(`
         UPDATE admin_users
         SET role = $2::text,
@@ -302,10 +312,15 @@ export async function PATCH(request: Request) {
 }
 
 // Attendance is never archived or deleted: it is the record of hours worked for each shift.
-export async function DELETE() {
+async function deleteHandler() {
   const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") {
     return NextResponse.json({ error: "Only an admin can manage employees." }, { status: 403 });
   }
   return NextResponse.json({ error: "Attendance history is kept permanently and cannot be archived." }, { status: 403 });
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Accounts", postHandler);
+export const PATCH = audited("Accounts", patchHandler);
+export const DELETE = audited("Accounts", deleteHandler);

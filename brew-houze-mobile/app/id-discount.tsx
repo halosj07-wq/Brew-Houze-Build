@@ -157,7 +157,7 @@ export function IdDiscountSheet({ mode, rule, vat, lines, saved, signedIn, payLa
             : <><strong>{photoBusy ? "Preparing the photo…" : "📷 Take a photo of your ID"}</strong><small>Front side, flat and well lit, with your name and ID number readable.</small></>}
         </label>
         <label className="id-sheet-check"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} /><span>I agree that Brew Houze uses this photo only to check my discount. It is deleted as soon as the café has checked it.</span></label>
-        {signedIn && <label className="id-sheet-check"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /><span>Remember my ID on my account, so next time I get the discount without a photo. Only my name and ID number are kept, never the photo.</span></label>}
+        {signedIn && <label className="id-sheet-check"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /><span><b>Remember for 30 days</b>, so my next orders get the discount without a photo. Only my name and ID number are kept, never the photo. Each order with it keeps it 30 more days.</span></label>}
       </>}
 
       {mode === "saved" && covered > 0 && <div className="id-sheet-summary">

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 import { addSafeEntry, EXPENSE_CATEGORIES, lockSafe, pesoText, recordDrawerExpense, SafeShortError } from "@/lib/treasury";
+import { audited } from "@/lib/audit";
 
 // Expenses (see expenses-migration.sql): what the cafe spends to run, apart from the ingredients it
 // sells (restocking is already in the cost of goods, so it is never an expense here).
@@ -93,7 +94,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   let body: { action?: unknown; expense_id?: unknown; spent_on?: unknown; category?: unknown; description?: unknown; amount?: unknown; paid_from?: unknown; reference?: unknown; note?: unknown; reason?: unknown; password?: unknown };
@@ -213,3 +214,6 @@ export async function POST(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Finance", postHandler);

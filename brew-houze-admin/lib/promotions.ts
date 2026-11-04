@@ -62,6 +62,9 @@ export type PromotionInput = {
   title: string;
   message: string;
   productId: number | null;
+  // A bundle deal: the menu items in it (2 to 6) and its price for all of them (optional).
+  bundleProductIds: number[];
+  bundlePrice: number | null;
   eventStartsAt: string | null;
   eventEndsAt: string | null;
   showFrom: string;
@@ -92,6 +95,17 @@ export function parsePromotion(body: Record<string, unknown>, now: Date): { post
     if (!Number.isInteger(productId) || productId <= 0) return { error: "Choose a menu item, or none." };
   }
 
+  const bundleProductIds = Array.isArray(body.bundleProductIds) ? [...new Set(body.bundleProductIds.map(Number))] : [];
+  if (bundleProductIds.some((id) => !Number.isInteger(id) || id <= 0)) return { error: "Choose the bundle's items from the menu." };
+  if (bundleProductIds.length === 1) return { error: "A bundle has at least 2 items." };
+  if (bundleProductIds.length > 6) return { error: "Keep a bundle to 6 items." };
+  let bundlePrice: number | null = null;
+  if (body.bundlePrice !== null && body.bundlePrice !== undefined && body.bundlePrice !== "") {
+    bundlePrice = Math.round(Number(body.bundlePrice) * 100) / 100;
+    if (!Number.isFinite(bundlePrice) || bundlePrice < 0) return { error: "The bundle price must be 0 or more." };
+    if (!bundleProductIds.length) return { error: "Choose the bundle's items first." };
+  }
+
   const showFrom = moment(body.showFrom);
   const showUntil = moment(body.showUntil);
   if (showFrom === "bad" || showUntil === "bad") return { error: "Check the show dates." };
@@ -112,7 +126,7 @@ export function parsePromotion(body: Record<string, unknown>, now: Date): { post
     eventEndsAt = ends ? ends.toISOString() : null;
   }
   return {
-    post: { kind, title, message, productId, eventStartsAt, eventEndsAt, showFrom: from.toISOString(), showUntil: showUntil ? showUntil.toISOString() : null, isActive: body.isActive !== false },
+    post: { kind, title, message, productId, bundleProductIds, bundlePrice, eventStartsAt, eventEndsAt, showFrom: from.toISOString(), showUntil: showUntil ? showUntil.toISOString() : null, isActive: body.isActive !== false },
   };
 }
 

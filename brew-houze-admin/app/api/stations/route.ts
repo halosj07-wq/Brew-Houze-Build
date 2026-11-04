@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // The bar and the kitchen (see kitchen-stations-migration.sql): how an order with drinks and food
 // is called at the counter. "together": once, when every part is ready. "separate": each part
@@ -28,7 +29,7 @@ export async function GET() {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
@@ -49,3 +50,6 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Could not save the pickup setting." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const PATCH = audited("Menu", patchHandler);

@@ -10,6 +10,29 @@ const PARTS_SQL = `COALESCE((SELECT json_agg(json_build_object('station', os.sta
   json_build_array(json_build_object('station', 'bar', 'status', CASE WHEN so.queue_status = 'served' THEN 'ready' ELSE 'waiting' END)))`;
 type Part = { station: "bar" | "kitchen"; status: "waiting" | "ready" | "picked_up" };
 
+// The lines to make. A bundle (see bundle-products-migration.sql) is shown as its items, each at its own station
+// (its drink on the bar's queue, its food on the kitchen's), "Part of" the bundle. Before that script there are no
+// bundles, and each sales line is shown as it is.
+const PLAIN_LINES = `CROSS JOIN LATERAL (SELECT detail_item.product_id, detail_item.product_variant_id AS variant_id, detail_item.quantity, detail_item.station, NULL::text AS part_of, 0 AS sort) detail_line`;
+const BUNDLE_LINES = `JOIN products detail_sold ON detail_sold.product_id = detail_item.product_id
+          CROSS JOIN LATERAL (
+            SELECT detail_item.product_id, detail_item.product_variant_id AS variant_id, detail_item.quantity, detail_item.station, NULL::text AS part_of, 0 AS sort
+            WHERE detail_sold.product_type IS DISTINCT FROM 'bundle'
+            UNION ALL
+            SELECT bundle_variant.product_id, bundle_item.product_variant_id, detail_item.quantity * bundle_item.quantity, bundle_product.station, detail_sold.product_name, bundle_item.sort_order + 1
+            FROM product_bundle_items bundle_item
+            JOIN product_variants bundle_variant ON bundle_variant.product_variant_id = bundle_item.product_variant_id
+            JOIN products bundle_product ON bundle_product.product_id = bundle_variant.product_id
+            WHERE detail_sold.product_type = 'bundle' AND bundle_item.bundle_id = detail_item.product_id
+          ) detail_line`;
+let bundlesReady = false;
+async function bundleLines(): Promise<boolean> {
+  if (bundlesReady) return true;
+  const found = await pool.query("SELECT to_regclass('public.product_bundle_items') IS NOT NULL AS ready").catch(() => null);
+  bundlesReady = Boolean(found?.rows[0]?.ready);
+  return bundlesReady;
+}
+
 export async function GET(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -60,6 +83,7 @@ export async function GET(request: Request) {
       `).then((result) => Number(result.rows[0].n)).catch(() => null);
       return NextResponse.json({ signature: signatureResult.rows[0], deliveries, line }, { headers: { "Cache-Control": "no-store" } });
     }
+    const bundles = await bundleLines();
     const result = await pool.query(`
       SELECT
         so.order_id,
@@ -80,9 +104,9 @@ export async function GET(request: Request) {
             'product_name', detail_product.product_name,
             'size_label', detail_variant.size_label,
             'temperature', detail_variant.temperature,
-            'quantity', detail_item.quantity,
-            'custom', ${customTextSql("detail_item")},
-            'station', COALESCE(detail_item.station, 'bar'),
+            'quantity', detail_line.quantity,
+            'custom', CASE WHEN detail_line.part_of IS NOT NULL THEN 'Part of ' || detail_line.part_of ELSE ${customTextSql("detail_item")} END,
+            'station', COALESCE(detail_line.station, 'bar'),
             'additions', COALESCE((
               SELECT json_agg(json_build_object(
                 'name', detail_addition.addition_name,
@@ -92,10 +116,11 @@ export async function GET(request: Request) {
               JOIN additions detail_addition ON detail_addition.addition_id = detail_addition_link.addition_id
               WHERE detail_addition_link.order_item_id = detail_item.order_item_id
             ), '[]'::json)
-          ) ORDER BY detail_item.order_item_id)
+          ) ORDER BY detail_item.order_item_id, detail_line.sort)
           FROM sales_order_items detail_item
-          JOIN products detail_product ON detail_product.product_id = detail_item.product_id
-          LEFT JOIN product_variants detail_variant ON detail_variant.product_variant_id = detail_item.product_variant_id
+          ${bundles ? BUNDLE_LINES : PLAIN_LINES}
+          JOIN products detail_product ON detail_product.product_id = detail_line.product_id
+          LEFT JOIN product_variants detail_variant ON detail_variant.product_variant_id = detail_line.variant_id
           WHERE detail_item.order_id = so.order_id
         ), '[]'::json) AS order_details,
         COALESCE(

@@ -1,4 +1,5 @@
 import pool from "@/lib/db";
+import { eventPlans, itemForecasts } from "@/lib/forecast";
 
 // The facts behind AI insights (see ai-insights-migration.sql): worked out here from the cafe's own
 // records, so every number Claude sees is exact and Claude only ranks and words them. Only numbers,
@@ -222,10 +223,12 @@ export async function insightFacts(start: string, end: string, today: string) {
   const days = Math.round((new Date(`${end}T00:00:00Z`).getTime() - new Date(`${start}T00:00:00Z`).getTime()) / 86_400_000) + 1;
   const previousEnd = addDays(start, -1);
   const previousStart = addDays(start, -days);
-  const [current, previous, stock, menuFacts, wasteFacts, expenses, ops] = await Promise.all([
+  const [current, previous, stock, menuFacts, wasteFacts, expenses, ops, series, forecasts] = await Promise.all([
     money(start, end), money(previousStart, previousEnd), stockRunway(today), menu(start, end, days), waste(start, end),
-    expensesByCategory(start, end, previousStart, previousEnd), operations(start, end),
+    expensesByCategory(start, end, previousStart, previousEnd), operations(start, end), chartFacts(start, end, today), itemForecasts(today),
   ]);
+  const plans = await eventPlans(today, forecasts);
+  const weekdayOf = (day: string) => new Date(`${day}T00:00:00Z`).toLocaleDateString("en-US", { timeZone: "UTC", weekday: "short" });
   return {
     cafe: "Brew Houze, a cafe in the Philippines. Amounts are in Philippine pesos.",
     period: { from: start, to: end, days, today },
@@ -236,6 +239,20 @@ export async function insightFacts(start: string, end: string, today: string) {
     waste: wasteFacts,
     expenses_by_category: expenses,
     ...ops,
+    // What the cards' charts are drawn from: the actual figures (copied as they are) and what Claude projects
+    // from them (marked as forecast).
+    chart_data: {
+      daily_sales: series.sales.slice(-21).map((entry) => ({ day: entry.day, weekday: weekdayOf(entry.day), net_sales: entry.sales, orders: entry.orders })),
+      orders_by_hour: series.hours.map((entry) => ({ hour: entry.hour, orders: entry.orders })),
+      best_sellers: series.best.map((entry) => ({ product: entry.product, sold: entry.sold, sales: entry.sales })),
+      stock_pace: forecasts.filter((item) => item.perDay > 0 && item.daysLeft !== null && item.daysLeft <= 30).sort((a, b) => (a.daysLeft ?? 0) - (b.daysLeft ?? 0)).slice(0, 8)
+        .map((item) => ({ item: item.item, unit: item.unit, on_hand: item.onHand, used_per_day: item.perDay, low_stock_alert_at: item.lowAt })),
+      holidays_and_events_ahead: plans.events.slice(0, 4).map((event) => ({
+        name: event.name, day: event.day, days_away: event.daysAway, kind: event.kind,
+        best_sellers_usual_per_day: event.products.slice(0, 5).map((product) => ({ product: product.product, usual_per_day: product.usual })),
+      })),
+      past_holiday_rush: { times_busier: plans.rush, based_on: plans.basis },
+    },
   };
 }
 

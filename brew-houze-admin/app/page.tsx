@@ -5,10 +5,12 @@ import Image from "next/image";
 import * as XLSX from "xlsx";
 import { excelPayment, excelReturnMethod, excelStatus, getFinanceDateStamp } from "@/lib/excel-format";
 import { MoneyField, PhoneField } from "@/lib/input-format";
+import DeliveryMap, { type MapStopView } from "./delivery-map";
 import { PASSWORD_HINT, passwordChecks, passwordProblem } from "@/lib/password-policy";
 import { manilaWhen, PROMOTION_MESSAGE_MAX, PROMOTION_TITLE_MAX, type PromotionKind, type PromotionStatus } from "@/lib/promotions";
 
-type Page = "dashboard" | "shift" | "inventory" | "products" | "finance" | "treasury" | "insights" | "customers" | "loyalty" | "promotions" | "discounts" | "delivery" | "accounts" | "security" | "account" | "archives";
+const PAGES = ["dashboard", "shift", "inventory", "products", "finance", "treasury", "insights", "customers", "loyalty", "promotions", "discounts", "delivery", "accounts", "security", "account", "archives"] as const;
+type Page = typeof PAGES[number];
 
 type AdminSession = { adminId: number; fullName: string; email: string; role: string };
 
@@ -16,6 +18,8 @@ type InventoryItem = {
   inventory_id: number;
   ingredient_category: string;
   item_name: string;
+  // Its group in the stock list (Cups, Straws…), or none.
+  item_group?: string | null;
   unit_of_measure: string;
   quantity: number;
   low_stock_threshold: number;
@@ -194,14 +198,31 @@ function IconRotateCcw({ size = 14 }: { size?: number }) {
 // something is saving), keeps keyboard focus inside the window, returns focus to whatever opened
 // it, and stops the page behind from scrolling. On phones it opens as a sheet from the bottom.
 const openModals: symbol[] = [];
+// Windows with something typed in them that is not saved yet: leaving the page asks first.
+const unsavedModals = new Set<symbol>();
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", (event) => { if (unsavedModals.size) event.preventDefault(); });
+}
 
 function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60, children }: { onClose: () => void; closeDisabled?: boolean; label?: string; labelledBy?: string; zIndex?: number; children: React.ReactNode }) {
   const backdropRef = useRef<HTMLDivElement>(null);
+  const confirmAction = useConfirm();
+  const canAsk = useContext(ConfirmReady);
+  const idRef = useRef(Symbol("modal"));
+  // Something typed or picked in it: closing it (Escape, outside it, × or Cancel) asks before throwing that away.
+  const dirty = useRef(false);
   const latest = useRef({ onClose, closeDisabled });
   useEffect(() => { latest.current = { onClose, closeDisabled }; });
+  const guardedClose = useCallback(async () => {
+    if (canAsk && dirty.current && !(await confirmAction({ title: "Discard your changes?", message: "What you entered in this window has not been saved.", confirmLabel: "Discard", cancelLabel: "Keep editing" }))) return;
+    unsavedModals.delete(idRef.current);
+    latest.current.onClose();
+  }, [canAsk, confirmAction]);
+  const guard = useRef(guardedClose);
+  useEffect(() => { guard.current = guardedClose; });
 
   useEffect(() => {
-    const id = Symbol("modal");
+    const id = idRef.current;
     openModals.push(id);
     const backdrop = backdropRef.current;
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -221,7 +242,7 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
       if (event.key === "Escape") {
         if (!latest.current.closeDisabled) {
           event.preventDefault();
-          latest.current.onClose();
+          void guard.current();
         }
       } else if (event.key === "Tab") {
         const items = focusable();
@@ -241,6 +262,7 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       openModals.splice(openModals.indexOf(id), 1);
+      unsavedModals.delete(id);
       scrollers.forEach((element, index) => { element.style.overflowY = previousOverflow[index]; });
       previouslyFocused?.focus?.();
     };
@@ -256,7 +278,27 @@ function Modal({ onClose, closeDisabled = false, label, labelledBy, zIndex = 60,
     aria-labelledby={labelledBy}
     tabIndex={-1}
     // mousedown (not click), so dragging a text selection out of the window does not close it.
-    onMouseDown={(event) => { if (event.target === event.currentTarget && !closeDisabled) onClose(); }}
+    onMouseDown={(event) => { if (event.target === event.currentTarget && !closeDisabled) void guardedClose(); }}
+    onInput={(event) => {
+      const field = event.target as HTMLElement;
+      if (field.matches("input:not([type=search]), select, textarea") && !field.closest("[data-no-unsaved]")) { dirty.current = true; unsavedModals.add(idRef.current); }
+    }}
+    onChange={(event) => {
+      const field = event.target as HTMLElement;
+      if (field.matches("select, input[type=checkbox], input[type=radio], input[type=file]") && !field.closest("[data-no-unsaved]")) { dirty.current = true; unsavedModals.add(idRef.current); }
+    }}
+    // (its own × and Cancel buttons close it through the same question)
+    onClickCapture={(event) => {
+      if (!dirty.current || closeDisabled) return;
+      const button = (event.target as HTMLElement).closest("button");
+      if (!button || button.type === "submit" || !backdropRef.current?.contains(button)) return;
+      const text = button.textContent?.trim().toLowerCase();
+      if (button.getAttribute("title") === "Close" || button.getAttribute("aria-label") === "Close" || text === "cancel") {
+        event.preventDefault();
+        event.stopPropagation();
+        void guardedClose();
+      }
+    }}
   >
     {children}
   </div>;
@@ -269,6 +311,8 @@ type ConfirmOptions = { title: string; message: React.ReactNode; confirmLabel?: 
 type ConfirmRequest = ConfirmOptions & { resolve: (confirmed: boolean) => void };
 
 const ConfirmContext = createContext<(options: ConfirmOptions) => Promise<boolean>>(async () => false);
+// (windows outside the app shell, at sign-in, have no one to ask: they close as before)
+const ConfirmReady = createContext(false);
 
 function useConfirm() {
   return useContext(ConfirmContext);
@@ -290,7 +334,7 @@ function ConfirmProvider({ children }: { children: React.ReactNode }) {
   }
 
   const danger = request?.tone !== "default";
-  return <ConfirmContext.Provider value={confirm}>
+  return <ConfirmContext.Provider value={confirm}><ConfirmReady.Provider value={true}>
     {children}
     {request && <Modal onClose={() => settle(false)} labelledBy="ui-confirm-title" zIndex={200}>
       <section className="ui-confirm">
@@ -303,7 +347,7 @@ function ConfirmProvider({ children }: { children: React.ReactNode }) {
         </div>
       </section>
     </Modal>}
-  </ConfirmContext.Provider>;
+  </ConfirmReady.Provider></ConfirmContext.Provider>;
 }
 
 // ─── App shell ────────────────────────────────────────────────────────────────
@@ -1672,7 +1716,7 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
           <p style={{ margin: 0, fontWeight: 700, fontSize: 13.5, color: "#3D2B1F" }}>{editingId === null ? "Add a packaging" : "Edit packaging"}</p>
           <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Packaging name</span><input value={draft.name} onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Nescafe Bean Bag 1 kg" style={packagingInput} /></label>
-            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Brand <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><input value={draft.brand} onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></label>
+            <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Brand</span><input value={draft.brand} onChange={(event) => setDraft((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></label>
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>One pack contains ({item.unit_of_measure})</span><input type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={draft.content} onChange={(event) => setDraft((current) => ({ ...current, content: item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} placeholder={item.is_whole_unit ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></label>
             <label className="flex flex-col gap-1.5"><span style={packagingLabel}>Price per pack (₱) <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span><MoneyField value={draft.price} onChange={(typed) => setDraft((current) => ({ ...current, price: typed }))} placeholder="e.g. 850" style={packagingInput} /></label>
           </div>
@@ -1680,11 +1724,138 @@ function PackagingDialog({ item, onClose, onChanged }: { item: InventoryItem; on
           {error && <p style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
           <div className="flex justify-end gap-2">
             {editingId !== null && <button type="button" onClick={resetDraft} disabled={saving} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: "pointer" }}>Cancel edit</button>}
-            <button type="submit" disabled={saving || !draft.name.trim() || !(draftContent > 0)} style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: saving || !draft.name.trim() || !(draftContent > 0) ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : editingId === null ? "Add packaging" : "Save changes"}</button>
+            <button type="submit" disabled={saving || !draft.name.trim() || !draft.brand.trim() || !(draftContent > 0)} style={{ padding: "8px 18px", borderRadius: 10, border: "none", background: saving || !draft.name.trim() || !draft.brand.trim() || !(draftContent > 0) ? "#C9B8AF" : "#3D2B1F", color: "#FDF9F5", fontWeight: 700, cursor: saving ? "default" : "pointer" }}>{saving ? "Saving..." : editingId === null ? "Add packaging" : "Save changes"}</button>
           </div>
         </form>
       </div>
     </div>
+  </Modal>;
+}
+
+// ─── Bulk restock: several items at once, after a supplier delivery ──────────
+// Every stocked item (not portions) in one list, those that need restocking first. Ticking an item (or typing
+// an amount) adds it: by package (how many packs, at what price each: the cost is averaged in, as with one
+// restock), or by amount for an item without a package. Each one is saved as its own restock, so History and
+// Finance's "Stock bought" show them the same way. If one fails, the others still go through and it stays ticked.
+type BulkLine = { on: boolean; packagingId: number; packs: string; price: string; quantity: string };
+
+function BulkRestockDialog({ items, restockBy, onClose, onDone }: { items: InventoryItem[]; restockBy: Map<number, string | null>; onClose: () => void; onDone: (message: string) => Promise<void> }) {
+  const stocked = useMemo(() => items.filter((item) => !item.derived_from_inventory_id).sort((a, b) => {
+    const rank = (item: InventoryItem) => Number(item.quantity) <= 0 ? 0 : isLowStock(item) ? 1 : restockBy.get(item.inventory_id) ? 2 : 3;
+    return rank(a) - rank(b) || a.item_name.localeCompare(b.item_name);
+  }), [items, restockBy]);
+  const blank = (item: InventoryItem): BulkLine => {
+    const pack = item.packagings?.[0];
+    return { on: false, packagingId: pack?.packagingId ?? 0, packs: "1", price: pack?.lastPackPrice === null || pack?.lastPackPrice === undefined ? "" : String(Number(pack.lastPackPrice)), quantity: "" };
+  };
+  const [lines, setLines] = useState<Record<number, BulkLine>>(() => Object.fromEntries(stocked.map((item) => [item.inventory_id, blank(item)])));
+  const [show, setShow] = useState<"needs" | "all">(() => stocked.some((item) => Number(item.quantity) <= 0 || isLowStock(item) || restockBy.get(item.inventory_id)) ? "needs" : "all");
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [problems, setProblems] = useState<Record<number, string>>({});
+  const set = (id: number, change: Partial<BulkLine>) => setLines((current) => ({ ...current, [id]: { ...current[id], ...change } }));
+
+  const needs = (item: InventoryItem) => Number(item.quantity) <= 0 || isLowStock(item) || Boolean(restockBy.get(item.inventory_id));
+  const term = search.trim().toLowerCase();
+  const visible = stocked.filter((item) => (show === "all" || needs(item) || lines[item.inventory_id]?.on) && (!term || `${item.item_name} ${item.ingredient_category} ${(item.packagings ?? []).map((pack) => `${pack.name} ${pack.brand ?? ""}`).join(" ")}`.toLowerCase().includes(term)));
+
+  // One ticked line as its restock request, or the reason it can't be sent.
+  const requestOf = (item: InventoryItem, line: BulkLine): { body: Record<string, unknown>; added: number; cost: number } | { problem: string } => {
+    const pack = (item.packagings ?? []).find((entry) => entry.packagingId === line.packagingId);
+    if (pack) {
+      const packs = Number(line.packs), price = line.price === "" ? null : Number(line.price);
+      if (!Number.isInteger(packs) || packs <= 0) return { problem: "Enter how many packs (a whole number)." };
+      if (price !== null && !(price >= 0)) return { problem: "The price per pack must be 0 or more." };
+      return { body: { restock_packaging: true, packaging_id: pack.packagingId, packs, pack_price: price }, added: packs * Number(pack.contentQuantity), cost: price === null ? 0 : packs * price };
+    }
+    const amount = Number(line.quantity);
+    if (!(amount > 0) || (item.is_whole_unit && !Number.isInteger(amount))) return { problem: `Enter how many ${item.unit_of_measure} to add${item.is_whole_unit ? " (whole)" : ""}.` };
+    return { body: { inventory_id: item.inventory_id, quantity_delta: amount }, added: amount, cost: 0 };
+  };
+
+  const chosen = stocked.filter((item) => lines[item.inventory_id]?.on);
+  const planned = chosen.map((item) => ({ item, request: requestOf(item, lines[item.inventory_id]) }));
+  const ready = planned.filter((entry) => !("problem" in entry.request));
+  const totalCost = ready.reduce((sum, entry) => sum + ("cost" in entry.request ? entry.request.cost : 0), 0);
+  const firstProblem = planned.find((entry) => "problem" in entry.request);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (saving || chosen.length === 0 || firstProblem) return;
+    setSaving(true);
+    const failed: Record<number, string> = {};
+    let done = 0;
+    for (const { item, request } of planned) {
+      if ("problem" in request) continue;
+      try {
+        const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request.body) });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload?.error || "Could not add the stock.");
+        done += 1;
+        set(item.inventory_id, { ...blank(item), on: false });
+      } catch (saveError) {
+        failed[item.inventory_id] = saveError instanceof Error ? saveError.message : "Could not add the stock.";
+      }
+    }
+    setProblems(failed);
+    setSaving(false);
+    const failures = Object.keys(failed).length;
+    if (failures === 0) await onDone(`Restocked ${done} item${done === 1 ? "" : "s"}${totalCost > 0 ? ` (${peso(totalCost)} at the prices entered)` : ""}. Each is in History.`);
+    else if (done > 0) await onDone(`Restocked ${done} item${done === 1 ? "" : "s"}. ${failures} could not be saved: they are still ticked here.`).then(() => undefined);
+  }
+
+  return <Modal onClose={onClose} closeDisabled={saving} label="Bulk restock">
+    <form onSubmit={submit} className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 860, maxHeight: "92vh", boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
+      <DialogHeader title="Bulk restock" sub="Tick the items that came in and enter what you got. Each is saved as its own restock." onClose={onClose} disabled={saving} />
+      <div className="flex flex-wrap items-center gap-2 px-6 pt-4">
+        <div className="inv-search" style={{ flex: 1, minWidth: 200 }}>
+          <IconSearch size={14} />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item, package or brand" data-no-unsaved type="search" />
+        </div>
+        <div className="inv-range" role="group" aria-label="Show">
+          <button type="button" aria-pressed={show === "needs"} onClick={() => setShow("needs")}>Needs restocking</button>
+          <button type="button" aria-pressed={show === "all"} onClick={() => setShow("all")}>All items</button>
+        </div>
+      </div>
+      <div className="px-6 py-4" style={{ overflowY: "auto", minHeight: 0 }}>
+        {visible.length === 0 ? <p className="inv-hint">{show === "needs" ? "Nothing needs restocking right now. Choose All items to restock something else." : "No items match."}</p> : <ul className="inv-bulk">
+          {visible.map((item) => {
+            const line = lines[item.inventory_id];
+            const packs = item.packagings ?? [];
+            const pack = packs.find((entry) => entry.packagingId === line.packagingId);
+            const status = stockStatusOf(item);
+            const request = line.on ? requestOf(item, line) : null;
+            const due = restockBy.get(item.inventory_id);
+            return <li key={item.inventory_id} className={line.on ? "is-on" : undefined}>
+              <label className="inv-bulk-item">
+                <input type="checkbox" checked={line.on} onChange={(event) => set(item.inventory_id, { on: event.target.checked })} disabled={saving} />
+                <span><strong>{item.item_name}</strong><em className={`is-${status}`}>{formatStock(Number(item.quantity), item.unit_of_measure)} on hand{status === "out" ? " · out" : status === "low" ? " · low" : due ? " · restock soon" : ""}</em></span>
+              </label>
+              {pack ? <div className="inv-bulk-fields">
+                {packs.length > 1 ? <select value={line.packagingId} onChange={(event) => { const next = packs.find((entry) => entry.packagingId === Number(event.target.value)); set(item.inventory_id, { packagingId: Number(event.target.value), price: next?.lastPackPrice === null || next?.lastPackPrice === undefined ? "" : String(Number(next.lastPackPrice)), on: true }); }} style={packagingInput} aria-label="Package">
+                  {packs.map((entry) => <option key={entry.packagingId} value={entry.packagingId}>{entry.name}{entry.brand ? ` (${entry.brand})` : ""}</option>)}
+                </select> : <span className="inv-bulk-pack">{pack.name}{pack.brand ? ` · ${pack.brand}` : ""}</span>}
+                <label><span>Packs</span><input type="number" min={1} step={1} value={line.packs} onChange={(event) => set(item.inventory_id, { packs: sanitizeWholeUnitValue(event.target.value), on: true })} style={packagingInput} disabled={saving} /></label>
+                <label><span>₱ per pack</span><input type="number" min={0} step="0.01" value={line.price} onChange={(event) => set(item.inventory_id, { price: event.target.value, on: true })} placeholder="optional" style={packagingInput} disabled={saving} /></label>
+              </div> : <div className="inv-bulk-fields">
+                <label><span>Add ({item.unit_of_measure})</span><input type="number" min={0} step={item.is_whole_unit ? 1 : "any"} value={line.quantity} onChange={(event) => set(item.inventory_id, { quantity: item.is_whole_unit ? sanitizeWholeUnitValue(event.target.value) : event.target.value, on: event.target.value !== "" })} placeholder="0" style={packagingInput} disabled={saving} /></label>
+              </div>}
+              {line.on && request && ("problem" in request
+                ? <p className="inv-bulk-note is-problem">{request.problem}</p>
+                : <p className="inv-bulk-note">+{formatStock(request.added, item.unit_of_measure)} → {formatStock(Number(item.quantity) + request.added, item.unit_of_measure)}{request.cost > 0 ? ` · ${peso(request.cost)}` : ""}</p>)}
+              {problems[item.inventory_id] && <p className="inv-bulk-note is-problem">{problems[item.inventory_id]}</p>}
+            </li>;
+          })}
+        </ul>}
+      </div>
+      <div className="flex items-center justify-between gap-3 px-6 py-4 border-t" style={{ borderColor: "#E8DDD5" }}>
+        <span className="inv-footer-note">{chosen.length === 0 ? "Tick the items you are restocking." : firstProblem ? `${firstProblem.item.item_name}: ${"problem" in firstProblem.request ? firstProblem.request.problem : ""}` : `${chosen.length} item${chosen.length === 1 ? "" : "s"}${totalCost > 0 ? ` · ${peso(totalCost)} in total` : ""}`}</span>
+        <div className="flex gap-2">
+          <button type="button" className="ui-button ui-button-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="submit" className="ui-button ui-button-primary" disabled={saving || chosen.length === 0 || Boolean(firstProblem)}>{saving ? "Restocking…" : `Restock ${chosen.length || ""} item${chosen.length === 1 ? "" : "s"}`.replace("  ", " ")}</button>
+        </div>
+      </div>
+    </form>
   </Modal>;
 }
 
@@ -1926,20 +2097,39 @@ function WizardField({ label, hint, children }: { label: React.ReactNode; hint?:
 
 const optionalTag = <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span>;
 
+// Related items kept together in the stock list, e.g. Cups (8 oz, 12 oz and 16 oz cups), Straws, Lids.
+function GroupField({ value, names, onChange }: { value: string; names: string[]; onChange: (value: string) => void }) {
+  return <WizardField label={<>Group {optionalTag}</>} hint="Keeps related items together in the list, e.g. Cups for every cup size.">
+    <input list="inventory-group-options" value={value} onChange={(event) => onChange(event.target.value)} placeholder="e.g. Cups, Straws, Lids" maxLength={60} style={packagingInput} />
+    <datalist id="inventory-group-options">{names.map((name) => <option key={name} value={name} />)}</datalist>
+  </WizardField>;
+}
+
+// The item's own low-stock alert: below it, the item shows as running low (blank: the unit's default).
+function ThresholdField({ unit, value, onChange }: { unit: string; value: string; onChange: (value: string) => void }) {
+  return <WizardField label={<>Low-stock alert at ({unit}) {optionalTag}</>} hint="You get an alert when stock falls to this. Leave blank for the default.">
+    <input type="number" min={0} step={isWholeUnit(unit) ? 1 : "any"} value={value} onChange={(event) => onChange(event.target.value)} placeholder="e.g. 500" style={packagingInput} />
+  </WizardField>;
+}
+
 // ─── Add inventory: package first, then what is inside it ─────────────────────
 function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: { items: InventoryItem[]; categories: string[]; preset: AddPreset; onClose: () => void; onCreated: () => Promise<void> }) {
   const stockItems = items.filter((item) => !item.derived_from_inventory_id);
   const [kind, setKind] = useState<AddPreset["kind"]>(preset.kind);
-  const [pack, setPack] = useState({ name: "", brand: "", price: "" });
-  const [inside, setInside] = useState<"new" | "existing">(preset.existingItemId ? "existing" : "new");
-  const [existingId, setExistingId] = useState(preset.existingItemId ? String(preset.existingItemId) : "");
-  const [detail, setDetail] = useState({ name: "", category: "", unit: "grams", content: "", packs: "", loose: "", quantity: "", unitCost: "" });
+  const [pack, setPack] = useState({ brand: "", price: "" });
+  const presetItem = stockItems.find((item) => item.inventory_id === preset.existingItemId);
+  const [detail, setDetail] = useState({ name: presetItem?.item_name ?? "", category: "", unit: "grams", content: "", packs: "", loose: "", quantity: "", unitCost: "", threshold: "", group: "" });
+  const groupNames = [...new Set(items.map((item) => item.item_group?.trim()).filter((name): name is string => Boolean(name)))].sort();
   const [sourceId, setSourceId] = useState(preset.sourceId ? String(preset.sourceId) : "");
   const [ratio, setRatio] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const existing = stockItems.find((item) => String(item.inventory_id) === existingId);
+  // One name for the item: typing (or picking) one already in stock adds another package to it, never a second item.
+  const sameName = (item: InventoryItem) => item.item_name.trim().toLowerCase() === detail.name.trim().toLowerCase();
+  const named = detail.name.trim() ? items.find(sameName) : undefined;
+  const existing = kind === "packaged" && named && !named.derived_from_inventory_id ? named : undefined;
+  const inside: "new" | "existing" = existing ? "existing" : "new";
   const source = stockItems.find((item) => String(item.inventory_id) === sourceId);
   const unit = kind === "packaged" && inside === "existing" ? existing?.unit_of_measure ?? "units" : detail.unit;
   const whole = isWholeUnit(unit);
@@ -1955,10 +2145,13 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
 
   const problem = (() => {
     if (kind === "packaged") {
-      if (!pack.name.trim()) return "Name the package, e.g. Nescafe Bean Bag 1 kg.";
-      if (inside === "new" && (!detail.name.trim() || !detail.category.trim())) return "Name the item inside the package and give it a category.";
-      if (inside === "existing" && !existing) return "Choose the item this package contains.";
+      if (!detail.name.trim()) return "Name the item, or pick one already in stock.";
+      if (named && !existing) return `${named.item_name} is a portion of another item. Add the package to that item.`;
+      if (inside === "new" && !detail.category.trim()) return "Give the item a category.";
+      if (!pack.brand.trim()) return "Enter the brand, e.g. Nescafe.";
       if (!(content > 0) || (whole && !Number.isInteger(content))) return `Enter how many ${unit} one package contains${whole ? " (a whole number)" : ""}.`;
+      const twin = existing?.packagings?.find((entry) => (entry.brand ?? "").trim().toLowerCase() === pack.brand.trim().toLowerCase() && Number(entry.contentQuantity) === content);
+      if (twin) return `${twin.name} is already listed. Restock it instead.`;
       if (packPrice !== null && !(packPrice >= 0)) return "The package price must be 0 or more.";
       if (!Number.isInteger(packCount) || packCount < 0) return "Packages on hand must be a whole number.";
       if (!(loose >= 0) || (whole && !Number.isInteger(loose))) return "The loose amount must be 0 or more.";
@@ -1966,6 +2159,7 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
     }
     if (kind === "loose") {
       if (!detail.name.trim() || !detail.category.trim()) return "Name the item and give it a category.";
+      if (named) return `${named.item_name} is already in your stock.`;
       const quantity = Number(detail.quantity || 0);
       if (!(quantity >= 0) || (whole && !Number.isInteger(quantity))) return "Enter the stock on hand (0 or more).";
       if (detail.unitCost !== "" && !(Number(detail.unitCost) >= 0)) return "The unit cost must be 0 or more.";
@@ -1973,6 +2167,7 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
     }
     if (kind === "portion") {
       if (!detail.name.trim() || !detail.category.trim()) return "Name the portion and give it a category.";
+      if (named) return `${named.item_name} is already in your stock.`;
       if (!source) return "Choose the item this portion is drawn from.";
       if (!(Number(ratio) > 0)) return "Enter how much of the source one portion uses.";
       return "";
@@ -1993,11 +2188,13 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
     setSaving(true);
     setError("");
     try {
-      const packaging = { packaging_name: pack.name.trim(), brand: pack.brand.trim(), content_quantity: content, pack_price: packPrice };
+      const itemName = existing?.item_name ?? detail.name.trim();
+      const packaging = { packaging_name: `${pack.brand.trim()} ${itemName} ${formatStock(content, unit)}`, brand: pack.brand.trim(), content_quantity: content, pack_price: packPrice };
+      const threshold = detail.threshold === "" ? null : Number(detail.threshold);
       if (kind === "packaged" && inside === "new") {
         await request("POST", "/api/inventory", {
           ingredient_category: detail.category.trim(), item_name: detail.name.trim(), unit_of_measure: detail.unit, quantity: 0, unit_cost: null,
-          packaging, initial_packs: packCount, initial_loose: loose,
+          packaging, initial_packs: packCount, initial_loose: loose, low_stock_threshold: threshold, item_group: detail.group,
         }, "Could not add the package.");
       } else if (kind === "packaged" && existing) {
         const updated = await request("POST", "/api/inventory/packaging", { inventory_id: existing.inventory_id, ...packaging }, "Could not add the package.");
@@ -2008,7 +2205,7 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
       } else if (kind === "loose") {
         await request("POST", "/api/inventory", {
           ingredient_category: detail.category.trim(), item_name: detail.name.trim(), unit_of_measure: detail.unit,
-          quantity: Number(detail.quantity || 0), unit_cost: detail.unitCost === "" ? null : Number(detail.unitCost),
+          quantity: Number(detail.quantity || 0), unit_cost: detail.unitCost === "" ? null : Number(detail.unitCost), low_stock_threshold: threshold, item_group: detail.group,
         }, "Could not add the item.");
       } else if (kind === "portion" && source) {
         await request("POST", "/api/inventory", {
@@ -2050,34 +2247,27 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
 
         {kind === "packaged" && <>
           <section className="inv-step">
-            <p className="inv-step-title"><span>1</span>The package</p>
+            <p className="inv-step-title"><span>1</span>The item</p>
+            <datalist id="inventory-item-options">{stockItems.map((item) => <option key={item.inventory_id} value={item.item_name}>{`${item.ingredient_category} · ${formatStock(Number(item.quantity), item.unit_of_measure)} on hand`}</option>)}</datalist>
             <div className="inv-step-grid">
-              <WizardField label="Package name"><input data-autofocus value={pack.name} onChange={(event) => setPack((current) => ({ ...current, name: event.target.value }))} placeholder="e.g. Nescafe Bean Bag 1 kg" style={packagingInput} /></WizardField>
-              <WizardField label={<>Brand {optionalTag}</>}><input value={pack.brand} onChange={(event) => setPack((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></WizardField>
-              <WizardField label={<>Price per package (₱) {optionalTag}</>} hint="Sets the item cost. Restocks update it as a weighted average."><MoneyField value={pack.price} onChange={(typed) => setPack((current) => ({ ...current, price: typed }))} placeholder="e.g. 850" style={packagingInput} /></WizardField>
+              <WizardField label="Item name" hint={existing ? `Already in stock (${formatStock(Number(existing.quantity), unit)} on hand): this adds another package to it.` : stockItems.length ? "Pick one already in stock from the list, or type a new one." : "What recipes use, e.g. Coffee Bean."}>
+                <input data-autofocus list="inventory-item-options" value={detail.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Coffee Bean, Coke Can" style={packagingInput} />
+              </WizardField>
+              {inside === "new" && <>
+                <WizardField label="Category"><input list="inventory-category-options" value={detail.category} onChange={(event) => update("category", event.target.value)} placeholder="e.g. Coffee, Canned Drinks" style={packagingInput} /></WizardField>
+                <WizardField label="Counted in" hint="The unit recipes and sales use."><UnitSelect value={detail.unit} onChange={(value) => update("unit", value)} /></WizardField>
+                <GroupField value={detail.group} names={groupNames} onChange={(value) => update("group", value)} />
+              </>}
             </div>
           </section>
 
           <section className="inv-step">
-            <p className="inv-step-title"><span>2</span>What is inside one package</p>
-            <div className="inv-segment" role="group" aria-label="Item inside the package">
-              <button type="button" aria-pressed={inside === "new"} onClick={() => setInside("new")}>A new item</button>
-              <button type="button" aria-pressed={inside === "existing"} onClick={() => setInside("existing")} disabled={stockItems.length === 0}>An item already listed</button>
-            </div>
-            {inside === "new" ? <div className="inv-step-grid">
-              <WizardField label="Item name" hint="What recipes use, without the brand."><input value={detail.name} onChange={(event) => update("name", event.target.value)} placeholder="e.g. Coffee Bean, Coke Can" style={packagingInput} /></WizardField>
-              <WizardField label="Category"><input list="inventory-category-options" value={detail.category} onChange={(event) => update("category", event.target.value)} placeholder="e.g. Coffee, Canned Drinks" style={packagingInput} /></WizardField>
-              <WizardField label="Counted in" hint="The unit recipes and sales use."><UnitSelect value={detail.unit} onChange={(value) => update("unit", value)} /></WizardField>
+            <p className="inv-step-title"><span>2</span>The package you buy</p>
+            <div className="inv-step-grid">
+              <WizardField label="Brand"><input value={pack.brand} onChange={(event) => setPack((current) => ({ ...current, brand: event.target.value }))} placeholder="e.g. Nescafe" style={packagingInput} /></WizardField>
               <WizardField label={`One package contains (${unit})`}><input type="number" min={0} step={whole ? 1 : "any"} value={detail.content} onChange={(event) => update("content", wholeAware(event.target.value))} placeholder={whole ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></WizardField>
-            </div> : <div className="inv-step-grid">
-              <WizardField label="Item">
-                <select value={existingId} onChange={(event) => setExistingId(event.target.value)} style={packagingInput}>
-                  <option value="">Choose an item</option>
-                  {stockItems.map((item) => <option key={item.inventory_id} value={item.inventory_id}>{item.item_name} ({item.unit_of_measure})</option>)}
-                </select>
-              </WizardField>
-              <WizardField label={`One package contains (${unit})`} hint="Use this for another brand or size of the same item."><input type="number" min={0} step={whole ? 1 : "any"} value={detail.content} onChange={(event) => update("content", wholeAware(event.target.value))} placeholder={whole ? "e.g. 24" : "e.g. 1000"} style={packagingInput} /></WizardField>
-            </div>}
+              <WizardField label={<>Price per package (₱) {optionalTag}</>} hint="Sets the item cost. Restocks update it as a weighted average."><MoneyField value={pack.price} onChange={(typed) => setPack((current) => ({ ...current, price: typed }))} placeholder="e.g. 850" style={packagingInput} /></WizardField>
+            </div>
           </section>
 
           <section className="inv-step">
@@ -2085,14 +2275,15 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
             <div className="inv-step-grid">
               <WizardField label="Full packages"><input type="number" min={0} step={1} value={detail.packs} onChange={(event) => update("packs", sanitizeWholeUnitValue(event.target.value))} placeholder="0" style={packagingInput} /></WizardField>
               {inside === "new" && <WizardField label={<>Plus loose ({unit}) {optionalTag}</>} hint="From an opened package."><input type="number" min={0} step={whole ? 1 : "any"} value={detail.loose} onChange={(event) => update("loose", wholeAware(event.target.value))} placeholder="0" style={packagingInput} /></WizardField>}
+              {inside === "new" && <ThresholdField unit={unit} value={detail.threshold} onChange={(value) => update("threshold", wholeAware(value))} />}
             </div>
           </section>
 
-          {(pack.name.trim() || detail.name.trim() || existing) && <div className="inv-preview" aria-live="polite">
+          {(detail.name.trim() || pack.brand.trim()) && <div className="inv-preview" aria-live="polite">
             <p className="inv-preview-label">Preview</p>
             <div className="inv-preview-tree">
-              <div><span className="inv-kind-icon is-packaged"><IconBox size={15} /></span><strong>{pack.name.trim() || "Package"}</strong>{pack.brand.trim() && <em>{pack.brand.trim()}</em>}{content > 0 && <span>{formatStock(content, unit)} each{packPrice !== null ? ` · ${peso(packPrice)}` : ""}</span>}</div>
-              <div className="is-child"><span className="inv-kind-icon is-loose"><IconTag size={15} /></span><strong>{inside === "existing" ? existing?.item_name ?? "Item" : detail.name.trim() || "Item"}</strong><span>{inside === "existing" && existing ? `${formatStock(Number(existing.quantity), unit)} now → ${formatStock(Number(existing.quantity) + packCount * (content > 0 ? content : 0), unit)}` : `${formatStock(startingStock, unit)} on hand`}{perUnitCost !== null ? ` · ${formatPeso(perUnitCost)} per ${singularUnit(unit)}` : ""}</span></div>
+              <div><span className="inv-kind-icon is-packaged"><IconBox size={15} /></span><strong>{existing?.item_name ?? (detail.name.trim() || "Item")}</strong>{pack.brand.trim() && <em>{pack.brand.trim()}</em>}{content > 0 && <span>{formatStock(content, unit)} per package{packPrice !== null ? ` · ${peso(packPrice)}` : ""}</span>}</div>
+              <div className="is-child"><span className="inv-kind-icon is-loose"><IconTag size={15} /></span><strong>On hand</strong><span>{existing ? `${formatStock(Number(existing.quantity), unit)} now → ${formatStock(Number(existing.quantity) + packCount * (content > 0 ? content : 0), unit)}` : `${formatStock(startingStock, unit)}`}{perUnitCost !== null ? ` · ${formatPeso(perUnitCost)} per ${singularUnit(unit)}` : ""}</span></div>
             </div>
           </div>}
         </>}
@@ -2103,7 +2294,9 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
             <WizardField label="Category"><input list="inventory-category-options" value={detail.category} onChange={(event) => update("category", event.target.value)} placeholder="e.g. Produce" style={packagingInput} /></WizardField>
             <WizardField label="Counted in"><UnitSelect value={detail.unit} onChange={(value) => update("unit", value)} /></WizardField>
             <WizardField label={`Stock on hand (${detail.unit})`}><input type="number" min={0} step={whole ? 1 : "any"} value={detail.quantity} onChange={(event) => update("quantity", wholeAware(event.target.value))} placeholder="0" style={packagingInput} /></WizardField>
+            <GroupField value={detail.group} names={groupNames} onChange={(value) => update("group", value)} />
           </div>
+          <div className="inv-step-grid"><ThresholdField unit={detail.unit} value={detail.threshold} onChange={(value) => update("threshold", wholeAware(value))} /></div>
           <UnitCostField unit={detail.unit} value={detail.unitCost} onChange={(value) => update("unitCost", value)} />
           <p className="inv-hint">If you later start buying it in packages, open the item and add its package.</p>
         </section>}
@@ -2138,8 +2331,8 @@ function InventoryAddDialog({ items, categories, preset, onClose, onCreated }: {
 }
 
 // ─── Edit a measured item: details and a stock count ──────────────────────────
-function InventoryItemDialog({ item, categories, unitLockReason, onClose, onSaved }: { item: InventoryItem; categories: string[]; unitLockReason: string | null; onClose: () => void; onSaved: (updated: InventoryItem) => void }) {
-  const [draft, setDraft] = useState({ name: item.item_name, category: item.ingredient_category, unit: item.unit_of_measure, quantity: String(Number(item.quantity)) });
+function InventoryItemDialog({ item, categories, groupNames = [], unitLockReason, onClose, onSaved }: { item: InventoryItem; categories: string[]; groupNames?: string[]; unitLockReason: string | null; onClose: () => void; onSaved: (updated: InventoryItem) => void }) {
+  const [draft, setDraft] = useState({ name: item.item_name, category: item.ingredient_category, unit: item.unit_of_measure, quantity: String(Number(item.quantity)), threshold: String(Number(item.low_stock_threshold)), group: item.item_group ?? "" });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const whole = isWholeUnit(draft.unit);
@@ -2152,7 +2345,7 @@ function InventoryItemDialog({ item, categories, unitLockReason, onClose, onSave
     setSaving(true);
     setError("");
     try {
-      const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ details_edit: true, inventory_id: item.inventory_id, item_name: draft.name.trim(), ingredient_category: draft.category.trim(), unit_of_measure: draft.unit, quantity: counted }) });
+      const response = await fetch("/api/inventory", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ details_edit: true, inventory_id: item.inventory_id, item_name: draft.name.trim(), ingredient_category: draft.category.trim(), unit_of_measure: draft.unit, quantity: counted, low_stock_threshold: draft.threshold === "" ? null : Number(draft.threshold), item_group: draft.group }) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not save the item.");
       onSaved(payload.data as InventoryItem);
@@ -2175,6 +2368,8 @@ function InventoryItemDialog({ item, categories, unitLockReason, onClose, onSave
           <WizardField label={`Stock count (${draft.unit})`} hint={difference !== 0 && Number.isFinite(difference) ? <span style={{ color: difference > 0 ? "#15803D" : "#B91C1C" }}>{difference > 0 ? "+" : "−"}{formatStock(Math.abs(difference), draft.unit)}, recorded in History as a manual correction</span> : "Change this after a physical count."}>
             <input type="number" min={0} step={whole ? 1 : "any"} value={draft.quantity} onChange={(event) => setDraft((current) => ({ ...current, quantity: whole ? sanitizeWholeUnitValue(event.target.value) : event.target.value }))} style={packagingInput} />
           </WizardField>
+          <ThresholdField unit={draft.unit} value={draft.threshold} onChange={(value) => setDraft((current) => ({ ...current, threshold: whole ? sanitizeWholeUnitValue(value) : value }))} />
+          <GroupField value={draft.group} names={groupNames} onChange={(value) => setDraft((current) => ({ ...current, group: value }))} />
         </div>
         <p className="inv-hint">To add stock you bought, use <b>Restock</b> instead, so the cost is averaged and the purchase is recorded.</p>
         {error && <p role="alert" style={{ margin: 0, fontSize: 12.5, color: "#B91C1C" }}>{error}</p>}
@@ -2201,7 +2396,37 @@ type StockGroupActions = {
   onCustomizable: (item: InventoryItem, value: boolean) => void;
 };
 
-function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGroup; expanded: boolean; onToggle: () => void; actions: StockGroupActions }) {
+// The stock forecast (lib/forecast.ts, GET /api/inventory/forecast): each item's pace and the days it reaches
+// its low-stock alert and runs out, worked out from the café's records without an AI service.
+type ForecastItem = {
+  inventoryId: number; item: string; category: string; unit: string; onHand: number; lowAt: number; perDay: number; daysOfData: number;
+  confidence: "low" | "medium" | "high"; restockBy: string | null; runsOut: string | null; daysLeft: number | null; packName: string | null; packSize: number | null;
+};
+type EventPlan = {
+  name: string; day: string; endDay: string; kind: "holiday" | "event"; daysAway: number; rush: number;
+  stock: { item: string; unit: string; onHand: number; need: number; short: number; packs: number | null; packName: string | null; buyBy: string }[];
+  products: { product: string; usual: number; expected: number }[];
+};
+type ForecastData = { today: string; items: ForecastItem[]; rush: number; rushBasis: string; events: EventPlan[] };
+const confidenceText: Record<ForecastItem["confidence"], string> = { low: "rough guess, few days of sales yet", medium: "fair guess", high: "based on 5+ weeks of sales" };
+// "today", "tomorrow", or "Thu, Nov 12"
+function forecastDay(day: string, today: string): string {
+  const days = Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
+  if (days <= 0) return "today";
+  if (days === 1) return "tomorrow";
+  return new Date(`${day}T00:00:00Z`).toLocaleDateString("en-PH", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric" });
+}
+function useStockForecast(refreshKey: unknown) {
+  const [data, setData] = useState<ForecastData | null>(null);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/inventory/forecast", { cache: "no-store" }).then((response) => response.ok ? response.json() : null).then((payload) => { if (active && payload?.data) setData(payload.data as ForecastData); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [refreshKey]);
+  return data;
+}
+
+function StockGroupCard({ group, expanded, onToggle, actions, forecast, today }: { group: StockGroup; expanded: boolean; onToggle: () => void; actions: StockGroupActions; forecast?: ForecastItem; today?: string }) {
   const { item, packs, portions, status, orphan } = group;
   const primary = packs[0];
   const stock = stockInPacks(group);
@@ -2210,11 +2435,11 @@ function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGr
   const unit = item.unit_of_measure;
   const kindClass = orphan ? "is-portion" : primary ? "is-packaged" : "is-loose";
   const KindIcon = orphan ? IconLink : primary ? IconBox : IconTag;
-  const title = primary ? primary.name : item.item_name;
+  const title = item.item_name;
   const subtitle = orphan
     ? `Portion of an archived item · ${item.ingredient_category}`
     : primary
-      ? `${formatStock(Number(primary.contentQuantity), unit)} of ${item.item_name} per pack · ${item.ingredient_category}`
+      ? `${primary.name} · ${formatStock(Number(primary.contentQuantity), unit)} per pack · ${item.ingredient_category}`
       : `Loose item · counted in ${unit} · ${item.ingredient_category}`;
   const detailId = `inventory-detail-${item.inventory_id}`;
 
@@ -2283,6 +2508,11 @@ function StockGroupCard({ group, expanded, onToggle, actions }: { group: StockGr
             <div><span>On hand</span><strong className={`is-${status}`}>{formatStock(Number(item.quantity), unit)}</strong><em>Low at {formatStock(Number(item.low_stock_threshold), unit)}</em></div>
             <div><span>Cost</span><strong>{unitCost === null ? "Not set" : formatPeso(unitCost)}</strong><em>{unitCost === null ? "" : `per ${singularUnit(unit)}`} <button type="button" className="inv-link" onClick={() => actions.onCost(item)}>{unitCost === null ? "Set cost" : "Change"}</button></em></div>
             <div><span>Stock value</span><strong>{unitCost === null ? "—" : peso(Math.max(0, Number(item.quantity)) * unitCost)}</strong><em>at current cost</em></div>
+            {forecast && today && <div title={`Forecast from the last ${forecast.daysOfData} days of use, recent days counting more, with each weekday's pattern (no AI). ${confidenceText[forecast.confidence]}.`}>
+              <span>Forecast</span>
+              <strong>{forecast.perDay <= 0 ? "Not used lately" : forecast.restockBy ? `Restock by ${forecastDay(forecast.restockBy, today)}` : "Lasts 4+ months"}</strong>
+              <em>{forecast.perDay > 0 ? `${forecast.runsOut ? `runs out ${forecastDay(forecast.runsOut, today)} · ` : ""}~${formatStock(forecast.perDay, unit)} a day · ${forecast.confidence === "low" ? "rough guess" : forecast.confidence === "medium" ? "fair guess" : "good guess"}` : "no sales or waste in 8 weeks"}</em>
+            </div>}
           </div>
           <div className="inv-used"><span>Used in</span><InventoryUsageChips item={item} /></div>
           <label className={`inv-custom-switch${item.is_customizable ? " is-on" : ""}`}>
@@ -2367,6 +2597,11 @@ function describeInventoryLog(log: InventoryLogEntry): string {
   const costBefore = toOptionalNumber(log.unit_cost_before);
   const costAfter = toOptionalNumber(log.unit_cost_after);
   const costChange = costAfter !== null && costBefore !== costAfter ? ` · cost ${costBefore === null ? "not set" : formatPeso(costBefore)} → ${formatPeso(costAfter)} per ${singularUnit(unit)}` : "";
+  // (a package by what is in it: 5 × 250 grams, its name after)
+  const packs = toOptionalNumber(log.packs_added);
+  const inPacks = (count: number | null) => log.packaging_name && count
+    ? `${count} × ${formatStock(Math.abs(Number(log.quantity_delta)) / count, unit)} (${log.packaging_name})`
+    : `${count ?? "?"} × ${log.packaging_name}`;
   switch (log.change_type) {
     case "written_off": {
       const cost = toOptionalNumber(log.write_off_cost);
@@ -2374,10 +2609,10 @@ function describeInventoryLog(log: InventoryLogEntry): string {
     }
     case "restocked":
       return log.packaging_name
-        ? `${log.packs_added ?? "?"} × ${log.packaging_name}${toOptionalNumber(log.pack_price) !== null ? ` at ${peso(Number(log.pack_price))} each` : ""}${costChange}`
+        ? `${inPacks(packs)}${toOptionalNumber(log.pack_price) !== null ? ` at ${peso(Number(log.pack_price))} each` : ""}${costChange}`
         : `Added by amount${costChange}`;
     case "created":
-      return log.packaging_name ? `Started with ${log.packs_added ?? 0} × ${log.packaging_name}` : "New item";
+      return log.packaging_name ? `Started with ${inPacks(packs)}` : "New item";
     case "order_deduction": return log.order_id ? `Order #${log.order_id}` : "Order";
     case "void_restore": return log.order_id ? `Order #${log.order_id} voided, stock returned` : "Voided order";
     case "refund_restore": return log.order_id ? `Order #${log.order_id} refunded, stock returned` : "Refunded order";
@@ -2637,7 +2872,7 @@ const writeOffReasons: { id: string; label: string; hint: string }[] = [
 ];
 const writeOffReasonLabel = (id: string | null | undefined) => id === "made_order" ? "Made, then voided or refunded" : writeOffReasons.find((reason) => reason.id === id)?.label ?? "Written off";
 
-function WriteOffDialog({ item, onClose, onSaved }: { item: InventoryItem; onClose: () => void; onSaved: (message: string) => void }) {
+function WriteOffDialog({ item, products = [], onClose, onSaved }: { item: InventoryItem; products?: Product[]; onClose: () => void; onSaved: (message: string) => void }) {
   const unit = item.unit_of_measure;
   const portion = Boolean(item.derived_from_inventory_id);
   const available = portion ? Number(item.derived_from_available_quantity ?? 0) : Number(item.quantity);
@@ -2650,6 +2885,20 @@ function WriteOffDialog({ item, onClose, onSaved }: { item: InventoryItem; onClo
   const [error, setError] = useState("");
   const value = Number(quantity);
   const cost = unitCost !== null && value > 0 ? Math.round(value * unitCost * 100) / 100 : null;
+  // Worked out from what was made: the menu items whose recipe uses this item, by size, and how many of them.
+  const recipes = products.flatMap((product) => product.variants.flatMap((variant) => {
+    const used = variant.ingredients.find((ingredient) => ingredient.inventoryId === item.inventory_id);
+    const label = [product.name, variant.size && variant.size !== "Regular" ? variant.size : "", variant.temperature === "both" ? "" : variant.temperature].filter(Boolean).join(" · ");
+    return used && Number(used.qty) > 0 ? [{ key: `${product.id}-${variant.id ?? variant.size}-${variant.temperature}`, label, perOne: Number(used.qty) }] : [];
+  }));
+  const [made, setMade] = useState({ key: "", count: "1" });
+  const recipe = recipes.find((entry) => entry.key === made.key);
+  function suggest(key: string, count: string) {
+    setMade({ key, count });
+    const chosen = recipes.find((entry) => entry.key === key);
+    const many = Number(count);
+    if (chosen && many > 0) { setQuantity(String(Math.round(chosen.perOne * many * 1000) / 1000)); setError(""); }
+  }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2678,6 +2927,17 @@ function WriteOffDialog({ item, onClose, onSaved }: { item: InventoryItem; onClo
       <h2>Write off {item.item_name}</h2>
       <div className="ui-confirm-message">Stock that leaves without being sold. It comes off now, and what it was worth counts in Finance as <b>stock written off</b>. To fix a miscount instead, use Edit.{portion ? <> A portion comes off its source, {item.derived_from_item_name}.</> : null}</div>
       <p className="tre-fixing">{formatStock(available, unit)} in stock{unitCost !== null ? ` · ${formatPeso(unitCost)} per ${singularUnit(unit)}` : " · no cost set, so it counts as ₱0"}</p>
+      {recipes.length > 0 && <div className="acc-money">
+        <span>Work it out from what was made <span style={{ textTransform: "none", letterSpacing: 0 }}>(optional)</span></span>
+        <div className="flex gap-2">
+          <select value={made.key} onChange={(event) => suggest(event.target.value, made.count)} style={{ ...packagingInput, flex: 1, minWidth: 0 }}>
+            <option value="">Choose a menu item</option>
+            {recipes.map((entry) => <option key={entry.key} value={entry.key}>{entry.label} · {formatStock(entry.perOne, unit)} each</option>)}
+          </select>
+          <input type="number" min={1} step={1} inputMode="numeric" aria-label="How many" value={made.count} onChange={(event) => suggest(made.key, sanitizeWholeUnitValue(event.target.value))} style={{ ...packagingInput, width: 72 }} />
+        </div>
+        {recipe && Number(made.count) > 0 && <em>{made.count} × {recipe.label} uses {formatStock(recipe.perOne * Number(made.count), unit)}: filled in below.</em>}
+      </div>}
       <label className="acc-money">
         <span>How much ({unit})</span>
         <input data-autofocus type="number" min={0} step={item.is_whole_unit ? 1 : "any"} inputMode={item.is_whole_unit ? "numeric" : "decimal"} value={quantity} onChange={(event) => { setQuantity(event.target.value); setError(""); }} style={packagingInput} />
@@ -2826,9 +3086,11 @@ function WasteReports({ onChanged, onCount }: { onChanged: () => void; onCount: 
 // ─── Inventory page ───────────────────────────────────────────────────────────
 function Inventory({
   items: initialItems,
+  products = [],
   onAdd,
 }: {
   items: InventoryItem[];
+  products?: Product[];
   onAdd: (item: InventoryItem) => Promise<void>;
   onUpdate: (updated: InventoryItem) => Promise<void>;
   onDelete: (id: number) => Promise<void>;
@@ -2836,6 +3098,12 @@ function Inventory({
   const confirmAction = useConfirm();
   const [items, setItems] = useState<InventoryItem[]>(initialItems);
   const [tab, setTab] = useState<"stock" | "history" | "waste">("stock");
+  // (worked out again whenever the stock changes)
+  const forecast = useStockForecast(items);
+  const forecastById = useMemo(() => new Map((forecast?.items ?? []).map((entry) => [entry.inventoryId, entry])), [forecast]);
+  const restockSoon = useMemo(() => !forecast ? [] : forecast.items
+    .filter((entry) => entry.perDay > 0 && entry.restockBy && entry.restockBy <= new Date(Date.parse(`${forecast.today}T00:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10))
+    .sort((a, b) => String(a.restockBy).localeCompare(String(b.restockBy)) || (a.daysLeft ?? 999) - (b.daysLeft ?? 999)).slice(0, 8), [forecast]);
   const [writeOffItem, setWriteOffItem] = useState<InventoryItem | null>(null);
   const [wasteCount, setWasteCount] = useState(0);
   const [stockNotice, setStockNotice] = useState("");
@@ -2852,6 +3120,7 @@ function Inventory({
   const [costValue, setCostValue] = useState("");
   const [savingCost, setSavingCost] = useState(false);
   const [stockItem, setStockItem] = useState<InventoryItem | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [packagingItem, setPackagingItem] = useState<InventoryItem | null>(null);
   const [bindItem, setBindItem] = useState<InventoryItem | null>(null);
   const [bindDraft, setBindDraft] = useState({ ingredient_category: "", item_name: "", unit_of_measure: "grams", derived_from_inventory_id: "", derived_ratio: "" });
@@ -3099,7 +3368,14 @@ function Inventory({
       if (acc.length === 0 || acc[acc.length - 1].label !== label) acc.push({ label, groups: [] });
       acc[acc.length - 1].groups.push(group);
       return acc;
-    }, [])
+    }, []).map((section) => ({
+      // (a group's items together, under its name; items in no group after them)
+      ...section,
+      groups: [...section.groups].sort((a, b) => {
+        const ga = a.item.item_group?.trim().toLowerCase() || "\uffff", gb = b.item.item_group?.trim().toLowerCase() || "\uffff";
+        return ga === gb ? 0 : ga < gb ? -1 : 1;
+      }),
+    }))
     : [{ label: null, groups: visibleGroups }];
 
   const select = <K extends "category" | "status" | "kind" | "usage" | "cost" | "sort">(key: K, label: string, options: [InventoryFilters[K], string][]) =>
@@ -3120,6 +3396,7 @@ function Inventory({
         </div>
         {tab === "stock" && <div className="flex items-center gap-2">
           <button type="button" className="inv-secondary" onClick={() => exportStockList(items)} disabled={items.length === 0}><IconDownload size={14} />Export stock list</button>
+          <button type="button" className="inv-secondary" onClick={() => { setActionError(""); setBulkOpen(true); }} disabled={items.length === 0}><IconBox size={14} />Bulk restock</button>
           <button type="button" className="inv-primary" onClick={() => { setActionError(""); setAddPreset({}); }}><IconPlus size={15} />Add inventory</button>
         </div>}
       </div>
@@ -3139,6 +3416,34 @@ function Inventory({
               <button type="button" className="inv-stat is-info" aria-pressed={filters.cost === "missing"} onClick={() => setFilters((current) => ({ ...current, cost: current.cost === "missing" ? "all" : "missing" }))}><span>Without a cost</span><strong>{summary.noCost}</strong><em>profit can’t be counted</em></button>
               <div className="inv-stat is-static"><span>Stock value</span><strong>{peso(summary.value)}</strong><em>items with a cost</em></div>
             </div>
+
+            {restockSoon.length > 0 && forecast && <section className="inv-forecast" aria-label="Restock soon">
+              <div className="inv-forecast-head">
+                <p><strong>Restock soon</strong><span>When each item reaches its low-stock alert at its pace of use. Worked out from your sales and waste, no AI.</span></p>
+              </div>
+              <ul>
+                {restockSoon.map((entry) => <li key={entry.inventoryId}>
+                  <button type="button" onClick={() => { setFilter("search", entry.item); setExpanded((current) => new Set(current).add(entry.inventoryId)); }} title={confidenceText[entry.confidence]}>
+                    <strong>{entry.item}</strong>
+                    <span className={entry.restockBy && entry.restockBy <= forecast.today ? "is-now" : ""}>Restock by {forecastDay(entry.restockBy ?? forecast.today, forecast.today)}</span>
+                    <em>{entry.runsOut ? `runs out ${forecastDay(entry.runsOut, forecast.today)}` : "stays above 0"} · ~{formatStock(entry.perDay, entry.unit)}/day{entry.confidence === "low" ? " · rough guess" : ""}</em>
+                  </button>
+                </li>)}
+              </ul>
+            </section>}
+
+            {forecast && <DashCard title="Holidays and events ahead: what to prepare"
+              sub={<>The next 45 days: Philippine holidays and your events in Promotions &amp; Events. Such a day is expected to be about <b>{forecast.rush}×</b> as busy ({forecast.rushBasis}). Worked out from your records, no AI. Claude can also chart this on Insights.</>}>
+              {forecast.events.length === 0 ? <p className="inv-hint">No holidays or events in the next 45 days.</p> : <div className="ins-plan">
+                {forecast.events.map((event) => <article key={`${event.day}-${event.name}`} className="ins-plan-event">
+                  <header><strong>{event.name}</strong><span>{forecastDay(event.day, forecast.today)}{event.endDay !== event.day ? ` to ${forecastDay(event.endDay, forecast.today)}` : ""} · in {event.daysAway} day{event.daysAway === 1 ? "" : "s"}{event.kind === "event" ? " · your event" : ""}</span></header>
+                  {event.stock.length === 0
+                    ? <p className="ins-plan-ok">Stock on hand covers it, counting the days until then.</p>
+                    : <ul>{event.stock.slice(0, 5).map((line) => <li key={line.item}><b>{line.item}</b>: buy {line.packs ? `${line.packs} × ${line.packName ?? "pack"}` : formatStock(line.short, line.unit)} by {forecastDay(line.buyBy, forecast.today)}<em> · needs ~{formatStock(line.need, line.unit)} until then, {formatStock(line.onHand, line.unit)} on hand</em></li>)}</ul>}
+                  {event.products.length > 0 && <p className="ins-plan-make">Prepare for about: {event.products.slice(0, 4).map((product) => `${product.expected} ${product.product}`).join(" · ")} <em>(usually {event.products.slice(0, 4).map((product) => product.usual).join(" · ")} a day)</em></p>}
+                </article>)}
+              </div>}
+            </DashCard>}
 
             <div className="inv-toolbar">
               <div className="inv-search is-wide">
@@ -3169,7 +3474,10 @@ function Inventory({
               <div className="inv-list-head" aria-hidden="true"><span>Package / item</span><span>On hand</span><span>Cost</span><span>Status</span><span /></div>
               {sections.map((section) => <section key={section.label ?? "all"} className="inv-section">
                 {section.label !== null && <p className="inv-section-label">{section.label}<span>{section.groups.length}</span></p>}
-                {section.groups.map((group) => <StockGroupCard key={group.item.inventory_id} group={group} expanded={expanded.has(group.item.inventory_id) || autoExpanded.has(group.item.inventory_id)} onToggle={() => toggle(group.item.inventory_id)} actions={actions} />)}
+                {section.groups.map((group, index) => <Fragment key={group.item.inventory_id}>
+                  {filters.sort === "category" && group.item.item_group?.trim() && group.item.item_group.trim().toLowerCase() !== section.groups[index - 1]?.item.item_group?.trim().toLowerCase() && <p className="inv-group-label">{group.item.item_group.trim()}<span>{section.groups.filter((other) => other.item.item_group?.trim().toLowerCase() === group.item.item_group?.trim().toLowerCase()).length} items</span></p>}
+                  <StockGroupCard key={group.item.inventory_id} group={group} expanded={expanded.has(group.item.inventory_id) || autoExpanded.has(group.item.inventory_id)} onToggle={() => toggle(group.item.inventory_id)} actions={actions} forecast={forecastById.get(group.item.inventory_id)} today={forecast?.today} />
+                </Fragment>)}
               </section>)}
               <p className="inv-count">Showing {visibleGroups.length} of {groups.length} stock item{groups.length === 1 ? "" : "s"} · tap a row to see what is inside</p>
             </div>}
@@ -3177,8 +3485,10 @@ function Inventory({
     </div>
 
     {addPreset && <InventoryAddDialog items={items} categories={categories} preset={addPreset} onClose={() => setAddPreset(null)} onCreated={refreshAll} />}
-    {editItem && <InventoryItemDialog item={editItem} categories={categories} unitLockReason={unitLockReason(editItem)} onClose={() => setEditItem(null)} onSaved={(updated) => { replaceItem(updated); setEditItem(null); void reload(); }} />}
-    {writeOffItem && <WriteOffDialog item={writeOffItem} onClose={() => setWriteOffItem(null)} onSaved={(message) => { setWriteOffItem(null); setStockNotice(message); void reload(); }} />}
+    {editItem && <InventoryItemDialog item={editItem} categories={categories} groupNames={[...new Set(items.map((entry) => entry.item_group?.trim()).filter((name): name is string => Boolean(name)))].sort()} unitLockReason={unitLockReason(editItem)} onClose={() => setEditItem(null)} onSaved={(updated) => { replaceItem(updated); setEditItem(null); void reload(); }} />}
+    {writeOffItem && <WriteOffDialog item={writeOffItem} products={products} onClose={() => setWriteOffItem(null)} onSaved={(message) => { setWriteOffItem(null); setStockNotice(message); void reload(); }} />}
+    {bulkOpen && <BulkRestockDialog items={items} restockBy={new Map((forecast?.items ?? []).filter((entry) => entry.restockBy && forecast && entry.restockBy <= new Date(Date.parse(`${forecast.today}T00:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10)).map((entry) => [entry.inventoryId, entry.restockBy]))}
+      onClose={() => setBulkOpen(false)} onDone={async (message) => { setStockNotice(message); await reload(); if (!message.includes("could not")) setBulkOpen(false); }} />}
     {stockItem && <RestockDialog item={stockItem} onClose={() => setStockItem(null)} onRestocked={(updated) => { replaceItem(updated); setStockItem(null); void reload(); }} onManagePackaging={() => { setPackagingItem(stockItem); setStockItem(null); }} />}
     {packagingItem && <PackagingDialog item={packagingItem} onClose={() => setPackagingItem(null)} onChanged={(updated) => { replaceItem(updated); setPackagingItem(updated); }} />}
     {costItem && (
@@ -3232,11 +3542,13 @@ type ProductTemperature = "hot" | "cold" | "both";
 type ProductVariant = { id?: number; size: string; price: number; temperature: ProductTemperature; hasSales?: boolean; ingredients: ProductIngredient[] };
 // "recipe": made from several inventory components (Americano).
 // "stock": a direct-sale item that deducts one inventory item per sale (Coke Can).
-type ProductType = "recipe" | "stock";
+// "bundle": several menu items sold together at one price (a combo; bundle-products-migration.sql).
+type ProductType = "recipe" | "stock" | "bundle";
+type BundleItemView = { variantId: number; productId: number; name: string; size: string; temperature: string | null; quantity: number; price: number };
 // Where a product is made: the bar or the kitchen (each has its own queue in the staff app).
 type Station = "bar" | "kitchen";
 const STATION_TEXT: Record<Station, string> = { bar: "☕ Bar", kitchen: "🍳 Kitchen" };
-type Product = { id: number; name: string; description: string; category: string; productType: ProductType; station?: Station; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[] };
+type Product = { id: number; name: string; description: string; category: string; productType: ProductType; bundleItems?: BundleItemView[]; station?: Station; imageUrl: string; imageData: string; price: number; hasSales?: boolean; ingredients: ProductIngredient[]; variants: ProductVariant[] };
 
 
 type DraftIngredient = { inventoryId: number; qty: string };
@@ -3304,7 +3616,7 @@ const inVariantMode = (variant: DraftVariant, mode: VariantMode) => mode === "op
 
 type VariantInsight = { key: string; label: string; short: string; price: number; cost: number | null; available: boolean; missing: string[] };
 type ProductInsight = { variants: VariantInsight[]; minPrice: number; maxPrice: number; status: "available" | "partial" | "soldout"; costKnown: boolean; costPartial: boolean; minCost: number | null; marginPct: number | null; shortItems: string[]; stockLeft: number | null };
-type MenuTab = "products" | "addons" | "categories" | "requests";
+type MenuTab = "products" | "bundles" | "addons" | "categories" | "requests";
 
 function menuPrice(value: number): string {
   return `₱${value.toLocaleString("en-PH", { maximumFractionDigits: 2 })}`;
@@ -3349,7 +3661,7 @@ function exportMenu(products: Product[], inventory: InventoryItem[]) {
     ["Menu", excelTable(rows, [
       { header: "Product", value: (row) => row.product.name },
       { header: "Category", value: (row) => row.product.category || "Uncategorized" },
-      { header: "Type", value: (row) => row.product.productType === "stock" ? "Direct sale" : "Made to order" },
+      { header: "Type", value: (row) => row.product.productType === "stock" ? "Direct sale" : row.product.productType === "bundle" ? "Bundle" : "Made to order" },
       { header: "Made at", value: (row) => row.product.station === "kitchen" ? "Kitchen" : "Bar" },
       { header: "Size", value: (row) => row.variant.size || "Regular" },
       { header: "Temperature", value: (row) => row.variant.temperature === "hot" ? "Hot" : row.variant.temperature === "cold" ? "Cold" : "" },
@@ -3445,6 +3757,47 @@ async function shrinkProductImage(file: File): Promise<string> {
   }
 }
 
+// A bundle's picture made from its items' own pictures (up to 4): one fills it, two side by side,
+// three as one big and two stacked, four in a grid. Each is cropped to fill its part.
+const COLLAGE_LAYOUTS: Record<number, [number, number, number, number][]> = {
+  1: [[0, 0, 1, 1]],
+  2: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 1]],
+  3: [[0, 0, 0.5, 1], [0.5, 0, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]],
+  4: [[0, 0, 0.5, 0.5], [0.5, 0, 0.5, 0.5], [0, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]],
+};
+async function collageProductImages(sources: string[]): Promise<string> {
+  const loaded = await Promise.all(sources.slice(0, 4).map((src) => new Promise<HTMLImageElement | null>((resolve) => {
+    const element = new window.Image();
+    element.crossOrigin = "anonymous";
+    element.onload = () => resolve(element);
+    element.onerror = () => resolve(null);
+    element.src = src;
+  })));
+  const images = loaded.filter((image): image is HTMLImageElement => image !== null);
+  if (images.length === 0) throw new Error("no pictures");
+  const width = 960, height = 720, gap = 6;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("no canvas");
+  context.fillStyle = "#FDF9F5";
+  context.fillRect(0, 0, width, height);
+  context.imageSmoothingQuality = "high";
+  COLLAGE_LAYOUTS[images.length].forEach(([x, y, w, h], index) => {
+    const image = images[index];
+    // Half the gap on each inner edge, none on the outer edges.
+    const left = x * width + (x > 0 ? gap / 2 : 0), top = y * height + (y > 0 ? gap / 2 : 0);
+    const right = (x + w) * width - (x + w < 1 ? gap / 2 : 0), bottom = (y + h) * height - (y + h < 1 ? gap / 2 : 0);
+    const cellW = right - left, cellH = bottom - top;
+    const scale = Math.max(cellW / image.naturalWidth, cellH / image.naturalHeight);
+    const sourceW = cellW / scale, sourceH = cellH / scale;
+    context.drawImage(image, (image.naturalWidth - sourceW) / 2, (image.naturalHeight - sourceH) / 2, sourceW, sourceH, left, top, cellW, cellH);
+  });
+  const webp = canvas.toDataURL("image/webp", 0.8);
+  return webp.startsWith("data:image/webp") ? webp : canvas.toDataURL("image/jpeg", 0.82);
+}
+
 // How an order with drinks and food is called at the counter (store_settings.pickup_mode, see
 // /api/stations): together when every part is ready, each part on its own, or as each order chose.
 type PickupSetting = "together" | "separate" | "per_order";
@@ -3507,6 +3860,7 @@ function MenuProductCard({ product, insight, onEdit, onArchive }: { product: Pro
         : <div className="menu-card-placeholder"><IconCoffee size={30} /></div>}
       <span className={`menu-avail is-${insight.status}`}><i />{insight.status === "partial" ? `${insight.variants.filter((variant) => variant.available).length} of ${insight.variants.length} available` : productStatusLabels[insight.status]}</span>
       {isStock && <span className="menu-type">Direct sale</span>}
+      {product.productType === "bundle" && <span className="menu-type">Bundle</span>}
     </div>
     <div className="menu-card-body">
       <div className="menu-card-title">
@@ -3514,7 +3868,9 @@ function MenuProductCard({ product, insight, onEdit, onArchive }: { product: Pro
         <span>{insight.minPrice === insight.maxPrice ? menuPrice(insight.minPrice) : `${menuPrice(insight.minPrice)}–${menuPrice(insight.maxPrice)}`}</span>
       </div>
       <span className="menu-card-category">{product.category || "Uncategorized"} · <span className={`menu-station is-${product.station ?? "bar"}`}>{STATION_TEXT[product.station ?? "bar"]}</span></span>
-      {isStock
+      {product.productType === "bundle"
+        ? <p className="menu-line">{(product.bundleItems ?? []).map((item) => `${item.quantity > 1 ? `${item.quantity} × ` : ""}${item.name}${item.size && item.size !== "Regular" ? ` ${item.size}` : ""}`).join(" + ") || "Bundle"}</p>
+        : isStock
         ? <p className="menu-line">{insight.stockLeft === null ? "Stock item not found" : `${insight.stockLeft} left in stock`}</p>
         : <div className="menu-sizes">
           {insight.variants.map((variant) => <span key={variant.key} className={`menu-size${variant.available ? "" : " is-out"}`} title={`${variant.label} · ${menuPrice(variant.price)}${variant.available ? "" : ` · needs ${variant.missing.join(", ")}`}`}>{variant.short}</span>)}
@@ -3942,7 +4298,8 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
     return () => { active = false; window.clearTimeout(timer); };
   }, []);
 
-  const productCount = new Set(products.map((product) => product.id)).size;
+  const productCount = new Set(products.filter((product) => product.productType !== "bundle").map((product) => product.id)).size;
+  const bundleCount = new Set(products.filter((product) => product.productType === "bundle").map((product) => product.id)).size;
   // Where each category's products are mostly made, for the add-on categories.
   const categoryStations = useMemo(() => {
     const counts = new Map<string, { bar: number; kitchen: number }>();
@@ -3955,6 +4312,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
   }, [products]);
   const tabs: { id: MenuTab; label: string; count: number | null; Icon: React.FC<{ size?: number }> }[] = [
     { id: "products", label: "Products", count: productCount, Icon: IconCoffee },
+    { id: "bundles", label: "Bundles", count: bundleCount, Icon: IconBox },
     { id: "addons", label: "Add-ons", count: addonsLoading ? null : addons.length, Icon: IconSparkle },
     { id: "categories", label: "Categories", count: categories.length, Icon: IconTag },
     { id: "requests", label: "Requests", count: null, Icon: IconPencil },
@@ -3967,7 +4325,7 @@ function MenuManagement({ products, inventory, categories, onCategoriesChange, o
           {tabs.map(({ id, label, count, Icon }) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count">{count}</span>}</button>)}
         </div>
       </div>
-      {tab === "products" && <ProductManagement products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} onCategoryCreated={(category) => onCategoriesChange([...categories.filter((entry) => entry.id !== category.id), category].sort((a, b) => a.name.localeCompare(b.name)))} />}
+      {(tab === "products" || tab === "bundles") && <ProductManagement key={tab} kind={tab} products={products} inventory={inventory} categories={categories} onAdd={onAdd} onEdit={onEdit} onDelete={onDelete} categoryFilter={categoryFilter} onCategoryFilterChange={setCategoryFilter} onCategoryCreated={(category) => onCategoriesChange([...categories.filter((entry) => entry.id !== category.id), category].sort((a, b) => a.name.localeCompare(b.name)))} />}
       {tab === "addons" && <AddonsPanel addons={addons} loading={addonsLoading} error={addonsError} inventory={inventory} categories={categories} categoryStations={categoryStations} onChange={setAddons} />}
       {tab === "requests" && <RequestsPanel />}
       {tab === "categories" && <CategoriesPanel categories={categories} products={products} onChange={onCategoriesChange} onRenamed={() => void onRefreshProducts()} onShowProducts={(category) => { setCategoryFilter(category); setTab("products"); }} />}
@@ -4123,7 +4481,10 @@ function ProductManagement({
   categoryFilter,
   onCategoryFilterChange,
   onCategoryCreated,
+  kind = "products",
 }: {
+  // "products": the menu items (recipe and direct sale). "bundles": the combos, in their own tab.
+  kind?: "products" | "bundles";
   products: Product[];
   inventory: InventoryItem[];
   categories: ProductCategory[];
@@ -4162,6 +4523,9 @@ function ProductManagement({
   const [stockInventoryId, setStockInventoryId] = useState(0);
   const [stockQuantity, setStockQuantity] = useState("1");
   const [stockPrice, setStockPrice] = useState("");
+  // A bundle: its items (a menu item's size, how many) and its price.
+  const [bundleLines, setBundleLines] = useState<{ variantId: number; qty: string }[]>([]);
+  const [bundlePrice, setBundlePrice] = useState("");
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
@@ -4198,6 +4562,8 @@ function ProductManagement({
     setStockInventoryId(stockVariant?.ingredients[0]?.inventoryId ?? 0);
     setStockQuantity(stockVariant?.ingredients[0] ? String(stockVariant.ingredients[0].qty) : "1");
     setStockPrice(stockVariant ? String(stockVariant.price) : "");
+    setBundleLines(product?.productType === "bundle" ? (product.bundleItems ?? []).map((item) => ({ variantId: item.variantId, qty: String(item.quantity) })) : []);
+    setBundlePrice(product?.productType === "bundle" ? String(product.variants[0]?.price ?? product.price) : "");
     setActionError("");
   }
 
@@ -4208,7 +4574,7 @@ function ProductManagement({
     if (item && !formName.trim()) setFormName(item.item_name);
   }
 
-  function openModal() { resetForm(); setShowModal(true); }
+  function openModal() { resetForm(); if (kind === "bundles") setFormType("bundle"); setShowModal(true); }
   function openEditModal(product: Product) { resetForm(product); setShowModal(true); }
   function closeModal() { if (!saving) setShowModal(false); }
   function addIngredientRow() {
@@ -4375,8 +4741,61 @@ function ProductManagement({
     return [{ size, price, temperature: "both", ingredients: [{ inventoryId: stockInventoryItem.inventory_id, label: stockInventoryItem.item_name, qty, unit: stockInventoryItem.unit_of_measure }] }];
   }
 
+  // Every size of every menu item that can go in a bundle (not other bundles).
+  const bundleChoices = products.filter((product) => product.productType !== "bundle" && product.id !== editingProduct?.id).flatMap((product) => product.variants.map((variant) => ({
+    variantId: variant.id ?? 0, productId: product.id, name: product.name, price: Number(variant.price),
+    label: `${product.name}${product.variants.length > 1 || (variant.size && variant.size !== "Regular") ? ` · ${variant.size}${variant.temperature === "hot" ? " Hot" : variant.temperature === "cold" ? " Iced" : ""}` : ""}`,
+  }))).filter((choice) => choice.variantId > 0).sort((a, b) => a.label.localeCompare(b.label));
+  const bundleChosen = bundleLines.map((line) => ({ ...line, choice: bundleChoices.find((choice) => choice.variantId === line.variantId) })).filter((line) => line.choice && Number(line.qty) > 0);
+  const bundleSeparately = bundleChosen.reduce((sum, line) => sum + (line.choice?.price ?? 0) * Number(line.qty), 0);
+  const bundleValid = bundleChosen.reduce((sum, line) => sum + Number(line.qty), 0) >= 2 && bundleChosen.every((line) => Number.isInteger(Number(line.qty))) && bundlePrice !== "" && Number(bundlePrice) >= 0;
+
+  // The bundle's picture from its items' pictures (each item once), in place of choosing one.
+  const [collaging, setCollaging] = useState(false);
+  const bundlePictures = Array.from(new Set(bundleChosen.map((line) => {
+    const product = products.find((entry) => entry.id === line.choice?.productId);
+    return product?.imageData || product?.imageUrl || "";
+  }).filter(Boolean)));
+  async function collageBundleImage() {
+    if (bundlePictures.length === 0) { setActionError("None of the bundle's items has a picture yet."); return; }
+    setCollaging(true);
+    try {
+      const made = await collageProductImages(bundlePictures);
+      setFormImage("");
+      setFormImageData(made);
+      setActionError("");
+    } catch {
+      setActionError("Could not combine the items' pictures (pictures linked from other sites can't be combined). Choose an image instead.");
+    } finally {
+      setCollaging(false);
+    }
+  }
+
   async function submitProduct() {
     if (!formName.trim() || inventory.length === 0) return;
+    if (formType === "bundle") {
+      if (!bundleValid) { setActionError("Add at least 2 items to the bundle and enter its price."); return; }
+      setSaving(true);
+      setActionError("");
+      try {
+        const price = Number(bundlePrice);
+        const includes = bundleChosen.map((line) => `${Number(line.qty) > 1 ? `${line.qty} × ` : ""}${line.choice?.label}`).join(" + ");
+        const product = {
+          id: 0, name: formName.trim(), description: formDescription.trim() || `Includes ${includes}.`, category: formCat || categoryNames[0] || "", productType: formType, station: formStation, price,
+          imageUrl: formImage.trim(), imageData: formImageData, ingredients: [],
+          variants: [{ size: "Combo", price, temperature: "both" as ProductTemperature, ingredients: [] }],
+          bundleItems: bundleChosen.map((line) => ({ variantId: line.variantId, productId: line.choice?.productId ?? 0, name: line.choice?.name ?? "", size: "", temperature: null, quantity: Number(line.qty), price: line.choice?.price ?? 0 })),
+        };
+        if (editingProduct) await onEdit({ ...product, id: editingProduct.id });
+        else await onAdd(product);
+        closeModal();
+      } catch (error) {
+        setActionError(error instanceof Error ? error.message : "Failed to save the bundle.");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     if (formType === "recipe" && variantMode === "options") {
       const names = formVariants.filter((variant) => variant.active && variant.temperature === "none").map((variant) => variant.size.trim().toLowerCase());
       if (names.some((name) => !name)) { setActionError("Give every option a name, such as Regular or With Rice."); return; }
@@ -4426,8 +4845,9 @@ function ProductManagement({
   // Keep the card list unique by product ID. The API/state can temporarily
   // contain the same product more than once after a save + refresh.
   const uniqueProducts = Array.from(
-    new Map(products.map((product) => [product.id, product])).values()
+    new Map(products.filter((product) => (product.productType === "bundle") === (kind === "bundles")).map((product) => [product.id, product])).values()
   );
+  const noun = kind === "bundles" ? "bundle" : "product";
   const insights = new Map(uniqueProducts.map((product) => [product.id, productInsight(product, inventory)]));
   const categoryChips = Array.from(new Set([...categoryNames, ...uniqueProducts.map((product) => product.category)]))
     .filter(Boolean)
@@ -4468,40 +4888,40 @@ function ProductManagement({
     noCost: uniqueProducts.filter((product) => !insights.get(product.id)!.costKnown).length,
   };
   const filtersActive = filterCat !== "All" || typeFilter !== "all" || stationFilter !== "all" || availability !== "all" || query !== "";
-  const hasValidVariant = formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.active && inVariantMode(variant, variantMode) && variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
+  const hasValidVariant = formType === "bundle" ? bundleValid : formType === "stock" ? buildStockVariants().length > 0 : formVariants.some((variant) => variant.active && inVariantMode(variant, variantMode) && variant.price !== "" && Number(variant.price) >= 0 && variant.ingredients.some((ingredient) => ingredient.inventoryId > 0 && ingredient.qty !== "" && Number(ingredient.qty) > 0));
   const inputBase: React.CSSProperties = { border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 12px", fontFamily: "Inter, sans-serif", fontSize: 13.5, color: "#3D2B1F", background: "#FDF9F5", outline: "none", width: "100%" };
 
   return (
     <div className="flex flex-col gap-4">
       {/* The menu's settings and actions, in their own bar apart from the search, filters and sort. */}
       <div className="menu-actions">
-        <div className="menu-actions-group">
+        {kind === "products" ? <div className="menu-actions-group">
           <PickupModeButton />
           <button type="button" className="inv-secondary" onClick={() => setFeaturedOpen(true)} disabled={products.length === 0} title="Barista Featured Specials on the mobile menu"><IconStar size={14} />Featured</button>
-        </div>
+        </div> : <p className="inv-hint" style={{ margin: 0 }}>Menu items sold together at one price, like a drink and a meal. Each item still takes its own stock and shows on its own station&apos;s queue.</p>}
         <div className="menu-actions-group is-end">
-          <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>
-          <button type="button" onClick={openModal} disabled={inventory.length === 0} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add product</button>
+          {kind === "products" && <button type="button" className="inv-secondary" onClick={() => exportMenu(products, inventory)} disabled={products.length === 0}><IconDownload size={14} />Export menu</button>}
+          <button type="button" onClick={openModal} disabled={inventory.length === 0 || (kind === "bundles" && products.every((product) => product.productType === "bundle"))} className="inv-primary" style={{ opacity: inventory.length === 0 ? 0.55 : 1 }}><IconPlus size={15} />Add {noun}</button>
         </div>
       </div>
       <div className="inv-summary">
-        <button type="button" className="inv-stat" aria-pressed={availability === "all"} onClick={() => setAvailability("all")}><span>Products</span><strong>{summary.total}</strong><em>on the cashier and mobile menus</em></button>
-        <button type="button" className="inv-stat" aria-pressed={availability === "available"} onClick={() => setAvailability(availability === "available" ? "all" : "available")}><span>Can be sold now</span><strong style={{ color: "#15803D" }}>{summary.available}</strong><em>every size has stock</em></button>
-        <button type="button" className="inv-stat is-low" aria-pressed={availability === "attention"} onClick={() => setAvailability(availability === "attention" ? "all" : "attention")}><span>Need stock</span><strong>{summary.attention}</strong><em>sold out or some sizes out</em></button>
+        <button type="button" className="inv-stat" aria-pressed={availability === "all"} onClick={() => setAvailability("all")}><span>{kind === "bundles" ? "Bundles" : "Products"}</span><strong>{summary.total}</strong><em>on the cashier and mobile menus</em></button>
+        <button type="button" className="inv-stat" aria-pressed={availability === "available"} onClick={() => setAvailability(availability === "available" ? "all" : "available")}><span>Can be sold now</span><strong style={{ color: "#15803D" }}>{summary.available}</strong><em>{kind === "bundles" ? "every item has stock" : "every size has stock"}</em></button>
+        <button type="button" className="inv-stat is-low" aria-pressed={availability === "attention"} onClick={() => setAvailability(availability === "attention" ? "all" : "attention")}><span>Need stock</span><strong>{summary.attention}</strong><em>{kind === "bundles" ? "an item is sold out" : "sold out or some sizes out"}</em></button>
         <button type="button" className="inv-stat is-info" aria-pressed={availability === "nocost"} onClick={() => setAvailability(availability === "nocost" ? "all" : "nocost")}><span>Without a cost</span><strong>{summary.noCost}</strong><em>margin can’t be shown</em></button>
       </div>
 
       <div className="inv-toolbar">
         <div className="inv-search is-wide">
           <IconSearch size={14} />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search product or ingredient" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={kind === "bundles" ? "Search bundle or item" : "Search product or ingredient"} />
           {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
         </div>
-        <label className="inv-filter"><span>Type</span>
+        {kind === "products" && <label className="inv-filter"><span>Type</span>
           <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)} className={`inv-select${typeFilter !== "all" ? " is-active" : ""}`}>
             <option value="all">All types</option><option value="recipe">Made to order</option><option value="stock">Direct sale</option>
           </select>
-        </label>
+        </label>}
         <label className="inv-filter"><span>Made at</span>
           <select value={stationFilter} onChange={(event) => setStationFilter(event.target.value as typeof stationFilter)} className={`inv-select${stationFilter !== "all" ? " is-active" : ""}`}>
             <option value="all">Bar and kitchen</option><option value="bar">Bar</option><option value="kitchen">Kitchen</option>
@@ -4524,12 +4944,12 @@ function ProductManagement({
       {uniqueProducts.length === 0 ? (
         <div className="inv-onboard">
           <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconCoffee size={24} /></span>
-          <h2>{inventory.length === 0 ? "Add inventory first" : "Add the first product"}</h2>
-          <p>{inventory.length === 0 ? "Products are made from inventory items, like coffee beans, milk and cups. Add those in Inventory, then come back to build the menu." : <>A <b>made-to-order</b> product uses a recipe for each size, like a Spanish Latte. A <b>direct-sale</b> product sells a stocked item as it is, like a can of Coke.</>}</p>
-          {inventory.length > 0 && <button type="button" className="inv-primary" onClick={openModal}><IconPlus size={15} />Add product</button>}
+          <h2>{inventory.length === 0 ? "Add inventory first" : `Add the first ${noun}`}</h2>
+          <p>{kind === "bundles" && inventory.length > 0 ? <>A <b>bundle</b> sells several menu items together at one price, like a Breakfast Combo: a latte and a waffle for less than both.</> : inventory.length === 0 ? "Products are made from inventory items, like coffee beans, milk and cups. Add those in Inventory, then come back to build the menu." : <>A <b>made-to-order</b> product uses a recipe for each size, like a Spanish Latte. A <b>direct-sale</b> product sells a stocked item as it is, like a can of Coke.</>}</p>
+          {inventory.length > 0 && <button type="button" className="inv-primary" onClick={openModal}><IconPlus size={15} />Add {noun}</button>}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="inv-empty">No products match. {filtersActive && <button type="button" className="inv-link" onClick={() => { setSearch(""); setFilterCat("All"); setTypeFilter("all"); setStationFilter("all"); setAvailability("all"); }}>Clear filters</button>}</div>
+        <div className="inv-empty">No {noun}s match. {filtersActive && <button type="button" className="inv-link" onClick={() => { setSearch(""); setFilterCat("All"); setTypeFilter("all"); setStationFilter("all"); setAvailability("all"); }}>Clear filters</button>}</div>
       ) : (
         <div className="flex flex-col gap-5">
           {productSections.map((section) => <section key={section.label ?? "all"} className="inv-section">
@@ -4538,7 +4958,7 @@ function ProductManagement({
               {section.items.map((product) => <MenuProductCard key={product.id} product={product} insight={insights.get(product.id)!} onEdit={() => openEditModal(product)} onArchive={() => setDeleteTarget(product)} />)}
             </div>
           </section>)}
-          <p className="inv-count">Showing {filtered.length} of {uniqueProducts.length} products · availability follows current inventory</p>
+          <p className="inv-count">Showing {filtered.length} of {uniqueProducts.length} {noun}s · availability follows current inventory</p>
         </div>
       )}
 
@@ -4590,12 +5010,12 @@ function ProductManagement({
       {showModal && (
         <Modal onClose={closeModal} closeDisabled={saving} label="Product" zIndex={50}>
           <div className="flex flex-col rounded-2xl overflow-hidden" style={{ background: "#FDF9F5", width: "100%", maxWidth: 560, height: "92vh", maxHeight: 760, boxShadow: "0 16px 48px rgba(61,43,31,0.22)" }}>
-            <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5", flexShrink: 0 }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
+            <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#E8DDD5", background: "#F3EDE5", flexShrink: 0 }}><p style={{ fontFamily: "Hanken Grotesk, sans-serif", fontWeight: 700, fontSize: 16, color: "#3D2B1F" }}>{formType === "bundle" ? (editingProduct ? "Edit Bundle" : "Add New Bundle") : editingProduct ? "Edit Product" : "Add New Product"}</p><button onClick={closeModal} disabled={saving} style={{ width: 30, height: 30, borderRadius: 8, border: "1px solid #E8DDD5", background: "#FDF9F5", color: "#9C8278", cursor: saving ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><IconX size={14} /></button></div>
             <div className="flex flex-col gap-5 px-6 py-6" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Name</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder="e.g. Vanilla Cold Brew" style={inputBase} /></div>
+              <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{formType === "bundle" ? "Bundle Name" : "Product Name"}</label><input value={formName} onChange={(e) => setFormName(e.target.value)} placeholder={formType === "bundle" ? "e.g. Breakfast Combo" : "e.g. Vanilla Cold Brew"} style={inputBase} /></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Short Description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><textarea value={formDescription} maxLength={240} onChange={(e) => setFormDescription(e.target.value)} placeholder="e.g. Smooth espresso with steamed milk and caramel." rows={3} style={{ ...inputBase, resize: "vertical" }} /><span style={{ color: "#9C8278", fontSize: 11 }}>{formDescription.length}/240</span></div>
               <div className="flex flex-col gap-1.5"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", textTransform: "uppercase" }}>Category</label><CategoryPicker value={formCat} names={formCategoryNames} onChange={setFormCat} onCreated={onCategoryCreated} inputStyle={inputBase} /></div>
-              <div className="flex flex-col gap-2" role="radiogroup" aria-label="Made at">
+              {formType !== "bundle" && <div className="flex flex-col gap-2" role="radiogroup" aria-label="Made at">
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Made at</label>
                 <div className="grid grid-cols-2 gap-2">
                   {([["bar", "☕ Bar", "Drinks. Shows on the barista's queue."], ["kitchen", "🍳 Kitchen", "Food. Shows on the kitchen staff's queue."]] as const).map(([value, title, hint]) => (
@@ -4605,10 +5025,10 @@ function ProductManagement({
                     </button>
                   ))}
                 </div>
-              </div>
-              <div className="flex flex-col gap-2" role="radiogroup" aria-label="Product type">
+              </div>}
+              {kind === "products" && <div className="flex flex-col gap-2" role="radiogroup" aria-label="Product type">
                 <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Type</label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
                   {([["recipe", "Recipe product", "Made from several inventory items, e.g. Americano"], ["stock", "Direct-sale product", "Sells a stocked item as-is, e.g. Coke Can"]] as const).map(([value, title, hint]) => (
                     <button key={value} type="button" role="radio" aria-checked={formType === value} onClick={() => setFormType(value)} disabled={saving} style={{ border: formType === value ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "10px 12px", background: formType === value ? "#3D2B1F" : "#FDF9F5", color: formType === value ? "#FDF9F5" : "#3D2B1F", textAlign: "left", cursor: saving ? "default" : "pointer", fontFamily: "Inter, sans-serif" }}>
                       <span style={{ display: "block", fontSize: 13, fontWeight: 700 }}>{title}</span>
@@ -4616,9 +5036,29 @@ function ProductManagement({
                     </button>
                   ))}
                 </div>
+              </div>}
+              <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{formType === "bundle" && <button type="button" onClick={() => void collageBundleImage()} disabled={saving || collaging || bundlePictures.length === 0} title={bundlePictures.length === 0 ? "Add items with pictures to the bundle first" : "Combine the items' pictures into one"} style={{ display: "inline-flex", alignItems: "center", gap: 8, border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: bundlePictures.length === 0 ? "default" : "pointer", opacity: bundlePictures.length === 0 ? 0.55 : 1 }}><IconBox size={14} />{collaging ? "Combining…" : "Use the items' pictures"}</button>}{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5", position: "relative" }}><Image src={formImageData || formImage.trim()} alt="preview" fill unoptimized style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
+              {formType === "bundle" ? (
+              <div className="flex flex-col gap-3 rounded-xl p-4" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5" }}>
+                <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>In the bundle</label>
+                {bundleLines.length === 0 && <p style={{ margin: 0, fontSize: 12.5, color: "#9C8278" }}>Add the menu items that come in it, like a drink and a meal. Selling one takes each item&apos;s stock, and each shows on its own station&apos;s queue.</p>}
+                {bundleLines.map((line, index) => <div key={index} className="flex gap-2 items-center">
+                  <select value={line.variantId || ""} onChange={(event) => setBundleLines((current) => current.map((entry, at) => at === index ? { ...entry, variantId: Number(event.target.value) } : entry))} disabled={saving} style={{ ...inputBase, flex: 1, minWidth: 0, cursor: "pointer" }} aria-label="Menu item">
+                    <option value="">Choose a menu item</option>
+                    {bundleChoices.map((choice) => <option key={choice.variantId} value={choice.variantId}>{choice.label} · {menuPrice(choice.price)}</option>)}
+                  </select>
+                  <input type="number" min={1} step={1} value={line.qty} onChange={(event) => setBundleLines((current) => current.map((entry, at) => at === index ? { ...entry, qty: sanitizeWholeUnitValue(event.target.value) } : entry))} disabled={saving} aria-label="How many" style={{ ...inputBase, width: 70 }} />
+                  <button type="button" onClick={() => setBundleLines((current) => current.filter((_, at) => at !== index))} disabled={saving} title="Remove" style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 9, border: "1px solid #FECACA", background: "#FEF2F2", color: "#B91C1C", cursor: "pointer" }}>×</button>
+                </div>)}
+                <button type="button" className="inv-mini" style={{ alignSelf: "flex-start" }} onClick={() => setBundleLines((current) => [...current, { variantId: 0, qty: "1" }])} disabled={saving || bundleChoices.length === 0}>+ Add an item</button>
+                <div className="flex flex-col gap-1.5">
+                  <label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Bundle price (₱)</label>
+                  <MoneyField value={bundlePrice} onChange={setBundlePrice} placeholder="e.g. 199" style={inputBase} />
+                  {bundleChosen.length > 0 && <span style={{ fontSize: 12, color: "#6B4C3B" }}>Separately {menuPrice(bundleSeparately)}{bundlePrice !== "" && Number(bundlePrice) < bundleSeparately ? ` · customers save ${menuPrice(bundleSeparately - Number(bundlePrice))}` : ""}</span>}
+                </div>
+                <p style={{ margin: 0, fontSize: 11.5, color: "#9C8278" }}>Made where its items are: all drinks at the bar, otherwise the kitchen, and each item shows on its own station&apos;s queue.</p>
               </div>
-              <div className="flex flex-col gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>Product Image <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0 }}>(optional)</span></label><input value={formImage} onChange={(e) => { setFormImage(e.target.value); setFormImageData(""); }} placeholder="Paste an image URL" style={inputBase} /><div className="flex items-center gap-2" style={{ color: "#9C8278", fontFamily: "JetBrains Mono, monospace", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}><span style={{ flex: 1, height: 1, background: "#E8DDD5" }} />or<span style={{ flex: 1, height: 1, background: "#E8DDD5" }} /></div><div className="flex items-center gap-2 flex-wrap"><label style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8, width: "fit-content", border: "1px solid #E8DDD5", borderRadius: 10, padding: "9px 13px", background: "#F3EDE5", color: "#6B4C3B", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}><IconImage size={14} /> Choose image<input type="file" accept="image/*" onChange={importProductImage} style={{ display: "none" }} /></label>{(formImageData || formImage.trim()) && <button type="button" onClick={removeProductImage} style={{ border: "1px solid #FECACA", borderRadius: 10, padding: "9px 13px", background: "#FEF2F2", color: "#B91C1C", fontFamily: "Inter, sans-serif", fontSize: 12.5, fontWeight: 600, cursor: "pointer" }}>Remove image</button>}</div>{(formImageData || formImage.trim()) && <div style={{ width: "100%", height: 120, borderRadius: 10, overflow: "hidden", background: "#F3EDE5", position: "relative" }}><Image src={formImageData || formImage.trim()} alt="preview" fill unoptimized style={{ objectFit: "cover" }} onError={(e) => { e.currentTarget.style.display = "none"; }} /></div>}</div>
-              {formType === "recipe" ? (
+              ) : formType === "recipe" ? (
               <div className="flex flex-col gap-3">{variantMode === "options" ? <div className="menu-options">{formVariants.map((variant, index) => variant.temperature !== "none" ? null : <div key={index} className={`menu-option${selectedVariantIndex === index ? " is-selected" : ""}`} onClick={() => setSelectedVariantIndex(index)}><input value={variant.size} onChange={(event) => renameOption(index, event.target.value)} onFocus={() => setSelectedVariantIndex(index)} placeholder="Option name" aria-label="Option name" maxLength={40} /><span className="menu-option-meta">{variant.price === "" ? "No price" : peso(Number(variant.price))} · {variant.ingredients.length} item{variant.ingredients.length === 1 ? "" : "s"}</span><button type="button" title="Remove option" aria-label={`Remove ${variant.size || "option"}`} disabled={formVariants.filter((entry) => entry.temperature === "none").length <= 1} onClick={(event) => { event.stopPropagation(); removeOption(index); }}><IconX size={12} /></button></div>)}<button type="button" className="menu-option-add" onClick={() => addOption()}><IconPlus size={11} /> Add option</button></div> : <div className="flex flex-col gap-2 rounded-xl p-2" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", width: "100%" }}>{standardVariantSizes.map((size) => { const hotIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "hot"); const coldIndex = formVariants.findIndex((variant) => variant.size.toLowerCase() === size.toLowerCase() && variant.temperature === "cold"); const hot = formVariants[hotIndex]; const cold = formVariants[coldIndex]; if (!hot || !cold) return null; const variantCard = (variant: DraftVariant, index: number) => <button key={`${variant.size.trim().toLowerCase()}-${variant.temperature}`} type="button" onClick={() => selectVariant(index)} style={{ border: selectedVariantIndex === index ? "2px solid #3D2B1F" : "1px solid #E8DDD5", borderRadius: 10, padding: "9px 11px", minHeight: 52, background: selectedVariantIndex === index ? "#3D2B1F" : variant.active ? "#FDF9F5" : "#F8F3EE", color: selectedVariantIndex === index ? "#FDF9F5" : variant.active ? "#3D2B1F" : "#B8A59C", fontFamily: "Inter, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer", textAlign: "left", opacity: variant.active ? 1 : 0.75 }}><span style={{ display: "block", fontSize: 13 }}>{variant.size} · {variant.temperature === "hot" ? "Hot" : "Cold"}</span><span style={{ display: "block", marginTop: 3, fontSize: 11, fontWeight: 600 }}>{variant.active ? "Configured" : "Activate +"}</span></button>; return <div key={size} className="grid grid-cols-[1fr_auto_1fr] items-center gap-1.5">{variantCard(hot, hotIndex)}<div className="flex flex-col items-center gap-1"><button type="button" title={`Copy Hot to Cold for ${size}`} aria-label={`Copy Hot to Cold for ${size}`} disabled={!hot.active} onClick={() => copyVariantTo(hotIndex, coldIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: hot.active ? "#6B4C3B" : "#C9B8AF", cursor: hot.active ? "pointer" : "default", fontWeight: 800 }}>→</button><button type="button" title={`Copy Cold to Hot for ${size}`} aria-label={`Copy Cold to Hot for ${size}`} disabled={!cold.active} onClick={() => copyVariantTo(coldIndex, hotIndex)} style={{ width: 28, height: 24, border: "1px solid #E8DDD5", borderRadius: 7, background: "#FDF9F5", color: cold.active ? "#6B4C3B" : "#C9B8AF", cursor: cold.active ? "pointer" : "default", fontWeight: 800 }}>←</button></div>{variantCard(cold, coldIndex)}</div>; })}</div>}<div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10, color: "#9C8278", textTransform: "uppercase" }}>Price</label><MoneyField value={activeVariant?.price ?? ""} disabled={!activeVariant} onChange={(typed) => { if (selectedVariantIndex < 0) return; setCopiedVariantIndices((current) => current.filter((index) => index !== selectedVariantIndex)); setFormVariants((prev) => prev.map((variant, index) => index === selectedVariantIndex ? { ...variant, price: typed } : variant)); }} placeholder="0" style={{ ...inputBase, width: 100, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /></div>{activeVariant && (() => { const cost = recipeCost(activeVariant.ingredients.filter((row) => row.inventoryId > 0), inventory); const price = Number(activeVariant.price); if (activeVariant.ingredients.length === 0) return <span className="menu-editor-cost">Add ingredients to see the cost</span>; if (cost === null) return <span className="menu-editor-cost is-muted">Cost unknown: an ingredient has no cost in Inventory</span>; return <span className={`menu-editor-cost${activeVariant.price !== "" && price > 0 && (price - cost) / price < 0.3 ? " is-low" : ""}`}>Cost {peso(cost)}{activeVariant.price !== "" && price > 0 ? ` · margin ${peso(price - cost)} (${Math.round(((price - cost) / price) * 100)}%)` : ""}</span>; })()}</div><div className="flex items-center justify-between"><label style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", letterSpacing: "0.05em", textTransform: "uppercase" }}>{activeVariant ? activeVariant.temperature === "none" ? `${activeVariant.size.trim() || "This option"} Ingredients` : `${activeVariant.size} ${activeVariant.temperature === "hot" ? "Hot" : "Cold"} Ingredients` : variantMode === "options" ? "Select an option to configure ingredients" : "Select a size and temperature to configure ingredients"}</label><div className="flex items-center gap-2"><button type="button" onClick={() => copyActiveVariantRecipe()} title="Copy selected recipe" aria-label="Copy selected recipe" disabled={!activeVariant} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant ? "pointer" : "default" }}><IconCopy size={12} /></button><button type="button" onClick={() => pasteToActiveVariantRecipe()} title="Paste copied recipe" aria-label="Paste copied recipe" disabled={!activeVariant || !variantClipboard} className="flex items-center justify-center rounded-lg" style={{ width: 32, height: 30, background: "#F3EDE5", border: "1px solid #E8DDD5", color: activeVariant && variantClipboard ? "#6B4C3B" : "#C9B8AF", cursor: activeVariant && variantClipboard ? "pointer" : "default" }}><IconPaste size={12} /></button><button type="button" onClick={() => addIngredientRow()} disabled={!activeVariant || inventory.length === 0} className="flex items-center gap-1 rounded-lg px-3 py-1" style={{ background: "#F3EDE5", border: "1px solid #E8DDD5", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#6B4C3B", cursor: activeVariant && inventory.length ? "pointer" : "default" }}><IconPlus size={11} /> Add</button></div></div>
                 <div className="flex flex-col gap-2">{formIngredients.map((row, index) => { const inv = inventory.find((item) => item.inventory_id === row.inventoryId); return <div key={index} draggable={!saving} onDragStart={() => setDraggedIngredientIndex(index)} onDragOver={(event) => event.preventDefault()} onDrop={() => moveIngredientRow(index)} onDragEnd={() => setDraggedIngredientIndex(null)} className="flex items-center gap-2" style={{ opacity: draggedIngredientIndex === index ? 0.45 : 1, border: draggedIngredientIndex !== null && draggedIngredientIndex !== index ? "1px dashed #D97706" : "1px solid transparent", borderRadius: 10, padding: 2 }}><span title="Drag to reorder" style={{ color: "#9C8278", cursor: saving ? "default" : "grab", fontSize: 18, lineHeight: 1, userSelect: "none" }}>:::</span><select value={row.inventoryId || ""} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, inventoryId: Number(e.target.value) } : r)); }} style={{ ...inputBase, flex: 1, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }}><option value="">Select inventory item</option><InventoryOptionGroups inventory={inventory} /></select><input type="number" min={0} step={inv?.is_whole_unit ? 1 : "any"} placeholder="Qty" value={row.qty} onChange={(e) => { setCopiedVariantIndices((current) => current.filter((variantIndex) => variantIndex !== selectedVariantIndex)); setFormIngredients((prev) => prev.map((r, i) => i === index ? { ...r, qty: inv?.is_whole_unit ? sanitizeWholeUnitValue(e.target.value) : e.target.value } : r)); }} style={{ ...inputBase, width: 70, ...(copiedVariantIndices.includes(selectedVariantIndex) ? { background: "#FFF7D6", border: "1px solid #F2C94C" } : {}) }} /><span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: "#9C8278", width: 55, flexShrink: 0 }}>{inv?.unit_of_measure ?? ""}</span><button onClick={() => removeIngredientRow(index)} disabled={formIngredients.length === 1} style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #FECACA", background: "#FEF2F2", color: "#C0392B", cursor: formIngredients.length === 1 ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, opacity: formIngredients.length === 1 ? 0.5 : 1 }}><IconX size={12} /></button></div>; })}</div>
               </div>
@@ -5798,6 +6238,8 @@ type FinanceTotals = {
   writtenOff?: number; uncostedWriteOffs?: number;
 };
 type FinanceOverviewData = {
+  // Stock bought in the range (restocks with a pack price), by item.
+  stockBought?: { item: string; entries: number; packs: number; quantity: number; unit: string; spent: number }[];
   // Stock written off in the range, by reason (made_order: made, then voided or refunded).
   writeOffs?: { reason: string; entries: number; cost: number }[];
   range: { start: string; end: string; days: number };
@@ -5909,7 +6351,7 @@ function FinanceKpi({ label, value, note, onClick, accent }: { label: string; va
   return onClick ? <button type="button" className="fin-kpi is-link" onClick={onClick}>{content}</button> : <div className="fin-kpi">{content}</div>;
 }
 
-function FinanceOverview({ data, today, onOpenOrders, onOpenExpenses }: { data: FinanceOverviewData; today: string; onOpenOrders: (preset: OrdersPreset) => void; onOpenExpenses: () => void }) {
+function FinanceOverview({ data, today, onOpenOrders, onOpenExpenses, onOpenInventory }: { data: FinanceOverviewData; today: string; onOpenOrders: (preset: OrdersPreset) => void; onOpenExpenses: () => void; onOpenInventory?: () => void }) {
   const [productSort, setProductSort] = useState<"revenue" | "quantity">("revenue");
   const [showAllProducts, setShowAllProducts] = useState(false);
   const { current, previous } = data;
@@ -6081,6 +6523,11 @@ function FinanceOverview({ data, today, onOpenOrders, onOpenExpenses }: { data: 
       </ul>
     </DashCard>}
 
+    {(data.stockBought ?? []).length > 0 && <DashCard title="Stock bought" action={onOpenInventory ? <DashLink label="Inventory" onClick={onOpenInventory} /> : undefined} sub={<>{peso((data.stockBought ?? []).reduce((sum, row) => sum + row.spent, 0))} spent on stock (restocks in Inventory, at their pack price). It is not taken off profit here: stock counts as a cost when it is sold (cost of goods) or written off.</>}>
+      <ul className="fin-simple-list">
+        {(data.stockBought ?? []).map((row) => <li key={row.item}><span><strong>{row.item}</strong><em>{row.packs} pack{row.packs === 1 ? "" : "s"} · {formatStock(row.quantity, row.unit)} · {row.entries} restock{row.entries === 1 ? "" : "s"}</em></span><strong>{peso(row.spent)}</strong></li>)}
+      </ul>
+    </DashCard>}
     {(data.writeOffs ?? []).length > 0 && <DashCard title="Stock written off" sub={<>{peso(current.writtenOff ?? 0)} of stock that left without being sold, at its cost. Taken off net profit.{(current.uncostedWriteOffs ?? 0) > 0 ? ` ${current.uncostedWriteOffs} without a cost counted as ₱0.` : ""}</>}>
       <ul className="fin-simple-list">
         {(data.writeOffs ?? []).map((entry) => <li key={entry.reason}><span><strong>{writeOffReasonLabel(entry.reason)}</strong><em>{entry.entries} {entry.reason === "made_order" ? `order${entry.entries === 1 ? "" : "s"}` : `item${entry.entries === 1 ? "" : "s"} written off`}</em></span><strong style={{ color: "#B91C1C" }}>−{peso(entry.cost)}</strong></li>)}
@@ -6204,6 +6651,7 @@ function FinanceOrderDialog({ order, onClose }: { order: FinanceOrder; onClose: 
           {fact("Address", `${order.delivery.street}${order.delivery.landmark ? `, near ${order.delivery.landmark}` : ""} (${order.delivery.zone})`)}
           {fact("Delivery", `${deliveryStatusLabels[order.delivery.status] ?? order.delivery.status}${order.delivery.deliveredAt ? ` ${shiftTime(order.delivery.deliveredAt)}` : ""}${order.delivery.failureReason ? `: ${order.delivery.failureReason}` : ""}`)}
           {fact("Rider", order.delivery.rider ?? "Not picked up")}
+          {order.delivery.status === "delivered" && <div><span>Proof of delivery</span><strong><a className="inv-link" href={`/api/delivery/proof?order=${order.orderId}`} target="_blank" rel="noopener">See the photo at the door</a></strong></div>}
           {order.paymentMethod === "cod" && fact("Cash collected", order.delivery.codCollected === null ? "Not yet" : peso(order.delivery.codCollected))}
           {order.paymentMethod === "cod" && order.delivery.codCollected !== null && fact("Handed in", order.delivery.remittedAt ? `${shiftTime(order.delivery.remittedAt)}${order.delivery.receivedBy ? ` to ${order.delivery.receivedBy}` : ""}` : "Not yet")}
         </div>}
@@ -6675,7 +7123,7 @@ function FinanceExportDialog({ data, onClose }: { data: FinanceOverviewData; onC
   </Modal>;
 }
 
-function Finance() {
+function Finance({ onNavigate }: { onNavigate?: (page: Page) => void }) {
   const [today] = useState(() => getFinanceDateStamp());
   const presets = useMemo(() => financePresets(today), [today]);
   const [tab, setTab] = useState<FinanceTab>("overview");
@@ -6754,7 +7202,7 @@ function Finance() {
       {!rangeValid ? <div className="inv-empty is-error">The start date must be on or before the end date.</div>
         : tab === "overview" ? (loading && !overview ? <div className="inv-empty">Loading finance figures…</div>
           : loadError ? <div className="inv-empty is-error">{loadError} <button type="button" className="inv-link" onClick={() => setReloadKey((key) => key + 1)}>Try again</button></div>
-            : overview ? <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}><FinanceOverview data={overview} today={today} onOpenOrders={openOrders} onOpenExpenses={() => setTab("expenses")} /></div> : null)
+            : overview ? <div style={{ opacity: loading ? 0.6 : 1, transition: "opacity 160ms ease" }}><FinanceOverview data={overview} today={today} onOpenOrders={openOrders} onOpenExpenses={() => setTab("expenses")} onOpenInventory={onNavigate ? () => onNavigate("inventory") : undefined} /></div> : null)
           : tab === "shifts" ? <ShiftReports start={start} end={end} />
           : tab === "expenses" ? <FinanceExpenses start={start} end={end} />
             : <FinanceOrders key={`${start}-${end}-${ordersKey}`} start={start} end={end} preset={ordersPreset} />}
@@ -7073,7 +7521,27 @@ function FinanceExpenses({ start, end }: { start: string; end: string }) {
 // Short predictive warnings and advice written by Claude from the café's numbers (see
 // app/api/insights). Claude is asked only when an admin presses the button, and only while the
 // switch is on; every result is saved, so reading it again costs nothing.
-type InsightCard = { tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: "inventory" | "finance" | "treasury" | "products" | "shift" };
+type InsightCard = {
+  tone: "alert" | "warning" | "good" | "tip"; title: string; message: string; page: "inventory" | "finance" | "treasury" | "products" | "shift";
+  // Claude's chart for this card (a run from before charts has none): actual figures, and its own projections
+  // marked forecast.
+  chart?: { kind: "columns" | "bars"; title: string; unit: string; points: { label: string; value: number; forecast: boolean }[] };
+};
+
+// A chart Claude drew for an insight: columns over time or by hour (its forecast lighter, after the actual ones),
+// or bars ranked longest first.
+function InsightCardChart({ chart }: { chart: NonNullable<InsightCard["chart"]> }) {
+  const show = (value: number) => chart.unit === "peso" ? compactPeso(value) : chart.unit === "days" ? `${value.toLocaleString("en-PH", { maximumFractionDigits: 1 })} d` : value.toLocaleString("en-PH", { maximumFractionDigits: 2 });
+  const full = (value: number) => chart.unit === "peso" ? peso(value) : chart.unit === "days" ? `${value.toLocaleString("en-PH", { maximumFractionDigits: 1 })} days` : chart.unit === "orders" ? `${value.toLocaleString("en-PH")} orders` : value.toLocaleString("en-PH", { maximumFractionDigits: 2 });
+  const projected = chart.points.some((point) => point.forecast);
+  return <figure className="ins-card-chart">
+    <figcaption>{chart.title}</figcaption>
+    {chart.kind === "columns"
+      ? <DashBars bars={chart.points.map((point, index) => ({ key: `${index}-${point.label}`, label: point.label, value: point.value, forecast: point.forecast, title: `${point.label}: ${full(point.value)}${point.forecast ? " (Claude's forecast)" : ""}` }))} emptyLabel="Nothing to chart." format={show} />
+      : <HBars rows={[...chart.points].sort((a, b) => b.value - a.value).map((point, index) => ({ key: `${index}-${point.label}`, label: point.label, value: point.value, display: `${full(point.value)}${point.forecast ? " · forecast" : ""}`, tone: point.forecast ? "warn" as const : undefined }))} max={Math.max(0, ...chart.points.map((point) => point.value))} emptyLabel="Nothing to chart." />}
+    {projected && <p className="ins-legend">{chart.kind === "columns" ? <><span className="is-actual" />From your records <span className="is-forecast" />Claude&apos;s forecast</> : <>Marked “forecast”: Claude&apos;s projection from your records.</>}</p>}
+  </figure>;
+}
 // kind: "numbers" (from the café's own records) or "trends" (food and drink trends Claude found on
 // the web, compared with the menu; their cards are TrendCards).
 type InsightResult = { id: number; kind: "numbers" | "trends"; area: string | null; searches: number; start: string; end: string; headline: string; cards: InsightCard[]; model: string; inputTokens: number | null; outputTokens: number | null; requestedBy: string | null; createdAt: string };
@@ -7106,17 +7574,6 @@ function insightCost(result: InsightResult): string | null {
   return `${(result.inputTokens + result.outputTokens).toLocaleString("en-PH")} tokens${result.searches > 0 ? ` · ${result.searches} web search${result.searches === 1 ? "" : "es"}` : ""} · about $${dollars < 0.01 ? dollars.toFixed(3) : dollars.toFixed(2)}`;
 }
 
-// The Insights page's charts (GET /api/insights?charts=1): the period's daily sales with a 7-day forecast,
-// the busiest hours, the best sellers and the stock forecast. Worked out from the records alone, so they
-// show even with AI insights off and cost nothing.
-type InsightChartData = {
-  sales: { day: string; sales: number; orders: number }[];
-  forecast: { day: string; sales: number; basedOn: number }[];
-  hours: { hour: number; orders: number }[];
-  best: { product: string; sold: number; sales: number }[];
-  stock: { item: string; unit: string; onHand: number; perDay: number; daysLeft: number; runsOut: string | null }[];
-  lowNow: number;
-};
 type HBarRow = { key: string; label: string; value: number; display: string; note?: string; tone?: "warn" | "danger" };
 
 function HBars({ rows, max, emptyLabel }: { rows: HBarRow[]; max: number; emptyLabel: string }) {
@@ -7128,89 +7585,6 @@ function HBars({ rows, max, emptyLabel }: { rows: HBarRow[]; max: number; emptyL
       {row.note && <em>{row.note}</em>}
     </li>)}
   </ul>;
-}
-
-function chartDay(day: string): { label: string; weekday: string } {
-  const date = new Date(`${day}T00:00:00Z`);
-  return { label: date.toLocaleDateString("en-PH", { timeZone: "UTC", month: "short", day: "numeric" }), weekday: date.toLocaleDateString("en-PH", { timeZone: "UTC", weekday: "short" }) };
-}
-
-function InsightCharts({ start, end, chips }: { start: string; end: string; chips: React.ReactNode }) {
-  const [charts, setCharts] = useState<InsightChartData | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let active = true;
-    const timer = window.setTimeout(async () => {
-      setError("");
-      try {
-        const response = await fetch(`/api/insights?charts=1&start=${start}&end=${end}`, { cache: "no-store" });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload?.error || "Could not load the charts.");
-        if (active) setCharts(payload.data);
-      } catch (loadError) {
-        if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the charts.");
-      }
-    }, 0);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [start, end]);
-
-  const salesBars: DashBar[] = charts ? [
-    ...charts.sales.map((entry) => {
-      const { label, weekday } = chartDay(entry.day);
-      return { key: entry.day, label, sub: weekday, value: entry.sales, title: `${weekday} ${label}: ${peso(entry.sales)} from ${entry.orders} order${entry.orders === 1 ? "" : "s"}` };
-    }),
-    ...charts.forecast.map((entry) => {
-      const { label, weekday } = chartDay(entry.day);
-      return { key: `f${entry.day}`, label, sub: weekday, value: entry.sales, forecast: true,
-        title: `Forecast for ${weekday} ${label}: about ${peso(entry.sales)} (average of the last ${entry.basedOn} open ${weekday}${entry.basedOn === 1 ? "" : "s"})` };
-    }),
-  ] : [];
-  const forecastTotal = charts ? charts.forecast.reduce((sum, entry) => sum + entry.sales, 0) : 0;
-  const periodTotal = charts ? charts.sales.reduce((sum, entry) => sum + entry.sales, 0) : 0;
-  const hourBars: DashBar[] = [];
-  if (charts && charts.hours.length > 0) {
-    const counts = new Map(charts.hours.map((entry) => [entry.hour, entry.orders]));
-    const first = Math.min(...charts.hours.map((entry) => entry.hour));
-    const last = Math.max(...charts.hours.map((entry) => entry.hour));
-    for (let hour = first; hour <= last; hour++) {
-      const orders = counts.get(hour) ?? 0;
-      hourBars.push({ key: String(hour), label: hourLabel(hour), value: orders, title: `${hourLabel(hour)}–${hourLabel((hour + 1) % 24)}: ${orders} order${orders === 1 ? "" : "s"}` });
-    }
-  }
-  const busiest = charts && charts.hours.length > 0 ? charts.hours.reduce((top, entry) => entry.orders > top.orders ? entry : top) : null;
-  const bestMax = charts ? Math.max(0, ...charts.best.map((entry) => entry.sold)) : 0;
-
-  return <section className="ins-charts">
-    <div className="ins-charts-head">
-      <div>
-        <p className="ins-kicker">📊 Charts from your records</p>
-        <h3>Sales, busy hours and stock forecast</h3>
-        <p className="inv-hint">Worked out from the café’s own records, so they show even with AI insights off and cost nothing. Claude’s advice below reads the same numbers.</p>
-      </div>
-      {chips}
-    </div>
-    {error && <div className="inv-alert" role="alert"><span>{error}</span></div>}
-    {!charts ? (!error && <div className="inv-empty">Loading the charts…</div>) : <div className="ins-chart-grid">
-      <DashCard className="ins-chart-wide" title="Daily sales and the next 7 days"
-        sub={<>{formatRange(start, end)}: {peso(periodTotal)} · next 7 days: about <b>{peso(forecastTotal)}</b> (forecast)</>}>
-        <DashBars bars={salesBars} emptyLabel="No sales in this period." />
-        <p className="ins-legend"><span className="is-actual" />Actual sales <span className="is-forecast" />Forecast: each day is the average of the last 4 days the café sold on that weekday</p>
-      </DashCard>
-      <DashCard title="Busiest hours" sub={busiest ? <>Orders per hour · busiest at <b>{hourLabel(busiest.hour)}</b></> : "Orders per hour"}>
-        <DashBars bars={hourBars} emptyLabel="No orders in this period." format={(value) => String(value)} />
-      </DashCard>
-      <DashCard title="Best sellers" sub="By quantity sold in this period">
-        <HBars rows={charts.best.slice(0, 6).map((entry) => ({ key: entry.product, label: entry.product, value: entry.sold, display: `${entry.sold} sold · ${compactPeso(entry.sales)}` }))} max={bestMax} emptyLabel="No sales in this period." />
-      </DashCard>
-      <DashCard title="Stock forecast" sub={<>Days left at the last 14 days’ pace{charts.lowNow > 0 ? <> · <b>{charts.lowNow}</b> item{charts.lowNow === 1 ? " is" : "s are"} already low</> : ""}</>}>
-        <HBars rows={charts.stock.map((entry) => ({
-          key: entry.item, label: entry.item, value: entry.daysLeft, display: `${entry.daysLeft} day${entry.daysLeft === 1 ? "" : "s"} left`,
-          note: `${entry.onHand.toLocaleString("en-PH")} ${entry.unit} left, about ${(entry.perDay >= 10 ? Math.round(entry.perDay) : Math.round(entry.perDay * 10) / 10).toLocaleString("en-PH")} a day${entry.runsOut ? ` · runs out ${entry.runsOut}` : ""}`,
-          tone: entry.daysLeft <= 3 ? "danger" as const : entry.daysLeft <= 7 ? "warn" as const : undefined,
-        }))} max={14} emptyLabel="Nothing runs out in the next 14 days at the current pace." />
-      </DashCard>
-    </div>}
-  </section>;
 }
 
 function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
@@ -7342,10 +7716,6 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
 
       {!data.enabled && <div className="ins-setup is-off"><strong>AI insights are off.</strong> Turn them on with the switch above to ask Claude or read saved insights. While they are off, nothing is sent to Claude.</div>}
 
-      {view === "numbers" && preset && <InsightCharts start={preset.start} end={preset.end} chips={<div className="menu-chips" role="group" aria-label="Period">
-        {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
-      </div>} />}
-
       {/* Everything below is disabled while the switch is off. */}
       <div className={`ins-body${data.enabled ? "" : " is-off"}`} inert={!data.enabled} aria-disabled={!data.enabled}>
       {!data.configured && <div className="ins-setup"><strong>Not set up yet.</strong> Add the Claude API key to the admin app as <code>ANTHROPIC_API_KEY</code> (in <code>.env.local</code> and in the Vercel project settings), then reload this page. Saved insights stay readable.</div>}
@@ -7400,9 +7770,12 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
         </>}
       </> : <>
       <div className="fin-datebar">
+        <div className="menu-chips" role="group" aria-label="Period">
+          {presets.map((entry) => <button key={entry.id} type="button" aria-pressed={presetId === entry.id} onClick={() => { setPresetId(entry.id); setSelectedId(null); }}>{entry.label}</button>)}
+        </div>
         <div className="ins-ask">
-          <button type="button" className="inv-primary" onClick={() => void ask()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is reading the numbers…" : "Ask Claude for insights"}</button>
-          <span className="inv-hint">{blocked ?? `${preset ? formatRange(preset.start, preset.end) : ""} · Claude Opus 5.5 · about $0.02 per request`}</span>
+          <button type="button" className="inv-primary" onClick={() => void ask()} disabled={asking || blocked !== null}><IconSparkle size={15} />{asking ? "Claude is reading the numbers and drawing the charts…" : "Ask Claude for insights"}</button>
+          <span className="inv-hint">{blocked ?? `${preset ? formatRange(preset.start, preset.end) : ""} · Claude Opus 5.5 · cards with charts and forecasts · about $0.05 to $0.10 per request`}</span>
         </div>
       </div>
 
@@ -7422,11 +7795,12 @@ function InsightsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
               <div className="ins-card-body">
                 <strong>{card.title}</strong>
                 <p>{card.message}</p>
+                {card.chart && <InsightCardChart chart={card.chart} />}
                 {insightPageLabels[card.page] && <button type="button" className="ins-card-go" onClick={() => onNavigate(card.page)}>Open {insightPageLabels[card.page]}<IconChevron size={12} /></button>}
               </div>
             </li>)}
           </ul>
-          <p className="inv-hint">Written by AI from the numbers above. Check the figures on the linked page before acting on them.</p>
+          <p className="inv-hint">Written and charted by AI from this period’s records. Forecast bars are Claude’s projections. Check the figures on the linked page before acting on them.</p>
         </div>
         {numberRuns.length > 1 && <DashCard title="Earlier insights" sub="Saved results. Opening one costs nothing.">
           <ul className="fin-simple-list">
@@ -8059,8 +8433,9 @@ function PermissionSwitch({ checked, title, description, onChange, disabled = fa
 
 // Cashiers run the register; baristas only see and manage the bar queue in the staff app,
 // kitchen staff the kitchen queue, and riders only the deliveries.
-type StaffRole = "cashier" | "barista" | "kitchen" | "rider";
+type StaffRole = "cashier" | "barista" | "kitchen" | "rider" | "admin";
 const STAFF_ROLE_OPTIONS: { id: StaffRole; title: string; description: string }[] = [
+  { id: "admin", title: "Admin", description: "Runs the Admin Portal like the owner. Every change is in the audit log (Security) with their name." },
   { id: "cashier", title: "Cashier", description: "Takes orders and payments, and manages the queue." },
   { id: "barista", title: "Barista", description: "Makes the drinks: sees the bar queue and hands orders over. No register, cash or refunds." },
   { id: "kitchen", title: "Kitchen staff", description: "Makes the food: sees only the kitchen queue. No register, cash or refunds." },
@@ -8068,9 +8443,9 @@ const STAFF_ROLE_OPTIONS: { id: StaffRole; title: string; description: string }[
 ];
 function staffRoleOf(role: string): StaffRole {
   const value = role.toLowerCase();
-  return value === "barista" ? "barista" : value === "kitchen" ? "kitchen" : value === "rider" ? "rider" : "cashier";
+  return value === "barista" ? "barista" : value === "kitchen" ? "kitchen" : value === "rider" ? "rider" : value === "admin" ? "admin" : "cashier";
 }
-const staffRoleLabel = (role: string) => ({ cashier: "Cashier", barista: "Barista", kitchen: "Kitchen staff", rider: "Rider" })[staffRoleOf(role)];
+const staffRoleLabel = (role: string) => ({ cashier: "Cashier", barista: "Barista", kitchen: "Kitchen staff", rider: "Rider", admin: "Admin" })[staffRoleOf(role)];
 function RolePicker({ value, disabled = false, onChange }: { value: StaffRole; disabled?: boolean; onChange: (role: StaffRole) => void }) {
   return <div className="acc-role-picker" role="radiogroup" aria-label="Role">
     {STAFF_ROLE_OPTIONS.map((option) => <button key={option.id} type="button" role="radio" aria-checked={value === option.id} disabled={disabled} onClick={() => onChange(option.id)}>
@@ -10006,6 +10381,7 @@ function deliveryHoursProblem(start: string, end: string): string | null {
 // and api/promotions.
 type PromotionPost = {
   id: number; kind: PromotionKind; title: string; message: string; image: string; productId: number | null; productName: string | null;
+  bundleProductIds?: number[]; bundlePrice?: number | null;
   eventStartsAt: string | null; eventEndsAt: string | null; showFrom: string; showUntil: string | null; isActive: boolean; archivedAt: string | null;
   status: PromotionStatus; createdBy: string | null; updatedAt: string; emailCustomers: boolean; emailedAt: string | null; emailedCount: number | null;
 };
@@ -10138,7 +10514,10 @@ function PromotionDialog({ post, kind, products, subscribers, onClose, onSaved }
     eventStartsAt: toManilaInput(post?.eventStartsAt ?? null), eventEndsAt: toManilaInput(post?.eventEndsAt ?? null),
     showFrom: toManilaInput(post?.showFrom ?? null), showUntil: toManilaInput(post?.showUntil ?? null),
     isActive: post?.isActive ?? true, emailCustomers: post?.emailCustomers ?? false,
+    bundle: post?.bundleProductIds ?? [], bundlePrice: post?.bundlePrice === null || post?.bundlePrice === undefined ? "" : String(post.bundlePrice),
   });
+  const bundleItems = draft.bundle.map((id) => products.find((product) => product.id === id)).filter((product): product is Product => Boolean(product));
+  const bundleSeparately = bundleItems.reduce((sum, product) => sum + Math.min(...(product.variants.length ? product.variants.map((variant) => Number(variant.price)) : [Number(product.price)])), 0);
   // "keep": the stored picture stays; a data: URL: a new one; "": none.
   const [image, setImage] = useState(post?.image ? "keep" : "");
   const [preview, setPreview] = useState(post?.image ?? "");
@@ -10169,10 +10548,12 @@ function PromotionDialog({ post, kind, products, subscribers, onClose, onSaved }
         ...(post ? { id: post.id } : {}), kind: draft.kind, title: draft.title, message: draft.message, productId: draft.productId ? Number(draft.productId) : null,
         eventStartsAt: isEvent ? fromManilaInput(draft.eventStartsAt) : null, eventEndsAt: isEvent ? fromManilaInput(draft.eventEndsAt) : null,
         showFrom: fromManilaInput(draft.showFrom), showUntil: fromManilaInput(draft.showUntil), isActive: draft.isActive, emailCustomers: draft.emailCustomers, image,
+        bundleProductIds: draft.bundle, bundlePrice: draft.bundle.length && draft.bundlePrice !== "" ? Number(draft.bundlePrice) : null,
       };
       const response = await fetch("/api/promotions", { method: post ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload?.error || "Could not save the post.");
+      if (payload?.note) { setError(payload.note); setSaving(false); return; }
       await onSaved(post ? `"${draft.title.trim()}" saved.` : `"${draft.title.trim()}" added${payload.data?.status === "showing" ? " and showing on the menu" : payload.data?.status === "scheduled" ? "; it shows when its time comes" : ""}.`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Could not save the post.");
@@ -10198,6 +10579,20 @@ function PromotionDialog({ post, kind, products, subscribers, onClose, onSaved }
           <option value="">None</option>
           {[...products].sort((a, b) => a.name.localeCompare(b.name)).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
         </select></WizardField>
+        {!isEvent && <div className="inv-step" style={{ gap: 10 }}>
+          <p className="inv-step-title" style={{ margin: 0 }}>Bundle deal <span style={{ fontWeight: 500, color: "#9C8278", fontSize: 12 }}>(optional: 2 to 6 items sold together)</span></p>
+          <p className="inv-hint" style={{ margin: 0 }}>The Mobile Menu shows the items in the bundle on this post, and tags each of them “Bundle deal” on the menu.</p>
+          <div className="flex flex-wrap gap-2">
+            {bundleItems.map((product) => <span key={product.id} className="inv-mini" style={{ cursor: "default" }}>{product.name}<button type="button" onClick={() => set("bundle", draft.bundle.filter((id) => id !== product.id))} aria-label={`Take ${product.name} out of the bundle`} style={{ border: "none", background: "none", cursor: "pointer", color: "#B91C1C", padding: 0, marginLeft: 4 }}>×</button></span>)}
+            {draft.bundle.length < 6 && <select value="" onChange={(event) => { const id = Number(event.target.value); if (id) set("bundle", [...draft.bundle, id]); }} style={{ ...packagingInput, width: "auto" }} aria-label="Add a menu item to the bundle">
+              <option value="">+ Add an item</option>
+              {[...products].filter((product) => !draft.bundle.includes(product.id)).sort((a, b) => a.name.localeCompare(b.name)).map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}
+            </select>}
+          </div>
+          {draft.bundle.length > 0 && <WizardField label="Bundle price (₱, optional)" hint={bundleItems.length >= 2 ? `Separately from ${peso(bundleSeparately)}${draft.bundlePrice !== "" && Number(draft.bundlePrice) < bundleSeparately ? `: customers save ${peso(bundleSeparately - Number(draft.bundlePrice))}` : ""}. Shown on the post: menu prices stay the same, and customers show the post at the counter for the bundle price.` : "Add at least 2 items."}>
+            <MoneyField value={draft.bundlePrice} onChange={(typed) => set("bundlePrice", typed)} placeholder="e.g. 199" style={packagingInput} />
+          </WizardField>}
+        </div>}
         <WizardField label="Picture (optional)" hint="Resized before upload.">
           <div className="flex items-center gap-3 flex-wrap">
             {preview && <span style={{ position: "relative", width: 120, height: 68, borderRadius: 10, overflow: "hidden", background: "#F1E8DE" }}><Image src={preview} alt="" fill unoptimized sizes="120px" style={{ objectFit: "cover" }} /></span>}
@@ -10267,6 +10662,33 @@ function Delivery() {
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState<DeliveryZoneAdmin | "new" | null>(null);
   const [live, setLive] = useState<LiveDelivery[]>([]);
+  // The delivery map (lib/delivery-map.ts) and the café's pin on it.
+  const [map, setMap] = useState<{ ready: boolean; cafe: { lat: number; lng: number } | null; stops: MapStopView[] } | null>(null);
+  const [pickingCafe, setPickingCafe] = useState(false);
+  const loadMap = useCallback(async () => {
+    try {
+      const response = await fetch("/api/delivery/map", { cache: "no-store" });
+      const payload = await response.json();
+      if (response.ok) setMap(payload.data);
+    } catch { /* the map waits for the next try */ }
+  }, []);
+  useEffect(() => {
+    const first = window.setTimeout(() => void loadMap(), 0);
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void loadMap(); }, 15_000);
+    return () => { window.clearTimeout(first); window.clearInterval(timer); };
+  }, [loadMap]);
+  async function saveCafe(spot: { lat: number; lng: number }) {
+    try {
+      const response = await fetch("/api/delivery/map", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(spot) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || "Could not save the café's place.");
+      setPickingCafe(false);
+      setNotice("The café's place is saved. Routes on the map start there.");
+      await loadMap();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Could not save the café's place.");
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -10334,6 +10756,15 @@ function Delivery() {
       {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
       {notice && <div className="acc-notice" role="status">{notice}</div>}
       {!rules ? <div className="inv-empty">Loading delivery settings…</div> : <>
+        <section className="acc-block">
+          <header className="acc-block-head">
+            <div><h3>Delivery map</h3><p>{pickingCafe ? "Tap the café's place on the map." : map?.cafe ? "Deliveries packed or on their way, the road to each, and each rider where their phone last was (riders share it while they deliver)." : "Set the café's place first: tap the button, then the map. Routes start there."}</p></div>
+            {map?.ready && <button type="button" className="inv-mini" onClick={() => setPickingCafe((value) => !value)}>{pickingCafe ? "Cancel" : map.cafe ? "Move the café pin" : "Set the café's place"}</button>}
+          </header>
+          {map && !map.ready ? <p className="inv-hint">Run revision-migration.sql in the Supabase SQL editor to turn on the map, rider tracking and proof-of-delivery photos.</p>
+            : <DeliveryMap cafe={map?.cafe ?? null} stops={map?.stops ?? []} height={360} pickCafe={pickingCafe ? (spot) => void saveCafe(spot) : undefined} />}
+          {map?.ready && map.stops.length === 0 && <p className="inv-hint" style={{ marginTop: 8 }}>No deliveries packed or on the way right now.</p>}
+        </section>
         {live.length > 0 && <section className="acc-block dlv-now">
           <header className="acc-block-head"><div><h3>Right now</h3><p>Riders and cashiers handle these in the staff app (Deliveries). Failed deliveries are voided in Order history.</p></div><button type="button" className="inv-mini" onClick={() => void load()}><IconRotateCcw size={12} />Refresh</button></header>
           <div className="acc-stats">
@@ -10504,8 +10935,92 @@ const securityPill = (tone: keyof typeof securityToneColors): React.CSSPropertie
 const securityDay = (value: string) => new Date(value).toLocaleDateString("en-PH", { timeZone: "Asia/Manila", weekday: "short", month: "short", day: "numeric" });
 const securityAccountRole = (account: SecurityAccount) => account.kind === "customer" ? "Customer" : account.role === "admin" ? "Admin" : staffRoleLabel(account.role);
 
+// ─── Audit log: which admin changed what (lib/audit.ts) ───────────────────────
+type AuditEntry = { id: number; adminId: number | null; adminName: string | null; area: string; action: string; target: string | null; details: unknown; createdAt: string };
+const AUDIT_AREAS = ["Promotions & Events", "Menu", "Inventory", "Discounts", "Delivery", "Accounts", "Customers", "Loyalty", "Finance", "Treasury", "Orders", "Shifts", "Archives", "Settings"];
+
+// The request's fields, as "field: value" lines (nested ones flattened).
+function auditDetailLines(details: unknown, prefix = ""): string[] {
+  if (details === null || details === undefined) return [];
+  if (typeof details !== "object") return [`${prefix || "value"}: ${String(details)}`];
+  return Object.entries(details as Record<string, unknown>).flatMap(([key, value]) => {
+    const name = `${prefix}${prefix ? " › " : ""}${key.replace(/_/g, " ")}`;
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) return auditDetailLines(value, name);
+    return [`${name}: ${Array.isArray(value) ? value.map((entry) => typeof entry === "object" ? JSON.stringify(entry) : String(entry)).join(", ") : String(value)}`];
+  });
+}
+
+function AuditLog() {
+  const [days, setDays] = useState(30);
+  const [area, setArea] = useState("");
+  const [admin, setAdmin] = useState("");
+  const [data, setData] = useState<{ ready: boolean; entries: AuditEntry[]; admins: { id: number; name: string }[] } | null>(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    let active = true;
+    fetch(`/api/audit-log?days=${days}${area ? `&area=${encodeURIComponent(area)}` : ""}${admin ? `&admin=${admin}` : ""}`, { cache: "no-store" })
+      .then(async (response) => { const payload = await response.json(); if (!response.ok) throw new Error(payload?.error || "Could not load the audit log."); if (active) { setData(payload.data); setError(""); } })
+      .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "Could not load the audit log."); });
+    return () => { active = false; };
+  }, [days, area, admin]);
+  const term = search.trim().toLowerCase();
+  const entries = (data?.entries ?? []).filter((entry) => !term || [entry.adminName, entry.area, entry.action, entry.target].some((value) => String(value ?? "").toLowerCase().includes(term)));
+  if (data && !data.ready) return <div className="inv-onboard">
+    <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconArchive size={24} /></span>
+    <h2>The audit log is not set up yet</h2>
+    <p>Run revision-migration.sql in the Supabase SQL editor. From then on every change made in the Admin Portal is recorded with the admin who made it.</p>
+  </div>;
+  return <>
+    <div className="inv-toolbar">
+      <div className="inv-search is-wide">
+        <IconSearch size={14} />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search admin, area, change or name" />
+        {search && <button type="button" onClick={() => setSearch("")} title="Clear search"><IconX size={12} /></button>}
+      </div>
+      <select value={area} onChange={(event) => setArea(event.target.value)} style={{ ...packagingInput, width: "auto" }} aria-label="Area">
+        <option value="">All areas</option>
+        {AUDIT_AREAS.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+      </select>
+      <select value={admin} onChange={(event) => setAdmin(event.target.value)} style={{ ...packagingInput, width: "auto" }} aria-label="Admin">
+        <option value="">All admins</option>
+        {(data?.admins ?? []).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+      </select>
+      <div className="inv-range" role="group" aria-label="Period">
+        {([[1, "Today"], [7, "7 days"], [30, "30 days"], [90, "90 days"]] as const).map(([value, label]) => <button key={value} type="button" aria-pressed={days === value} onClick={() => setDays(value)}>{label}</button>)}
+      </div>
+    </div>
+    {error && <div className="inv-alert" role="alert"><span>{error}</span></div>}
+    <DashCard title="Audit log" sub="Every change made in the Admin Portal and the admin who made it, newest first (up to 500). Tap a row for what was sent.">
+      {!data ? <p className="dash-empty">Loading the audit log…</p>
+        : entries.length === 0 ? <p className="dash-empty">No changes recorded for this filter.</p>
+          : <div className="fin-table-wrap">
+            <table className="fin-table sec-table is-log">
+              <thead><tr><th>When</th><th>Admin</th><th>Area</th><th>Change</th><th>What</th></tr></thead>
+              <tbody>
+                {entries.map((entry) => <Fragment key={entry.id}>
+                  <tr onClick={() => setOpen(open === entry.id ? null : entry.id)} style={{ cursor: "pointer" }}>
+                    <td>{manilaWhen(entry.createdAt)}</td>
+                    <td><strong>{entry.adminName ?? "Unknown admin"}</strong></td>
+                    <td>{entry.area}</td>
+                    <td>{entry.action}</td>
+                    <td>{entry.target ?? "—"}</td>
+                  </tr>
+                  {open === entry.id && <tr><td colSpan={5} style={{ background: "#FDF9F5" }}>
+                    {auditDetailLines(entry.details).length === 0 ? <em style={{ color: "#9C8278" }}>No details sent.</em>
+                      : <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: "#6B4C3B" }}>{auditDetailLines(entry.details).slice(0, 40).map((line, index) => <li key={index}>{line}</li>)}</ul>}
+                  </td></tr>}
+                </Fragment>)}
+              </tbody>
+            </table>
+          </div>}
+    </DashCard>
+  </>;
+}
+
 function SecurityPage({ focus }: { focus: SecurityFocus | null }) {
-  const [tab, setTab] = useState<"activity" | "passwords" | "protection">(focus ? "passwords" : "activity");
+  const [tab, setTab] = useState<"activity" | "audit" | "passwords" | "protection">(focus ? "passwords" : "activity");
   const [data, setData] = useState<SecurityData | null>(null);
   const [accounts, setAccounts] = useState<SecurityAccount[] | null>(null);
   const [locked, setLocked] = useState<SecurityLocked[]>([]);
@@ -10622,14 +11137,14 @@ function SecurityPage({ focus }: { focus: SecurityFocus | null }) {
     <div className="inv">
       <div className="inv-head">
         <div className="inv-tabs" role="tablist" aria-label="Security sections">
-          {([["activity", "Activity log", null, IconClock], ["passwords", "Passwords & sign-in", locked.length || null, IconUsers], ["protection", "Protection", null, IconShield]] as const).map(([id, label, count, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setNotice(""); setError(""); }}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count" style={{ background: "#B91C1C", color: "#FFFFFF" }}>{count}</span>}</button>)}
+          {([["activity", "Activity log", null, IconClock], ["audit", "Audit log", null, IconArchive], ["passwords", "Passwords & sign-in", locked.length || null, IconUsers], ["protection", "Protection", null, IconShield]] as const).map(([id, label, count, Icon]) => <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => { setTab(id); setNotice(""); setError(""); }}><Icon size={15} />{label}{count !== null && <span className="menu-tab-count" style={{ background: "#B91C1C", color: "#FFFFFF" }}>{count}</span>}</button>)}
         </div>
       </div>
 
       {error && <div className="inv-alert" role="alert"><span>{error}</span><button type="button" onClick={() => setError("")} title="Dismiss"><IconX size={14} /></button></div>}
       {notice && <div className="inv-alert" role="status" style={{ background: "#F0FDF4", borderColor: "#BBF7D0", color: "#15803D" }}><span>{notice}</span><button type="button" onClick={() => setNotice("")} title="Dismiss" style={{ color: "#15803D" }}><IconX size={14} /></button></div>}
 
-      {!ready ? <div className="inv-onboard">
+      {tab === "audit" ? <AuditLog /> : !ready ? <div className="inv-onboard">
         <span className="inv-kind-icon is-packaged" style={{ width: 52, height: 52 }}><IconShield size={24} /></span>
         <h2>The security log is not set up yet</h2>
         <p>Run security-log-migration.sql in the Supabase SQL editor. Sign-ins, lockouts and password changes are recorded from then on.</p>
@@ -11743,6 +12258,23 @@ export default function App() {
   // The account the Employee or Customer dialog asked the Security page to open.
   const [securityFocus, setSecurityFocus] = useState<SecurityFocus | null>(null);
   const [page, setPage] = useState<Page>("dashboard");
+  // The page lives in the address bar (#inventory), so a refresh stays on it and Back returns to the last one.
+  const pageFromUrl = useRef(false);
+  useEffect(() => {
+    const readHash = () => {
+      const named = window.location.hash.slice(1) as Page;
+      if (PAGES.includes(named)) setPage(named);
+    };
+    readHash();
+    window.addEventListener("hashchange", readHash);
+    return () => window.removeEventListener("hashchange", readHash);
+  }, []);
+  useEffect(() => {
+    // (not on the first render: that one is the default page, before the address bar has been read)
+    if (!pageFromUrl.current) { pageFromUrl.current = true; return; }
+    if (window.location.hash === `#${page}`) return;
+    window.history.pushState(null, "", `${window.location.pathname}${window.location.search}#${page}`);
+  }, [page]);
   const [showSignOut, setShowSignOut] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
@@ -11924,6 +12456,7 @@ export default function App() {
         image_url: product.imageUrl,
         image_data: product.imageData,
         product_type: product.productType,
+        bundle_items: product.productType === "bundle" ? (product.bundleItems ?? []).map((item) => ({ variant_id: item.variantId, quantity: item.quantity })) : undefined,
         station: product.station ?? "bar",
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
@@ -11954,6 +12487,7 @@ export default function App() {
         image_url: product.imageUrl,
         image_data: product.imageData,
         product_type: product.productType,
+        bundle_items: product.productType === "bundle" ? (product.bundleItems ?? []).map((item) => ({ variant_id: item.variantId, quantity: item.quantity })) : undefined,
         station: product.station ?? "bar",
         variants: product.variants.map((variant) => ({ id: variant.id, size: variant.size, price: variant.price, temperature: variant.temperature, ingredients: variant.ingredients.map((ingredient) => ({ inventory_id: ingredient.inventoryId, required_quantity: ingredient.qty })) })),
         ingredients: product.ingredients.map((ingredient) => ({
@@ -12007,9 +12541,9 @@ export default function App() {
       <div className="app-content" style={{ flex: 1, overflowY: "auto", background: "#F8F9FA" }}>
         {page === "dashboard" && <Dashboard user={authUser} inventory={inventory} products={products} onNavigate={goTo} onRefreshStock={() => Promise.all([refreshInventory(), refreshProducts()])} />}
         {page === "shift" && <ShiftMonitor onNavigate={goTo} />}
-        {page === "inventory" && <Inventory items={inventory} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
+        {page === "inventory" && <Inventory items={inventory} products={products} onAdd={handleInventoryAdd} onUpdate={handleInventoryUpdate} onDelete={handleInventoryDelete} />}
         {page === "products" && <MenuManagement products={products} inventory={inventory} categories={categories} onCategoriesChange={setCategories} onAdd={handleProductAdd} onEdit={handleProductEdit} onDelete={handleProductDelete} onRefreshProducts={refreshProducts} />}
-        {page === "finance" && <Finance />}
+        {page === "finance" && <Finance onNavigate={setPage} />}
         {page === "treasury" && <Treasury />}
         {page === "insights" && <InsightsPage onNavigate={goTo} />}
         {page === "customers" && <Customers onOpenSecurity={openSecurity} />}

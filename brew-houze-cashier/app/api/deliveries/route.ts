@@ -8,7 +8,8 @@ import { signalChange } from "@/lib/realtime";
 //   PATCH  { id, action }
 //     pickup      ready -> out (the rider taking it). A cashier or admin marking it for a rider
 //                 sends riderId: an active rider, or themselves when the café has no rider.
-//     delivered   out -> delivered; cash on delivery records what the rider collected
+//     delivered   out -> delivered, with the photo the rider took at the door (photo, a data URL: proof of
+//                 delivery, see revision-migration.sql); cash on delivery records what the rider collected
 //     failed      could not deliver, with a reason. Cash on delivery: the customer loses COD
 //                 until an admin allows it again. The order is then voided in Order history.
 //     remit       the cashier received a rider's COD cash (counts in this shift's drawer)
@@ -87,7 +88,7 @@ export async function PATCH(request: Request) {
   if (auth.error) return auth.error;
   const client = await pool.connect();
   try {
-    const body = await request.json() as { id?: unknown; action?: unknown; collected?: unknown; reason?: unknown; riderId?: unknown };
+    const body = await request.json() as { id?: unknown; action?: unknown; collected?: unknown; reason?: unknown; riderId?: unknown; photo?: unknown };
     const id = Number(body.id);
     const action = String(body.action ?? "");
     if (!Number.isInteger(id) || id <= 0 || ![...RIDER_ACTIONS, "remit"].includes(action)) return NextResponse.json({ error: "Unknown request." }, { status: 400 });
@@ -116,6 +117,20 @@ export async function PATCH(request: Request) {
       await client.query("UPDATE deliveries SET status = 'out', rider_admin_id = $2, picked_up_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE delivery_id = $1", [id, riderId]);
     } else if (action === "delivered") {
       if (row.status !== "out") return await fail("Only a delivery on its way can be marked delivered.");
+      // Proof of delivery: a photo at the door (JPEG, PNG or WebP, up to about 3 MB).
+      const photo = typeof body.photo === "string" ? /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(body.photo) : null;
+      if (!photo) return await fail("Take a photo of the order at the door first: it is the proof of delivery.", 400);
+      const picture = Buffer.from(photo[2], "base64");
+      if (picture.length < 2000 || picture.length > 3_000_000) return await fail("That photo could not be used. Take it again.", 400);
+      try {
+        await client.query("SAVEPOINT proof");
+        await client.query("UPDATE deliveries SET proof_photo = $2, proof_mime = $3, proof_taken_at = CURRENT_TIMESTAMP WHERE delivery_id = $1", [id, picture, photo[1]]);
+        await client.query("RELEASE SAVEPOINT proof");
+      } catch (proofError) {
+        // (before revision-migration.sql there is nowhere to keep it: the delivery still goes through)
+        await client.query("ROLLBACK TO SAVEPOINT proof");
+        if ((proofError as { code?: string }).code !== "42703") throw proofError;
+      }
       let collected: number | null = null;
       if (row.payment === "cod") {
         collected = Math.round(Number(body.collected) * 100) / 100;

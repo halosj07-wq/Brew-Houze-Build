@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // Discounts the counter can give with an ID (see id-discounts-migration.sql), and the shop's VAT
 // setting. Senior Citizen and PWD are set by law (20% off, no VAT when the shop is VAT-registered,
@@ -89,7 +90,7 @@ export async function GET() {
 }
 
 // A new custom discount.
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
@@ -110,7 +111,7 @@ export async function POST(request: Request) {
 
 // { action: "vat", registered, rate }: the VAT setting.
 // { id, isActive } alone: switch a discount on or off. Otherwise: edit it (not senior or PWD).
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
@@ -156,7 +157,7 @@ export async function PATCH(request: Request) {
 }
 
 // Deletes a custom discount that was never used. Used ones stay for the records: switch them off.
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   const id = Number(new URL(request.url).searchParams.get("id"));
@@ -174,3 +175,8 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Could not delete the discount." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Discounts", postHandler);
+export const PATCH = audited("Discounts", patchHandler);
+export const DELETE = audited("Discounts", deleteHandler);

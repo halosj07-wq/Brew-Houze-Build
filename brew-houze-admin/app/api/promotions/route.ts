@@ -3,6 +3,7 @@ import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 import { signalChange } from "@/lib/realtime";
 import { parsePromotion, promotionStatus, type PromotionKind } from "@/lib/promotions";
+import { audited } from "@/lib/audit";
 
 // Admin, Promotions & Events (see promotions-migration.sql; Objective 9): posts shown to customers
 // on the Mobile Menu while they are scheduled to show. Saving a post signals the open menus
@@ -27,6 +28,7 @@ type Row = {
   product_id: number | null; product_name: string | null; event_starts_at: Date | null; event_ends_at: Date | null;
   show_from: Date; show_until: Date | null; is_active: boolean; archived_at: Date | null; created_by_name: string | null; updated_at: Date;
   email_customers: boolean; emailed_at: Date | null; emailed_count: number | null;
+  bundle_product_ids: number[] | null; bundle_price: string | null;
 };
 
 // Asks the Mobile Menu to send the emails that are due (its /api/promotions does it after answering).
@@ -49,7 +51,21 @@ function toPost(row: Row, now: Date) {
     productId: row.product_id === null ? null : Number(row.product_id), productName: row.product_name,
     createdBy: row.created_by_name, updatedAt: row.updated_at.toISOString(), status: promotionStatus(timing, now),
     emailCustomers: row.email_customers, emailedAt: iso(row.emailed_at), emailedCount: row.emailed_count === null ? null : Number(row.emailed_count),
+    bundleProductIds: Array.isArray(row.bundle_product_ids) ? row.bundle_product_ids.map(Number) : [],
+    bundlePrice: row.bundle_price === null || row.bundle_price === undefined ? null : Number(row.bundle_price),
   };
+}
+
+// A post's bundle deal (see revision-migration.sql). Before that script there is nowhere to keep it: an error
+// then only when a bundle was asked for.
+async function saveBundle(id: number, post: { bundleProductIds: number[]; bundlePrice: number | null }): Promise<string | null> {
+  try {
+    await pool.query("UPDATE promotions SET bundle_product_ids = $2::int[], bundle_price = $3 WHERE promotion_id = $1", [id, post.bundleProductIds.length ? post.bundleProductIds : null, post.bundlePrice]);
+    return null;
+  } catch (error) {
+    if ((error as { code?: string }).code === "42703") return post.bundleProductIds.length ? "Saved, but not its bundle: run revision-migration.sql first." : null;
+    throw error;
+  }
 }
 
 async function requireAdmin() {
@@ -75,7 +91,10 @@ function parseImage(value: unknown): ImageChange {
 const SELECT = `
   SELECT p.promotion_id, p.kind, p.title, p.message, (p.image_data IS NOT NULL) AS has_image, p.xmin::text AS version,
     p.product_id, pr.product_name, p.event_starts_at, p.event_ends_at, p.show_from, p.show_until, p.is_active, p.archived_at,
-    u.full_name AS created_by_name, p.updated_at, p.email_customers, p.emailed_at, p.emailed_count
+    u.full_name AS created_by_name, p.updated_at, p.email_customers, p.emailed_at, p.emailed_count,
+    -- (read this way, they are simply empty until revision-migration.sql adds them)
+    ARRAY(SELECT jsonb_array_elements_text(CASE WHEN jsonb_typeof(to_jsonb(p) -> 'bundle_product_ids') = 'array' THEN to_jsonb(p) -> 'bundle_product_ids' ELSE '[]'::jsonb END))::int[] AS bundle_product_ids,
+    to_jsonb(p) ->> 'bundle_price' AS bundle_price
   FROM promotions p
   LEFT JOIN products pr ON pr.product_id = p.product_id
   LEFT JOIN admin_users u ON u.admin_id = p.created_by`;
@@ -99,20 +118,27 @@ export async function GET() {
 }
 
 // The linked menu item must exist and not be archived.
+// Every item of a bundle must be on the menu.
+async function bundleProblem(ids: number[]): Promise<string | null> {
+  if (!ids.length) return null;
+  const found = await pool.query("SELECT COUNT(*)::int AS count FROM products WHERE product_id = ANY($1::int[]) AND is_archived = FALSE", [ids]);
+  return Number(found.rows[0].count) === ids.length ? null : "One of the bundle's items is no longer on the menu.";
+}
+
 async function productProblem(productId: number | null): Promise<string | null> {
   if (productId === null) return null;
   const found = await pool.query("SELECT 1 FROM products WHERE product_id = $1 AND is_archived = FALSE", [productId]);
   return found.rowCount ? null : "That menu item is not available. Choose another, or none.";
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
     const body = await request.json();
     const parsed = parsePromotion(body ?? {}, new Date());
     if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
-    const problem = await productProblem(parsed.post.productId);
+    const problem = await productProblem(parsed.post.productId) ?? await bundleProblem(parsed.post.bundleProductIds);
     if (problem) return NextResponse.json({ error: problem }, { status: 400 });
     let image: ImageChange;
     try { image = parseImage(body?.image); } catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
@@ -123,17 +149,18 @@ export async function POST(request: Request) {
       RETURNING promotion_id
     `, [post.kind, post.title, post.message, image.kind === "set" ? image.data : null, image.kind === "set" ? image.mimeType : null, post.productId,
       post.eventStartsAt, post.eventEndsAt, post.showFrom, post.showUntil, post.isActive, auth.session.adminId, body?.emailCustomers === true]);
+    const bundleNote = await saveBundle(Number(inserted.rows[0].promotion_id), post);
     const row = (await pool.query(`${SELECT} WHERE p.promotion_id = $1`, [inserted.rows[0].promotion_id])).rows[0];
     signalChange("promos");
     if (row.email_customers) nudgeEmails();
-    return NextResponse.json({ data: toPost(row, new Date()) }, { status: 201 });
+    return NextResponse.json({ data: toPost(row, new Date()), note: bundleNote }, { status: 201 });
   } catch (error) {
     console.error("POST /api/promotions failed:", error);
     return NextResponse.json({ error: "Could not add the post." }, { status: 500 });
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   const auth = await requireAdmin();
   if (auth.error) return auth.error;
   try {
@@ -152,11 +179,12 @@ export async function PATCH(request: Request) {
     } else if (action === undefined) {
       const parsed = parsePromotion(body ?? {}, new Date());
       if ("error" in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 });
-      const problem = await productProblem(parsed.post.productId);
+      const problem = await productProblem(parsed.post.productId) ?? await bundleProblem(parsed.post.bundleProductIds);
       if (problem) return NextResponse.json({ error: problem }, { status: 400 });
       let image: ImageChange;
       try { image = parseImage(body?.image); } catch (error) { return NextResponse.json({ error: (error as Error).message }, { status: 400 }); }
       const post = parsed.post;
+      if (await saveBundle(id, post)) return NextResponse.json({ error: "Run revision-migration.sql first to save a bundle deal." }, { status: 409 });
       result = await pool.query(`
         UPDATE promotions SET kind = $2, title = $3, message = $4, product_id = $5, event_starts_at = $6, event_ends_at = $7, show_from = $8, show_until = $9, is_active = $10,
           email_customers = CASE WHEN emailed_at IS NULL THEN $14 ELSE email_customers END,
@@ -180,3 +208,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "Could not save the post." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Promotions & Events", postHandler);
+export const PATCH = audited("Promotions & Events", patchHandler);

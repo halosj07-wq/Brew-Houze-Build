@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // Barista Featured Specials on the mobile menu (see featured-products-migration.sql): which
 // products are featured, their badge (optional) and their order. GET lists every product with
@@ -36,7 +37,7 @@ export async function GET() {
 
 // Body: { featured: [{ id, badgeLabel }] } in the order they should show. Every other product is
 // no longer featured.
-export async function PUT(request: Request) {
+async function putHandler(request: Request) {
   const denied = await requireAdmin();
   if (denied) return denied;
   const client = await pool.connect();
@@ -64,3 +65,6 @@ export async function PUT(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const PUT = audited("Menu", putHandler);

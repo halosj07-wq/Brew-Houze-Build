@@ -261,7 +261,7 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
     group.unitCost = unitCost === null ? null : Math.round(unitCost * 10000) / 10000;
     group.customizationDetails = recipe.filter((line) => levels.has(line.inventoryId)).map((line) => ({ inventory_id: line.inventoryId, name: line.name, level: levels.get(line.inventoryId)! }));
     if (group.additionIds.length === 0) continue;
-    if (variant.product_type === "stock") throw new Error(`${variant.product_name} does not take additions.`);
+    if (variant.product_type === "stock" || variant.product_type === "bundle") throw new Error(`${variant.product_name} does not take additions.`);
     const additionsResult = await client.query(`
       SELECT a.addition_id, a.addition_name, a.inventory_id, a.quantity, a.price, a.station
       FROM additions a
@@ -422,6 +422,17 @@ export async function placeOrder(client: PoolClient, input: PlaceOrderInput): Pr
 
   // The stations that make this order (bar, kitchen): each gets its part in its own queue.
   const stations = new Set(variants.rows.map((variant) => stationOf(variant.station)));
+  // A bundle's items are made where each one is (its drink at the bar, its food in the kitchen): see
+  // bundle-products-migration.sql. Its stock was already taken above, from its recipe (theirs added up).
+  const bundleIds = variants.rows.filter((variant) => variant.product_type === "bundle").map((variant) => Number(variant.product_id));
+  if (bundleIds.length > 0) {
+    const parts = await client.query(`
+      SELECT DISTINCT p.station FROM product_bundle_items b
+      JOIN product_variants pv ON pv.product_variant_id = b.product_variant_id JOIN products p ON p.product_id = pv.product_id
+      WHERE b.bundle_id = ANY($1::int[])
+    `, [bundleIds]);
+    for (const row of parts.rows) stations.add(stationOf(row.station));
+  }
   for (const station of stations) {
     await client.query("INSERT INTO order_stations (order_id, station) VALUES ($1, $2) ON CONFLICT DO NOTHING", [orderId, station]);
   }

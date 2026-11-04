@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import pool from "@/lib/db";
 import { getSession } from "@/lib/sessions";
 import { signalChange } from "@/lib/realtime";
+import { audited } from "@/lib/audit";
 
 async function getAdminId(): Promise<number | null> {
   const session = await getSession();
@@ -11,9 +12,11 @@ async function getAdminId(): Promise<number | null> {
 
 // A "recipe" product consumes several inventory components per sale (Americano).
 // A "stock" product is a direct-sale item: each variant consumes exactly one inventory item
-// (Coke Can x 1 piece). Both store their consumption in variant_ingredients, so checkout
-// deduction, availability, and void/refund restoration are shared by both types.
-type ProductType = "recipe" | "stock";
+// (Coke Can x 1 piece). A "bundle" is several menu items sold together at one price (a combo,
+// see bundle-products-migration.sql): its items are kept in product_bundle_items, and its one
+// variant's recipe is theirs added up. All store their consumption in variant_ingredients, so
+// checkout deduction, availability, and void/refund restoration are shared by every type.
+type ProductType = "recipe" | "stock" | "bundle";
 // Where it is made: the bar (drinks) or the kitchen (food). Each has its own queue in the staff app.
 type Station = "bar" | "kitchen";
 const parseStation = (value: unknown): Station => (value === "kitchen" ? "kitchen" : "bar");
@@ -43,6 +46,8 @@ type ProductRow = {
 };
 
 type Product = {
+  // A bundle's items (menu item, its size, how many), in order.
+  bundleItems?: { variantId: number; productId: number; name: string; size: string; temperature: string | null; quantity: number; price: number }[];
   id: number;
   name: string;
   description: string;
@@ -89,6 +94,8 @@ type RequestBody = {
   ingredients?: unknown;
   variants?: unknown;
   product_id?: unknown;
+  // A bundle's items: [{ variant_id, quantity }]
+  bundle_items?: unknown;
 };
 
 type NormalizedVariant = {
@@ -158,7 +165,7 @@ function mapProducts(rows: ProductRow[]): Product[] {
         name: row.product_name,
         description: row.product_description ?? "",
         category: row.product_category ?? "",
-        productType: row.product_type === "stock" ? "stock" : "recipe",
+        productType: row.product_type === "stock" ? "stock" : row.product_type === "bundle" ? "bundle" : "recipe",
         station: parseStation(row.station),
         imageUrl: row.image_url ?? "",
         imageData: row.has_image_data ? imageLink(Number(row.product_id), row.image_version) : "",
@@ -198,7 +205,9 @@ async function loadProduct(productId: number): Promise<Product | undefined> {
     WHERE p.product_id = $1
     ORDER BY pv.product_variant_id ASC, vi.variant_ingredient_id ASC
   `, [productId]);
-  return mapProducts(result.rows)[0];
+  const product = mapProducts(result.rows)[0];
+  if (product?.productType !== "bundle") return product;
+  return { ...product, bundleItems: (await bundleItemsOf([product.id])).get(product.id) ?? [] };
 }
 
 // Link to a product's uploaded photo. The version changes whenever the product row changes, so
@@ -231,7 +240,100 @@ function parseImageData(value: unknown): ImageChange {
 
 function parseProductType(value: unknown): ProductType | null {
   if (value === undefined || value === null || value === "") return "recipe";
-  return value === "recipe" || value === "stock" ? value : null;
+  return value === "recipe" || value === "stock" || value === "bundle" ? value : null;
+}
+
+// ── Bundles ──
+type BundleItem = { variantId: number; quantity: number };
+type BundleInput = { variant_id?: unknown; quantity?: unknown };
+const BUNDLE_SIZE = "Combo";
+
+// The items of each bundle (none before bundle-products-migration.sql), by bundle id.
+async function bundleItemsOf(productIds: number[] | null): Promise<Map<number, { variantId: number; productId: number; name: string; size: string; temperature: string | null; quantity: number; price: number }[]>> {
+  const items = new Map<number, { variantId: number; productId: number; name: string; size: string; temperature: string | null; quantity: number; price: number }[]>();
+  try {
+    const result = await pool.query(`
+      SELECT b.bundle_id, b.product_variant_id, b.quantity, pv.product_id, p.product_name, pv.size_label, pv.temperature, pv.price
+      FROM product_bundle_items b JOIN product_variants pv ON pv.product_variant_id = b.product_variant_id JOIN products p ON p.product_id = pv.product_id
+      WHERE ($1::int[] IS NULL OR b.bundle_id = ANY($1::int[]))
+      ORDER BY b.bundle_id, b.sort_order
+    `, [productIds]);
+    for (const row of result.rows) {
+      const id = Number(row.bundle_id);
+      items.set(id, [...(items.get(id) ?? []), { variantId: Number(row.product_variant_id), productId: Number(row.product_id), name: String(row.product_name), size: String(row.size_label ?? ""), temperature: (row.temperature as string | null) ?? null, quantity: Number(row.quantity), price: Number(row.price) }]);
+    }
+  } catch (error) {
+    if ((error as { code?: string }).code !== "42P01") throw error;
+  }
+  return items;
+}
+
+// A bundle as sent from the menu editor: its items (2 or more in all: a menu item and its size, how many) and
+// its price; its one variant's recipe is their recipes added up, and it is made where its items are (all at the
+// bar: the bar; otherwise the kitchen, each item still showing at its own station in the queue).
+async function buildBundle(client: PoolClient, raw: unknown, price: number, bundleId: number | null): Promise<{ items: BundleItem[]; variant: NormalizedVariant; station: Station } | { error: string }> {
+  const merged = new Map<number, BundleItem>();
+  for (const entry of (Array.isArray(raw) ? raw as BundleInput[] : [])) {
+    const variantId = Number(entry.variant_id), quantity = Number(entry.quantity);
+    if (!Number.isInteger(variantId) || variantId <= 0 || !Number.isInteger(quantity) || quantity <= 0) return { error: "Choose each item of the bundle and how many (a whole number)." };
+    merged.set(variantId, { variantId, quantity: (merged.get(variantId)?.quantity ?? 0) + quantity });
+  }
+  const items = Array.from(merged.values());
+  if (items.reduce((sum, item) => sum + item.quantity, 0) < 2) return { error: "A bundle has at least 2 items." };
+  if (!Number.isFinite(price) || price < 0) return { error: "Enter the bundle's price." };
+  const found = await client.query(`
+    SELECT pv.product_variant_id, p.product_id, p.product_name, p.product_type, p.station
+    FROM product_variants pv JOIN products p ON p.product_id = pv.product_id
+    WHERE pv.product_variant_id = ANY($1::int[]) AND pv.is_archived = FALSE AND p.is_archived = FALSE
+  `, [items.map((item) => item.variantId)]);
+  if (found.rowCount !== items.length) return { error: "One of the bundle's items is no longer on the menu." };
+  if (found.rows.some((row) => row.product_type === "bundle")) return { error: "A bundle can't contain another bundle." };
+  if (bundleId !== null && found.rows.some((row) => Number(row.product_id) === bundleId)) return { error: "A bundle can't contain itself." };
+  const recipe = await client.query("SELECT product_variant_id, inventory_id, required_quantity FROM variant_ingredients WHERE product_variant_id = ANY($1::int[])", [items.map((item) => item.variantId)]);
+  const ingredients = new Map<number, number>();
+  for (const row of recipe.rows) {
+    const times = merged.get(Number(row.product_variant_id))?.quantity ?? 0;
+    ingredients.set(Number(row.inventory_id), (ingredients.get(Number(row.inventory_id)) ?? 0) + Number(row.required_quantity) * times);
+  }
+  if (ingredients.size === 0) return { error: "The bundle's items have no recipes yet." };
+  const stations = new Set(found.rows.map((row) => parseStation(row.station)));
+  return {
+    items,
+    variant: { size: BUNDLE_SIZE, price, temperature: null, ingredients: Array.from(ingredients, ([inventoryId, requiredQuantity]) => ({ inventoryId, requiredQuantity: Math.round(requiredQuantity * 10000) / 10000 })) },
+    station: stations.size === 1 && stations.has("bar") ? "bar" : "kitchen",
+  };
+}
+
+async function saveBundleItems(client: PoolClient, bundleId: number, items: BundleItem[]) {
+  await client.query("DELETE FROM product_bundle_items WHERE bundle_id = $1", [bundleId]);
+  for (const [index, item] of items.entries()) {
+    await client.query("INSERT INTO product_bundle_items (bundle_id, product_variant_id, quantity, sort_order) VALUES ($1, $2, $3, $4)", [bundleId, item.variantId, item.quantity, index]);
+  }
+}
+
+// After a menu item's recipe changes, every bundle with it in gets its recipe added up again.
+async function refreshBundlesWith(client: PoolClient, productId: number) {
+  // (checked first: inside the save's transaction a failed query would undo the whole save)
+  const ready = await client.query("SELECT to_regclass('public.product_bundle_items') IS NOT NULL AS ready");
+  if (!ready.rows[0]?.ready) return;
+  await client.query("DELETE FROM product_bundle_items WHERE bundle_id = $1", [productId]);
+  const bundles = await client.query(`
+    SELECT DISTINCT b.bundle_id FROM product_bundle_items b JOIN product_variants pv ON pv.product_variant_id = b.product_variant_id
+    WHERE pv.product_id = $1
+  `, [productId]);
+  for (const row of bundles.rows) {
+    const bundleId = Number(row.bundle_id);
+    const recipe = await client.query(`
+      SELECT vi.inventory_id, SUM(vi.required_quantity * b.quantity) AS quantity
+      FROM product_bundle_items b JOIN variant_ingredients vi ON vi.product_variant_id = b.product_variant_id
+      WHERE b.bundle_id = $1 GROUP BY vi.inventory_id
+    `, [bundleId]);
+    const variants = await client.query("SELECT product_variant_id FROM product_variants WHERE product_id = $1 AND is_archived = FALSE", [bundleId]);
+    for (const variant of variants.rows) {
+      await client.query("DELETE FROM variant_ingredients WHERE product_variant_id = $1", [variant.product_variant_id]);
+      for (const line of recipe.rows) await client.query("INSERT INTO variant_ingredients (product_variant_id, inventory_id, required_quantity) VALUES ($1, $2, $3)", [variant.product_variant_id, line.inventory_id, Math.round(Number(line.quantity) * 10000) / 10000]);
+    }
+  }
 }
 
 // Validates and normalizes submitted variants. Recipe variants keep their hot/cold temperature
@@ -278,14 +380,25 @@ export async function GET() {
       ORDER BY p.product_category ASC, p.product_name ASC, pv.product_variant_id ASC, vi.variant_ingredient_id ASC
     `);
 
-    return NextResponse.json({ data: mapProducts(result.rows) });
+    const products = mapProducts(result.rows);
+    const bundles = await bundleItemsOf(products.filter((product) => product.productType === "bundle").map((product) => product.id));
+    return NextResponse.json({ data: products.map((product) => (product.productType === "bundle" ? { ...product, bundleItems: bundles.get(product.id) ?? [] } : product)) });
   } catch (error) {
     console.error("GET /api/products failed:", error);
     return NextResponse.json({ error: "Could not retrieve product data." }, { status: 500 });
   }
 }
 
-export async function POST(request: Request) {
+// Another menu item (not archived) with this name, ignoring case, spaces and punctuation ("Ice Coffee" = "Icecoffee"): its name, or null.
+async function duplicateProductName(name: string, exceptId: number | null): Promise<string | null> {
+  const found = await pool.query(
+    "SELECT product_name FROM products WHERE REGEXP_REPLACE(LOWER(product_name), '[^a-z0-9]', '', 'g') = REGEXP_REPLACE(LOWER($1), '[^a-z0-9]', '', 'g') AND is_archived = FALSE AND ($2::int IS NULL OR product_id <> $2) LIMIT 1",
+    [name, exceptId],
+  );
+  return found.rows[0]?.product_name ?? null;
+}
+
+async function postHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -312,10 +425,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Price must be a valid non-negative number." }, { status: 400 });
     }
 
-    const variantResult = normalizeVariants(body?.variants, productType);
+    // A bundle: its items, its recipe added up from theirs, and where it is made
+    const bundle = productType === "bundle" ? await buildBundle(client, body?.bundle_items, price, null) : null;
+    if (bundle && "error" in bundle) return NextResponse.json({ error: bundle.error }, { status: 400 });
+    const variantResult = bundle ? { variants: [bundle.variant] } : normalizeVariants(body?.variants, productType);
     if ("error" in variantResult) {
       return NextResponse.json({ error: variantResult.error }, { status: 400 });
     }
+    const sameName = await duplicateProductName(productName, null);
+    if (sameName) return NextResponse.json({ error: `${sameName} is already on the menu. Edit it instead, or use another name.` }, { status: 409 });
 
     await client.query("BEGIN");
 
@@ -323,7 +441,7 @@ export async function POST(request: Request) {
       INSERT INTO products (product_name, product_description, product_category, product_type, price, image_url, image_data, image_mime_type, station)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING product_id
-    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, parseStation(body?.station)]);
+    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, bundle && !("error" in bundle) ? bundle.station : parseStation(body?.station)]);
     if (importedImage.kind === "keep") {
       await client.query(`
         UPDATE products SET image_data = source.image_data, image_mime_type = source.image_mime_type
@@ -337,6 +455,7 @@ export async function POST(request: Request) {
       const inserted = await client.query("INSERT INTO product_variants (product_id, size_label, price, temperature) VALUES ($1, $2, $3, $4) RETURNING product_variant_id", [productId, variant.size, variant.price, variant.temperature]);
       await insertVariantComponents(client, Number(inserted.rows[0].product_variant_id), variant, productType);
     }
+    if (bundle && !("error" in bundle)) await saveBundleItems(client, productId, bundle.items);
 
     await client.query("COMMIT");
 
@@ -350,7 +469,7 @@ export async function POST(request: Request) {
   }
 }
 
-export async function PATCH(request: Request) {
+async function patchHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -378,11 +497,15 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Price must be a valid non-negative number." }, { status: 400 });
     }
 
-    const variantResult = normalizeVariants(body?.variants, productType);
+    const bundle = productType === "bundle" ? await buildBundle(client, body?.bundle_items, price, productId) : null;
+    if (bundle && "error" in bundle) return NextResponse.json({ error: bundle.error }, { status: 400 });
+    const variantResult = bundle ? { variants: [bundle.variant] } : normalizeVariants(body?.variants, productType);
     if ("error" in variantResult) {
       return NextResponse.json({ error: variantResult.error }, { status: 400 });
     }
     const normalizedVariants = variantResult.variants;
+    const sameName = await duplicateProductName(productName, productId);
+    if (sameName) return NextResponse.json({ error: `${sameName} is already on the menu. Use another name.` }, { status: 409 });
 
     await client.query("BEGIN");
 
@@ -396,7 +519,7 @@ export async function PATCH(request: Request) {
         station = $11
       WHERE product_id = $9
       RETURNING product_id
-    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, productId, keepImage, parseStation(body?.station)]);
+    `, [productName, productDescription, productCategory, productType, price, imageUrl || null, importedImage.kind === "set" ? importedImage.data : null, importedImage.kind === "set" ? importedImage.mimeType : null, productId, keepImage, bundle && !("error" in bundle) ? bundle.station : parseStation(body?.station)]);
 
     if (productResult.rowCount === 0) {
       await client.query("ROLLBACK");
@@ -449,6 +572,8 @@ export async function PATCH(request: Request) {
       }
       await insertVariantComponents(client, variantId, variant, productType);
     }
+    if (bundle && !("error" in bundle)) await saveBundleItems(client, productId, bundle.items);
+    else await refreshBundlesWith(client, productId);
 
     await client.query("COMMIT");
 
@@ -462,7 +587,7 @@ export async function PATCH(request: Request) {
   }
 }
 
-export async function DELETE(request: Request) {
+async function deleteHandler(request: Request) {
   // Live screens reload once this is saved (a failed request only causes an extra reload).
   signalChange("stock");
   if (!(await getSession())) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
@@ -538,3 +663,8 @@ export async function DELETE(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Menu", postHandler);
+export const PATCH = audited("Menu", patchHandler);
+export const DELETE = audited("Menu", deleteHandler);

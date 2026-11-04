@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
 import { applyWriteOff, planWriteOff, WRITE_OFF_REASONS, WriteOffStockError, type WriteOffReason, type WriteOffTarget } from "@/lib/write-offs";
+import { audited } from "@/lib/audit";
 
 // Stock written off (see lib/write-offs.ts): only admins write stock off. Staff report waste from
 // the staff app (write_off_requests); an admin approves (the stock is written off then) or rejects.
@@ -74,7 +75,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function POST(request: Request) {
+async function postHandler(request: Request) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
   let body: { action?: unknown; inventory_id?: unknown; product_variant_id?: unknown; quantity?: unknown; reason?: unknown; note?: unknown; request_id?: unknown; password?: unknown };
@@ -140,3 +141,6 @@ export async function POST(request: Request) {
     client.release();
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const POST = audited("Inventory", postHandler);

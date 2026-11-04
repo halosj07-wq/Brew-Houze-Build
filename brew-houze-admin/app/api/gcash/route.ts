@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import pool from "@/lib/db";
 import { gcashAccount, gcashMethod, gcashQrImage, GCASH_SETTING_KEYS } from "@/lib/gcash";
 import { confirmPassword, getSession, WRONG_PASSWORD } from "@/lib/sessions";
+import { audited } from "@/lib/audit";
 
 // The café's GCash account for direct GCash (GCASH_METHOD=direct_qr, see lib/gcash.ts): the QR
 // image customers pay, and the account name and number shown under it.
@@ -27,7 +28,7 @@ export async function GET(request: Request) {
   }
 }
 
-export async function PUT(request: Request) {
+async function putHandler(request: Request) {
   const session = await getSession();
   if (!session || String(session.role).toLowerCase() !== "admin") return NextResponse.json({ error: "Only an admin can change the GCash account." }, { status: 403 });
   if (gcashMethod() !== "direct_qr") return NextResponse.json({ error: "GCash goes through PayMongo here, so there is no QR to set." }, { status: 409 });
@@ -64,3 +65,6 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: "Could not save the GCash account." }, { status: 500 });
   }
 }
+
+// Every change made here goes in the audit log (lib/audit.ts).
+export const PUT = audited("Settings", putHandler);
